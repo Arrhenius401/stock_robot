@@ -1,0 +1,59 @@
+from click.testing import CliRunner
+from cli import main
+
+
+class TestCLI:
+    def test_analyze_without_symbol_shows_error(self):
+        runner = CliRunner()
+        result = runner.invoke(main, ["analyze"])
+        assert result.exit_code != 0
+
+    def test_analyze_with_invalid_symbol_shows_error(self, mocker):
+        mocker.patch("cli._check_disclaimer", return_value=True)
+        runner = CliRunner()
+        result = runner.invoke(main, ["analyze", "abc"])
+        assert result.exit_code != 0
+
+    def test_analyze_with_valid_symbol(self, mocker):
+        mocker.patch("cli._check_disclaimer", return_value=True)
+        mocker.patch("src.utils.symbols.resolve_name", return_value="平安银行")
+        mock_pipeline = mocker.patch("cli._build_pipeline")
+        mock_instance = mock_pipeline.return_value
+        from src.data.schemas import AnalysisResult
+        mock_instance.run.return_value = (
+            [AnalysisResult(dimension="financial", status="ok", summary="OK", metrics={"roe": 0.12})],
+            {"financial": "解读", "summary": "综合结论"},
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["analyze", "000001", "--no-llm"])
+        assert result.exit_code == 0
+
+    def test_config_set_and_get(self):
+        runner = CliRunner()
+        result = runner.invoke(main, ["config", "set", "llm.provider", "claude"])
+        assert result.exit_code == 0
+        result = runner.invoke(main, ["config", "get", "llm.provider"])
+        assert result.exit_code == 0
+        assert "claude" in result.output
+
+    def test_cache_clear(self, mocker):
+        mock_cache = mocker.patch("cli._get_cache")
+        runner = CliRunner()
+        result = runner.invoke(main, ["cache", "clear"])
+        assert result.exit_code == 0
+        mock_cache.return_value.clear.assert_called_once()
+
+    def test_analyze_no_llm_flag(self, mocker):
+        mocker.patch("cli._check_disclaimer", return_value=True)
+        mocker.patch("src.utils.symbols.resolve_name", return_value="平安银行")
+        mock_pipeline = mocker.patch("cli._build_pipeline")
+        mock_instance = mock_pipeline.return_value
+        from src.data.schemas import AnalysisResult
+        mock_instance.run.return_value = (
+            [AnalysisResult(dimension="financial", status="ok", summary="OK", metrics={})],
+            {},
+        )
+        runner = CliRunner()
+        result = runner.invoke(main, ["analyze", "000001", "--no-llm"])
+        assert result.exit_code == 0
