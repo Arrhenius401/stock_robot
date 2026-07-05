@@ -1,0 +1,26 @@
+你是一位资深股票分析师。请基于以下财务数据，对 {{ name }}（{{ symbol }}）进行深度分析。
+
+## 最新财务数据（{{ latest_quarter }}）
+
+| 指标 | 数值 |
+|------|------|
+| 营业收入 | {{ "%.2f"|format(revenue/1e8) }} 亿元 |
+| 净利润 | {{ "%.2f"|format(net_profit/1e8) }} 亿元 |
+| ROE | {% if roe %}{{ "%.2f"|format(roe*100) }}%{% else %}暂无{% endif %} |
+{% if revenue_growth_yoy is defined and revenue_growth_yoy is not none %}| 营收同比 | {{ "%.1f"|format(revenue_growth_yoy*100) }}% |{% endif %}
+{% if profit_growth_yoy is defined and profit_growth_yoy is not none %}| 净利润同比 | {{ "%.1f"|format(profit_growth_yoy*100) }}% |{% endif %}
+
+{% if roe_trend is defined and roe_trend %}
+## ROE 趋势
+{% for item in roe_trend %}
+- {{ item.quarter }}: {{ "%.2f"|format(item.roe*100) }}%
+{% endfor %}
+{% endif %}
+
+请从以下角度分析：
+1. 营收和利润的增长趋势及驱动因素推断
+2. ROE 水平评估（杜邦分析视角）
+3. 盈利质量（经营现金流与净利润匹配度）
+4. 需要关注的风险信号
+
+请用中文输出详细分析，控制在 400 字以内。

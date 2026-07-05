@@ -1,0 +1,30 @@
+你是资深投资分析师。请基于以下各维度分析，为 {{ name }}（{{ symbol }}）撰写综合总结与投资建议。
+
+{% if commentary.get("financial") %}
+## 财务分析
+{{ commentary["financial"] }}
+{% endif %}
+{% if commentary.get("technical") %}
+## 技术面分析
+{{ commentary["technical"] }}
+{% endif %}
+{% if commentary.get("valuation") %}
+## 估值分析
+{{ commentary["valuation"] }}
+{% endif %}
+{% if commentary.get("industry") %}
+## 行业分析
+{{ commentary["industry"] }}
+{% endif %}
+{% if commentary.get("sentiment") %}
+## 舆情分析
+{{ commentary["sentiment"] }}
+{% endif %}
+
+请从以下角度给出综合结论：
+1. 综合评级（积极/中性/谨慎）及核心理由
+2. 投资逻辑总结（3-4 句话）
+3. 需要关注的主要风险
+4. 后续需要跟踪的关键指标
+
+请用中文输出，控制在 400 字以内。注意：本分析不构成投资建议。
