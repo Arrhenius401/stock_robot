@@ -5,6 +5,24 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _extract_prefix_and_digits(raw: str) -> tuple[str, str]:
+    """从原始输入中提取市场前缀和数字代码"""
+    m = re.match(r"^(sh|sz|SH|SZ)?(\d+)$", raw.strip())
+    if m is None:
+        return "", ""
+    return (m.group(1) or "").lower(), m.group(2)
+
+
+def _code_to_market(code: str) -> str:
+    """根据代码首位判断所属交易所"""
+    first = code[0]
+    if first in ("6", "8"):
+        return "sh"
+    elif first in ("0", "3"):
+        return "sz"
+    return ""
+
+
 def normalize_symbol(raw: str) -> str:
     """清理前缀并补零到 6 位"""
     cleaned = re.sub(r"^(sh|sz|SH|SZ)", "", raw.strip())
@@ -12,16 +30,21 @@ def normalize_symbol(raw: str) -> str:
 
 
 def validate_symbol(symbol: str) -> bool:
-    """校验 A 股代码格式"""
-    # 原始输入必须至少 5 位数字（防止 "123" 被补零为 "000123"）
-    raw = symbol.strip().lstrip("sShHzZ")
-    if len(raw) < 5:
+    """校验 A 股代码格式，前缀与代码交易所必须一致"""
+    prefix, digits = _extract_prefix_and_digits(symbol)
+    if len(digits) < 5:
         return False
-    s = normalize_symbol(symbol)
-    if not re.match(r"^\d{6}$", s):
+    code = digits.zfill(6)
+    if not re.match(r"^\d{6}$", code):
         return False
-    first = s[0]
-    return first in ("0", "3", "6", "8")
+    first = code[0]
+    if first not in ("0", "3", "6", "8"):
+        return False
+    if prefix:
+        expected = _code_to_market(code)
+        if prefix != expected:
+            return False
+    return True
 
 
 def resolve_name(symbol: str) -> str:

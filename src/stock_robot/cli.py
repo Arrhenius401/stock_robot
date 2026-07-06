@@ -132,7 +132,10 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose):
 
     if not validate_symbol(symbol):
         console.print(f"[red]无效的股票代码: {symbol}[/red]")
-        console.print("请输入 6 位数字代码（如 000001、600036）")
+        console.print(
+            "请输入 6 位数字代码（如 000001、600036），"
+            "可选前缀 [bold]sh[/bold]（沪市）或 [bold]sz[/bold]（深市）"
+        )
         sys.exit(1)
 
     symbol = normalize_symbol(symbol)
