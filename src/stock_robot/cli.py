@@ -11,13 +11,13 @@ console = Console()
 
 def _get_registry():
     """构建默认注册表"""
-    from src.core.registry import Registry
-    from src.data.akshare import AkShareAdapter
-    from src.analysis.financial import FinancialAnalyzer
-    from src.analysis.technical import TechnicalAnalyzer
-    from src.analysis.valuation import ValuationAnalyzer
-    from src.analysis.industry import IndustryAnalyzer
-    from src.analysis.sentiment import SentimentAnalyzer
+    from core.registry import Registry
+    from data.akshare import AkShareAdapter
+    from analysis.financial import FinancialAnalyzer
+    from analysis.technical import TechnicalAnalyzer
+    from analysis.valuation import ValuationAnalyzer
+    from analysis.industry import IndustryAnalyzer
+    from analysis.sentiment import SentimentAnalyzer
 
     reg = Registry()
     reg.register_data_source(AkShareAdapter())
@@ -31,8 +31,8 @@ def _get_registry():
 
 def _register_llm(reg, config):
     """注册 LLM 后端"""
-    from src.llm.openai import OpenAIAdapter
-    from src.llm.claude import ClaudeAdapter
+    from llm.openai import OpenAIAdapter
+    from llm.claude import ClaudeAdapter
 
     provider = config.get("llm.provider", "openai")
     api_key = config.get("llm.api_key", "")
@@ -55,8 +55,8 @@ def _register_llm(reg, config):
 
 def _build_pipeline(llm_enabled=True):
     """构建管道"""
-    from src.core.pipeline import Pipeline
-    from src.utils.config import Config
+    from core.pipeline import Pipeline
+    from utils.config import Config
 
     config = Config()
     reg = _get_registry()
@@ -66,8 +66,8 @@ def _build_pipeline(llm_enabled=True):
 
 def _get_cache():
     """获取缓存管理器"""
-    from src.utils.config import Config
-    from src.data.cache import CacheManager
+    from utils.config import Config
+    from data.cache import CacheManager
     config = Config()
     return CacheManager(db_path=config.config_dir / "cache.db")
 
@@ -118,10 +118,10 @@ def main():
 @click.option("--verbose", "-v", is_flag=True, help="显示采集和分析过程")
 def analyze(symbol, dimension, refresh_cache, no_llm, verbose):
     """分析股票并生成研报"""
-    from src.utils.symbols import normalize_symbol, validate_symbol, resolve_name
-    from src.report.builder import ReportBuilder
-    from src.report.formatter import ReportFormatter
-    from src.utils.config import Config
+    from utils.symbols import normalize_symbol, validate_symbol, resolve_name
+    from report.builder import ReportBuilder
+    from report.formatter import ReportFormatter
+    from utils.config import Config
 
     config = Config()
     if not _check_disclaimer(config):
@@ -176,7 +176,7 @@ def config():
 @click.argument("value")
 def config_set(key, value):
     """设置配置项"""
-    from src.utils.config import Config
+    from utils.config import Config
     cfg = Config()
     converted = _convert_value(value)
     cfg.set(key, converted)
@@ -187,7 +187,7 @@ def config_set(key, value):
 @click.argument("key")
 def config_get(key):
     """获取配置项"""
-    from src.utils.config import Config
+    from utils.config import Config
     cfg = Config()
     val = cfg.get(key)
     console.print(f"{key} = {val}")

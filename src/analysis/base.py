@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from src.data.schemas import AnalysisContext, AnalysisResult
+from data.schemas import AnalysisContext, AnalysisResult
 
 
 class AnalysisModule(ABC):

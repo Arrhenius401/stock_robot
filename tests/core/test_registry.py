@@ -1,8 +1,8 @@
-from src.core.registry import Registry
-from src.data.base import DataSource
-from src.analysis.base import AnalysisModule
-from src.llm.base import LLMBackend
-from src.data.schemas import AnalysisResult
+from core.registry import Registry
+from data.base import DataSource
+from analysis.base import AnalysisModule
+from llm.base import LLMBackend
+from data.schemas import AnalysisResult
 
 
 class FakeSource(DataSource):

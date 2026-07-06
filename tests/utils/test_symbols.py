@@ -1,4 +1,4 @@
-from src.utils.symbols import normalize_symbol, validate_symbol, resolve_name
+from utils.symbols import normalize_symbol, validate_symbol, resolve_name
 
 
 class TestNormalizeSymbol:

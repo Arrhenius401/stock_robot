@@ -1,6 +1,6 @@
 import pytest
-from src.analysis.base import AnalysisModule
-from src.data.schemas import AnalysisContext, AnalysisResult
+from analysis.base import AnalysisModule
+from data.schemas import AnalysisContext, AnalysisResult
 
 
 class FakeModule(AnalysisModule):

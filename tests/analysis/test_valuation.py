@@ -1,6 +1,6 @@
 from datetime import date
-from src.analysis.valuation import ValuationAnalyzer
-from src.data.schemas import AnalysisContext, ValuationData
+from analysis.valuation import ValuationAnalyzer
+from data.schemas import AnalysisContext, ValuationData
 
 
 class TestValuationAnalyzer:

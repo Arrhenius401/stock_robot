@@ -1,6 +1,6 @@
 """行业分析模块 — 行业分类与同业对比"""
-from src.analysis.base import AnalysisModule
-from src.data.schemas import AnalysisContext, AnalysisResult
+from analysis.base import AnalysisModule
+from data.schemas import AnalysisContext, AnalysisResult
 
 
 class IndustryAnalyzer(AnalysisModule):

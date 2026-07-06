@@ -1,5 +1,5 @@
 import pytest
-from src.llm.base import LLMBackend
+from llm.base import LLMBackend
 
 
 class FakeLLM(LLMBackend):

@@ -1,7 +1,7 @@
 from datetime import date
 import pytest
 from pydantic import ValidationError
-from src.data.schemas import (
+from data.schemas import (
     FinancialData,
     PriceData,
     ValuationData,

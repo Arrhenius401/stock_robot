@@ -1,5 +1,5 @@
 from unittest.mock import MagicMock
-from src.llm.openai import OpenAIAdapter
+from llm.openai import OpenAIAdapter
 
 
 class TestOpenAIAdapter:
@@ -15,7 +15,7 @@ class TestOpenAIAdapter:
         mock_response.usage.prompt_tokens = 100
         mock_response.usage.completion_tokens = 50
         mock_client.chat.completions.create.return_value = mock_response
-        mocker.patch("src.llm.openai.OpenAI", return_value=mock_client)
+        mocker.patch("llm.openai.OpenAI", return_value=mock_client)
 
         adapter = OpenAIAdapter(api_key="sk-test", model="gpt-4o")
         result = adapter.generate("分析平安银行")
@@ -29,7 +29,7 @@ class TestOpenAIAdapter:
     def test_generate_with_error_returns_data_only_message(self, mocker):
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = Exception("API Error")
-        mocker.patch("src.llm.openai.OpenAI", return_value=mock_client)
+        mocker.patch("llm.openai.OpenAI", return_value=mock_client)
 
         adapter = OpenAIAdapter(api_key="sk-test", model="gpt-4o")
         result = adapter.generate("分析")

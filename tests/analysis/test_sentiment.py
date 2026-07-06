@@ -1,6 +1,6 @@
 from datetime import date
-from src.analysis.sentiment import SentimentAnalyzer
-from src.data.schemas import AnalysisContext, NewsData
+from analysis.sentiment import SentimentAnalyzer
+from data.schemas import AnalysisContext, NewsData
 
 
 class TestSentimentAnalyzer:

@@ -4,10 +4,10 @@ import json
 import logging
 from datetime import date
 from pathlib import Path
-from src.data.schemas import AnalysisContext, AnalysisResult
-from src.data.cache import CacheManager
-from src.core.registry import Registry
-from src.utils.config import Config
+from data.schemas import AnalysisContext, AnalysisResult
+from data.cache import CacheManager
+from core.registry import Registry
+from utils.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +175,7 @@ class Pipeline:
             logger.warning(f"缓存 {data_type} 失败: {e}")
 
     def _deserialize_cache(self, data_type: str, symbol: str, data_list: list) -> list:
-        from src.data.schemas import FinancialData, PriceData, ValuationData, IndustryData, NewsData
+        from data.schemas import FinancialData, PriceData, ValuationData, IndustryData, NewsData
         cls_map = {
             "price": PriceData, "financial": FinancialData,
             "valuation": ValuationData, "industry": IndustryData, "news": NewsData,

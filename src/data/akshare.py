@@ -2,8 +2,8 @@
 from datetime import date, datetime, timedelta
 import logging
 import akshare as ak
-from src.data.base import DataSource
-from src.data.schemas import PriceData, FinancialData, ValuationData, IndustryData, NewsData
+from data.base import DataSource
+from data.schemas import PriceData, FinancialData, ValuationData, IndustryData, NewsData
 
 logger = logging.getLogger(__name__)
 

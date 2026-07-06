@@ -1,7 +1,7 @@
 """技术面分析模块 — 均线系统、MACD、量价分析"""
 from statistics import mean
-from src.analysis.base import AnalysisModule
-from src.data.schemas import AnalysisContext, AnalysisResult
+from analysis.base import AnalysisModule
+from data.schemas import AnalysisContext, AnalysisResult
 
 
 class TechnicalAnalyzer(AnalysisModule):

@@ -1,7 +1,7 @@
 from datetime import date
 import pytest
-from src.data.akshare import AkShareAdapter
-from src.data.schemas import PriceData, FinancialData
+from data.akshare import AkShareAdapter
+from data.schemas import PriceData, FinancialData
 
 
 class TestAkShareAdapter:

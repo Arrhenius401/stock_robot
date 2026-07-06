@@ -1,12 +1,12 @@
 from unittest.mock import MagicMock
 from datetime import date
-from src.core.pipeline import Pipeline
-from src.core.registry import Registry
-from src.data.schemas import (
+from core.pipeline import Pipeline
+from core.registry import Registry
+from data.schemas import (
     AnalysisContext, AnalysisResult, FinancialData, PriceData,
     ValuationData, IndustryData, NewsData,
 )
-from src.data.base import DataSource
+from data.base import DataSource
 
 
 def make_test_registry():
@@ -32,7 +32,7 @@ def make_test_registry():
     reg = Registry()
     reg.register_data_source(MockDataSource())
 
-    from src.analysis.base import AnalysisModule
+    from analysis.base import AnalysisModule
     for dim in ["financial", "technical", "valuation", "industry", "sentiment"]:
         mod = MagicMock(spec=AnalysisModule)
         mod.dimension = dim

@@ -1,7 +1,7 @@
 from datetime import date
 import pytest
-from src.data.base import DataSource
-from src.data.schemas import PriceData
+from data.base import DataSource
+from data.schemas import PriceData
 
 
 class FakeSource(DataSource):

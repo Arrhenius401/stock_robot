@@ -1,6 +1,6 @@
 """财务分析模块 — 营收、利润、ROE 趋势分析"""
-from src.analysis.base import AnalysisModule
-from src.data.schemas import AnalysisContext, AnalysisResult
+from analysis.base import AnalysisModule
+from data.schemas import AnalysisContext, AnalysisResult
 
 
 class FinancialAnalyzer(AnalysisModule):

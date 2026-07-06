@@ -1,8 +1,8 @@
 import json
 import time
 from pathlib import Path
-from src.data.cache import CacheManager
-from src.data.schemas import PriceData
+from data.cache import CacheManager
+from data.schemas import PriceData
 
 
 class TestCacheManager:

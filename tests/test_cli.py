@@ -1,5 +1,5 @@
 from click.testing import CliRunner
-from cli import main
+from stock_robot.cli import main
 
 
 class TestCLI:
@@ -9,17 +9,17 @@ class TestCLI:
         assert result.exit_code != 0
 
     def test_analyze_with_invalid_symbol_shows_error(self, mocker):
-        mocker.patch("cli._check_disclaimer", return_value=True)
+        mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
         runner = CliRunner()
         result = runner.invoke(main, ["analyze", "abc"])
         assert result.exit_code != 0
 
     def test_analyze_with_valid_symbol(self, mocker):
-        mocker.patch("cli._check_disclaimer", return_value=True)
-        mocker.patch("src.utils.symbols.resolve_name", return_value="平安银行")
-        mock_pipeline = mocker.patch("cli._build_pipeline")
+        mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
+        mocker.patch("utils.symbols.resolve_name", return_value="平安银行")
+        mock_pipeline = mocker.patch("stock_robot.cli._build_pipeline")
         mock_instance = mock_pipeline.return_value
-        from src.data.schemas import AnalysisResult
+        from data.schemas import AnalysisResult
         mock_instance.run.return_value = (
             [AnalysisResult(dimension="financial", status="ok", summary="OK", metrics={"roe": 0.12})],
             {"financial": "解读", "summary": "综合结论"},
@@ -38,18 +38,18 @@ class TestCLI:
         assert "claude" in result.output
 
     def test_cache_clear(self, mocker):
-        mock_cache = mocker.patch("cli._get_cache")
+        mock_cache = mocker.patch("stock_robot.cli._get_cache")
         runner = CliRunner()
         result = runner.invoke(main, ["cache", "clear"])
         assert result.exit_code == 0
         mock_cache.return_value.clear.assert_called_once()
 
     def test_analyze_no_llm_flag(self, mocker):
-        mocker.patch("cli._check_disclaimer", return_value=True)
-        mocker.patch("src.utils.symbols.resolve_name", return_value="平安银行")
-        mock_pipeline = mocker.patch("cli._build_pipeline")
+        mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
+        mocker.patch("utils.symbols.resolve_name", return_value="平安银行")
+        mock_pipeline = mocker.patch("stock_robot.cli._build_pipeline")
         mock_instance = mock_pipeline.return_value
-        from src.data.schemas import AnalysisResult
+        from data.schemas import AnalysisResult
         mock_instance.run.return_value = (
             [AnalysisResult(dimension="financial", status="ok", summary="OK", metrics={})],
             {},

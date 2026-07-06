@@ -2,7 +2,7 @@
 from datetime import datetime
 from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
-from src.data.schemas import AnalysisResult
+from data.schemas import AnalysisResult
 
 
 class ReportBuilder:

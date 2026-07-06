@@ -1,5 +1,5 @@
-from src.analysis.industry import IndustryAnalyzer
-from src.data.schemas import AnalysisContext, IndustryData
+from analysis.industry import IndustryAnalyzer
+from data.schemas import AnalysisContext, IndustryData
 
 
 class TestIndustryAnalyzer:

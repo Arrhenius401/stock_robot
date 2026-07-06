@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.scripts]
-stock-robot = "cli:main"
+stock-robot = "stock_robot.cli:main"
 
 [project.optional-dependencies]
 dev = [

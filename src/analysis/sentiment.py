@@ -1,6 +1,6 @@
 """舆情分析模块 — 新闻采集与情绪评估"""
-from src.analysis.base import AnalysisModule
-from src.data.schemas import AnalysisContext, AnalysisResult
+from analysis.base import AnalysisModule
+from data.schemas import AnalysisContext, AnalysisResult
 
 
 class SentimentAnalyzer(AnalysisModule):

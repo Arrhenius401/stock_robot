@@ -1,6 +1,6 @@
 from datetime import date, timedelta
-from src.analysis.technical import TechnicalAnalyzer
-from src.data.schemas import AnalysisContext, PriceData
+from analysis.technical import TechnicalAnalyzer
+from data.schemas import AnalysisContext, PriceData
 
 
 class TestTechnicalAnalyzer:

@@ -1,7 +1,7 @@
 """OpenAI GPT 适配器"""
 import logging
 from openai import OpenAI
-from src.llm.base import LLMBackend
+from llm.base import LLMBackend
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ class OpenAIAdapter(LLMBackend):
     def _log_usage(self, prompt_tokens: int, completion_tokens: int):
         try:
             cost = self._estimate_cost(prompt_tokens, completion_tokens)
-            from src.llm.usage import UsageLogger
+            from llm.usage import UsageLogger
             from pathlib import Path
             log_path = Path.home() / ".stock_robot" / "usage.log"
             UsageLogger(log_path).log(self._model, prompt_tokens, completion_tokens, cost)

@@ -1,5 +1,5 @@
 from pathlib import Path
-from src.report.formatter import ReportFormatter
+from report.formatter import ReportFormatter
 
 
 class TestReportFormatter:

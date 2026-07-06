@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from src.llm.usage import UsageLogger
+from llm.usage import UsageLogger
 
 
 class TestUsageLogger:

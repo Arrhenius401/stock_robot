@@ -1,6 +1,6 @@
 from datetime import date
-from src.analysis.financial import FinancialAnalyzer
-from src.data.schemas import AnalysisContext, FinancialData
+from analysis.financial import FinancialAnalyzer
+from data.schemas import AnalysisContext, FinancialData
 
 
 class TestFinancialAnalyzer:

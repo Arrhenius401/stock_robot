@@ -1,6 +1,6 @@
 from datetime import datetime
-from src.report.builder import ReportBuilder
-from src.data.schemas import AnalysisResult
+from report.builder import ReportBuilder
+from data.schemas import AnalysisResult
 
 
 class TestReportBuilder:

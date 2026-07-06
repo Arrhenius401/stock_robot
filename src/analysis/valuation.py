@@ -1,6 +1,6 @@
 """估值分析模块 — PE/PB/PS 当前值与历史分位"""
-from src.analysis.base import AnalysisModule
-from src.data.schemas import AnalysisContext, AnalysisResult, ValuationData
+from analysis.base import AnalysisModule
+from data.schemas import AnalysisContext, AnalysisResult, ValuationData
 
 
 class ValuationAnalyzer(AnalysisModule):
