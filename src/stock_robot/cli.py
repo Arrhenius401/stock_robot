@@ -141,21 +141,37 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose):
     llm_enabled = not no_llm and config.get("llm.enabled", True)
     pipeline = _build_pipeline(llm_enabled=llm_enabled)
 
-    if verbose:
-        console.print("[dim]正在采集数据...[/dim]")
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+
+    stage_order = ["collect", "analyze", "llm"] if llm_enabled else ["collect", "analyze"]
 
     try:
-        results, commentary = pipeline.run(
-            symbol, name,
-            dimension=dimension,
-            refresh_cache=refresh_cache,
-        )
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("{task.completed}/{task.total}"),
+            console=console,
+            transient=True,
+        ) as progress:
+            task_id = progress.add_task("[collect] 准备中...", total=1, completed=0)
+
+            def on_progress(stage, current, total, label):
+                progress.update(task_id, completed=current, total=total,
+                               description=f"[{stage}] {label}")
+
+            results, commentary = pipeline.run(
+                symbol, name,
+                dimension=dimension,
+                refresh_cache=refresh_cache,
+                on_progress=on_progress,
+            )
+
+            if not verbose:
+                progress.update(task_id, visible=False)
     except Exception as e:
         console.print(f"[red]分析失败: {e}[/red]")
         sys.exit(1)
-
-    if verbose:
-        console.print("[dim]正在生成报告...[/dim]")
 
     builder = ReportBuilder()
     report = builder.build(symbol, name, results, commentary)

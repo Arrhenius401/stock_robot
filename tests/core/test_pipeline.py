@@ -85,10 +85,12 @@ class TestPipelineProgress:
         pipeline.collect("000001", "平安银行", "a-shares", on_progress=on_progress)
 
         assert len(calls) == 5
-        stages = {c[0] for c in calls}
-        assert stages == {"collect"}
-        assert calls[0] == ("collect", 1, 5, "采集财务数据")
-        assert calls[-1] == ("collect", 5, 5, "采集舆情数据")
+        expected_labels = {"采集财务数据", "采集价格数据", "采集估值数据", "采集行业数据", "采集舆情数据"}
+        actual_labels = {c[3] for c in calls}
+        assert actual_labels == expected_labels
+        assert all(c[0] == "collect" for c in calls)
+        assert {c[1] for c in calls} == set(range(1, 6))
+        assert all(c[2] == 5 for c in calls)
 
     def test_run_calls_on_progress_for_collect_and_analyze(self):
         reg = make_test_registry()
