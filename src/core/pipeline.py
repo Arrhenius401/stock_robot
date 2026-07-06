@@ -1,4 +1,5 @@
 """管道调度器 — 串联数据采集→分析→LLM 解读→报告输出的完整流程"""
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import logging
@@ -10,6 +11,32 @@ from core.registry import Registry
 from utils.config import Config
 
 logger = logging.getLogger(__name__)
+
+ProgressCallback = Callable[[str, int, int, str], None] | None
+
+DATA_TYPE_LABELS = {
+    "financial": "采集财务数据",
+    "price": "采集价格数据",
+    "valuation": "采集估值数据",
+    "industry": "采集行业数据",
+    "news": "采集舆情数据",
+}
+
+DIMENSION_LABELS = {
+    "financial": "财务分析",
+    "technical": "技术面分析",
+    "valuation": "估值分析",
+    "industry": "行业分析",
+    "sentiment": "舆情分析",
+}
+
+DIMENSION_LLM_LABELS = {
+    "financial": "生成财务解读",
+    "technical": "生成技术面解读",
+    "valuation": "生成估值解读",
+    "industry": "生成行业解读",
+    "sentiment": "生成舆情解读",
+}
 
 # 分析维度到所需数据类型的映射
 DATA_TYPES = ["financial", "price", "valuation", "industry", "news"]
@@ -53,9 +80,12 @@ class Pipeline:
         self._cache = CacheManager(db_path=cache_db)
 
     def collect(self, symbol: str, name: str, market: str = "a-shares",
-                refresh_cache: bool = False, data_types: list[str] | None = None) -> AnalysisContext:
+                refresh_cache: bool = False, data_types: list[str] | None = None,
+                on_progress: ProgressCallback = None) -> AnalysisContext:
         ctx = AnalysisContext(symbol=symbol, name=name, market=market)
         types_to_fetch = data_types or DATA_TYPES
+        total = len(types_to_fetch)
+        completed = 0
 
         def fetch_one(data_type: str):
             if not refresh_cache:
@@ -80,11 +110,16 @@ class Pipeline:
                 data_type, result = future.result()
                 if result is not None:
                     self._assign_to_context(ctx, data_type, result)
+                completed += 1
+                if on_progress:
+                    on_progress("collect", completed, total,
+                               DATA_TYPE_LABELS.get(data_type, data_type))
 
         return ctx
 
     def run(self, symbol: str, name: str, market: str = "a-shares",
-            dimension: str | None = None, refresh_cache: bool = False
+            dimension: str | None = None, refresh_cache: bool = False,
+            on_progress: ProgressCallback = None
             ) -> tuple[list[AnalysisResult], dict[str, str]]:
         data_types = None
         analysis_modules = self._registry.get_analysis_modules()
@@ -92,29 +127,37 @@ class Pipeline:
             data_types = DIMENSION_DATA_MAP.get(dimension, DATA_TYPES)
             analysis_modules = [m for m in analysis_modules if m.dimension == dimension]
 
-        ctx = self.collect(symbol, name, market, refresh_cache=refresh_cache, data_types=data_types)
+        ctx = self.collect(symbol, name, market, refresh_cache=refresh_cache,
+                           data_types=data_types, on_progress=on_progress)
 
         results = []
+        total = len(analysis_modules)
+        completed = 0
         with ThreadPoolExecutor(max_workers=5) as executor:
             future_map = {executor.submit(m.analyze, ctx): m for m in analysis_modules}
             for future in as_completed(future_map):
+                mod = future_map[future]
                 try:
                     results.append(future.result())
                 except Exception as e:
-                    mod = future_map[future]
                     logger.error(f"分析模块 {mod.dimension} 执行失败: {e}")
                     results.append(AnalysisResult(
                         dimension=mod.dimension, status="unavailable",
                         summary=f"分析模块异常: {e}", metrics={}))
+                completed += 1
+                if on_progress:
+                    on_progress("analyze", completed, total,
+                               DIMENSION_LABELS.get(mod.dimension, mod.dimension))
 
         commentary = {}
         if self._llm_enabled:
-            commentary = self._generate_commentary(symbol, name, results)
+            commentary = self._generate_commentary(symbol, name, results, on_progress=on_progress)
 
         return results, commentary
 
     def _generate_commentary(self, symbol: str, name: str,
-                             results: list[AnalysisResult]) -> dict[str, str]:
+                             results: list[AnalysisResult],
+                             on_progress: ProgressCallback = None) -> dict[str, str]:
         commentary = {}
         provider = self._config.get("llm.provider", "openai")
         llm = self._registry.get_llm_backend(provider)
@@ -127,6 +170,9 @@ class Pipeline:
             template_dir = Path(__file__).parent.parent / "llm" / "prompt_templates"
             env = Environment(loader=FileSystemLoader(str(template_dir)))
 
+            total = len(results) + 1
+            completed = 0
+
             for result in results:
                 template_name = f"{result.dimension}_{provider}.jinja2"
                 try:
@@ -136,6 +182,10 @@ class Pipeline:
                 except Exception as e:
                     logger.warning(f"生成 {result.dimension} 解读失败: {e}")
                     commentary[result.dimension] = ""
+                completed += 1
+                if on_progress:
+                    on_progress("llm", completed, total,
+                               DIMENSION_LLM_LABELS.get(result.dimension, result.dimension))
 
             # 综合总结
             summary_template_name = f"summary_{provider}.jinja2"
@@ -146,6 +196,9 @@ class Pipeline:
             except Exception as e:
                 logger.warning(f"生成综合总结失败: {e}")
                 commentary["summary"] = ""
+            completed += 1
+            if on_progress:
+                on_progress("llm", completed, total, "生成综合总结")
         except Exception as e:
             logger.error(f"LLM 解读生成过程失败: {e}")
 

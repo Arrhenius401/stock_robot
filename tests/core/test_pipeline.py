@@ -71,3 +71,63 @@ class TestPipeline:
         results, _ = pipeline.run("000001", "平安银行", dimension="financial")
         assert len(results) == 1
         assert results[0].dimension == "financial"
+
+
+class TestPipelineProgress:
+    def test_collect_calls_on_progress_for_each_data_type(self):
+        reg = make_test_registry()
+        pipeline = Pipeline(registry=reg, llm_enabled=False)
+        calls = []
+
+        def on_progress(stage, current, total, label):
+            calls.append((stage, current, total, label))
+
+        pipeline.collect("000001", "平安银行", "a-shares", on_progress=on_progress)
+
+        assert len(calls) == 5
+        stages = {c[0] for c in calls}
+        assert stages == {"collect"}
+        assert calls[0] == ("collect", 1, 5, "采集财务数据")
+        assert calls[-1] == ("collect", 5, 5, "采集舆情数据")
+
+    def test_run_calls_on_progress_for_collect_and_analyze(self):
+        reg = make_test_registry()
+        pipeline = Pipeline(registry=reg, llm_enabled=False)
+        calls = []
+
+        def on_progress(stage, current, total, label):
+            calls.append((stage, current, total, label))
+
+        pipeline.run("000001", "平安银行", on_progress=on_progress)
+
+        collect_calls = [c for c in calls if c[0] == "collect"]
+        analyze_calls = [c for c in calls if c[0] == "analyze"]
+        assert len(collect_calls) == 5
+        assert len(analyze_calls) == 5
+
+    def test_on_progress_none_does_not_break(self):
+        reg = make_test_registry()
+        pipeline = Pipeline(registry=reg, llm_enabled=False)
+
+        ctx = pipeline.collect("000001", "平安银行", on_progress=None)
+        assert ctx.price_data is not None
+
+        results, _ = pipeline.run("000001", "平安银行", on_progress=None)
+        assert len(results) == 5
+
+    def test_run_single_dimension_reports_correct_totals(self):
+        reg = make_test_registry()
+        pipeline = Pipeline(registry=reg, llm_enabled=False)
+        calls = []
+
+        def on_progress(stage, current, total, label):
+            calls.append((stage, current, total, label))
+
+        pipeline.run("000001", "平安银行", dimension="financial", on_progress=on_progress)
+
+        collect_calls = [c for c in calls if c[0] == "collect"]
+        analyze_calls = [c for c in calls if c[0] == "analyze"]
+        assert len(collect_calls) == 1
+        assert collect_calls[0][1:3] == (1, 1)
+        assert len(analyze_calls) == 1
+        assert analyze_calls[0][1:3] == (1, 1)
