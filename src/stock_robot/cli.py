@@ -1,4 +1,7 @@
 """Stock Robot CLI — AI 驱动的股票分析研报助手"""
+import os
+os.environ["TQDM_DISABLE"] = "1"
+
 import sys
 from pathlib import Path
 import click
