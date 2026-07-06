@@ -133,17 +133,11 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose):
         sys.exit(1)
 
     symbol = normalize_symbol(symbol)
-    name = resolve_name(symbol) or symbol
-
-    if verbose:
-        console.print(f"[dim]正在分析: {name} ({symbol})[/dim]")
 
     llm_enabled = not no_llm and config.get("llm.enabled", True)
     pipeline = _build_pipeline(llm_enabled=llm_enabled)
 
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
-
-    stage_order = ["collect", "analyze", "llm"] if llm_enabled else ["collect", "analyze"]
 
     try:
         with Progress(
@@ -154,7 +148,12 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose):
             console=console,
             transient=True,
         ) as progress:
-            task_id = progress.add_task("[collect] 准备中...", total=1, completed=0)
+            task_id = progress.add_task("正在查询股票名称...", total=None)
+
+            name = resolve_name(symbol) or symbol
+
+            if verbose:
+                console.print(f"[dim]正在分析: {name} ({symbol})[/dim]")
 
             def on_progress(stage, current, total, label):
                 progress.update(task_id, completed=current, total=total,
