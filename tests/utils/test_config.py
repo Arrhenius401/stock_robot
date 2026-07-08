@@ -48,3 +48,7 @@ data:
     def test_disclaimer_flag_defaults_to_false(self):
         cfg = Config(config_dir=Path("/nonexistent"))
         assert cfg.data["data"]["disclaimer_accepted"] is False
+
+    def test_default_config_has_base_url(self):
+        cfg = Config(config_dir=Path("/nonexistent"))
+        assert cfg.data["llm"]["base_url"] == ""

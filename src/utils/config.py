@@ -9,6 +9,7 @@ DEFAULT_CONFIG = {
         "model": "gpt-4o",
         "enabled": True,
         "api_key": "",
+        "base_url": "",
         "temperature": 0.3,
         "max_tokens": 2000,
     },

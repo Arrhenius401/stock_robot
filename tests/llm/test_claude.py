@@ -31,3 +31,17 @@ class TestClaudeAdapter:
         adapter = ClaudeAdapter(api_key="sk-ant-test")
         result = adapter.generate("分析")
         assert "LLM 分析暂时不可用" in result
+        # 错误详情应出现在返回文本中，避免被静默吞掉
+        assert "API Error" in result
+
+    def test_base_url_passed_to_client(self, mocker):
+        mock_anthropic = mocker.patch("llm.claude.Anthropic", return_value=MagicMock())
+        ClaudeAdapter(api_key="sk-ant-test", base_url="https://api.deepseek.com/anthropic")
+        mock_anthropic.assert_called_once_with(
+            api_key="sk-ant-test", base_url="https://api.deepseek.com/anthropic"
+        )
+
+    def test_no_base_url_omits_arg(self, mocker):
+        mock_anthropic = mocker.patch("llm.claude.Anthropic", return_value=MagicMock())
+        ClaudeAdapter(api_key="sk-ant-test")
+        mock_anthropic.assert_called_once_with(api_key="sk-ant-test")

@@ -8,11 +8,14 @@ logger = logging.getLogger(__name__)
 
 class OpenAIAdapter(LLMBackend):
     def __init__(self, api_key: str, model: str = "gpt-4o", temperature: float = 0.3,
-                 max_tokens: int = 2000):
+                 max_tokens: int = 2000, base_url: str | None = None):
         self._model = model
         self._temperature = temperature
         self._max_tokens = max_tokens
-        self._client = OpenAI(api_key=api_key)
+        client_kwargs = {"api_key": api_key}
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        self._client = OpenAI(**client_kwargs)
 
     @property
     def model_name(self) -> str:
@@ -38,7 +41,7 @@ class OpenAIAdapter(LLMBackend):
             return content
         except Exception as e:
             logger.error(f"OpenAI API 调用失败: {e}")
-            return "（LLM 分析暂时不可用，请检查 API 配置）"
+            return f"（LLM 分析暂时不可用：{e}，请检查 API 配置）"
 
     def _log_usage(self, prompt_tokens: int, completion_tokens: int):
         try:
