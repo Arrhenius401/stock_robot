@@ -48,7 +48,11 @@ def parse_cn_number(value) -> float | None:
 - 单位映射：`万`→1e4、`亿`→1e8、`万亿`→1e12。
 - 边界：`'-'`、`''`、`None`、`'--'` → `None`；纯数字/浮点直通；支持前导负号（`'-3.54亿'`）；去除千分位逗号与空白。
 - 已经是 `int`/`float` 的输入原样返回。
-- 在 `akshare.py:_fetch_financial` 中，用 `parse_cn_number` 替换 revenue/net_profit/assets/equity/cash_flow 的裸 `float(...)`；解析结果为 `None` 时按 `0.0` 兜底（保持 `FinancialData` 字段为非空 float 的约定）。
+- 在 `akshare.py:_fetch_financial` 中，用 `parse_cn_number` 替换 revenue/net_profit/assets/equity/cash_flow 的裸 `float(...)`；**解析失败返回 `None`，如实反映缺失，不再用 `0.0` 兜底**。
+- 因此 `FinancialData` 的数值字段（revenue/net_profit/total_assets/total_equity/operating_cash_flow）由 `float` 改为 `float | None = None`。
+- `_fetch_financial` 里的 roe 计算需加 None 护栏：`equity`/`net_profit` 为 `None` 时 `roe = None`。
+- `financial.py` 分析器的同比增长计算需加 None 护栏（`prev_year.revenue` 为 `None` 时跳过该项），metrics 中 `revenue`/`net_profit` 可能为 `None`。
+- `financial_openai/claude.jinja2` 需对 `revenue`/`net_profit` 增加 `is not none` 守卫，避免对 `None` 做 `/1e8` 算术报错。
 - `_fetch_valuation` 的 PE/PB 复用该函数，兼容 `'-'` 以外的带单位取值。
 
 ### 修复 2 — 网络健壮性
@@ -67,7 +71,7 @@ def retry_on_network_error(max_attempts=3, base_delay=0.5):
 
 ### 修复 3 — 重写 8 个维度提示词模板
 
-`financial_openai`/`financial_claude` 已正确，保留。重写其余 4 个维度 × 2 provider（共 8 个），使用各分析模块**真实产出的 metrics**：
+`financial_openai`/`financial_claude` 结构已正确，仅需按修复 1 补充 `revenue`/`net_profit` 的 `is not none` 守卫。重写其余 4 个维度 × 2 provider（共 8 个），使用各分析模块**真实产出的 metrics**：
 
 | 维度 | 可用 metrics（来自对应 analyzer） | 提示词要点 |
 |---|---|---|
@@ -106,7 +110,7 @@ if result.status == "unavailable" or not result.metrics:
 | 测试 | 断言 |
 |---|---|
 | `parse_cn_number` 单元测试 | `'3.54亿'→3.54e8`、`'7217.13万'→7.21713e7`、`'-'/''/None→None`、负号、纯数字直通 |
-| `_fetch_financial` 解析 | 用中文单位 mock DataFrame，断言行不再被跳过、`revenue` 等被正确换算 |
+| `_fetch_financial` 解析 | 用中文单位 mock DataFrame，断言行不再被跳过、`revenue` 等被正确换算；无法解析的值落为 `None` 且该行仍保留 |
 | 重试装饰器 | 前两次抛 `RemoteDisconnected`、第三次成功返回；纯业务异常不重试 |
 | 模板冒烟测试 | 每个维度模板用其 analyzer 真实 metrics 渲染**不抛异常**（一次性锁死 `'revenue' is undefined` 回归） |
 | `_generate_commentary` 护栏 | unavailable 维度不触发 LLM 调用；全部 unavailable 时不生成 summary |
@@ -119,16 +123,19 @@ if result.status == "unavailable" or not result.metrics:
 |---|---|
 | `src/utils/numbers.py` | 新增：`parse_cn_number` |
 | `src/utils/retry.py` | 新增：`retry_on_network_error` 装饰器 |
-| `src/data/akshare.py` | 财务用 `parse_cn_number`；网络调用加重试装饰器 |
+| `src/data/schemas.py` | `FinancialData` 数值字段改为 `float | None = None` |
+| `src/data/akshare.py` | 财务用 `parse_cn_number`（失败为 None）；roe 计算加 None 护栏；网络调用加重试装饰器 |
+| `src/analysis/financial.py` | 同比增长计算加 None 护栏，容忍可空 revenue/net_profit |
 | `src/core/pipeline.py` | 采集并发降到 3；`_generate_commentary` 加不可用维度护栏与 summary 跳过逻辑 |
 | `src/llm/prompt_templates/{technical,valuation,industry,sentiment}_{openai,claude}.jinja2` | 重写为对应维度真实内容 + 防幻觉约束（8 个） |
+| `src/llm/prompt_templates/financial_{openai,claude}.jinja2` | 补充 revenue/net_profit 的 None 守卫 |
 | `src/llm/prompt_templates/summary_{openai,claude}.jinja2` | 补充覆盖/缺失维度清单与防幻觉约束 |
 | `src/report/builder.py` | Jinja 环境开 `trim_blocks/lstrip_blocks` |
 | `tests/utils/`、`tests/data/`、`tests/core/`、`tests/llm/` | 新增上述测试 |
 
 ### 不修改
 
-- 分析模块（financial/technical/valuation/industry/sentiment analyzer）逻辑不变——它们产出的 metrics 结构本身正确，问题在模板侧。
+- 技术/估值/行业/舆情分析模块逻辑不变——它们产出的 metrics 结构本身正确，问题在模板侧。（财务分析器仅为适配可空字段加 None 护栏，计算逻辑不变。）
 - 缓存层、配置管理、CLI 命令结构不变。
 - LLM 适配器（openai/claude）调用逻辑不变。
 
