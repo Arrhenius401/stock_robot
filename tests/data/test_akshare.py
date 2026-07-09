@@ -1,4 +1,5 @@
 from datetime import date
+import pandas as pd
 import pytest
 from data.akshare import AkShareAdapter
 from data.schemas import PriceData, FinancialData
@@ -39,3 +40,42 @@ class TestAkShareAdapter:
         adapter = AkShareAdapter()
         results = adapter.fetch("000001", data_type="price")
         assert results == []
+
+
+def test_fetch_financial_parses_chinese_units(mocker):
+    def _mock(symbol):
+        return pd.DataFrame({
+            "报告期": ["2025-12-31", "2025-09-30"],
+            "营业总收入": ["3.54亿", "3.76亿"],
+            "净利润": ["7217.13万", "2.08亿"],
+            "资产总计": ["1.2万亿", "1.1万亿"],
+            "股东权益合计": ["45亿", "44亿"],
+            "经营活动现金流量净额": ["12亿", "-3.5亿"],
+        })
+    mocker.patch("akshare.stock_financial_abstract_ths", side_effect=_mock)
+    adapter = AkShareAdapter()
+    results = adapter.fetch("600350", data_type="financial")
+    assert len(results) == 2  # 行不再被跳过
+    assert results[0].revenue == pytest.approx(3.54e8)
+    assert results[0].net_profit == pytest.approx(7.21713e7)
+    assert results[0].total_assets == pytest.approx(1.2e12)
+    assert results[1].operating_cash_flow == pytest.approx(-3.5e8)
+
+
+def test_fetch_financial_unparseable_becomes_none(mocker):
+    def _mock(symbol):
+        return pd.DataFrame({
+            "报告期": ["2025-12-31"],
+            "营业总收入": ["--"],
+            "净利润": ["8.5亿"],
+            "资产总计": ["500亿"],
+            "股东权益合计": ["45亿"],
+            "经营活动现金流量净额": ["12亿"],
+        })
+    mocker.patch("akshare.stock_financial_abstract_ths", side_effect=_mock)
+    adapter = AkShareAdapter()
+    results = adapter.fetch("600350", data_type="financial")
+    assert len(results) == 1  # 缺一个字段不再整行丢弃
+    assert results[0].revenue is None
+    assert results[0].net_profit == pytest.approx(8.5e8)
+    assert results[0].roe == pytest.approx(8.5e8 / 45e8)

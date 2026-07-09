@@ -4,6 +4,7 @@ import logging
 import akshare as ak
 from data.base import DataSource
 from data.schemas import PriceData, FinancialData, ValuationData, IndustryData, NewsData
+from utils.numbers import parse_cn_number
 
 logger = logging.getLogger(__name__)
 
@@ -70,20 +71,22 @@ class AkShareAdapter(DataSource):
                 except ValueError:
                     fiscal_date = datetime.strptime(period_str, "%Y%m%d").date()
 
-                equity = float(equities[i]) if i < len(equities) and equities[i] is not None else 0.0
-                net_profit = float(profits[i]) if i < len(profits) and profits[i] is not None else 0.0
-                revenue = float(revenues[i]) if i < len(revenues) and revenues[i] is not None else 0.0
+                equity = parse_cn_number(equities[i]) if i < len(equities) else None
+                net_profit = parse_cn_number(profits[i]) if i < len(profits) else None
+                revenue = parse_cn_number(revenues[i]) if i < len(revenues) else None
 
-                roe = (net_profit / equity) if equity > 0 else None
+                roe = (net_profit / equity) if (
+                    net_profit is not None and equity is not None and equity > 0
+                ) else None
 
                 results.append(FinancialData(
                     symbol=symbol,
                     fiscal_quarter=fiscal_date,
                     revenue=revenue,
                     net_profit=net_profit,
-                    total_assets=float(assets[i]) if i < len(assets) and assets[i] is not None else 0.0,
+                    total_assets=parse_cn_number(assets[i]) if i < len(assets) else None,
                     total_equity=equity,
-                    operating_cash_flow=float(cash_flows[i]) if i < len(cash_flows) and cash_flows[i] is not None else 0.0,
+                    operating_cash_flow=parse_cn_number(cash_flows[i]) if i < len(cash_flows) else None,
                     roe=roe,
                     gross_margin=None,
                 ))
