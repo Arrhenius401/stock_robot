@@ -104,7 +104,7 @@ class Pipeline:
                     logger.warning(f"数据源 {source.__class__.__name__} 获取 {data_type} 失败: {e}")
             return data_type, None
 
-        with ThreadPoolExecutor(max_workers=5) as executor:
+        with ThreadPoolExecutor(max_workers=3) as executor:
             futures = {executor.submit(fetch_one, dt): dt for dt in types_to_fetch}
             for future in as_completed(futures):
                 data_type, result = future.result()

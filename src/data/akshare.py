@@ -5,8 +5,29 @@ import akshare as ak
 from data.base import DataSource
 from data.schemas import PriceData, FinancialData, ValuationData, IndustryData, NewsData
 from utils.numbers import parse_cn_number
+from utils.retry import retry_on_network_error
 
 logger = logging.getLogger(__name__)
+
+
+@retry_on_network_error()
+def _ak_hist(**kwargs):
+    return ak.stock_zh_a_hist(**kwargs)
+
+
+@retry_on_network_error()
+def _ak_spot_em():
+    return ak.stock_zh_a_spot_em()
+
+
+@retry_on_network_error()
+def _ak_industry_name():
+    return ak.stock_board_industry_name_em()
+
+
+@retry_on_network_error()
+def _ak_news(symbol):
+    return ak.stock_news_em(symbol=symbol)
 
 
 class AkShareAdapter(DataSource):
@@ -33,7 +54,7 @@ class AkShareAdapter(DataSource):
         days = kwargs.get("days", 365)
         end_date = date.today().strftime("%Y%m%d")
         start_date = (date.today() - timedelta(days=days)).strftime("%Y%m%d")
-        df = ak.stock_zh_a_hist(
+        df = _ak_hist(
             symbol=symbol, period="daily",
             start_date=start_date, end_date=end_date, adjust="qfq"
         )
@@ -96,7 +117,7 @@ class AkShareAdapter(DataSource):
 
     def _fetch_valuation(self, symbol: str, **kwargs) -> list[ValuationData]:
         try:
-            df = ak.stock_zh_a_spot_em()
+            df = _ak_spot_em()
             row = df[df["代码"] == symbol]
             pe_ttm = float(row["市盈率-动态"].iloc[0]) if not row.empty and row["市盈率-动态"].iloc[0] != "-" else None
             pb = float(row["市净率"].iloc[0]) if not row.empty and row["市净率"].iloc[0] != "-" else None
@@ -107,7 +128,7 @@ class AkShareAdapter(DataSource):
 
     def _fetch_industry(self, symbol: str, **kwargs) -> list[IndustryData]:
         try:
-            df = ak.stock_board_industry_name_em()
+            df = _ak_industry_name()
             industry = ""
             for _, row in df.iterrows():
                 industry = str(row.get("板块名称", ""))
@@ -119,7 +140,7 @@ class AkShareAdapter(DataSource):
 
     def _fetch_news(self, symbol: str, **kwargs) -> list[NewsData]:
         try:
-            df = ak.stock_news_em(symbol=symbol)
+            df = _ak_news(symbol)
             headlines = []
             for _, row in df.head(10).iterrows():
                 title = str(row.get("标题", "") or row.get("title", ""))

@@ -1,4 +1,5 @@
 from datetime import date
+from http.client import RemoteDisconnected
 import pandas as pd
 import pytest
 from data.akshare import AkShareAdapter
@@ -79,3 +80,23 @@ def test_fetch_financial_unparseable_becomes_none(mocker):
     assert results[0].revenue is None
     assert results[0].net_profit == pytest.approx(8.5e8)
     assert results[0].roe == pytest.approx(8.5e8 / 45e8)
+
+
+def test_fetch_price_retries_on_network_error(mocker):
+    mocker.patch("utils.retry.time.sleep")
+    calls = {"n": 0}
+
+    def flaky(**kwargs):
+        calls["n"] += 1
+        if calls["n"] < 2:
+            raise RemoteDisconnected("boom")
+        return pd.DataFrame([
+            {"日期": "2026-07-01", "开盘": "10.0", "最高": "11.0",
+             "最低": "9.5", "收盘": "10.5", "成交量": 1000000},
+        ])
+
+    mocker.patch("akshare.stock_zh_a_hist", side_effect=flaky)
+    adapter = AkShareAdapter()
+    results = adapter.fetch("000001", data_type="price")
+    assert calls["n"] == 2  # 第一次失败被重试
+    assert len(results) == 1
