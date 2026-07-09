@@ -7,11 +7,11 @@ class FinancialData(BaseModel):
     """单期财务数据"""
     symbol: str
     fiscal_quarter: date
-    revenue: float
-    net_profit: float
-    total_assets: float
-    total_equity: float
-    operating_cash_flow: float
+    revenue: float | None = None
+    net_profit: float | None = None
+    total_assets: float | None = None
+    total_equity: float | None = None
+    operating_cash_flow: float | None = None
     roe: float | None = None
     gross_margin: float | None = None
 

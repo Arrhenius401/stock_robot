@@ -46,6 +46,20 @@ class TestFinancialData:
         with pytest.raises(ValidationError):
             FinancialData(symbol="000001")
 
+    def test_financial_data_allows_none_numeric_fields(self):
+        fd = FinancialData(
+            symbol="600350",
+            fiscal_quarter=date(2025, 12, 31),
+            revenue=None,
+            net_profit=None,
+            total_assets=None,
+            total_equity=None,
+            operating_cash_flow=None,
+        )
+        assert fd.revenue is None
+        assert fd.net_profit is None
+        assert fd.total_equity is None
+
 
 class TestPriceData:
     def test_valid_price_data(self):
