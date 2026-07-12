@@ -1,25 +1,25 @@
 你是资深投资分析师。请基于以下各维度分析，为 {{ name }}（{{ symbol }}）撰写综合总结。
 
+{% set dims = [("financial","财务"),("technical","技术面"),("valuation","估值"),("industry","行业"),("sentiment","舆情")] %}
+已覆盖维度：{% for k, label in dims %}{% if commentary.get(k) %}{{ label }} {% endif %}{% endfor %}
+缺失维度：{% for k, label in dims %}{% if not commentary.get(k) %}{{ label }} {% endif %}{% endfor %}
+
 {% if commentary.get("financial") %}
 ## 财务分析
 {{ commentary["financial"] }}
 {% endif %}
-
 {% if commentary.get("technical") %}
 ## 技术面分析
 {{ commentary["technical"] }}
 {% endif %}
-
 {% if commentary.get("valuation") %}
 ## 估值分析
 {{ commentary["valuation"] }}
 {% endif %}
-
 {% if commentary.get("industry") %}
 ## 行业分析
 {{ commentary["industry"] }}
 {% endif %}
-
 {% if commentary.get("sentiment") %}
 ## 舆情分析
 {{ commentary["sentiment"] }}
@@ -31,4 +31,4 @@
 3. 主要风险
 4. 需要关注的关键指标
 
-用中文输出，300 字以内。
+约束：仅基于上方各维度解读撰写，不得引入未提供的数据或杜撰具体数字；对"缺失维度"不做臆测，如整体信息不足请直言"数据不足，结论仅供参考"。用中文输出，300 字以内。
