@@ -1,26 +1,20 @@
-你是一位资深股票分析师。请基于以下财务数据，对 {{ name }}（{{ symbol }}）进行深度分析。
+你是一位资深股票分析师。请基于以下技术指标，对 {{ name }}（{{ symbol }}）进行技术面分析。
 
-## 最新财务数据（{{ latest_quarter }}）
-
+## 技术指标
 | 指标 | 数值 |
 |------|------|
-| 营业收入 | {{ "%.2f"|format(revenue/1e8) }} 亿元 |
-| 净利润 | {{ "%.2f"|format(net_profit/1e8) }} 亿元 |
-| ROE | {% if roe %}{{ "%.2f"|format(roe*100) }}%{% else %}暂无{% endif %} |
-{% if revenue_growth_yoy is defined and revenue_growth_yoy is not none %}| 营收同比 | {{ "%.1f"|format(revenue_growth_yoy*100) }}% |{% endif %}
-{% if profit_growth_yoy is defined and profit_growth_yoy is not none %}| 净利润同比 | {{ "%.1f"|format(profit_growth_yoy*100) }}% |{% endif %}
-
-{% if roe_trend is defined and roe_trend %}
-## ROE 趋势
-{% for item in roe_trend %}
-- {{ item.quarter }}: {{ "%.2f"|format(item.roe*100) }}%
-{% endfor %}
+{% if latest_close is defined and latest_close is not none %}| 最新收盘价 | {{ "%.2f"|format(latest_close) }} |
+{% endif %}{% if ma5 is defined and ma5 is not none %}| MA5 | {{ "%.2f"|format(ma5) }} |
+{% endif %}{% if ma20 is defined and ma20 is not none %}| MA20 | {{ "%.2f"|format(ma20) }} |
+{% endif %}{% if ma60 is defined and ma60 is not none %}| MA60 | {{ "%.2f"|format(ma60) }} |
+{% endif %}{% if price_vs_ma20 is defined and price_vs_ma20 is not none %}| 价格相对 MA20 | {{ "%.2f"|format(price_vs_ma20) }}% |
+{% endif %}{% if volume_ratio is defined and volume_ratio is not none %}| 量比 | {{ "%.2f"|format(volume_ratio) }} |
+{% endif %}{% if macd_bar is defined and macd_bar is not none %}| MACD 柱 | {{ "%.4f"|format(macd_bar) }} |
 {% endif %}
-
 请从以下角度分析：
-1. 营收和利润的增长趋势及驱动因素推断
-2. ROE 水平评估（杜邦分析视角）
-3. 盈利质量（经营现金流与净利润匹配度）
-4. 需要关注的风险信号
+1. 均线系统的多空排列与趋势
+2. 价格相对关键均线的位置
+3. 量能与量比反映的资金动向
+4. MACD 金叉/死叉信号
 
-请用中文输出详细分析，控制在 400 字以内。
+仅基于以上给出的数据分析，不得编造未提供的数字；若数据不足以支撑某项判断，请明确指出。请用中文输出，控制在 400 字以内。

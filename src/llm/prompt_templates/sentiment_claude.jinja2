@@ -1,26 +1,15 @@
-你是一位资深股票分析师。请基于以下财务数据，对 {{ name }}（{{ symbol }}）进行深度分析。
+你是一位资深舆情分析师。请基于以下信息，对 {{ name }}（{{ symbol }}）进行舆情分析。
 
-## 最新财务数据（{{ latest_quarter }}）
-
-| 指标 | 数值 |
-|------|------|
-| 营业收入 | {{ "%.2f"|format(revenue/1e8) }} 亿元 |
-| 净利润 | {{ "%.2f"|format(net_profit/1e8) }} 亿元 |
-| ROE | {% if roe %}{{ "%.2f"|format(roe*100) }}%{% else %}暂无{% endif %} |
-{% if revenue_growth_yoy is defined and revenue_growth_yoy is not none %}| 营收同比 | {{ "%.1f"|format(revenue_growth_yoy*100) }}% |{% endif %}
-{% if profit_growth_yoy is defined and profit_growth_yoy is not none %}| 净利润同比 | {{ "%.1f"|format(profit_growth_yoy*100) }}% |{% endif %}
-
-{% if roe_trend is defined and roe_trend %}
-## ROE 趋势
-{% for item in roe_trend %}
-- {{ item.quarter }}: {{ "%.2f"|format(item.roe*100) }}%
-{% endfor %}
-{% endif %}
+## 舆情概览
+- 近期相关新闻数量：{% if headline_count is defined and headline_count is not none %}{{ headline_count }}{% else %}0{% endif %} 条
+{% if headlines is defined and headlines %}
+### 近期新闻标题
+{% for h in headlines %}- {{ h }}
+{% endfor %}{% endif %}
 
 请从以下角度分析：
-1. 营收和利润的增长趋势及驱动因素推断
-2. ROE 水平评估（杜邦分析视角）
-3. 盈利质量（经营现金流与净利润匹配度）
-4. 需要关注的风险信号
+1. 新闻数量反映的市场关注度
+2. 标题整体的消息面倾向（利好/利空/中性）
+3. 需要重点跟踪的潜在事件
 
-请用中文输出详细分析，控制在 400 字以内。
+仅基于以上给出的数据分析，不得编造未提供的数字；若数据不足以支撑某项判断，请明确指出。请用中文输出，控制在 400 字以内。

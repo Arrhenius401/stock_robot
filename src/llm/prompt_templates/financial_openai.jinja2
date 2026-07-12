@@ -1,8 +1,8 @@
 你是专业的股票分析师。请基于以下财务数据，对 {{ name }}（{{ symbol }}）进行简洁的分析。
 
 最新季度（{{ latest_quarter }}）：
-- 营收：{{ "%.2f"|format(revenue/1e8) }} 亿元
-- 净利润：{{ "%.2f"|format(net_profit/1e8) }} 亿元
+- 营收：{% if revenue is defined and revenue is not none %}{{ "%.2f"|format(revenue/1e8) }} 亿元{% else %}暂无{% endif %}
+- 净利润：{% if net_profit is defined and net_profit is not none %}{{ "%.2f"|format(net_profit/1e8) }} 亿元{% else %}暂无{% endif %}
 - ROE：{% if roe %}{{ "%.2f"|format(roe*100) }}%{% else %}暂无{% endif %}
 {% if revenue_growth_yoy is defined and revenue_growth_yoy is not none %}
 - 营收同比增长：{{ "%.1f"|format(revenue_growth_yoy*100) }}%
@@ -11,4 +11,4 @@
 - 净利润同比增长：{{ "%.1f"|format(profit_growth_yoy*100) }}%
 {% endif %}
 
-请分析：营收利润趋势、ROE水平、盈利质量。用中文输出，300字以内。
+请分析：营收利润趋势、ROE水平、盈利质量。仅基于以上给出的数据分析，不得编造未提供的数字；若数据不足以支撑某项判断，请明确指出。用中文输出，300字以内。

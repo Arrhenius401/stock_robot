@@ -4,8 +4,8 @@
 
 | 指标 | 数值 |
 |------|------|
-| 营业收入 | {{ "%.2f"|format(revenue/1e8) }} 亿元 |
-| 净利润 | {{ "%.2f"|format(net_profit/1e8) }} 亿元 |
+| 营业收入 | {% if revenue is defined and revenue is not none %}{{ "%.2f"|format(revenue/1e8) }} 亿元{% else %}暂无{% endif %} |
+| 净利润 | {% if net_profit is defined and net_profit is not none %}{{ "%.2f"|format(net_profit/1e8) }} 亿元{% else %}暂无{% endif %} |
 | ROE | {% if roe %}{{ "%.2f"|format(roe*100) }}%{% else %}暂无{% endif %} |
 {% if revenue_growth_yoy is defined and revenue_growth_yoy is not none %}| 营收同比 | {{ "%.1f"|format(revenue_growth_yoy*100) }}% |{% endif %}
 {% if profit_growth_yoy is defined and profit_growth_yoy is not none %}| 净利润同比 | {{ "%.1f"|format(profit_growth_yoy*100) }}% |{% endif %}
@@ -23,4 +23,4 @@
 3. 盈利质量（经营现金流与净利润匹配度）
 4. 需要关注的风险信号
 
-请用中文输出详细分析，控制在 400 字以内。
+仅基于以上给出的数据分析，不得编造未提供的数字；若数据不足以支撑某项判断，请明确指出。请用中文输出详细分析，控制在 400 字以内。

@@ -1,14 +1,12 @@
-你是专业的股票分析师。请基于以下财务数据，对 {{ name }}（{{ symbol }}）进行简洁的分析。
+你是专业的股票分析师。请基于以下技术指标，对 {{ name }}（{{ symbol }}）进行简洁的技术面分析。
 
-最新季度（{{ latest_quarter }}）：
-- 营收：{{ "%.2f"|format(revenue/1e8) }} 亿元
-- 净利润：{{ "%.2f"|format(net_profit/1e8) }} 亿元
-- ROE：{% if roe %}{{ "%.2f"|format(roe*100) }}%{% else %}暂无{% endif %}
-{% if revenue_growth_yoy is defined and revenue_growth_yoy is not none %}
-- 营收同比增长：{{ "%.1f"|format(revenue_growth_yoy*100) }}%
-{% endif %}
-{% if profit_growth_yoy is defined and profit_growth_yoy is not none %}
-- 净利润同比增长：{{ "%.1f"|format(profit_growth_yoy*100) }}%
-{% endif %}
+{% if latest_close is defined and latest_close is not none %}- 最新收盘价：{{ "%.2f"|format(latest_close) }}{% endif %}
+{% if ma5 is defined and ma5 is not none %}- MA5：{{ "%.2f"|format(ma5) }}{% endif %}
+{% if ma10 is defined and ma10 is not none %}- MA10：{{ "%.2f"|format(ma10) }}{% endif %}
+{% if ma20 is defined and ma20 is not none %}- MA20：{{ "%.2f"|format(ma20) }}{% endif %}
+{% if ma60 is defined and ma60 is not none %}- MA60：{{ "%.2f"|format(ma60) }}{% endif %}
+{% if price_vs_ma20 is defined and price_vs_ma20 is not none %}- 价格相对 MA20：{{ "%.2f"|format(price_vs_ma20) }}%{% endif %}
+{% if volume_ratio is defined and volume_ratio is not none %}- 量比（近5日/前20日）：{{ "%.2f"|format(volume_ratio) }}{% endif %}
+{% if macd_dif is defined and macd_dif is not none %}- MACD：DIF {{ "%.4f"|format(macd_dif) }}，DEA {{ "%.4f"|format(macd_dea) }}，柱 {{ "%.4f"|format(macd_bar) }}{% endif %}
 
-请分析：营收利润趋势、ROE水平、盈利质量。用中文输出，300字以内。
+请分析：均线多空排列、价格与均线关系、量能变化、MACD 信号。仅基于以上给出的数据分析，不得编造未提供的数字；若数据不足以支撑某项判断，请明确指出。用中文输出，300 字以内。
