@@ -34,3 +34,18 @@ class TestFinancialAnalyzer:
         ])
         result = FinancialAnalyzer().analyze(ctx)
         assert result.status == "partial"
+
+    def test_analyze_tolerates_none_revenue(self):
+        financials = [
+            FinancialData(symbol="600350", fiscal_quarter=date(2025, 12, 31),
+                          revenue=None, net_profit=8.5e8, total_assets=None,
+                          total_equity=45e8, operating_cash_flow=None, roe=0.18),
+            FinancialData(symbol="600350", fiscal_quarter=date(2024, 12, 31),
+                          revenue=None, net_profit=7.0e8, total_assets=None,
+                          total_equity=43e8, operating_cash_flow=None, roe=0.16),
+        ]
+        ctx = AnalysisContext(symbol="600350", name="山东高速", financial_data=financials)
+        result = FinancialAnalyzer().analyze(ctx)
+        assert result.status in ("ok", "partial")
+        assert "revenue_growth_yoy" not in result.metrics
+        assert "profit_growth_yoy" in result.metrics

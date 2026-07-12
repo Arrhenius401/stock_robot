@@ -30,9 +30,11 @@ class FinancialAnalyzer(AnalysisModule):
 
         if len(sorted_data) >= 2:
             prev_year = sorted_data[-1] if len(sorted_data) >= 5 else sorted_data[1]
-            if prev_year.revenue > 0:
+            if (latest.revenue is not None and prev_year.revenue is not None
+                    and prev_year.revenue > 0):
                 metrics["revenue_growth_yoy"] = round((latest.revenue - prev_year.revenue) / prev_year.revenue, 4)
-            if prev_year.net_profit > 0:
+            if (latest.net_profit is not None and prev_year.net_profit is not None
+                    and prev_year.net_profit > 0):
                 metrics["profit_growth_yoy"] = round((latest.net_profit - prev_year.net_profit) / prev_year.net_profit, 4)
 
         roe_trend = []
