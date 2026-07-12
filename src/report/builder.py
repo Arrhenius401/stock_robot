@@ -8,7 +8,11 @@ from data.schemas import AnalysisResult
 class ReportBuilder:
     def __init__(self):
         template_dir = Path(__file__).parent / "templates"
-        self._env = Environment(loader=FileSystemLoader(str(template_dir)))
+        self._env = Environment(
+            loader=FileSystemLoader(str(template_dir)),
+            trim_blocks=True,
+            lstrip_blocks=True,
+        )
 
     def build(self, symbol: str, name: str, results: list[AnalysisResult],
               commentary: dict[str, str]) -> str:

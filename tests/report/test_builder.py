@@ -62,3 +62,12 @@ class TestReportBuilder:
         report = builder.build("000001", "测试", [], {})
         now = datetime.now()
         assert str(now.year) in report
+
+    def test_table_header_and_rows_are_contiguous(self):
+        results = [
+            AnalysisResult(dimension="valuation", status="partial", summary="",
+                           metrics={"pe_ttm": 7.5, "pb": 0.85, "ps_ttm": 1.2}),
+        ]
+        report = ReportBuilder().build("600350", "山东高速", results, commentary={})
+        # 表头、分隔线、首行之间无空行，Markdown 表格才能正确渲染
+        assert "| 指标 | 数值 |\n|------|------|\n| pe_ttm | 7.5 |" in report
