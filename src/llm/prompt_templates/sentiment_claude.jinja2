@@ -1,7 +1,7 @@
 你是一位资深舆情分析师。请基于以下信息，对 {{ name }}（{{ symbol }}）进行舆情分析。
 
 ## 舆情概览
-- 近期相关新闻数量：{% if headline_count is defined and headline_count is not none %}{{ headline_count }}{% else %}0{% endif %} 条
+- 近期相关新闻数量：{% if headline_count is defined and headline_count is not none %}{{ headline_count }}{% else %}暂无{% endif %} 条
 {% if headlines is defined and headlines %}
 ### 近期新闻标题
 {% for h in headlines %}- {{ h }}

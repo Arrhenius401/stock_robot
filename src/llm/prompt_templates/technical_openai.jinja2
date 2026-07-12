@@ -7,6 +7,6 @@
 {% if ma60 is defined and ma60 is not none %}- MA60：{{ "%.2f"|format(ma60) }}{% endif %}
 {% if price_vs_ma20 is defined and price_vs_ma20 is not none %}- 价格相对 MA20：{{ "%.2f"|format(price_vs_ma20) }}%{% endif %}
 {% if volume_ratio is defined and volume_ratio is not none %}- 量比（近5日/前20日）：{{ "%.2f"|format(volume_ratio) }}{% endif %}
-{% if macd_dif is defined and macd_dif is not none %}- MACD：DIF {{ "%.4f"|format(macd_dif) }}，DEA {{ "%.4f"|format(macd_dea) }}，柱 {{ "%.4f"|format(macd_bar) }}{% endif %}
+{% if macd_dif is defined and macd_dif is not none %}- MACD：DIF {{ "%.4f"|format(macd_dif) }}{% if macd_dea is defined and macd_dea is not none %}，DEA {{ "%.4f"|format(macd_dea) }}{% endif %}{% if macd_bar is defined and macd_bar is not none %}，柱 {{ "%.4f"|format(macd_bar) }}{% endif %}{% endif %}
 
 请分析：均线多空排列、价格与均线关系、量能变化、MACD 信号。仅基于以上给出的数据分析，不得编造未提供的数字；若数据不足以支撑某项判断，请明确指出。用中文输出，300 字以内。

@@ -3,7 +3,7 @@
 最新季度（{{ latest_quarter }}）：
 - 营收：{% if revenue is defined and revenue is not none %}{{ "%.2f"|format(revenue/1e8) }} 亿元{% else %}暂无{% endif %}
 - 净利润：{% if net_profit is defined and net_profit is not none %}{{ "%.2f"|format(net_profit/1e8) }} 亿元{% else %}暂无{% endif %}
-- ROE：{% if roe %}{{ "%.2f"|format(roe*100) }}%{% else %}暂无{% endif %}
+- ROE：{% if roe is not none %}{{ "%.2f"|format(roe*100) }}%{% else %}暂无{% endif %}
 {% if revenue_growth_yoy is defined and revenue_growth_yoy is not none %}
 - 营收同比增长：{{ "%.1f"|format(revenue_growth_yoy*100) }}%
 {% endif %}
