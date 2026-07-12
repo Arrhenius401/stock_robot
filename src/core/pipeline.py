@@ -174,6 +174,14 @@ class Pipeline:
             completed = 0
 
             for result in results:
+                if result.status == "unavailable" or not result.metrics:
+                    commentary[result.dimension] = ""
+                    completed += 1
+                    if on_progress:
+                        on_progress("llm", completed, total,
+                                   DIMENSION_LLM_LABELS.get(result.dimension, result.dimension))
+                    continue
+
                 template_name = f"{result.dimension}_{provider}.jinja2"
                 try:
                     template = env.get_template(template_name)
@@ -187,14 +195,18 @@ class Pipeline:
                     on_progress("llm", completed, total,
                                DIMENSION_LLM_LABELS.get(result.dimension, result.dimension))
 
-            # 综合总结
-            summary_template_name = f"summary_{provider}.jinja2"
-            try:
-                template = env.get_template(summary_template_name)
-                prompt = template.render(name=name, symbol=symbol, commentary=commentary)
-                commentary["summary"] = llm.generate(prompt)
-            except Exception as e:
-                logger.warning(f"生成综合总结失败: {e}")
+            # 综合总结：仅当至少一个维度有真实解读时才生成
+            has_any = any(commentary.get(r.dimension) for r in results)
+            if has_any:
+                summary_template_name = f"summary_{provider}.jinja2"
+                try:
+                    template = env.get_template(summary_template_name)
+                    prompt = template.render(name=name, symbol=symbol, commentary=commentary)
+                    commentary["summary"] = llm.generate(prompt)
+                except Exception as e:
+                    logger.warning(f"生成综合总结失败: {e}")
+                    commentary["summary"] = ""
+            else:
                 commentary["summary"] = ""
             completed += 1
             if on_progress:

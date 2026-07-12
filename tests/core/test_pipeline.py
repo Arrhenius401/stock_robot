@@ -7,6 +7,7 @@ from data.schemas import (
     ValuationData, IndustryData, NewsData,
 )
 from data.base import DataSource
+from llm.base import LLMBackend
 
 
 def make_test_registry():
@@ -133,3 +134,55 @@ class TestPipelineProgress:
         assert collect_calls[0][1:3] == (1, 1)
         assert len(analyze_calls) == 1
         assert analyze_calls[0][1:3] == (1, 1)
+
+
+class CountingLLM(LLMBackend):
+    def __init__(self):
+        self.calls = []
+
+    @property
+    def model_name(self):
+        return "fake"
+
+    def generate(self, prompt, **kwargs):
+        self.calls.append(prompt)
+        return "MOCK解读"
+
+
+def _make_hermetic_pipeline(reg, llm, provider="openai"):
+    """创建隔离的 Pipeline，避免受本地 ~/.stock_robot/config.yaml 影响"""
+    from utils.config import Config
+    reg.register_llm_backend(llm, provider=provider)
+    # 强制使用 openai provider，覆盖本地配置
+    cfg = Config()
+    cfg.data["llm"]["provider"] = provider
+    return Pipeline(registry=reg, config=cfg)
+
+
+class TestGenerateCommentaryGuards:
+    def test_skips_unavailable_dimensions(self):
+        reg = Registry()
+        llm = CountingLLM()
+        pipeline = _make_hermetic_pipeline(reg, llm, "openai")
+        results = [
+            AnalysisResult(dimension="valuation", status="partial", summary="",
+                           metrics={"pe_ttm": 7.5, "pb": 0.85, "ps_ttm": 1.2}),
+            AnalysisResult(dimension="financial", status="unavailable",
+                           summary="财务数据不可用", metrics={}),
+        ]
+        commentary = pipeline._generate_commentary("600350", "山东高速", results)
+        assert commentary["financial"] == ""            # 跳过 LLM
+        assert commentary["valuation"] == "MOCK解读"
+        assert len(llm.calls) == 2                        # 1 维度 + 1 总结
+
+    def test_skips_summary_when_all_unavailable(self):
+        reg = Registry()
+        llm = CountingLLM()
+        pipeline = _make_hermetic_pipeline(reg, llm, "openai")
+        results = [
+            AnalysisResult(dimension="financial", status="unavailable", summary="x", metrics={}),
+            AnalysisResult(dimension="technical", status="unavailable", summary="x", metrics={}),
+        ]
+        commentary = pipeline._generate_commentary("600350", "山东高速", results)
+        assert commentary.get("summary", "") == ""
+        assert len(llm.calls) == 0                        # 完全不调用 LLM
