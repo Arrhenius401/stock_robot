@@ -3,6 +3,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import logging
+import time
 from datetime import date
 from pathlib import Path
 from data.schemas import AnalysisContext, AnalysisResult
@@ -93,6 +94,7 @@ class Pipeline:
                 if cached is not None:
                     return data_type, cached
 
+            time.sleep(0.3)  # 错峰请求，减轻上游瞬时压力
             sources = self._registry.get_data_sources(market, data_type)
             for source in sources:
                 try:
