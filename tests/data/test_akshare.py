@@ -140,3 +140,38 @@ def test_fetch_valuation_uses_new_endpoint_first(mocker):
     assert len(results) == 1
     assert results[0].pe_ttm == 7.5
     assert results[0].pb == 0.85
+
+
+def test_fetch_industry_falls_back_to_old_endpoint(mocker):
+    """新端点失败时回退旧端点"""
+    mocker.patch(
+        "akshare.stock_individual_info_em",
+        side_effect=RemoteDisconnected("boom"),
+    )
+    mocker.patch(
+        "akshare.stock_board_industry_name_em",
+        return_value=pd.DataFrame({"板块名称": ["银行", "保险", "证券"]}),
+    )
+    mocker.patch("utils.retry.time.sleep")
+
+    adapter = AkShareAdapter()
+    results = adapter.fetch("000001", data_type="industry")
+    assert len(results) == 1
+    assert results[0].industry in ("银行", "保险", "证券")
+
+
+def test_fetch_industry_uses_new_endpoint_first(mocker):
+    """新端点返回含行业字段时正确提取"""
+    mocker.patch(
+        "akshare.stock_individual_info_em",
+        return_value=pd.DataFrame({
+            "item": ["行业", "上市时间"],
+            "value": ["银行", "1991-04-03"],
+        }),
+    )
+    mocker.patch("utils.retry.time.sleep")
+
+    adapter = AkShareAdapter()
+    results = adapter.fetch("000001", data_type="industry")
+    assert len(results) == 1
+    assert results[0].industry == "银行"

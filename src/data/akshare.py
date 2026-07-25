@@ -26,6 +26,12 @@ def _ak_industry_name():
 
 
 @retry_on_network_error()
+def _ak_individual_info_em(symbol):
+    """单只股票基本信息接口（轻量，含行业字段）"""
+    return ak.stock_individual_info_em(symbol=symbol)
+
+
+@retry_on_network_error()
 def _ak_news(symbol):
     return ak.stock_news_em(symbol=symbol)
 
@@ -155,16 +161,29 @@ class AkShareAdapter(DataSource):
         return [ValuationData(symbol=symbol, date=date.today(), pe_ttm=pe_ttm, pb=pb, ps_ttm=None)]
 
     def _fetch_industry(self, symbol: str, **kwargs) -> list[IndustryData]:
+        industry = ""
+
+        # 优先：单只股票轻量接口
         try:
-            df = _ak_industry_name()
-            industry = ""
-            for _, row in df.iterrows():
-                industry = str(row.get("板块名称", ""))
-                break
-            return [IndustryData(symbol=symbol, industry=industry or "未知", sector="", peers=[])]
-        except Exception as e:
-            logger.warning(f"行业数据获取失败: {e}")
-            return [IndustryData(symbol=symbol, industry="未知", sector="", peers=[])]
+            df = _ak_individual_info_em(symbol)
+            if "item" in df.columns and "value" in df.columns:
+                ind_row = df[df["item"].str.contains("行业", na=False)]
+                if not ind_row.empty:
+                    industry = str(ind_row["value"].iloc[0])
+        except Exception:
+            pass
+
+        # 回退：旧板块列表接口
+        if not industry:
+            try:
+                df = _ak_industry_name()
+                for _, row in df.iterrows():
+                    industry = str(row.get("板块名称", ""))
+                    break
+            except Exception:
+                pass
+
+        return [IndustryData(symbol=symbol, industry=industry or "未知", sector="", peers=[])]
 
     def _fetch_news(self, symbol: str, **kwargs) -> list[NewsData]:
         try:
