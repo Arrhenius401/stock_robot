@@ -2,7 +2,15 @@
 import re
 import logging
 
+from utils.retry import retry_on_network_error
+
 logger = logging.getLogger(__name__)
+
+
+@retry_on_network_error()
+def _ak_code_name():
+    import akshare as ak
+    return ak.stock_info_a_code_name()
 
 
 def _extract_prefix_and_digits(raw: str) -> tuple[str, str]:
@@ -50,8 +58,7 @@ def validate_symbol(symbol: str) -> bool:
 def resolve_name(symbol: str) -> str:
     """解析股票代码对应的公司名称"""
     try:
-        import akshare as ak
-        df = ak.stock_info_a_code_name()
+        df = _ak_code_name()
         row = df[df["code"] == normalize_symbol(symbol)]
         if not row.empty:
             return str(row["name"].iloc[0])

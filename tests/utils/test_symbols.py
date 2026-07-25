@@ -1,3 +1,5 @@
+from http.client import RemoteDisconnected
+
 from utils.symbols import normalize_symbol, validate_symbol, resolve_name
 
 
@@ -46,3 +48,23 @@ class TestValidateSymbol:
     def test_invalid_prefix_mismatch_sz_on_sh_code(self):
         """sz 前缀不能用于上交所代码"""
         assert validate_symbol("sz600036") is False
+
+
+def test_resolve_name_retries_on_network_error(mocker):
+    mocker.patch("utils.retry.time.sleep")
+    calls = {"n": 0}
+
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise RemoteDisconnected("boom")
+        import pandas as pd
+        return pd.DataFrame([
+            {"code": "000001", "name": "平安银行"},
+            {"code": "600036", "name": "招商银行"},
+        ])
+
+    mocker.patch("akshare.stock_info_a_code_name", side_effect=flaky)
+    name = resolve_name("000001")
+    assert calls["n"] == 3
+    assert name == "平安银行"
