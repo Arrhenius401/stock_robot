@@ -100,3 +100,43 @@ def test_fetch_price_retries_on_network_error(mocker):
     results = adapter.fetch("000001", data_type="price")
     assert calls["n"] == 2  # 第一次失败被重试
     assert len(results) == 1
+
+
+def test_fetch_valuation_falls_back_to_old_endpoint(mocker):
+    """新端点失败时回退旧端点"""
+    mocker.patch(
+        "akshare.stock_individual_spot_xq",
+        side_effect=RemoteDisconnected("boom"),
+    )
+    mocker.patch(
+        "akshare.stock_zh_a_spot_em",
+        return_value=pd.DataFrame([
+            {"代码": "000001", "市盈率-动态": 7.5, "市净率": 0.85},
+            {"代码": "600036", "市盈率-动态": 6.2, "市净率": 0.72},
+        ]),
+    )
+    mocker.patch("utils.retry.time.sleep")
+
+    adapter = AkShareAdapter()
+    results = adapter.fetch("000001", data_type="valuation")
+    assert len(results) == 1
+    assert results[0].pe_ttm == 7.5
+    assert results[0].pb == 0.85
+
+
+def test_fetch_valuation_uses_new_endpoint_first(mocker):
+    """新端点成功时使用新端点数据"""
+    mocker.patch(
+        "akshare.stock_individual_spot_xq",
+        return_value=pd.DataFrame({
+            "item": ["市盈率(动)", "市净率"],
+            "value": [7.5, 0.85],
+        }),
+    )
+    mocker.patch("utils.retry.time.sleep")
+
+    adapter = AkShareAdapter()
+    results = adapter.fetch("000001", data_type="valuation")
+    assert len(results) == 1
+    assert results[0].pe_ttm == 7.5
+    assert results[0].pb == 0.85

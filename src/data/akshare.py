@@ -30,6 +30,17 @@ def _ak_news(symbol):
     return ak.stock_news_em(symbol=symbol)
 
 
+@retry_on_network_error()
+def _ak_individual_spot_xq(symbol):
+    """单只股票行情接口（雪球，轻量，替代全市场扫描）"""
+    # 雪球 symbol 格式: SH600000 / SZ000001
+    if symbol.startswith("6"):
+        xq_symbol = f"SH{symbol}"
+    else:
+        xq_symbol = f"SZ{symbol}"
+    return ak.stock_individual_spot_xq(symbol=xq_symbol)
+
+
 class AkShareAdapter(DataSource):
     """AkShare 数据源适配器 — 支持 A 股全部数据类型"""
 
@@ -116,13 +127,30 @@ class AkShareAdapter(DataSource):
         return results
 
     def _fetch_valuation(self, symbol: str, **kwargs) -> list[ValuationData]:
+        pe_ttm, pb = None, None
+
+        # 优先：单只股票轻量接口（雪球）
         try:
-            df = _ak_spot_em()
-            row = df[df["代码"] == symbol]
-            pe_ttm = float(row["市盈率-动态"].iloc[0]) if not row.empty and row["市盈率-动态"].iloc[0] != "-" else None
-            pb = float(row["市净率"].iloc[0]) if not row.empty and row["市净率"].iloc[0] != "-" else None
+            df = _ak_individual_spot_xq(symbol)
+            if "item" in df.columns and "value" in df.columns:
+                pe_row = df[df["item"] == "市盈率(动)"]
+                pb_row = df[df["item"] == "市净率"]
+                if not pe_row.empty:
+                    pe_ttm = parse_cn_number(pe_row["value"].iloc[0])
+                if not pb_row.empty:
+                    pb = parse_cn_number(pb_row["value"].iloc[0])
         except Exception:
-            pe_ttm, pb = None, None
+            pass
+
+        # 回退：旧全市场接口
+        if pe_ttm is None and pb is None:
+            try:
+                df = _ak_spot_em()
+                row = df[df["代码"] == symbol]
+                pe_ttm = parse_cn_number(row["市盈率-动态"].iloc[0]) if not row.empty and row["市盈率-动态"].iloc[0] != "-" else None
+                pb = parse_cn_number(row["市净率"].iloc[0]) if not row.empty and row["市净率"].iloc[0] != "-" else None
+            except Exception:
+                pass
 
         return [ValuationData(symbol=symbol, date=date.today(), pe_ttm=pe_ttm, pb=pb, ps_ttm=None)]
 
