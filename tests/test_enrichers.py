@@ -11,6 +11,9 @@ from data.schemas import (
 from data.enrichers.price_enricher import PriceEnricher
 from data.enrichers.financial_enricher import FinancialEnricher
 from data.enrichers.valuation_enricher import ValuationEnricher
+from data.enrichers.industry_enricher import IndustryEnricher
+from data.enrichers.sentiment_enricher import SentimentEnricher
+from data.schemas import IndustryData, PeerBasicInfo, RawSentimentData, RawSentimentItem
 
 
 def make_price_data(n: int) -> list[PriceData]:
@@ -154,3 +157,69 @@ class TestValuationEnricher:
         assert ctx.enriched_valuation is not None
         assert len(ctx.enriched_valuation.daily_points) > 0
         assert ctx.enriched_valuation.pe_percentile is not None
+
+
+class TestIndustryEnricher:
+    def test_sufficient_with_5_peers(self):
+        top_peers = [
+            PeerBasicInfo(symbol=f"60000{i}", name=f"公司{i}", market_cap=1000e8)
+            for i in range(5)
+        ]
+        ind_data = IndustryData(symbol="000001", industry="银行", sector="金融",
+                                peers=[p.symbol for p in top_peers], top_peers=top_peers)
+        ctx = AnalysisContext(symbol="000001", name="测试", industry_data=ind_data)
+        ctx = PriceEnricher().enrich(ctx)
+        ctx = IndustryEnricher().enrich(ctx)
+        # 5 家同行 < 8，所以是 partial，不是 insufficient
+        assert ctx.sufficiency.industry.level != SufficiencyLevel.INSUFFICIENT
+        assert ctx.enriched_industry is not None
+        assert ctx.enriched_industry.peer_count == 5
+
+    def test_insufficient_no_industry(self):
+        ctx = AnalysisContext(symbol="000001", name="测试", industry_data=None)
+        ctx = PriceEnricher().enrich(ctx)
+        ctx = IndustryEnricher().enrich(ctx)
+        assert ctx.sufficiency.industry.level == SufficiencyLevel.INSUFFICIENT
+
+
+def make_raw_sentiment(n: int) -> RawSentimentData:
+    items = [
+        RawSentimentItem(
+            title=f"测试标题 {i}", source="news", publish_date=date.today(),
+            content=f"测试内容 {i}",
+        )
+        for i in range(n)
+    ]
+    return RawSentimentData(symbol="000001", fetch_date=date.today(), items=items)
+
+
+class TestSentimentEnricher:
+    def test_sufficient_10_plus(self):
+        ctx = AnalysisContext(symbol="000001", name="测试",
+                              raw_sentiment=make_raw_sentiment(15))
+        ctx = PriceEnricher().enrich(ctx)
+        ctx = SentimentEnricher().enrich(ctx)
+        assert ctx.sufficiency.sentiment.level == SufficiencyLevel.SUFFICIENT
+        assert ctx.sufficiency.sentiment.score_weight == 1.0
+
+    def test_partial_3_to_9(self):
+        ctx = AnalysisContext(symbol="000001", name="测试",
+                              raw_sentiment=make_raw_sentiment(5))
+        ctx = PriceEnricher().enrich(ctx)
+        ctx = SentimentEnricher().enrich(ctx)
+        assert ctx.sufficiency.sentiment.level == SufficiencyLevel.PARTIAL
+        assert ctx.sufficiency.sentiment.score_weight == 0.5
+
+    def test_insufficient_below_3(self):
+        ctx = AnalysisContext(symbol="000001", name="测试",
+                              raw_sentiment=make_raw_sentiment(1))
+        ctx = PriceEnricher().enrich(ctx)
+        ctx = SentimentEnricher().enrich(ctx)
+        assert ctx.sufficiency.sentiment.level == SufficiencyLevel.INSUFFICIENT
+        assert ctx.sufficiency.sentiment.score_weight == 0.0
+
+    def test_insufficient_no_data(self):
+        ctx = AnalysisContext(symbol="000001", name="测试", raw_sentiment=None)
+        ctx = PriceEnricher().enrich(ctx)
+        ctx = SentimentEnricher().enrich(ctx)
+        assert ctx.sufficiency.sentiment.level == SufficiencyLevel.INSUFFICIENT
