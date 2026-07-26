@@ -49,9 +49,10 @@ def test_fetch_financial_parses_chinese_units(mocker):
             "报告期": ["2025-12-31", "2025-09-30"],
             "营业总收入": ["3.54亿", "3.76亿"],
             "净利润": ["7217.13万", "2.08亿"],
-            "资产总计": ["1.2万亿", "1.1万亿"],
-            "股东权益合计": ["45亿", "44亿"],
-            "经营活动现金流量净额": ["12亿", "-3.5亿"],
+            "扣非净利润": ["7000万", "1.95亿"],
+            "净资产收益率": ["12.5", "11.8"],
+            "销售净利率": ["15.2", "14.8"],
+            "每股经营现金流": ["1.2", "-0.35"],
         })
     mocker.patch("akshare.stock_financial_abstract_ths", side_effect=_mock)
     adapter = AkShareAdapter()
@@ -59,8 +60,11 @@ def test_fetch_financial_parses_chinese_units(mocker):
     assert len(results) == 2  # 行不再被跳过
     assert results[0].revenue == pytest.approx(3.54e8)
     assert results[0].net_profit == pytest.approx(7.21713e7)
-    assert results[0].total_assets == pytest.approx(1.2e12)
-    assert results[1].operating_cash_flow == pytest.approx(-3.5e8)
+    assert results[0].deducted_net_profit == pytest.approx(7.0e7)
+    assert results[0].total_assets is None  # 此 API 不提供资产总计
+    assert results[0].roe == pytest.approx(0.125)  # 12.5% → 0.125
+    assert results[0].gross_margin == pytest.approx(0.152)  # 15.2% → 0.152（销售净利率）
+    assert results[1].operating_cash_flow == pytest.approx(-0.35)  # 每股经营现金流
 
 
 def test_fetch_financial_unparseable_becomes_none(mocker):
@@ -69,17 +73,19 @@ def test_fetch_financial_unparseable_becomes_none(mocker):
             "报告期": ["2025-12-31"],
             "营业总收入": ["--"],
             "净利润": ["8.5亿"],
-            "资产总计": ["500亿"],
-            "股东权益合计": ["45亿"],
-            "经营活动现金流量净额": ["12亿"],
+            "扣非净利润": ["8.0亿"],
+            "净资产收益率": ["15.8"],
+            "销售净利率": ["18.2"],
+            "每股经营现金流": ["1.5"],
         })
     mocker.patch("akshare.stock_financial_abstract_ths", side_effect=_mock)
     adapter = AkShareAdapter()
     results = adapter.fetch("600350", data_type="financial")
     assert len(results) == 1  # 缺一个字段不再整行丢弃
-    assert results[0].revenue is None
+    assert results[0].revenue is None  # "--" 无法解析
     assert results[0].net_profit == pytest.approx(8.5e8)
-    assert results[0].roe == pytest.approx(8.5e8 / 45e8)
+    assert results[0].total_assets is None  # 此 API 不提供资产总计
+    assert results[0].roe == pytest.approx(0.158)  # 15.8% → 0.158
 
 
 def test_fetch_price_retries_on_network_error(mocker):

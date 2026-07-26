@@ -103,11 +103,10 @@ class AkShareAdapter(DataSource):
         periods = df.get("报告期", [])
         revenues = df.get("营业总收入", [])
         profits = df.get("净利润", [])
-        assets = df.get("资产总计", [])
-        equities = df.get("股东权益合计", [])
-        cash_flows = df.get("经营活动现金流量净额", [])
-        deducted_profits = df.get("扣除非经常性损益后的净利润", [])
-        gross_margins = df.get("销售毛利率", [])
+        deducted_profits = df.get("扣非净利润", [])
+        roe_list = df.get("净资产收益率", [])  # ROE（%）
+        net_margins = df.get("销售净利率", [])  # 销售净利率（%）
+        cash_flow_per_share = df.get("每股经营现金流", [])
 
         for i in range(min(len(periods), 12)):
             try:
@@ -117,15 +116,20 @@ class AkShareAdapter(DataSource):
                 except ValueError:
                     fiscal_date = datetime.strptime(period_str, "%Y%m%d").date()
 
-                equity = parse_cn_number(equities[i]) if i < len(equities) else None
-                net_profit = parse_cn_number(profits[i]) if i < len(profits) else None
                 revenue = parse_cn_number(revenues[i]) if i < len(revenues) else None
+                net_profit = parse_cn_number(profits[i]) if i < len(profits) else None
                 deducted = parse_cn_number(deducted_profits[i]) if i < len(deducted_profits) else None
-                gm = parse_cn_number(gross_margins[i]) if i < len(gross_margins) else None
 
-                roe = (net_profit / equity) if (
-                    net_profit is not None and equity is not None and equity > 0
-                ) else None
+                # 净资产收益率 — 源数据为百分比（如 12.5），> 1 时除以 100 转为小数
+                roe_raw = parse_cn_number(roe_list[i]) if i < len(roe_list) else None
+                roe = roe_raw / 100.0 if roe_raw is not None and roe_raw > 1 else roe_raw
+
+                # 销售净利率 — 源数据为百分比（如 12.5），> 1 时除以 100 转为小数
+                nm_raw = parse_cn_number(net_margins[i]) if i < len(net_margins) else None
+                net_margin = nm_raw / 100.0 if nm_raw is not None and nm_raw > 1 else nm_raw
+
+                # 每股经营现金流 — 总股本未知，暂存 per-share 值
+                ocf = parse_cn_number(cash_flow_per_share[i]) if i < len(cash_flow_per_share) else None
 
                 results.append(FinancialData(
                     symbol=symbol,
@@ -133,11 +137,11 @@ class AkShareAdapter(DataSource):
                     revenue=revenue,
                     net_profit=net_profit,
                     deducted_net_profit=deducted,
-                    total_assets=parse_cn_number(assets[i]) if i < len(assets) else None,
-                    total_equity=equity,
-                    operating_cash_flow=parse_cn_number(cash_flows[i]) if i < len(cash_flows) else None,
+                    total_assets=None,  # 此 API 不提供资产总计
+                    total_equity=None,  # 此 API 不提供股东权益
+                    operating_cash_flow=ocf,  # 每股经营现金流（非总额）
                     roe=roe,
-                    gross_margin=gm,
+                    gross_margin=net_margin,  # 此 API 提供的是销售净利率，复用此字段
                 ))
             except (ValueError, IndexError, TypeError) as e:
                 logger.warning(f"跳过异常财务数据行 {i}: {e}")
@@ -304,30 +308,49 @@ class AkShareAdapter(DataSource):
         except Exception as e:
             logger.warning(f"新闻数据获取失败: {e}")
 
-        # 拉取公告
+        # 拉取公告（stock_notice_report 的 symbol 参数是报告类型而非股票代码）
         try:
-            announce_df = ak.stock_notice_report(symbol=symbol)
+            today_str = today.strftime("%Y%m%d")
+            announce_df = ak.stock_notice_report(symbol="全部", date=today_str)
             if announce_df is not None and not announce_df.empty:
                 cols = list(announce_df.columns)
-                title_col = "标题" if "标题" in cols else (cols[0] if len(cols) > 0 else None)
-                date_col = "日期" if "日期" in cols else (cols[1] if len(cols) > 1 else None)
-                if title_col:
-                    for _, row in announce_df.head(15).iterrows():
-                        title = str(row.get(title_col, ""))
-                        if not title or title in seen_titles:
+                # 探测列名映射
+                title_col = None
+                code_col = None
+                date_col = None
+                for c in cols:
+                    c_str = str(c)
+                    if "标题" in c_str or "title" in c_str.lower():
+                        title_col = c
+                    elif "代码" in c_str or "code" in c_str.lower() or "symbol" in c_str.lower():
+                        code_col = c
+                    elif "日期" in c_str or "date" in c_str.lower():
+                        date_col = c
+                if title_col is None:
+                    title_col = cols[0]
+
+                for _, row in announce_df.head(30).iterrows():
+                    # 按股票代码过滤
+                    if code_col:
+                        cell_code = str(row.get(code_col, ""))
+                        if symbol not in cell_code:
                             continue
-                        seen_titles.add(title)
-                        pub_date = today
-                        if date_col:
-                            try:
-                                pub_date = datetime.strptime(str(row[date_col])[:10], "%Y-%m-%d").date()
-                            except Exception:
-                                pass
-                        if pub_date >= start_date:
-                            items.append(RawSentimentItem(
-                                title=title, source="announcement",
-                                publish_date=pub_date, content="",
-                            ))
+
+                    title = str(row.get(title_col, ""))
+                    if not title or title in seen_titles:
+                        continue
+                    seen_titles.add(title)
+                    pub_date = today
+                    if date_col:
+                        try:
+                            pub_date = datetime.strptime(str(row[date_col])[:10], "%Y-%m-%d").date()
+                        except Exception:
+                            pass
+                    if pub_date >= start_date:
+                        items.append(RawSentimentItem(
+                            title=title, source="announcement",
+                            publish_date=pub_date, content="",
+                        ))
         except Exception as e:
             logger.warning(f"公告数据获取失败: {e}")
 
