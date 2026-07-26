@@ -6,9 +6,11 @@ from data.schemas import (
     FinancialData,
     PriceData,
     SufficiencyLevel,
+    ValuationData,
 )
 from data.enrichers.price_enricher import PriceEnricher
 from data.enrichers.financial_enricher import FinancialEnricher
+from data.enrichers.valuation_enricher import ValuationEnricher
 
 
 def make_price_data(n: int) -> list[PriceData]:
@@ -104,3 +106,51 @@ class TestFinancialEnricher:
         ctx = PriceEnricher().enrich(ctx)
         ctx = FinancialEnricher().enrich(ctx)
         assert ctx.sufficiency.financial.level == SufficiencyLevel.INSUFFICIENT
+
+
+def make_price_series(n: int, close: float = 10.0) -> list[PriceData]:
+    return [
+        PriceData(symbol="000001", trade_date=date(2025, 7, 1) + timedelta(days=i),
+                  open=close-0.1, high=close+0.1, low=close-0.2, close=close,
+                  volume=1000000)
+        for i in range(n)
+    ]
+
+
+class TestValuationEnricher:
+    def test_insufficient_when_price_partial(self):
+        """行情数据不足 60 条时，估值标记为 insufficient"""
+        prices = make_price_series(30)
+        financials = make_financial_data(4)
+        ctx = AnalysisContext(symbol="000001", name="测试",
+                              price_data=prices, financial_data=financials)
+        ctx = PriceEnricher().enrich(ctx)
+        ctx = FinancialEnricher().enrich(ctx)
+        ctx = ValuationEnricher().enrich(ctx)
+        assert ctx.sufficiency.valuation.level == SufficiencyLevel.INSUFFICIENT
+
+    def test_insufficient_no_financial(self):
+        """无财务数据时标记 insufficient"""
+        prices = make_price_series(200)
+        ctx = AnalysisContext(symbol="000001", name="测试",
+                              price_data=prices, financial_data=None)
+        ctx = PriceEnricher().enrich(ctx)
+        ctx = ValuationEnricher().enrich(ctx)
+        assert ctx.sufficiency.valuation.level == SufficiencyLevel.INSUFFICIENT
+
+    def test_sufficient_with_valid_data(self):
+        """有足够的行情和财务数据时正常生成估值序列"""
+        prices = make_price_series(200, close=10.0)
+        financials = make_financial_data(4)
+        ctx = AnalysisContext(symbol="000001", name="测试",
+                              price_data=prices, financial_data=financials)
+        # 模拟 valuation_data（当前单时点估值，用于总股本回退逻辑）
+        ctx.valuation_data = ValuationData(symbol="000001", date=date.today(),
+                                           pe_ttm=7.5, pb=0.85, ps_ttm=1.2)
+        ctx = PriceEnricher().enrich(ctx)
+        ctx = FinancialEnricher().enrich(ctx)
+        ctx = ValuationEnricher().enrich(ctx)
+        assert ctx.sufficiency.valuation.level == SufficiencyLevel.SUFFICIENT
+        assert ctx.enriched_valuation is not None
+        assert len(ctx.enriched_valuation.daily_points) > 0
+        assert ctx.enriched_valuation.pe_percentile is not None
