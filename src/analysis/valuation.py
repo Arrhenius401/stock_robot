@@ -14,27 +14,16 @@ class ValuationAnalyzer(AnalysisModule):
             return AnalysisResult(dimension=self.dimension, status="unavailable",
                                   summary="估值数据不可用", metrics={})
 
-        if isinstance(val_data, ValuationData):
-            val_list = [val_data]
-        else:
-            val_list = val_data
-
-        if not val_list:
-            return AnalysisResult(dimension=self.dimension, status="unavailable",
-                                  summary="估值数据不可用", metrics={})
-
-        latest = val_list[0]
+        latest = val_data
         metrics = {
             "pe_ttm": latest.pe_ttm,
             "pb": latest.pb,
             "ps_ttm": latest.ps_ttm,
         }
 
-        if len(val_list) >= 20:
-            pe_history = [v.pe_ttm for v in val_list if v.pe_ttm is not None]
-            if pe_history and latest.pe_ttm is not None:
-                below = sum(1 for p in pe_history if p < latest.pe_ttm)
-                metrics["pe_percentile"] = round(below / len(pe_history) * 100, 1)
+        # 若有充实层估值数据，优先使用日频序列计算分位
+        if context.enriched_valuation and context.enriched_valuation.pe_percentile is not None:
+            metrics["pe_percentile"] = context.enriched_valuation.pe_percentile
 
         status = "partial"
         summary = self._build_summary(metrics)
