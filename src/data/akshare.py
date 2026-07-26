@@ -166,39 +166,142 @@ class AkShareAdapter(DataSource):
         return [ValuationData(symbol=symbol, date=date.today(), pe_ttm=pe_ttm, pb=pb, ps_ttm=None)]
 
     def _fetch_industry(self, symbol: str, **kwargs) -> list[IndustryData]:
-        industry = ""
+        from data.schemas import PeerBasicInfo
 
-        # 优先：单只股票轻量接口
+        industry = ""
+        sector = ""
+        top_peers = []
+
+        # 获取行业分类
         try:
             df = _ak_individual_info_em(symbol)
             if "item" in df.columns and "value" in df.columns:
                 ind_row = df[df["item"].str.contains("行业", na=False)]
                 if not ind_row.empty:
                     industry = str(ind_row["value"].iloc[0])
+                sec_row = df[df["item"].str.contains("板块|部门", na=False)]
+                if not sec_row.empty:
+                    sector = str(sec_row["value"].iloc[0])
         except Exception:
             pass
 
-        # 回退：旧板块列表接口
-        if not industry:
+        # 从行业板块接口拉取成分股
+        if industry and industry != "未知":
             try:
-                df = _ak_industry_name()
-                for _, row in df.iterrows():
-                    industry = str(row.get("板块名称", ""))
-                    break
-            except Exception:
-                pass
+                board_df = ak.stock_board_industry_cons_em(symbol=industry)
+                if board_df is not None and len(board_df) > 0:
+                    cols = list(board_df.columns)
+                    code_col = "代码" if "代码" in cols else cols[0]
+                    name_col = "名称" if "名称" in cols else (cols[1] if len(cols) > 1 else code_col)
+                    mcap_col = None
+                    for c in cols:
+                        if "市值" in str(c) or "总市值" in str(c):
+                            mcap_col = c
+                            break
 
-        return [IndustryData(symbol=symbol, industry=industry or "未知", sector="", peers=[])]
+                    valid_rows = []
+                    for _, row in board_df.iterrows():
+                        code = str(row[code_col])
+                        name = str(row.get(name_col, ""))
+                        # 过滤 ST、*ST、退市标记
+                        if any(tag in name for tag in ("ST", "退市", "PT")):
+                            continue
+                        mcap = None
+                        if mcap_col:
+                            try:
+                                mcap = float(row[mcap_col])
+                            except (ValueError, TypeError):
+                                pass
+                        if mcap is not None and mcap > 0:
+                            valid_rows.append((code, name, mcap))
+
+                    # 按市值排序取前 5
+                    valid_rows.sort(key=lambda x: x[2], reverse=True)
+                    for code, name, mcap in valid_rows[:5]:
+                        # 容错：单家接口失败不中断
+                        try:
+                            if code.startswith("6"):
+                                xq = f"SH{code}"
+                            else:
+                                xq = f"SZ{code}"
+                            spot_df = ak.stock_individual_spot_xq(symbol=xq)
+                        except Exception:
+                            spot_df = None
+                        top_peers.append(PeerBasicInfo(symbol=code, name=name, market_cap=mcap))
+            except Exception:
+                logger.warning(f"获取行业成分股失败: {industry}")
+
+        return [IndustryData(
+            symbol=symbol, industry=industry or "未知", sector=sector or "",
+            peers=[p.symbol for p in top_peers], top_peers=top_peers,
+        )]
 
     def _fetch_news(self, symbol: str, **kwargs) -> list[NewsData]:
+        """拉取近 30 天新闻和公告，附带 RawSentimentData"""
+        from data.schemas import RawSentimentData, RawSentimentItem
+
+        today = date.today()
+        start_date = today - timedelta(days=30)
+        items = []
+        seen_titles = set()
+
+        # 拉取新闻
         try:
             df = _ak_news(symbol)
-            headlines = []
-            for _, row in df.head(10).iterrows():
+            for _, row in df.head(20).iterrows():
                 title = str(row.get("标题", "") or row.get("title", ""))
-                if title:
-                    headlines.append(title)
-            return [NewsData(symbol=symbol, date=date.today(), headlines=headlines)]
+                if not title or title in seen_titles:
+                    continue
+                seen_titles.add(title)
+                content = str(row.get("内容", "") or row.get("content", ""))[:500]
+                pub_date = today
+                try:
+                    raw_date = row.get("发布时间", "") or row.get("时间", "")
+                    if raw_date:
+                        pub_date = datetime.strptime(str(raw_date)[:10], "%Y-%m-%d").date()
+                except Exception:
+                    pass
+                if pub_date >= start_date:
+                    items.append(RawSentimentItem(
+                        title=title, source="news", publish_date=pub_date, content=content,
+                    ))
         except Exception as e:
             logger.warning(f"新闻数据获取失败: {e}")
-            return [NewsData(symbol=symbol, date=date.today(), headlines=[])]
+
+        # 拉取公告
+        try:
+            announce_df = ak.stock_notice_report(symbol=symbol)
+            if announce_df is not None and not announce_df.empty:
+                cols = list(announce_df.columns)
+                title_col = "标题" if "标题" in cols else (cols[0] if len(cols) > 0 else None)
+                date_col = "日期" if "日期" in cols else (cols[1] if len(cols) > 1 else None)
+                if title_col:
+                    for _, row in announce_df.head(15).iterrows():
+                        title = str(row.get(title_col, ""))
+                        if not title or title in seen_titles:
+                            continue
+                        seen_titles.add(title)
+                        pub_date = today
+                        if date_col:
+                            try:
+                                pub_date = datetime.strptime(str(row[date_col])[:10], "%Y-%m-%d").date()
+                            except Exception:
+                                pass
+                        if pub_date >= start_date:
+                            items.append(RawSentimentItem(
+                                title=title, source="announcement",
+                                publish_date=pub_date, content="",
+                            ))
+        except Exception as e:
+            logger.warning(f"公告数据获取失败: {e}")
+
+        # 去重并按日期排序，最多保留 30 条
+        items.sort(key=lambda x: x.publish_date, reverse=True)
+        items = items[:30]
+
+        headlines = [item.title for item in items]
+        result = NewsData(symbol=symbol, date=today, headlines=headlines)
+
+        # 把 raw_sentiment 存到 result 的额外属性
+        result._raw_sentiment = RawSentimentData(symbol=symbol, fetch_date=today, items=items)
+        return [result]

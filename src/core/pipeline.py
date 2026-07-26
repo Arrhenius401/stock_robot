@@ -262,3 +262,7 @@ class Pipeline:
             setattr(ctx, attr, data[0])
         else:
             setattr(ctx, attr, data)
+
+        # 处理 news 数据附带的 raw_sentiment
+        if data_type == "news" and data and hasattr(data[0], "_raw_sentiment"):
+            ctx.raw_sentiment = data[0]._raw_sentiment
