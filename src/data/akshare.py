@@ -68,7 +68,7 @@ class AkShareAdapter(DataSource):
             return []
 
     def _fetch_price(self, symbol: str, **kwargs) -> list[PriceData]:
-        days = kwargs.get("days", 365)
+        days = kwargs.get("days", 250)  # 近一年交易日，覆盖完整行情周期
         end_date = date.today().strftime("%Y%m%d")
         start_date = (date.today() - timedelta(days=days)).strftime("%Y%m%d")
         df = _ak_hist(
@@ -100,6 +100,8 @@ class AkShareAdapter(DataSource):
         assets = df.get("资产总计", [])
         equities = df.get("股东权益合计", [])
         cash_flows = df.get("经营活动现金流量净额", [])
+        deducted_profits = df.get("扣除非经常性损益后的净利润", [])
+        gross_margins = df.get("销售毛利率", [])
 
         for i in range(min(len(periods), 12)):
             try:
@@ -112,6 +114,8 @@ class AkShareAdapter(DataSource):
                 equity = parse_cn_number(equities[i]) if i < len(equities) else None
                 net_profit = parse_cn_number(profits[i]) if i < len(profits) else None
                 revenue = parse_cn_number(revenues[i]) if i < len(revenues) else None
+                deducted = parse_cn_number(deducted_profits[i]) if i < len(deducted_profits) else None
+                gm = parse_cn_number(gross_margins[i]) if i < len(gross_margins) else None
 
                 roe = (net_profit / equity) if (
                     net_profit is not None and equity is not None and equity > 0
@@ -122,11 +126,12 @@ class AkShareAdapter(DataSource):
                     fiscal_quarter=fiscal_date,
                     revenue=revenue,
                     net_profit=net_profit,
+                    deducted_net_profit=deducted,
                     total_assets=parse_cn_number(assets[i]) if i < len(assets) else None,
                     total_equity=equity,
                     operating_cash_flow=parse_cn_number(cash_flows[i]) if i < len(cash_flows) else None,
                     roe=roe,
-                    gross_margin=None,
+                    gross_margin=gm,
                 ))
             except (ValueError, IndexError, TypeError) as e:
                 logger.warning(f"跳过异常财务数据行 {i}: {e}")
