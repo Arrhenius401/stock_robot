@@ -75,11 +75,14 @@ class SentimentEnricher(DataEnricher):
                 prompt = LLM_BATCH_PROMPT.format(items_json=items_json)
                 response = self._llm.generate(prompt)
                 response = response.strip()
+                # 尝试提取 JSON：处理 ```json / ``` / 无 fence 三种情况
                 if response.startswith("```"):
-                    first_newline = response.index("\n")
-                    response = response[first_newline + 1:]
+                    lines = response.split("\n")
+                    # 去掉第一行（可能是 ``` 或 ```json）
+                    response = "\n".join(lines[1:])
                     if response.endswith("```"):
                         response = response[:-3]
+                    response = response.strip()
                 items_data = json.loads(response)
                 # 构建标题→来源映射，用于回传 source 到标注结果
                 title_to_source = {item.title: item.source for item in raw.items}

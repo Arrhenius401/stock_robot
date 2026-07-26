@@ -206,18 +206,10 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose):
     if total_weight > 0:
         base_score = round(base_score / total_weight, 1)
 
-    # 计算风险扣分
+    # 计算风险扣分（每条风险标签扣 1 分，上限 10）
     risk_deduction = 0
     for r in results:
-        for flag in r.risk_flags:
-            if flag in ("roe_low", "high_debt", "cash_flow_mismatch",
-                         "revenue_declineing", "profit_declineing"):
-                risk_deduction = min(risk_deduction + 1, 3)
-            elif flag == "major_negative_news":
-                risk_deduction += 1
-            else:
-                risk_deduction += 1
-
+        risk_deduction += len(r.risk_flags)
     risk_deduction = min(risk_deduction, 10)
     final_score = max(0, base_score - risk_deduction)
 

@@ -35,11 +35,29 @@ class ValuationEnricher(DataEnricher):
         # 从最近 4 期财报计算 TTM 值
         sorted_fin = sorted(financials, key=lambda x: x.fiscal_quarter)
         recent_4 = sorted_fin[-4:]
-        ttm_profit = sum(f.net_profit for f in recent_4 if f.net_profit is not None)
-        ttm_equity = recent_4[-1].total_equity  # 最近一期净资产
-        ttm_revenue = sum(f.revenue for f in recent_4 if f.revenue is not None)
 
-        if ttm_profit is None or ttm_profit <= 0 or ttm_equity is None or ttm_equity <= 0:
+        # 检查数据是否表现为累计 YTD（每季度营收递增）
+        # 若为累计数据则去累积：Q1, Q2-Q1, Q3-Q2, Q4-Q3
+        revs = [f.revenue for f in recent_4 if f.revenue is not None]
+        profits = [f.net_profit for f in recent_4 if f.net_profit is not None]
+        looks_accumulated = (
+            len(revs) == 4 and len(profits) == 4
+            and revs[0] > 0 and revs[1] > revs[0] and revs[2] > revs[1] and revs[3] > revs[2]
+        )
+        if looks_accumulated:
+            deacc_profits = [profits[0], profits[1] - profits[0],
+                           profits[2] - profits[1], profits[3] - profits[2]]
+            deacc_revs = [revs[0], revs[1] - revs[0],
+                         revs[2] - revs[1], revs[3] - revs[2]]
+            ttm_profit = sum(deacc_profits)
+            ttm_revenue = sum(deacc_revs)
+        else:
+            ttm_profit = sum(f.net_profit for f in recent_4 if f.net_profit is not None)
+            ttm_revenue = sum(f.revenue for f in recent_4 if f.revenue is not None)
+
+        ttm_equity = recent_4[-1].total_equity  # 最近一期净资产
+
+        if ttm_profit <= 0 or ttm_equity is None or ttm_equity <= 0:
             ctx.sufficiency.valuation = DimensionSufficiency(
                 level=SufficiencyLevel.INSUFFICIENT,
                 reason="TTM 净利润为负或净资产数据缺失，无法计算有效估值",
