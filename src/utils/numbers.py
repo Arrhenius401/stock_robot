@@ -24,6 +24,13 @@ def parse_cn_number(value) -> float | None:
             except ValueError:
                 return None
 
+    # 处理百分比 "12.5%" → 12.5
+    if s.endswith("%"):
+        try:
+            return float(s[:-1])
+        except ValueError:
+            return None
+
     try:
         return float(s)
     except ValueError:

@@ -108,28 +108,31 @@ class AkShareAdapter(DataSource):
         net_margins = df.get("销售净利率", [])  # 销售净利率（%）
         cash_flow_per_share = df.get("每股经营现金流", [])
 
-        for i in range(min(len(periods), 12)):
+        # 取最近 12 期数据（数据按时间升序排列，最新在末尾）
+        total = len(periods)
+        start = max(0, total - 12)
+        for idx in range(start, total):
             try:
-                period_str = str(periods[i])
+                period_str = str(periods.iloc[idx] if hasattr(periods, 'iloc') else periods[idx])
                 try:
                     fiscal_date = datetime.strptime(period_str, "%Y-%m-%d").date()
                 except ValueError:
                     fiscal_date = datetime.strptime(period_str, "%Y%m%d").date()
 
-                revenue = parse_cn_number(revenues[i]) if i < len(revenues) else None
-                net_profit = parse_cn_number(profits[i]) if i < len(profits) else None
-                deducted = parse_cn_number(deducted_profits[i]) if i < len(deducted_profits) else None
+                revenue = parse_cn_number(revenues.iloc[idx] if hasattr(revenues, 'iloc') else revenues[idx]) if idx < len(revenues) else None
+                net_profit = parse_cn_number(profits.iloc[idx] if hasattr(profits, 'iloc') else profits[idx]) if idx < len(profits) else None
+                deducted = parse_cn_number(deducted_profits.iloc[idx] if hasattr(deducted_profits, 'iloc') else deducted_profits[idx]) if idx < len(deducted_profits) else None
 
                 # 净资产收益率 — 源数据为百分比（如 12.5），> 1 时除以 100 转为小数
-                roe_raw = parse_cn_number(roe_list[i]) if i < len(roe_list) else None
+                roe_raw = parse_cn_number(roe_list.iloc[idx] if hasattr(roe_list, 'iloc') else roe_list[idx]) if idx < len(roe_list) else None
                 roe = roe_raw / 100.0 if roe_raw is not None and roe_raw > 1 else roe_raw
 
                 # 销售净利率 — 源数据为百分比（如 12.5），> 1 时除以 100 转为小数
-                nm_raw = parse_cn_number(net_margins[i]) if i < len(net_margins) else None
+                nm_raw = parse_cn_number(net_margins.iloc[idx] if hasattr(net_margins, 'iloc') else net_margins[idx]) if idx < len(net_margins) else None
                 net_margin = nm_raw / 100.0 if nm_raw is not None and nm_raw > 1 else nm_raw
 
                 # 每股经营现金流 — 总股本未知，暂存 per-share 值
-                ocf = parse_cn_number(cash_flow_per_share[i]) if i < len(cash_flow_per_share) else None
+                ocf = parse_cn_number(cash_flow_per_share.iloc[idx] if hasattr(cash_flow_per_share, 'iloc') else cash_flow_per_share[idx]) if idx < len(cash_flow_per_share) else None
 
                 results.append(FinancialData(
                     symbol=symbol,
@@ -144,7 +147,7 @@ class AkShareAdapter(DataSource):
                     gross_margin=net_margin,  # 此 API 提供的是销售净利率，复用此字段
                 ))
             except (ValueError, IndexError, TypeError) as e:
-                logger.warning(f"跳过异常财务数据行 {i}: {e}")
+                logger.warning(f"跳过异常财务数据行 {idx}: {e}")
         return results
 
     def _fetch_valuation(self, symbol: str, **kwargs) -> list[ValuationData]:
