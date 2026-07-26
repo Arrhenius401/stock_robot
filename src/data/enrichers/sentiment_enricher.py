@@ -81,13 +81,17 @@ class SentimentEnricher(DataEnricher):
                     if response.endswith("```"):
                         response = response[:-3]
                 items_data = json.loads(response)
+                # 构建标题→来源映射，用于回传 source 到标注结果
+                title_to_source = {item.title: item.source for item in raw.items}
                 for item_data in items_data:
+                    title = item_data.get("title", "")
                     si = SentimentItem(
-                        title=item_data.get("title", ""),
+                        title=title,
                         summary=item_data.get("summary", ""),
                         tendency=item_data.get("tendency", "neutral"),
                         severity=item_data.get("severity", "minor"),
                         event_type=item_data.get("event_type", "其他"),
+                        source=title_to_source.get(title, ""),
                     )
                     enriched.all_items.append(si)
                     if si.tendency == "positive":

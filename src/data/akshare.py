@@ -47,6 +47,12 @@ def _ak_individual_spot_xq(symbol):
     return ak.stock_individual_spot_xq(symbol=xq_symbol)
 
 
+@retry_on_network_error()
+def _ak_board_industry_cons_em(symbol):
+    """行业板块成分股接口（带重试）"""
+    return ak.stock_board_industry_cons_em(symbol=symbol)
+
+
 class AkShareAdapter(DataSource):
     """AkShare 数据源适配器 — 支持 A 股全部数据类型"""
 
@@ -186,9 +192,13 @@ class AkShareAdapter(DataSource):
             pass
 
         # 从行业板块接口拉取成分股
+        all_peer_symbols: list[str] = []
+        target_mcap: float | None = None
+        target_rank: int | None = None
+
         if industry and industry != "未知":
             try:
-                board_df = ak.stock_board_industry_cons_em(symbol=industry)
+                board_df = _ak_board_industry_cons_em(industry)
                 if board_df is not None and len(board_df) > 0:
                     cols = list(board_df.columns)
                     code_col = "代码" if "代码" in cols else cols[0]
@@ -215,26 +225,52 @@ class AkShareAdapter(DataSource):
                         if mcap is not None and mcap > 0:
                             valid_rows.append((code, name, mcap))
 
-                    # 按市值排序取前 5
+                    # 记录全部同行符号
+                    all_peer_symbols = [code for code, _, _ in valid_rows]
+
+                    # 按市值排序取前 5，同时记录目标股票的排名
                     valid_rows.sort(key=lambda x: x[2], reverse=True)
+                    for i, (code, name, mcap) in enumerate(valid_rows):
+                        if code == symbol:
+                            target_mcap = mcap
+                            target_rank = i + 1  # 1-based
+                            break
+
                     for code, name, mcap in valid_rows[:5]:
+                        pe_ttm = None
+                        pb = None
                         # 容错：单家接口失败不中断
                         try:
                             if code.startswith("6"):
                                 xq = f"SH{code}"
                             else:
                                 xq = f"SZ{code}"
-                            spot_df = ak.stock_individual_spot_xq(symbol=xq)
+                            spot_df = _ak_individual_spot_xq(xq)
+                            if spot_df is not None and "item" in spot_df.columns and "value" in spot_df.columns:
+                                pe_row = spot_df[spot_df["item"] == "市盈率(动)"]
+                                pb_row = spot_df[spot_df["item"] == "市净率"]
+                                if not pe_row.empty:
+                                    pe_ttm = parse_cn_number(pe_row["value"].iloc[0])
+                                if not pb_row.empty:
+                                    pb = parse_cn_number(pb_row["value"].iloc[0])
                         except Exception:
-                            spot_df = None
-                        top_peers.append(PeerBasicInfo(symbol=code, name=name, market_cap=mcap))
+                            pass
+                        top_peers.append(PeerBasicInfo(
+                            symbol=code, name=name, market_cap=mcap,
+                            pe_ttm=pe_ttm, pb=pb,
+                        ))
             except Exception:
                 logger.warning(f"获取行业成分股失败: {industry}")
 
-        return [IndustryData(
+        result = IndustryData(
             symbol=symbol, industry=industry or "未知", sector=sector or "",
-            peers=[p.symbol for p in top_peers], top_peers=top_peers,
-        )]
+            peers=all_peer_symbols, top_peers=top_peers,
+        )
+        if target_mcap is not None:
+            result._target_mcap = target_mcap
+        if target_rank is not None:
+            result._target_rank = target_rank
+        return [result]
 
     def _fetch_news(self, symbol: str, **kwargs) -> list[NewsData]:
         """拉取近 30 天新闻和公告，附带 RawSentimentData"""

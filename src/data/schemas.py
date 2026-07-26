@@ -93,6 +93,7 @@ class SentimentItem(BaseModel):
     tendency: str  # "positive" / "neutral" / "negative"
     severity: str  # "minor" / "moderate" / "major"
     event_type: str = ""
+    source: str = ""
 
 
 class EnrichedSentiment(BaseModel):
@@ -144,6 +145,8 @@ class PeerBasicInfo(BaseModel):
     symbol: str
     name: str = ""
     market_cap: float | None = None
+    pe_ttm: float | None = None
+    pb: float | None = None
 
 
 class IndustryData(BaseModel):
