@@ -1,0 +1,101 @@
+# {{ name }}（{{ symbol }}）分析报告
+
+> 生成时间：{{ generated_at }} | 市场：{{ market }}
+
+{% if no_llm %}
+> **[纯量化模式，无 AI 解读]**
+{% endif %}
+
+---
+
+## 一、标的基础概况
+
+| 项目 | 内容 |
+|------|------|
+| 股票名称 | {{ name }} |
+| 股票代码 | {{ symbol }} |
+| 所属行业 | {{ industry }} |
+| 近1年最高价 | {{ year_high }} |
+| 近1年最低价 | {{ year_low }} |
+| 当前价格位置 | {{ price_position }} |
+
+---
+
+## 二、五大维度量化数据
+
+{% for dim in ["financial", "technical", "valuation", "industry", "sentiment"] %}
+
+### {{ {"financial": "1. 财务量化数据", "technical": "2. 技术面量化数据", "valuation": "3. 估值量化数据", "industry": "4. 行业对比量化数据", "sentiment": "5. 舆情量化数据"}[dim] }}
+
+{% set r = results_map.get(dim) %}
+{% if r and r.status != "unavailable" %}
+| 指标 | 数值 |
+|------|------|
+{% for key, value in r.metrics.items() if key not in ["roe_trend", "headlines"] %}
+| {{ key }} | {{ value }} |
+{% endfor %}
+{% if r.metrics.get("headlines") %}
+{% for headline in r.metrics["headlines"] %}
+- {{ headline }}
+{% endfor %}
+{% endif %}
+{% else %}
+> 该维度数据不足，已跳过
+{% endif %}
+
+{% endfor %}
+
+---
+
+## 三、五大维度标准化打分
+
+| 维度 | 得分 | 权重 | 充足状态 |
+|------|------|------|----------|
+{% for dim in score_rows %}
+| {{ dim.label }} | {{ dim.score }} | {{ dim.weight }} | {{ dim.sufficiency }} |
+{% endfor %}
+
+**综合得分（扣风险前）：** {{ base_score }}/10
+{% if risk_deduction > 0 %}
+**风险扣分：** -{{ risk_deduction }}
+{% endif %}
+**最终综合得分：** {{ final_score }}/10
+
+{% for dim in score_rows %}
+{% if dim.detail %}
+**{{ dim.label }}**：{{ dim.detail }}
+{% endif %}
+{% endfor %}
+
+---
+
+## 四、AI 中性解读 + 风险汇总
+
+{% if commentary.get("bulk") %}
+{{ commentary["bulk"] }}
+{% else %}
+> AI 解读不可用
+{% endif %}
+
+{% if risk_flags %}
+### 风险标签清单
+{% for flag in risk_flags %}
+- {{ flag }}
+{% endfor %}
+{% endif %}
+
+---
+
+## 五、多风格观察视角
+
+{{ commentary.get("bulk", "") }}
+
+---
+
+## 六、工具局限性 + 免责声明
+
+> 本报告数据来源为 AkShare 公开接口，数据时效性和准确性可能受网络、接口限流等因素影响。
+> 所有分析方法均为量化指标客观计算，不包含人工主观判断。
+> 报告中的分数和多风格视角仅用于客观描述不同投资风格下的关注点差异，不构成任何形式的投资建议。
+> 市场有风险，投资需谨慎。使用者需自行承担全部投资决策风险。
+> （部分内容由 AI 生成）

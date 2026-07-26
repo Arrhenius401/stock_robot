@@ -19,10 +19,12 @@ class TestCLI:
         mocker.patch("utils.symbols.resolve_name", return_value="平安银行")
         mock_pipeline = mocker.patch("stock_robot.cli._build_pipeline")
         mock_instance = mock_pipeline.return_value
-        from data.schemas import AnalysisResult
+        from data.schemas import AnalysisResult, AnalysisContext
+        ctx = AnalysisContext(symbol="000001", name="平安银行")
         mock_instance.run.return_value = (
             [AnalysisResult(dimension="financial", status="ok", summary="OK", metrics={"roe": 0.12})],
-            {"financial": "解读", "summary": "综合结论"},
+            {"bulk": "综合解读"},
+            ctx,
         )
 
         runner = CliRunner()
@@ -49,10 +51,12 @@ class TestCLI:
         mocker.patch("utils.symbols.resolve_name", return_value="平安银行")
         mock_pipeline = mocker.patch("stock_robot.cli._build_pipeline")
         mock_instance = mock_pipeline.return_value
-        from data.schemas import AnalysisResult
+        from data.schemas import AnalysisResult, AnalysisContext
+        ctx = AnalysisContext(symbol="000001", name="平安银行")
         mock_instance.run.return_value = (
             [AnalysisResult(dimension="financial", status="ok", summary="OK", metrics={})],
             {},
+            ctx,
         )
         runner = CliRunner()
         result = runner.invoke(main, ["analyze", "000001", "--no-llm"])

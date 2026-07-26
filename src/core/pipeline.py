@@ -122,7 +122,7 @@ class Pipeline:
     def run(self, symbol: str, name: str, market: str = "a-shares",
             dimension: str | None = None, refresh_cache: bool = False,
             on_progress: ProgressCallback = None
-            ) -> tuple[list[AnalysisResult], dict[str, str]]:
+            ) -> tuple[list[AnalysisResult], dict[str, str], AnalysisContext]:
         data_types = None
         analysis_modules = self._registry.get_analysis_modules()
         if dimension:
@@ -174,11 +174,12 @@ class Pipeline:
         if self._llm_enabled:
             commentary = self._generate_commentary(symbol, name, results, on_progress=on_progress)
 
-        return results, commentary
+        return results, commentary, ctx
 
     def _generate_commentary(self, symbol: str, name: str,
                              results: list[AnalysisResult],
                              on_progress: ProgressCallback = None) -> dict[str, str]:
+        """单次批量 LLM 调用，生成四段结构化解读"""
         commentary = {}
         provider = self._config.get("llm.provider", "openai")
         llm = self._registry.get_llm_backend(provider)
@@ -186,54 +187,70 @@ class Pipeline:
             logger.warning(f"未找到 LLM 后端: provider={provider}")
             return commentary
 
+        # 准备维度得分数据
+        dim_labels = {
+            "financial": "财务健康", "technical": "技术趋势",
+            "valuation": "估值合理", "industry": "行业对比",
+            "sentiment": "舆情风险",
+        }
+        sufficiency_label = {"sufficient": "充足", "partial": "部分可用", "insufficient": "数据不足"}
+
+        scores = []
+        covered = []
+        missing = []
+        all_risk_flags = []
+
+        for dim, label in dim_labels.items():
+            r = None
+            for result in results:
+                if result.dimension == dim:
+                    r = result
+                    break
+            if r and r.score is not None:
+                scores.append({
+                    "label": label, "score": r.score,
+                    "sufficiency": sufficiency_label.get(r.status, r.status),
+                    "score_detail": r.score_detail,
+                })
+                covered.append(label)
+                all_risk_flags.extend(r.risk_flags)
+            elif r and r.status == "partial":
+                scores.append({
+                    "label": label, "score": r.score,
+                    "sufficiency": "部分可用",
+                    "score_detail": r.score_detail or "",
+                })
+                covered.append(label)
+            else:
+                scores.append({
+                    "label": label, "score": None,
+                    "sufficiency": "数据不足",
+                    "score_detail": "",
+                })
+                missing.append(label)
+
         try:
             from jinja2 import Environment, FileSystemLoader
             template_dir = Path(__file__).parent.parent / "llm" / "prompt_templates"
             env = Environment(loader=FileSystemLoader(str(template_dir)))
 
-            total = len(results) + 1
-            completed = 0
+            template = env.get_template(f"batch_analysis_{provider}.jinja2")
+            prompt = template.render(
+                name=name, symbol=symbol, scores=scores,
+                risk_flags=all_risk_flags,
+                covered_dims="、".join(covered) if covered else "无",
+                missing_dims="、".join(missing) if missing else "无",
+            )
 
-            for result in results:
-                if result.status == "unavailable" or not result.metrics:
-                    commentary[result.dimension] = ""
-                    completed += 1
-                    if on_progress:
-                        on_progress("llm", completed, total,
-                                   DIMENSION_LLM_LABELS.get(result.dimension, result.dimension))
-                    continue
-
-                template_name = f"{result.dimension}_{provider}.jinja2"
-                try:
-                    template = env.get_template(template_name)
-                    prompt = template.render(name=name, symbol=symbol, **result.metrics)
-                    commentary[result.dimension] = llm.generate(prompt)
-                except Exception as e:
-                    logger.warning(f"生成 {result.dimension} 解读失败: {e}")
-                    commentary[result.dimension] = ""
-                completed += 1
-                if on_progress:
-                    on_progress("llm", completed, total,
-                               DIMENSION_LLM_LABELS.get(result.dimension, result.dimension))
-
-            # 综合总结：仅当至少一个维度有真实解读时才生成
-            has_any = any(commentary.get(r.dimension) for r in results)
-            if has_any:
-                summary_template_name = f"summary_{provider}.jinja2"
-                try:
-                    template = env.get_template(summary_template_name)
-                    prompt = template.render(name=name, symbol=symbol, commentary=commentary)
-                    commentary["summary"] = llm.generate(prompt)
-                except Exception as e:
-                    logger.warning(f"生成综合总结失败: {e}")
-                    commentary["summary"] = ""
-            else:
-                commentary["summary"] = ""
-            completed += 1
             if on_progress:
-                on_progress("llm", completed, total, "生成综合总结")
+                on_progress("llm", 1, 2, "生成 AI 解读")
+
+            commentary["bulk"] = llm.generate(prompt)
+
+            if on_progress:
+                on_progress("llm", 2, 2, "生成 AI 解读")
         except Exception as e:
-            logger.error(f"LLM 解读生成过程失败: {e}")
+            logger.error(f"LLM 解读生成失败: {e}")
 
         return commentary
 

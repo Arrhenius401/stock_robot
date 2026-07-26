@@ -56,9 +56,10 @@ class TestPipeline:
     def test_run_without_llm(self):
         reg = make_test_registry()
         pipeline = Pipeline(registry=reg, llm_enabled=False)
-        results, commentary = pipeline.run("000001", "平安银行")
+        results, commentary, ctx = pipeline.run("000001", "平安银行")
         assert len(results) == 5
         assert all(isinstance(r, AnalysisResult) for r in results)
+        assert isinstance(ctx, AnalysisContext)
 
     def test_collect_refresh_cache_ignores_cache(self):
         reg = make_test_registry()
@@ -69,7 +70,7 @@ class TestPipeline:
     def test_single_dimension_filter(self):
         reg = make_test_registry()
         pipeline = Pipeline(registry=reg, llm_enabled=False)
-        results, _ = pipeline.run("000001", "平安银行", dimension="financial")
+        results, _, _ = pipeline.run("000001", "平安银行", dimension="financial")
         assert len(results) == 1
         assert results[0].dimension == "financial"
 
@@ -115,7 +116,7 @@ class TestPipelineProgress:
         ctx = pipeline.collect("000001", "平安银行", on_progress=None)
         assert ctx.price_data is not None
 
-        results, _ = pipeline.run("000001", "平安银行", on_progress=None)
+        results, _, _ = pipeline.run("000001", "平安银行", on_progress=None)
         assert len(results) == 5
 
     def test_run_single_dimension_reports_correct_totals(self):
@@ -159,23 +160,27 @@ def _make_hermetic_pipeline(reg, llm, provider="openai"):
     return Pipeline(registry=reg, config=cfg)
 
 
-class TestGenerateCommentaryGuards:
-    def test_skips_unavailable_dimensions(self):
+class TestGenerateCommentary:
+    def test_batch_commentary_with_mixed_results(self):
         reg = Registry()
         llm = CountingLLM()
         pipeline = _make_hermetic_pipeline(reg, llm, "openai")
         results = [
-            AnalysisResult(dimension="valuation", status="partial", summary="",
-                           metrics={"pe_ttm": 7.5, "pb": 0.85, "ps_ttm": 1.2}),
+            AnalysisResult(dimension="valuation", status="ok", summary="",
+                           metrics={"pe_ttm": 7.5, "pb": 0.85},
+                           score=6.0, score_detail="PE偏低，PB合理"),
             AnalysisResult(dimension="financial", status="unavailable",
                            summary="财务数据不可用", metrics={}),
+            AnalysisResult(dimension="technical", status="ok", summary="",
+                           metrics={"close": 10.5},
+                           score=7.0, score_detail="均线多头排列"),
         ]
         commentary = pipeline._generate_commentary("600350", "山东高速", results)
-        assert commentary["financial"] == ""            # 跳过 LLM
-        assert commentary["valuation"] == "MOCK解读"
-        assert len(llm.calls) == 2                        # 1 维度 + 1 总结
+        assert "bulk" in commentary
+        assert isinstance(commentary["bulk"], str)
+        assert len(llm.calls) == 1  # 单次批量调用，不再逐维度+总结
 
-    def test_skips_summary_when_all_unavailable(self):
+    def test_batch_commentary_all_unavailable_still_does_batch(self):
         reg = Registry()
         llm = CountingLLM()
         pipeline = _make_hermetic_pipeline(reg, llm, "openai")
@@ -184,5 +189,5 @@ class TestGenerateCommentaryGuards:
             AnalysisResult(dimension="technical", status="unavailable", summary="x", metrics={}),
         ]
         commentary = pipeline._generate_commentary("600350", "山东高速", results)
-        assert commentary.get("summary", "") == ""
-        assert len(llm.calls) == 0                        # 完全不调用 LLM
+        assert "bulk" in commentary  # 批量调用仍然会执行
+        assert len(llm.calls) == 1

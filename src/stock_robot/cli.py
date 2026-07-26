@@ -168,7 +168,7 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose):
                 progress.update(task_id, completed=current, total=total,
                                description=f"[{stage}] {label}")
 
-            results, commentary = pipeline.run(
+            results, commentary, ctx = pipeline.run(
                 symbol, name,
                 dimension=dimension,
                 refresh_cache=refresh_cache,
@@ -181,8 +181,84 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose):
         console.print(f"[red]分析失败: {e}[/red]")
         sys.exit(1)
 
+    # 计算综合打分
+    dim_weights = {"financial": 0.30, "technical": 0.20,
+                   "valuation": 0.25, "industry": 0.25}
+    base_score = 0.0
+    total_weight = 0.0
+    results_map = {r.dimension: r for r in results}
+    score_rows = []
+    all_risk_flags = []
+    sufficiency_label = {"ok": "充足", "partial": "部分可用", "unavailable": "数据不足"}
+    dim_labels = {"financial": "财务健康", "technical": "技术趋势",
+                  "valuation": "估值合理", "industry": "行业对比",
+                  "sentiment": "舆情风险"}
+    dim_weight_labels = {"financial": "30%", "technical": "20%",
+                         "valuation": "25%", "industry": "25%",
+                         "sentiment": "不计分"}
+
+    for dim, weight in dim_weights.items():
+        r = results_map.get(dim)
+        if r and r.score is not None:
+            base_score += r.score * weight
+            total_weight += weight
+
+    if total_weight > 0:
+        base_score = round(base_score / total_weight, 1)
+
+    # 计算风险扣分
+    risk_deduction = 0
+    for r in results:
+        for flag in r.risk_flags:
+            if flag in ("roe_low", "high_debt", "cash_flow_mismatch",
+                         "revenue_declineing", "profit_declineing"):
+                risk_deduction = min(risk_deduction + 1, 3)
+            elif flag == "major_negative_news":
+                risk_deduction += 1
+            else:
+                risk_deduction += 1
+
+    risk_deduction = min(risk_deduction, 10)
+    final_score = max(0, base_score - risk_deduction)
+
+    # 构建打分行
+    for dim, label in dim_labels.items():
+        r = results_map.get(dim)
+        if r:
+            score_rows.append({
+                "label": label,
+                "score": f"{r.score:.1f}" if r.score is not None else "N/A",
+                "weight": dim_weight_labels[dim],
+                "sufficiency": sufficiency_label.get(r.status, r.status),
+                "detail": r.score_detail or "",
+            })
+        all_risk_flags.extend(r.risk_flags if r else [])
+
+    # 基础信息
+    price_data = ctx.price_data or []
+    year_high = max(p.high for p in price_data) if price_data else None
+    year_low = min(p.low for p in price_data) if price_data else None
+    latest_price = price_data[-1].close if price_data else None
+    if year_high and year_low and latest_price and (year_high - year_low) > 0:
+        pct = (latest_price - year_low) / (year_high - year_low) * 100
+        price_position = f"{pct:.0f}%"
+    else:
+        price_position = "暂无"
+
     builder = ReportBuilder()
-    report = builder.build(symbol, name, results, commentary)
+    report = builder.build(
+        symbol, name, results, commentary,
+        no_llm=no_llm,
+        industry=(ctx.industry_data.industry if ctx.industry_data else "未知"),
+        year_high=f"{year_high:.2f}" if year_high else "暂无",
+        year_low=f"{year_low:.2f}" if year_low else "暂无",
+        price_position=price_position,
+        score_rows=score_rows,
+        base_score=base_score,
+        risk_deduction=risk_deduction,
+        final_score=final_score,
+        risk_flags=all_risk_flags,
+    )
 
     saved_path = ReportFormatter.save(report, symbol)
     console.print(ReportFormatter.to_rich_markdown(report))

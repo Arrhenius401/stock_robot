@@ -24,21 +24,20 @@ class TestReportBuilder:
         ]
         builder = ReportBuilder()
         report = builder.build("000001", "平安银行", results, commentary={
-            "financial": "财务表现稳健。",
-            "technical": "技术面偏多。",
-            "valuation": "估值合理。",
-            "industry": "行业地位稳固。",
-            "sentiment": "舆情偏正面。",
-            "summary": "综合来看，该公司基本面扎实。",
+            "bulk": "综合解读内容。",
         })
         assert "# 平安银行（000001）分析报告" in report
-        assert "## 财务分析" in report
-        assert "## 技术面分析" in report
-        assert "## 估值分析" in report
-        assert "## 行业分析" in report
-        assert "## 舆情分析" in report
-        assert "## 综合总结" in report
-        assert "免责声明" in report
+        assert "## 一、标的基础概况" in report
+        assert "## 二、五大维度量化数据" in report
+        assert "## 三、五大维度标准化打分" in report
+        assert "## 四、AI 中性解读 + 风险汇总" in report
+        assert "## 五、多风格观察视角" in report
+        assert "## 六、工具局限性 + 免责声明" in report
+        assert "1. 财务量化数据" in report
+        assert "2. 技术面量化数据" in report
+        assert "3. 估值量化数据" in report
+        assert "4. 行业对比量化数据" in report
+        assert "5. 舆情量化数据" in report
 
     def test_partial_data_shows_warning(self):
         results = [
@@ -46,16 +45,14 @@ class TestReportBuilder:
                            summary="财务数据不可用", metrics={}),
         ]
         builder = ReportBuilder()
-        report = builder.build("000001", "平安银行", results, commentary={
-            "financial": "数据不可用。", "summary": "数据不足。"
-        })
-        # 清除加粗标记后检查
-        assert "数据不可用" in report.replace("*", "")
+        report = builder.build("000001", "平安银行", results, commentary={})
+        # 数据不足的维度标注
+        assert "该维度数据不足，已跳过" in report
 
     def test_report_includes_disclaimer(self):
         builder = ReportBuilder()
         report = builder.build("000001", "测试", [], {})
-        assert "不构成任何投资建议" in report
+        assert "不构成任何形式的投资建议" in report
 
     def test_report_includes_timestamp(self):
         builder = ReportBuilder()
