@@ -132,6 +132,25 @@ class Pipeline:
         ctx = self.collect(symbol, name, market, refresh_cache=refresh_cache,
                            data_types=data_types, on_progress=on_progress)
 
+        # 充实步骤（collect 之后 analyze 之前）
+        from data.enricher import ContextEnricher
+        from data.enrichers import PriceEnricher, FinancialEnricher, ValuationEnricher, IndustryEnricher, SentimentEnricher
+
+        enricher = ContextEnricher()
+        enricher.register(PriceEnricher())
+        enricher.register(FinancialEnricher())
+        enricher.register(ValuationEnricher())
+        enricher.register(IndustryEnricher())
+
+        sentiment_enricher = SentimentEnricher()
+        if self._llm_enabled:
+            provider = self._config.get("llm.provider", "openai")
+            llm = self._registry.get_llm_backend(provider)
+            sentiment_enricher.set_llm(llm)
+        enricher.register(sentiment_enricher)
+
+        ctx = enricher.enrich(ctx)
+
         results = []
         total = len(analysis_modules)
         completed = 0
