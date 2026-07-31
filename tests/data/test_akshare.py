@@ -167,12 +167,12 @@ def test_fetch_industry_falls_back_to_old_endpoint(mocker):
 
 
 def test_fetch_industry_uses_new_endpoint_first(mocker):
-    """新端点返回含行业字段时正确提取"""
+    """雪球端点返回含行业字段时正确提取"""
     mocker.patch(
-        "akshare.stock_individual_info_em",
+        "akshare.stock_individual_basic_info_xq",
         return_value=pd.DataFrame({
-            "item": ["行业", "上市时间"],
-            "value": ["银行", "1991-04-03"],
+            "item": ["affiliate_industry", "classi_name"],
+            "value": [{"ind_code": "BK0055", "ind_name": "银行"}, "金融"],
         }),
     )
     mocker.patch("utils.retry.time.sleep")

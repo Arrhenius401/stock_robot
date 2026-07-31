@@ -48,14 +48,21 @@ class IndustryEnricher(DataEnricher):
 
         top_peers = ind_data.top_peers or []
 
-        # 并行查询同行 PE/PB（取代原来 _fetch_industry 中的串行查询）
+        # 同行 PE/PB：优先使用采集层已附带的值（如申万数据），缺失时才并行查询
         peer_valuations: dict[str, tuple[float | None, float | None]] = {}
-        if top_peers:
+        peers_to_fetch = [p for p in top_peers if p.pe_ttm is None and p.pb is None]
+
+        if peers_to_fetch:
             with ThreadPoolExecutor(max_workers=5) as executor:
-                futures = {executor.submit(_fetch_peer_valuation, p.symbol): p.symbol for p in top_peers}
+                futures = {executor.submit(_fetch_peer_valuation, p.symbol): p.symbol for p in peers_to_fetch}
                 for future in as_completed(futures):
                     code, pe, pb = future.result()
                     peer_valuations[code] = (pe, pb)
+
+        # 合并已有数据
+        for p in top_peers:
+            if p.symbol not in peer_valuations:
+                peer_valuations[p.symbol] = (p.pe_ttm, p.pb)
 
         # 构建带 PE/PB 的同行对比列表
         peer_comparisons = []

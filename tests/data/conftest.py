@@ -30,8 +30,3 @@ def mock_akshare(mocker):
     return {"history": _mock_history, "financial": _mock_financial}
 
 
-@pytest.fixture(autouse=True)
-def _clear_info_cache():
-    """每个测试前清空个股信息缓存，防止测试间交叉污染"""
-    from data.akshare import clear_info_cache
-    clear_info_cache()

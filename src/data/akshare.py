@@ -22,7 +22,11 @@ def get_individual_info(symbol: str) -> dict:
     """获取个股基本信息（带内存缓存），返回 {item: value} 字典"""
     if symbol not in _info_cache:
         try:
-            df = _ak_individual_info_em(symbol)
+            if symbol.startswith("6"):
+                xq_symbol = f"SH{symbol}"
+            else:
+                xq_symbol = f"SZ{symbol}"
+            df = ak.stock_individual_basic_info_xq(symbol=xq_symbol)
             if "item" in df.columns and "value" in df.columns:
                 _info_cache[symbol] = dict(zip(df["item"], df["value"]))
             else:
@@ -35,6 +39,16 @@ def get_individual_info(symbol: str) -> dict:
 @retry_on_network_error()
 def _ak_hist(**kwargs):
     return ak.stock_zh_a_hist(**kwargs)
+
+
+@retry_on_network_error()
+def _ak_daily(symbol, start_date, end_date, adjust):
+    """腾讯源日线数据，symbol 格式: sz000001 / sh600000"""
+    if symbol.startswith("6"):
+        tx_symbol = f"sh{symbol}"
+    else:
+        tx_symbol = f"sz{symbol}"
+    return ak.stock_zh_a_daily(symbol=tx_symbol, start_date=start_date, end_date=end_date, adjust=adjust)
 
 
 @retry_on_network_error()
@@ -75,6 +89,117 @@ def _ak_board_industry_cons_em(symbol):
     return ak.stock_board_industry_cons_em(symbol=symbol)
 
 
+def _fetch_sw_peers(industry_name: str) -> list[dict]:
+    """通过申万行业分类获取同行股票（含 PE/PB/市值，来源 legulegu.com）
+    返回 list[dict]，每个 dict 包含: symbol, name, market_cap, pe_ttm, pb
+    """
+    import requests as _req
+    from io import StringIO as _StringIO
+    import pandas as _pd
+    from bs4 import BeautifulSoup as _BeautifulSoup
+
+    # 第一步：获取申万三级行业代码列表（带浏览器请求头，绕过 Cloudflare）
+    sw_codes_map: dict[str, list[str]] = {}  # broad_name -> [SW codes]
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "zh-CN,zh;q=0.9",
+            "Referer": "https://legulegu.com/",
+        }
+        url = "https://legulegu.com/stockdata/sw-industry-overview"
+        resp = _req.get(url, headers=headers, timeout=15)
+        soup = _BeautifulSoup(resp.text, "html.parser")
+        level3 = soup.find("div", id="level3Items")
+        if level3:
+            code_items = level3.find_all("div", class_="lg-industries-item-chinese-title")
+            name_items = level3.find_all("div", class_="lg-industries-item-number")
+            codes = [item.get_text().strip() for item in code_items]
+            for code, name_item in zip(codes, name_items):
+                full_text = name_item.get_text()
+                parent_name = ""
+                # 提取上级行业名称（格式: "行业名(成分数)" 或 "行业名（成分数）"）
+                span = name_item.find("span")
+                if span:
+                    parent_name = span.get_text().strip(" ()（）")
+                    # 去掉最后的 ( ) 中内容
+                    if "(" in parent_name:
+                        parent_name = parent_name.rsplit("(", 1)[0].strip()
+                    if "（" in parent_name:
+                        parent_name = parent_name.rsplit("（", 1)[0].strip()
+                # 尝试从上级行业名匹配；也尝试从行业名称匹配
+                # 行业名称格式: 行业名Ⅲ(成分数)，取行业名部分
+                industry_detail = full_text.split("(")[0].split("（")[0].strip()
+                # 去掉 Ⅲ、Ⅱ、Ⅰ 后缀
+                broad = industry_detail.rstrip("ⅢⅡⅠ")
+                if broad not in sw_codes_map:
+                    sw_codes_map[broad] = []
+                sw_codes_map[broad].append(code)
+    except Exception:
+        logger.warning("无法获取申万行业列表，将使用回退方案")
+
+    # 在映射表中模糊匹配
+    matched_codes = []
+    for broad, codes in sw_codes_map.items():
+        if industry_name in broad or broad in industry_name:
+            matched_codes.extend(codes)
+
+    # 去重
+    matched_codes = list(set(matched_codes))
+
+    if not matched_codes:
+        logger.info(f"未找到与 '{industry_name}' 匹配的申万行业")
+        return []
+
+    # 第二步：从 legulegu.com 直接抓取成分股数据
+    peers = []
+    for sw_code in matched_codes:
+        try:
+            url = f"https://legulegu.com/stockdata/index-composition?industryCode={sw_code}"
+            resp = _req.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+            dfs = _pd.read_html(_StringIO(resp.text))
+            if not dfs:
+                continue
+            df = dfs[0]
+
+            # 清理列名（去掉网站注入的 JSON-LD schema.org 标记）
+            clean_cols = {}
+            for col in df.columns:
+                col_str = str(col)
+                if "  " in col_str:
+                    clean_cols[col] = col_str.split("  ")[0].strip()
+            df.rename(columns=clean_cols, inplace=True)
+
+            for _, row in df.iterrows():
+                try:
+                    code = str(row.get("股票代码", ""))
+                    name = str(row.get("股票简称", ""))
+                    if not code or any(tag in name for tag in ("ST", "退市", "PT")):
+                        continue
+                    # 股票代码格式: 601398.SH → 去掉后缀
+                    if "." in code:
+                        code = code.split(".")[0]
+
+                    mcap_raw = row.get("市值（亿元）")
+                    pe_raw = row.get("市盈率ttm")
+                    pb_raw = row.get("市净率")
+
+                    peers.append({
+                        "symbol": code,
+                        "name": name,
+                        "market_cap": float(mcap_raw) * 1e8 if mcap_raw is not None and str(mcap_raw) not in ("nan", "") else None,
+                        "pe_ttm": float(pe_raw) if pe_raw is not None and str(pe_raw) not in ("nan", "") else None,
+                        "pb": float(pb_raw) if pb_raw is not None and str(pb_raw) not in ("nan", "") else None,
+                    })
+                except (ValueError, TypeError):
+                    continue
+        except Exception:
+            logger.warning(f"获取申万行业成分股失败: {sw_code}")
+            continue
+
+    return peers
+
+
 class AkShareAdapter(DataSource):
     """AkShare 数据源适配器 — 支持 A 股全部数据类型"""
 
@@ -99,21 +224,32 @@ class AkShareAdapter(DataSource):
         days = kwargs.get("days", 250)  # 近一年交易日，覆盖完整行情周期
         end_date = date.today().strftime("%Y%m%d")
         start_date = (date.today() - timedelta(days=days)).strftime("%Y%m%d")
-        df = _ak_hist(
-            symbol=symbol, period="daily",
-            start_date=start_date, end_date=end_date, adjust="qfq"
-        )
+        # 优先使用腾讯源（stock_zh_a_daily），东方财富源不稳定时自动回退
+        try:
+            df = _ak_daily(symbol=symbol, start_date=start_date, end_date=end_date, adjust="qfq")
+        except Exception:
+            df = _ak_hist(
+                symbol=symbol, period="daily",
+                start_date=start_date, end_date=end_date, adjust="qfq"
+            )
         results = []
         for _, row in df.iterrows():
             try:
+                # 兼容两种数据源的列名
+                date_val = row.get("date", row.get("日期"))
+                open_val = row.get("open", row.get("开盘"))
+                high_val = row.get("high", row.get("最高"))
+                low_val = row.get("low", row.get("最低"))
+                close_val = row.get("close", row.get("收盘"))
+                vol_val = row.get("volume", row.get("成交量"))
                 results.append(PriceData(
                     symbol=symbol,
-                    trade_date=datetime.strptime(str(row["日期"]), "%Y-%m-%d").date(),
-                    open=float(row["开盘"]),
-                    high=float(row["最高"]),
-                    low=float(row["最低"]),
-                    close=float(row["收盘"]),
-                    volume=int(row["成交量"]),
+                    trade_date=datetime.strptime(str(date_val)[:10], "%Y-%m-%d").date(),
+                    open=float(open_val),
+                    high=float(high_val),
+                    low=float(low_val),
+                    close=float(close_val),
+                    volume=int(float(vol_val)),
                 ))
             except (ValueError, KeyError) as e:
                 logger.warning(f"跳过异常行情数据行: {e}")
@@ -209,8 +345,13 @@ class AkShareAdapter(DataSource):
 
         # 获取行业分类（带缓存，后续充实层可复用）
         info = get_individual_info(symbol)
-        industry = str(info.get("行业", "") or info.get("所属行业", ""))
-        sector = str(info.get("板块", "") or info.get("所属部门", ""))
+        # 雪球源：affiliate_industry 为 {"ind_code": "BK0055", "ind_name": "银行"} 格式
+        aff_ind = info.get("affiliate_industry", "")
+        if isinstance(aff_ind, dict):
+            industry = str(aff_ind.get("ind_name", ""))
+        else:
+            industry = str(aff_ind) if aff_ind else ""
+        sector = str(info.get("classi_name", "") or info.get("板块", "") or info.get("所属部门", ""))
 
         # 回退：新端点失败时尝试旧行业名称端点
         if not industry or industry == "未知":
@@ -223,57 +364,75 @@ class AkShareAdapter(DataSource):
             except Exception:
                 pass
 
-        # 从行业板块接口拉取成分股
+        # 通过申万行业分类获取同行成分股（优先；东方财富端点不稳定）
         all_peer_symbols: list[str] = []
         target_mcap: float | None = None
         target_rank: int | None = None
 
         if industry and industry != "未知":
-            try:
-                board_df = _ak_board_industry_cons_em(industry)
-                if board_df is not None and len(board_df) > 0:
-                    cols = list(board_df.columns)
-                    code_col = "代码" if "代码" in cols else cols[0]
-                    name_col = "名称" if "名称" in cols else (cols[1] if len(cols) > 1 else code_col)
-                    mcap_col = None
-                    for c in cols:
-                        if "市值" in str(c) or "总市值" in str(c):
-                            mcap_col = c
-                            break
+            sw_peers = _fetch_sw_peers(industry)
+            if sw_peers:
+                # 过滤无效市值，按市值排序
+                valid_peers = [p for p in sw_peers if p.get("market_cap")]
+                valid_peers.sort(key=lambda x: x.get("market_cap", 0), reverse=True)
 
-                    valid_rows = []
-                    for _, row in board_df.iterrows():
-                        code = str(row[code_col])
-                        name = str(row.get(name_col, ""))
-                        # 过滤 ST、*ST、退市标记
-                        if any(tag in name for tag in ("ST", "退市", "PT")):
-                            continue
-                        mcap = None
-                        if mcap_col:
-                            try:
-                                mcap = float(row[mcap_col])
-                            except (ValueError, TypeError):
-                                pass
-                        if mcap is not None and mcap > 0:
-                            valid_rows.append((code, name, mcap))
+                all_peer_symbols = [p["symbol"] for p in valid_peers]
 
-                    # 记录全部同行符号
-                    all_peer_symbols = [code for code, _, _ in valid_rows]
+                # 查找目标排名
+                for i, p in enumerate(valid_peers):
+                    if p["symbol"] == symbol:
+                        target_mcap = p.get("market_cap")
+                        target_rank = i + 1
+                        break
 
-                    # 按市值排序取前 5，同时记录目标股票的排名
-                    valid_rows.sort(key=lambda x: x[2], reverse=True)
-                    for i, (code, name, mcap) in enumerate(valid_rows):
-                        if code == symbol:
-                            target_mcap = mcap
-                            target_rank = i + 1  # 1-based
-                            break
-
-                    for code, name, mcap in valid_rows[:5]:
-                        top_peers.append(PeerBasicInfo(
-                            symbol=code, name=name, market_cap=mcap,
-                        ))
-            except Exception:
-                logger.warning(f"获取行业成分股失败: {industry}")
+                for p in valid_peers[:5]:
+                    top_peers.append(PeerBasicInfo(
+                        symbol=p["symbol"], name=p["name"],
+                        market_cap=p.get("market_cap"),
+                        pe_ttm=p.get("pe_ttm"),
+                        pb=p.get("pb"),
+                    ))
+            else:
+                # 回退：东方财富端点
+                try:
+                    board_df = _ak_board_industry_cons_em(industry)
+                    if board_df is not None and len(board_df) > 0:
+                        # ...（保留旧逻辑作为回退）
+                        cols = list(board_df.columns)
+                        code_col = "代码" if "代码" in cols else cols[0]
+                        name_col = "名称" if "名称" in cols else (cols[1] if len(cols) > 1 else code_col)
+                        mcap_col = None
+                        for c in cols:
+                            if "市值" in str(c) or "总市值" in str(c):
+                                mcap_col = c
+                                break
+                        valid_rows = []
+                        for _, row in board_df.iterrows():
+                            code = str(row[code_col])
+                            name = str(row.get(name_col, ""))
+                            if any(tag in name for tag in ("ST", "退市", "PT")):
+                                continue
+                            mcap = None
+                            if mcap_col:
+                                try:
+                                    mcap = float(row[mcap_col])
+                                except (ValueError, TypeError):
+                                    pass
+                            if mcap is not None and mcap > 0:
+                                valid_rows.append((code, name, mcap))
+                        all_peer_symbols = [code for code, _, _ in valid_rows]
+                        valid_rows.sort(key=lambda x: x[2], reverse=True)
+                        for i, (code, name, mcap) in enumerate(valid_rows):
+                            if code == symbol:
+                                target_mcap = mcap
+                                target_rank = i + 1
+                                break
+                        for code, name, mcap in valid_rows[:5]:
+                            top_peers.append(PeerBasicInfo(
+                                symbol=code, name=name, market_cap=mcap,
+                            ))
+                except Exception:
+                    logger.warning(f"获取行业成分股失败: {industry}")
 
         result = IndustryData(
             symbol=symbol, industry=industry or "未知", sector=sector or "",

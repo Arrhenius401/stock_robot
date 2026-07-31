@@ -151,8 +151,10 @@ class ValuationEnricher(DataEnricher):
             from data.akshare import get_individual_info
             from utils.numbers import parse_cn_number
             info = get_individual_info(ctx.symbol)
-            for key, val in info.items():
-                if "总股本" in str(key):
+            # 雪球源: reg_asset, 东方财富源: 总股本
+            for key in ("reg_asset", "总股本"):
+                val = info.get(key)
+                if val is not None:
                     return parse_cn_number(str(val))
         except Exception:
             pass
