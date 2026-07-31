@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import MagicMock
 from datetime import date
 from core.pipeline import Pipeline
@@ -191,3 +192,49 @@ class TestGenerateCommentary:
         commentary = pipeline._generate_commentary("600350", "山东高速", results)
         assert "bulk" in commentary  # 批量调用仍然会执行
         assert len(llm.calls) == 1
+
+
+class TestPipelineIndustryIntegration:
+    """验证管道已正确集成行业分类和配置驱动打分"""
+
+    def test_context_has_industry_after_collect(self):
+        """collect 后 ctx 应有 sw_industry 和 style_category"""
+        from core.pipeline import Pipeline
+        from core.registry import Registry
+        from data.akshare import AkShareAdapter
+
+        reg = Registry()
+        reg.register_data_source(AkShareAdapter())
+        pipeline = Pipeline(registry=reg, llm_enabled=False)
+
+        ctx = pipeline.collect("000001", "平安银行", refresh_cache=True)
+        assert ctx.sw_industry != ""
+        assert ctx.style_category != ""
+
+    def test_analysis_results_have_scores(self):
+        """分析结果应有配置驱动的分数"""
+        from core.pipeline import Pipeline
+        from core.registry import Registry
+        from data.akshare import AkShareAdapter
+        from analysis.financial import FinancialAnalyzer
+        from analysis.valuation import ValuationAnalyzer
+        from analysis.industry import IndustryAnalyzer
+        from analysis.technical import TechnicalAnalyzer
+        from analysis.sentiment import SentimentAnalyzer
+
+        reg = Registry()
+        reg.register_data_source(AkShareAdapter())
+        reg.register_analysis_module(FinancialAnalyzer())
+        reg.register_analysis_module(ValuationAnalyzer())
+        reg.register_analysis_module(IndustryAnalyzer())
+        reg.register_analysis_module(TechnicalAnalyzer())
+        reg.register_analysis_module(SentimentAnalyzer())
+
+        pipeline = Pipeline(registry=reg, llm_enabled=False)
+        results, _, ctx = pipeline.run("000001", "平安银行")
+
+        assert len(results) == 5
+        assert ctx.sw_industry != ""
+        # 至少有一个维度有分数
+        scored = [r for r in results if r.score is not None]
+        assert len(scored) > 0
