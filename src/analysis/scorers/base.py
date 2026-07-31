@@ -27,18 +27,35 @@ class BaseScorer(ABC):
         self, value: float | None, tiers: list[dict],
         reverse: bool = False
     ) -> tuple[float, str]:
-        """通用档位计分。tiers 按正序排列（高分在前），reverse=True 时倒序匹配。"""
+        """通用档位计分。
+
+        正向模式（reverse=False）：tiers 按正序排列（高分在前），
+        max_pct 为百分位上限，value <= max_pct 时命中。
+
+        反转模式（reverse=True）：max_pct 作为百分位下限（>=逻辑），
+        高分位得高分，用于周期资源等需要 PE 反转解读的场景。
+        """
         if value is None:
             return 0.0, "数据缺失"
         neg_inf = self.global_const.get("scoring", {}).get("negative_infinity", -999)
-        ordered = list(reversed(tiers)) if reverse else tiers
-        for tier in ordered:
-            lo = tier.get("min", neg_inf)
-            hi = tier.get("max_pct")
-            if hi is None:
-                hi = tier.get("max", float("inf"))
-            if lo <= value <= hi:
-                return tier["score"], ""
+        for tier in tiers:
+            if reverse:
+                # 反转模式：max_pct 作为最小阈值（高百分位 → 高分）
+                lo = tier.get("max_pct")
+                if lo is not None:
+                    if value >= lo:
+                        return tier["score"], ""
+                else:
+                    # 无阈值兜底 tier
+                    return tier["score"], ""
+            else:
+                # 正向模式：max_pct 作为上限
+                lo = tier.get("min", neg_inf)
+                hi = tier.get("max_pct")
+                if hi is None:
+                    hi = tier.get("max", float("inf"))
+                if lo <= value <= hi:
+                    return tier["score"], ""
         return self.global_const.get("scoring", {}).get("default_score", 0), "未命中任何档位"
 
     def _range_score(
