@@ -179,6 +179,9 @@ class AnalysisResult(BaseModel):
     score_detail: str = ""
     risk_flags: list[str] = Field(default_factory=list)
 
+    # 新增 — 行业特定说明
+    industry_note: str = ""
+
 
 class AnalysisContext(BaseModel):
     """分析上下文 — 管道中传递的完整数据容器"""
@@ -200,3 +203,7 @@ class AnalysisContext(BaseModel):
     enriched_valuation: EnrichedValuation | None = None
     enriched_industry: EnrichedIndustry | None = None
     enriched_sentiment: EnrichedSentiment | None = None
+
+    # 新增 — 行业分类信息
+    sw_industry: str = ""
+    style_category: str = ""
