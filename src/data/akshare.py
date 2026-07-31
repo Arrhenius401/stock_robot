@@ -257,6 +257,28 @@ class AkShareAdapter(DataSource):
 
     def _fetch_financial(self, symbol: str, **kwargs) -> list[FinancialData]:
         df = ak.stock_financial_abstract_ths(symbol=symbol)
+
+        # 从资产负债表端点补充 total_equity / total_assets（同花顺源，非东方财富）
+        balance_map: dict[str, tuple[float | None, float | None]] = {}
+        try:
+            bs_df = ak.stock_financial_debt_ths(symbol=symbol)
+            for _, row in bs_df.iterrows():
+                period_str = str(row.get("报告期", ""))
+                try:
+                    period_date = datetime.strptime(period_str, "%Y-%m-%d").date().isoformat()
+                except ValueError:
+                    continue
+                equity = parse_cn_number(row.get("*所有者权益（或股东权益）合计"))
+                assets = parse_cn_number(row.get("*资产合计"))
+                # 若简化版字段为空，尝试 "所有者权益（或股东权益）合计"（无星号版本）
+                if equity is None:
+                    equity = parse_cn_number(row.get("所有者权益（或股东权益）合计"))
+                if assets is None:
+                    assets = parse_cn_number(row.get("资产合计"))
+                balance_map[period_date] = (equity, assets)
+        except Exception:
+            logger.debug(f"资产负债表数据获取失败，将使用利润表数据")
+
         results = []
         periods = df.get("报告期", [])
         revenues = df.get("营业总收入", [])
@@ -292,17 +314,21 @@ class AkShareAdapter(DataSource):
                 # 每股经营现金流 — 总股本未知，暂存 per-share 值
                 ocf = parse_cn_number(cash_flow_per_share.iloc[idx] if hasattr(cash_flow_per_share, 'iloc') else cash_flow_per_share[idx]) if idx < len(cash_flow_per_share) else None
 
+                # 从资产负债表映射中获取净资产和总资产
+                date_key = fiscal_date.isoformat()
+                total_equity, total_assets = balance_map.get(date_key, (None, None))
+
                 results.append(FinancialData(
                     symbol=symbol,
                     fiscal_quarter=fiscal_date,
                     revenue=revenue,
                     net_profit=net_profit,
                     deducted_net_profit=deducted,
-                    total_assets=None,  # 此 API 不提供资产总计
-                    total_equity=None,  # 此 API 不提供股东权益
-                    operating_cash_flow=ocf,  # 每股经营现金流（非总额）
+                    total_assets=total_assets,
+                    total_equity=total_equity,
+                    operating_cash_flow=ocf,
                     roe=roe,
-                    gross_margin=net_margin,  # 此 API 提供的是销售净利率，复用此字段
+                    gross_margin=net_margin,
                 ))
             except (ValueError, IndexError, TypeError) as e:
                 logger.warning(f"跳过异常财务数据行 {idx}: {e}")
@@ -457,7 +483,7 @@ class AkShareAdapter(DataSource):
         try:
             df = _ak_news(symbol)
             for _, row in df.head(20).iterrows():
-                title = str(row.get("标题", "") or row.get("title", ""))
+                title = str(row.get("标题", "") or row.get("title", "") or row.get("新闻标题", ""))
                 if not title or title in seen_titles:
                     continue
                 seen_titles.add(title)

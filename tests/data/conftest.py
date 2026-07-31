@@ -25,8 +25,16 @@ def mock_akshare(mocker):
             "每股经营现金流": [2.5, 1.8, 1.2, 0.6],
         })
 
+    def _mock_balance_sheet(symbol):
+        return pd.DataFrame({
+            "报告期": ["2025-12-31", "2025-09-30", "2025-06-30", "2025-03-31"],
+            "*所有者权益（或股东权益）合计": ["500亿", "480亿", "460亿", "450亿"],
+            "*资产合计": ["2000亿", "1900亿", "1850亿", "1800亿"],
+        })
+
     mocker.patch("akshare.stock_zh_a_hist", side_effect=_mock_history)
     mocker.patch("akshare.stock_financial_abstract_ths", side_effect=_mock_financial)
+    mocker.patch("akshare.stock_financial_debt_ths", side_effect=_mock_balance_sheet)
     return {"history": _mock_history, "financial": _mock_financial}
 
 
