@@ -70,11 +70,18 @@ def make_scoring_context():
     return ctx
 
 
+def _load_config():
+    from pathlib import Path
+    from analysis.config_loader import ConfigLoader
+    config_dir = Path(__file__).parent.parent / "src" / "analysis" / "config"
+    return ConfigLoader(config_dir).load("银行")
+
+
 class TestFinancialScoring:
     def test_roe_sufficient(self):
         from analysis.financial import FinancialAnalyzer
         ctx = make_scoring_context()
-        result = FinancialAnalyzer().analyze(ctx)
+        result = FinancialAnalyzer().analyze(ctx, _load_config())
         assert result.score is not None
         assert 0 <= result.score <= 10
         assert "ROE" in result.score_detail
@@ -84,7 +91,7 @@ class TestFinancialScoring:
         ctx = make_scoring_context()
         ctx.sufficiency.financial.level = SufficiencyLevel.INSUFFICIENT
         ctx.sufficiency.financial.score_weight = 0.0
-        result = FinancialAnalyzer().analyze(ctx)
+        result = FinancialAnalyzer().analyze(ctx, _load_config())
         assert result.score is None
         assert result.status == "unavailable"
 
@@ -93,7 +100,7 @@ class TestTechnicalScoring:
     def test_sufficient_returns_score(self):
         from analysis.technical import TechnicalAnalyzer
         ctx = make_scoring_context()
-        result = TechnicalAnalyzer().analyze(ctx)
+        result = TechnicalAnalyzer().analyze(ctx, _load_config())
         assert result.score is not None
         assert 0 <= result.score <= 10
 
@@ -102,5 +109,5 @@ class TestTechnicalScoring:
         ctx = make_scoring_context()
         ctx.sufficiency.price.level = SufficiencyLevel.INSUFFICIENT
         ctx.sufficiency.price.score_weight = 0.0
-        result = TechnicalAnalyzer().analyze(ctx)
+        result = TechnicalAnalyzer().analyze(ctx, _load_config())
         assert result.score is None
