@@ -1,0 +1,37 @@
+# 全局常量 — 所有 YAML 模板引用的公共数值
+scoring:
+  max_total: 10               # 单维度满分
+  default_score: 0            # 档位未命中时的兜底分
+  negative_infinity: -999     # 负无穷代理值
+
+sufficiency:
+  peer_sufficient: 8
+  peer_partial: 3
+  price_min_bars: 60
+  financial_min_quarters: 4
+  valuation_min_points: 120
+  sentiment_min_items: 10
+
+risk:
+  max_flag_penalty: -3
+  hard_floor: 0
+  hard_ceiling: 10
+
+risk_penalty:
+  enabled: true
+  rules:
+    financial_risk:
+      max_deduction: -3
+      flags: ["roe_low", "high_debt", "cash_flow_mismatch"]
+    valuation_risk:
+      max_deduction: -2
+      flags: ["high_pe_premium", "pb_below_peer"]
+    industry_risk:
+      max_deduction: -2
+      flags: ["industry_weak_margin"]
+    technical_risk:
+      max_deduction: -2
+      flags: ["bearish_ma", "volume_bearish"]
+    sentiment_risk:
+      max_deduction: -1
+      flags: ["major_negative_news"]
