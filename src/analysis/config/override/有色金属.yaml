@@ -1,0 +1,24 @@
+meta:
+  style_category: "周期资源"
+  sw_primary: ["煤炭", "有色金属", "钢铁"]
+  inherit: "周期资源"
+  strategy_key: "CyclicalScorer"
+  version: "1.0"
+
+financial:
+  gross_margin_stability:
+    enabled: false
+
+valuation:
+  primary_metric: pe
+
+  pe_percentile:
+    percentile_reverse: true
+    tiers:
+      - { max_pct: 70, score: 4 }
+      - { max_pct: 50, score: 2.5 }
+      - { score: 0 }
+
+industry:
+  weight: 0.20
+  comparison_metrics: ["roe", "gross_margin", "debt_ratio"]
