@@ -1,5 +1,13 @@
 你是一位资深金融分析师。请基于以下量化分析数据，为 {{ name }}（{{ symbol }}）撰写分析报告。
 
+## 标的行业定位
+
+申万一级行业：{{ sw_industry }}
+投资风格大类：{{ style_category }}
+{% if industry_note %}
+估值方法论说明：{{ industry_note }}
+{% endif %}
+
 ## 各维度得分
 
 {% for dim in scores %}
