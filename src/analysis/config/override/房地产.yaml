@@ -1,0 +1,10 @@
+meta:
+  style_category: "大金融"
+  sw_primary: ["房地产"]
+  inherit: "大金融"
+  strategy_key: "RealEstateScorer"
+  version: "1.0"
+
+financial:
+  debt_ratio:
+    use_custom_calc: true

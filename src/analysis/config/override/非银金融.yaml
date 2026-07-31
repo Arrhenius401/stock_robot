@@ -1,0 +1,10 @@
+meta:
+  style_category: "大金融"
+  sw_primary: ["非银金融"]
+  inherit: "大金融"
+  strategy_key: "NonBankFinancialScorer"
+  version: "1.0"
+
+financial:
+  gross_margin_stability:
+    enabled: false

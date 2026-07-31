@@ -1,0 +1,6 @@
+meta:
+  style_category: "医药"
+  sw_primary: ["医药生物"]
+  inherit: "医药"
+  strategy_key: "PharmaScorer"
+  version: "1.0"

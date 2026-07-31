@@ -35,6 +35,7 @@ def generate_mapping():
             "style_category": style_category,
         })
 
+    # with语句用于专门用来安全打开资源，用完自动释放资源
     with open(output_path, "w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=["symbol", "sw_level1", "sw_level2", "style_category"])
         writer.writeheader()

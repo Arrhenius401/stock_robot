@@ -1,0 +1,42 @@
+meta:
+  style_category: "大金融"
+  sw_primary: ["银行"]
+  inherit: "大金融"
+  strategy_key: "BankScorer"
+  version: "1.0"
+
+financial:
+  weight: 0.20
+
+  roe:
+    max_score: 3
+    tiers:
+      - { min: 0.13, score: 3 }
+      - { min: 0.10, score: 2 }
+      - { min: 0.07, score: 1 }
+      - { min: 0.04, score: 0.5 }
+      - { min: -999, score: 0 }
+
+  debt_ratio:
+    use_custom_calc: true
+
+  gross_margin_stability:
+    enabled: false
+
+valuation:
+  weight: 0.35
+  primary_metric: pb
+
+  pe_percentile:
+    enabled: false
+
+  pb_percentile:
+    max_score: 6
+    tiers:
+      - { max_pct: 20, score: 6 }
+      - { max_pct: 40, score: 4 }
+      - { max_pct: 70, score: 2 }
+      - { score: 0 }
+
+industry:
+  comparison_metrics: ["roe", "pb"]
