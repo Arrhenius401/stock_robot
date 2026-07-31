@@ -1,6 +1,8 @@
-"""财务分析模块 — 营收、利润、ROE 趋势分析"""
+"""财务分析模块 — 配置驱动，无硬编码阈值"""
+from typing import Any
+
 from analysis.base import AnalysisModule
-from data.schemas import AnalysisContext, AnalysisResult
+from data.schemas import AnalysisContext, AnalysisResult, SufficiencyLevel
 
 
 class FinancialAnalyzer(AnalysisModule):
@@ -8,7 +10,8 @@ class FinancialAnalyzer(AnalysisModule):
     def dimension(self) -> str:
         return "financial"
 
-    def analyze(self, context: AnalysisContext) -> AnalysisResult:
+    def analyze(self, context: AnalysisContext,
+                config: dict[str, Any] | None = None) -> AnalysisResult:
         financials = context.financial_data or []
         if not financials:
             return AnalysisResult(dimension=self.dimension, status="unavailable",
@@ -32,10 +35,12 @@ class FinancialAnalyzer(AnalysisModule):
             prev_year = sorted_data[-1] if len(sorted_data) >= 5 else sorted_data[1]
             if (latest.revenue is not None and prev_year.revenue is not None
                     and prev_year.revenue > 0):
-                metrics["revenue_growth_yoy"] = round((latest.revenue - prev_year.revenue) / prev_year.revenue, 4)
+                metrics["revenue_growth_yoy"] = round(
+                    (latest.revenue - prev_year.revenue) / prev_year.revenue, 4)
             if (latest.net_profit is not None and prev_year.net_profit is not None
                     and prev_year.net_profit > 0):
-                metrics["profit_growth_yoy"] = round((latest.net_profit - prev_year.net_profit) / prev_year.net_profit, 4)
+                metrics["profit_growth_yoy"] = round(
+                    (latest.net_profit - prev_year.net_profit) / prev_year.net_profit, 4)
 
         roe_trend = []
         for d in sorted_data[:8]:
@@ -46,91 +51,48 @@ class FinancialAnalyzer(AnalysisModule):
         status = "partial" if len(sorted_data) < 3 else "ok"
         summary = self._build_summary(metrics, status)
 
-        # ===== 打分逻辑 =====
-        from data.schemas import SufficiencyLevel
-
+        # 数据充足性检查
         if context.sufficiency and context.sufficiency.financial.level == SufficiencyLevel.INSUFFICIENT:
             return AnalysisResult(dimension=self.dimension, status="unavailable",
                                   summary="财务数据不足", metrics=metrics,
                                   score=None, score_detail="财务维度数据不足，跳过打分")
 
-        score = 0.0
-        score_parts = []
-        risk_flags = []
+        # 配置驱动打分
+        if config:
+            scorer = self._get_scorer(config)
+            score, score_detail, risk_flags = scorer.score_financial(context)
+            industry_note = scorer._industry_note() if hasattr(scorer, '_industry_note') else ""
+            return AnalysisResult(dimension=self.dimension, status=status,
+                                  summary=summary, metrics=metrics,
+                                  score=score, score_detail=score_detail,
+                                  risk_flags=risk_flags, industry_note=industry_note)
 
-        # 1. ROE 水平 (3分)
-        roe = latest.roe
-        if roe is not None:
-            if roe < 0:
-                score_parts.append(f"ROE {roe*100:.1f}%（负数），得 0/3 分")
-                risk_flags.append("roe_low")
-            elif roe >= 0.15:
-                score += 3; score_parts.append(f"ROE {roe*100:.1f}%（≥15%），得 3/3 分")
-            elif roe >= 0.10:
-                score += 2; score_parts.append(f"ROE {roe*100:.1f}%（10-15%），得 2/3 分")
-            elif roe >= 0.05:
-                score += 1; score_parts.append(f"ROE {roe*100:.1f}%（5-10%），得 1/3 分")
-            else:
-                score += 0; score_parts.append(f"ROE {roe*100:.1f}%（<5%），得 0/3 分")
-        else:
-            score_parts.append("ROE 数据缺失，得 0/3 分")
+        # 降级：无 config 时返回无分数的结果
+        return AnalysisResult(dimension=self.dimension, status=status,
+                              summary=summary, metrics=metrics)
 
-        # 2. 资产负债率 (2分)
-        latest_fin = sorted_data[0]
-        asset_liability = None
-        if latest_fin.total_assets and latest_fin.total_equity and latest_fin.total_equity > 0:
-            asset_liability = (1 - latest_fin.total_equity / latest_fin.total_assets) * 100
-        if asset_liability is not None:
-            if 40 <= asset_liability <= 70:
-                score += 2; score_parts.append(f"资产负债率 {asset_liability:.0f}%（适中），得 2/2 分")
-            elif 20 <= asset_liability < 40 or 70 < asset_liability <= 90:
-                score += 1; score_parts.append(f"资产负债率 {asset_liability:.0f}%（偏高/偏低），得 1/2 分")
-            else:
-                score += 0; score_parts.append(f"资产负债率 {asset_liability:.0f}%（极端），得 0/2 分")
-                if asset_liability > 90:
-                    risk_flags.append("high_debt")
-        else:
-            score_parts.append("资产负债率数据缺失，得 0/2 分")
+    @staticmethod
+    def _get_scorer(config: dict[str, Any]):
+        strategy_key = config.get("meta", {}).get("strategy_key", "GeneralScorer")
+        from analysis.scorers.general import GeneralScorer
+        from analysis.scorers.bank import BankScorer
+        from analysis.scorers.cyclical import CyclicalScorer
+        from analysis.scorers.tech_growth import TechGrowthScorer
+        from analysis.scorers.real_estate import RealEstateScorer
+        from analysis.scorers.non_bank_financial import NonBankFinancialScorer
+        from analysis.scorers.pharma import PharmaScorer
 
-        # 3. 经营现金流/净利润匹配 (3分)
-        ocf = latest_fin.operating_cash_flow
-        np_val = latest_fin.net_profit
-        if np_val is not None and np_val <= 0:
-            score += 0; score_parts.append("净利润为负，现金流匹配子项 0/3 分")
-            risk_flags.append("cash_flow_mismatch")
-        elif ocf is not None and np_val is not None and np_val > 0:
-            ratio = ocf / np_val
-            if ratio > 0.8:
-                score += 3; score_parts.append(f"经营现金流/净利润 {ratio:.2f}（>0.8），得 3/3 分")
-            elif ratio >= 0.5:
-                score += 2; score_parts.append(f"经营现金流/净利润 {ratio:.2f}（0.5-0.8），得 2/3 分")
-            else:
-                score += 1; score_parts.append(f"经营现金流/净利润 {ratio:.2f}（<0.5），得 1/3 分")
-                risk_flags.append("cash_flow_mismatch")
-        else:
-            score_parts.append("经营现金流数据缺失，得 0/3 分")
-
-        # 4. 毛利率稳定性 (2分)
-        gross_margins = [d.gross_margin for d in sorted_data[:4] if d.gross_margin is not None]
-        if gross_margins:
-            if any(gm < 0 for gm in gross_margins):
-                score += 0; score_parts.append("存在负毛利率，得 0/2 分")
-            else:
-                gm_range = max(gross_margins) - min(gross_margins) if len(gross_margins) >= 2 else 0
-                if gm_range < 0.05:
-                    score += 2; score_parts.append(f"近4期毛利率波动 {gm_range*100:.1f}pp（<5pp），得 2/2 分")
-                elif gm_range < 0.15:
-                    score += 1; score_parts.append(f"近4期毛利率波动 {gm_range*100:.1f}pp（5-15pp），得 1/2 分")
-                else:
-                    score += 0; score_parts.append(f"近4期毛利率波动 {gm_range*100:.1f}pp（>15pp），得 0/2 分")
-        else:
-            score_parts.append("毛利率数据缺失，得 0/2 分")
-
-        score = round(score, 1)
-        score_detail = "；".join(score_parts)
-        return AnalysisResult(dimension=self.dimension, status=status, summary=summary,
-                              metrics=metrics, score=score, score_detail=score_detail,
-                              risk_flags=risk_flags)
+        strategy_map = {
+            "GeneralScorer": GeneralScorer,
+            "BankScorer": BankScorer,
+            "CyclicalScorer": CyclicalScorer,
+            "TechGrowthScorer": TechGrowthScorer,
+            "RealEstateScorer": RealEstateScorer,
+            "NonBankFinancialScorer": NonBankFinancialScorer,
+            "PharmaScorer": PharmaScorer,
+        }
+        scorer_cls = strategy_map.get(strategy_key, GeneralScorer)
+        return scorer_cls(config, {})
 
     def _build_summary(self, metrics: dict, status: str) -> str:
         parts = []
