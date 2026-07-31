@@ -1,0 +1,140 @@
+meta:
+  style_category: "大金融"
+  sw_primary: ["银行", "非银金融", "房地产"]
+  inherit: ""
+  strategy_key: ""
+  version: "1.0"
+
+financial:
+  weight: 0.25
+  enabled: true
+  roe:
+    enabled: true
+    max_score: 3
+    threshold_mode: tier
+    tiers:
+      - { min: 15, score: 3 }
+      - { min: 10, score: 2 }
+      - { min: 5, score: 1 }
+      - { score: 0 }
+    extra_config:
+      negative_to_zero: true
+  debt_ratio:
+    enabled: true
+    max_score: 2
+    threshold_mode: range
+    tiers:
+      - { min: 40, max: 70, score: 2 }
+      - { min: 20, max: 85, score: 1 }
+      - { score: 0 }
+    extra_config:
+      extreme_threshold: 90
+    use_custom_calc: false
+  cashflow_match:
+    enabled: true
+    max_score: 3
+    threshold_mode: tier
+    tiers:
+      - { min: 0.8, score: 3 }
+      - { min: 0.5, score: 2 }
+      - { min: 0, score: 1 }
+    extra_config:
+      negative_profit_zero: true
+  gross_margin_stability:
+    enabled: true
+    max_score: 2
+    threshold_mode: tier
+    tiers:
+      - { max_vol_pp: 5, score: 2 }
+      - { max_vol_pp: 15, score: 1 }
+      - { score: 0 }
+    extra_config:
+      negative_gm_zero: true
+
+valuation:
+  weight: 0.30
+  enabled: true
+  primary_metric: pe
+  pe_percentile:
+    enabled: true
+    max_score: 4
+    threshold_mode: tier
+    percentile_reverse: false
+    tiers:
+      - { max_pct: 30, score: 4 }
+      - { max_pct: 50, score: 3 }
+      - { max_pct: 70, score: 2 }
+      - { max_pct: 90, score: 1 }
+      - { score: 0 }
+  pb_percentile:
+    enabled: true
+    max_score: 2
+    threshold_mode: tier
+    tiers:
+      - { max_pct: 30, score: 2 }
+      - { max_pct: 70, score: 1 }
+      - { score: 0 }
+  industry_premium:
+    enabled: true
+    max_score: 4
+    threshold_mode: tier
+    tiers:
+      - { max: -20, score: 4 }
+      - { max: 0, score: 3 }
+      - { max: 20, score: 2 }
+      - { max: 50, score: 1 }
+      - { score: 0 }
+
+industry:
+  weight: 0.15
+  enabled: true
+  base_score: 5
+  peer_count_bonus:
+    sufficient: 2
+    partial: 1
+  market_cap_rank_bonus:
+    top: 2
+    ranked: 1
+  comparison_metrics: ["gross_margin"]
+
+technical:
+  weight: 0.20
+  enabled: true
+  ma_structure:
+    enabled: true
+    max_score: 4
+    threshold_mode: tier
+    tiers:
+      - { condition: "bullish", score: 4 }
+      - { condition: "cross", score: 2 }
+      - { condition: "bearish", score: 1 }
+  volume_price:
+    enabled: true
+    max_score: 3
+    threshold_mode: tier
+    tiers:
+      - { condition: "up_with_volume", score: 3 }
+      - { condition: "sideways_shrink", score: 2 }
+      - { condition: "down_with_volume", score: 1 }
+      - { condition: "normal", score: 2 }
+  macd:
+    enabled: true
+    max_score: 3
+    threshold_mode: tier
+    tiers:
+      - { condition: "bullish", score: 3 }
+      - { condition: "critical", score: 2 }
+      - { condition: "bearish", score: 1 }
+
+sentiment:
+  weight: 0.10
+  enabled: true
+  base_score: 5
+  msg_count_bonus:
+    sufficient: 2
+    partial: 1
+  positive_ratio_bonus:
+    high: 2
+    medium: 1
+  announcement_bonus: 1
+  major_negative_penalty: -1
