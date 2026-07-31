@@ -88,13 +88,14 @@ class Pipeline:
         total = len(types_to_fetch)
         completed = 0
 
-        def fetch_one(data_type: str):
+        def fetch_one(data_type: str, stagger_index: int):
+            # 递增错峰：第 n 个线程延迟 n*0.15s，减轻上游瞬时压力
+            time.sleep(stagger_index * 0.15)
             if not refresh_cache:
                 cached = self._get_cached(symbol, data_type)
                 if cached is not None:
                     return data_type, cached
 
-            time.sleep(0.3)  # 错峰请求，减轻上游瞬时压力
             sources = self._registry.get_data_sources(market, data_type)
             for source in sources:
                 try:
@@ -106,8 +107,12 @@ class Pipeline:
                     logger.warning(f"数据源 {source.__class__.__name__} 获取 {data_type} 失败: {e}")
             return data_type, None
 
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            futures = {executor.submit(fetch_one, dt): dt for dt in types_to_fetch}
+        stagger_counter = 0
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {}
+            for dt in types_to_fetch:
+                futures[executor.submit(fetch_one, dt, stagger_counter)] = dt
+                stagger_counter += 1
             for future in as_completed(futures):
                 data_type, result = future.result()
                 if result is not None:

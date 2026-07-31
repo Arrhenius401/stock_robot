@@ -9,6 +9,28 @@ from utils.retry import retry_on_network_error
 
 logger = logging.getLogger(__name__)
 
+# 单次分析生命周期内复用 stock_individual_info_em 结果
+_info_cache: dict[str, dict] = {}
+
+
+def clear_info_cache():
+    """清空个股信息缓存（测试用）"""
+    _info_cache.clear()
+
+
+def get_individual_info(symbol: str) -> dict:
+    """获取个股基本信息（带内存缓存），返回 {item: value} 字典"""
+    if symbol not in _info_cache:
+        try:
+            df = _ak_individual_info_em(symbol)
+            if "item" in df.columns and "value" in df.columns:
+                _info_cache[symbol] = dict(zip(df["item"], df["value"]))
+            else:
+                _info_cache[symbol] = {}
+        except Exception:
+            _info_cache[symbol] = {}
+    return _info_cache[symbol]
+
 
 @retry_on_network_error()
 def _ak_hist(**kwargs):
@@ -185,18 +207,21 @@ class AkShareAdapter(DataSource):
         sector = ""
         top_peers = []
 
-        # 获取行业分类
-        try:
-            df = _ak_individual_info_em(symbol)
-            if "item" in df.columns and "value" in df.columns:
-                ind_row = df[df["item"].str.contains("行业", na=False)]
-                if not ind_row.empty:
-                    industry = str(ind_row["value"].iloc[0])
-                sec_row = df[df["item"].str.contains("板块|部门", na=False)]
-                if not sec_row.empty:
-                    sector = str(sec_row["value"].iloc[0])
-        except Exception:
-            pass
+        # 获取行业分类（带缓存，后续充实层可复用）
+        info = get_individual_info(symbol)
+        industry = str(info.get("行业", "") or info.get("所属行业", ""))
+        sector = str(info.get("板块", "") or info.get("所属部门", ""))
+
+        # 回退：新端点失败时尝试旧行业名称端点
+        if not industry or industry == "未知":
+            try:
+                name_df = _ak_industry_name()
+                if "板块名称" in name_df.columns:
+                    names = name_df["板块名称"].tolist()
+                    if names:
+                        industry = str(names[0])
+            except Exception:
+                pass
 
         # 从行业板块接口拉取成分股
         all_peer_symbols: list[str] = []
@@ -244,27 +269,8 @@ class AkShareAdapter(DataSource):
                             break
 
                     for code, name, mcap in valid_rows[:5]:
-                        pe_ttm = None
-                        pb = None
-                        # 容错：单家接口失败不中断
-                        try:
-                            if code.startswith("6"):
-                                xq = f"SH{code}"
-                            else:
-                                xq = f"SZ{code}"
-                            spot_df = _ak_individual_spot_xq(xq)
-                            if spot_df is not None and "item" in spot_df.columns and "value" in spot_df.columns:
-                                pe_row = spot_df[spot_df["item"] == "市盈率(动)"]
-                                pb_row = spot_df[spot_df["item"] == "市净率"]
-                                if not pe_row.empty:
-                                    pe_ttm = parse_cn_number(pe_row["value"].iloc[0])
-                                if not pb_row.empty:
-                                    pb = parse_cn_number(pb_row["value"].iloc[0])
-                        except Exception:
-                            pass
                         top_peers.append(PeerBasicInfo(
                             symbol=code, name=name, market_cap=mcap,
-                            pe_ttm=pe_ttm, pb=pb,
                         ))
             except Exception:
                 logger.warning(f"获取行业成分股失败: {industry}")

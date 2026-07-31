@@ -28,3 +28,10 @@ def mock_akshare(mocker):
     mocker.patch("akshare.stock_zh_a_hist", side_effect=_mock_history)
     mocker.patch("akshare.stock_financial_abstract_ths", side_effect=_mock_financial)
     return {"history": _mock_history, "financial": _mock_financial}
+
+
+@pytest.fixture(autouse=True)
+def _clear_info_cache():
+    """每个测试前清空个股信息缓存，防止测试间交叉污染"""
+    from data.akshare import clear_info_cache
+    clear_info_cache()

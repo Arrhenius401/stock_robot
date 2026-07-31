@@ -148,14 +148,12 @@ class ValuationEnricher(DataEnricher):
     def _get_total_shares(self, ctx: AnalysisContext) -> float | None:
         """获取总股本"""
         try:
-            import akshare as ak
-            df = ak.stock_individual_info_em(symbol=ctx.symbol)
-            if "item" in df.columns and "value" in df.columns:
-                row = df[df["item"].str.contains("总股本", na=False)]
-                if not row.empty:
-                    val = str(row["value"].iloc[0])
-                    from utils.numbers import parse_cn_number
-                    return parse_cn_number(val)
+            from data.akshare import get_individual_info
+            from utils.numbers import parse_cn_number
+            info = get_individual_info(ctx.symbol)
+            for key, val in info.items():
+                if "总股本" in str(key):
+                    return parse_cn_number(str(val))
         except Exception:
             pass
         # 回退：从最近一期财报反推
