@@ -80,6 +80,12 @@ class Pipeline:
         cache_db = self._config.config_dir / "cache.db"
         self._cache = CacheManager(db_path=cache_db)
 
+        # 新增：行业分类器 + 配置加载器
+        from data.industry_classifier import IndustryClassifier
+        from analysis.config_loader import ConfigLoader
+        self._classifier = IndustryClassifier()
+        self._config_loader = ConfigLoader()
+
     def collect(self, symbol: str, name: str, market: str = "a-shares",
                 refresh_cache: bool = False, data_types: list[str] | None = None,
                 on_progress: ProgressCallback = None) -> AnalysisContext:
@@ -122,6 +128,11 @@ class Pipeline:
                     on_progress("collect", completed, total,
                                DATA_TYPE_LABELS.get(data_type, data_type))
 
+        # 新增：行业分类查询
+        classification = self._classifier.lookup(symbol)
+        ctx.sw_industry = classification.sw_level1
+        ctx.style_category = classification.style_category
+
         return ctx
 
     def run(self, symbol: str, name: str, market: str = "a-shares",
@@ -156,11 +167,17 @@ class Pipeline:
 
         ctx = enricher.enrich(ctx)
 
+        # 新增：加载行业配置
+        industry_config = self._config_loader.load(ctx.sw_industry)
+
         results = []
         total = len(analysis_modules)
         completed = 0
         with ThreadPoolExecutor(max_workers=5) as executor:
-            future_map = {executor.submit(m.analyze, ctx): m for m in analysis_modules}
+            future_map = {
+                executor.submit(m.analyze, ctx, industry_config): m
+                for m in analysis_modules
+            }
             for future in as_completed(future_map):
                 mod = future_map[future]
                 try:
@@ -177,12 +194,17 @@ class Pipeline:
 
         commentary = {}
         if self._llm_enabled:
-            commentary = self._generate_commentary(symbol, name, results, on_progress=on_progress)
+            commentary = self._generate_commentary(
+                symbol, name, results, ctx.sw_industry, ctx.style_category,
+                on_progress=on_progress
+            )
 
         return results, commentary, ctx
 
     def _generate_commentary(self, symbol: str, name: str,
                              results: list[AnalysisResult],
+                             sw_industry: str = "",
+                             style_category: str = "",
                              on_progress: ProgressCallback = None) -> dict[str, str]:
         """单次批量 LLM 调用，生成四段结构化解读"""
         commentary = {}
@@ -234,6 +256,13 @@ class Pipeline:
                 })
                 missing.append(label)
 
+        # 收集行业说明
+        industry_note = ""
+        for r in results:
+            if r.industry_note:
+                industry_note = r.industry_note
+                break
+
         try:
             from jinja2 import Environment, FileSystemLoader
             template_dir = Path(__file__).parent.parent / "llm" / "prompt_templates"
@@ -241,6 +270,9 @@ class Pipeline:
 
             template = env.get_template(f"batch_analysis_{provider}.jinja2")
             prompt = template.render(
+                sw_industry=sw_industry,
+                style_category=style_category,
+                industry_note=industry_note,
                 name=name, symbol=symbol, scores=scores,
                 risk_flags=all_risk_flags,
                 covered_dims="、".join(covered) if covered else "无",
