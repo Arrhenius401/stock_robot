@@ -10,7 +10,7 @@ class BaseScorer(ABC):
 
     def __init__(self, config: dict[str, Any], global_const: dict[str, Any]):
         self.config = config
-        self.global = global_const
+        self.global_const = global_const
 
     @property
     @abstractmethod
@@ -30,7 +30,7 @@ class BaseScorer(ABC):
         """通用档位计分。tiers 按正序排列（高分在前），reverse=True 时倒序匹配。"""
         if value is None:
             return 0.0, "数据缺失"
-        neg_inf = self.global.get("scoring", {}).get("negative_infinity", -999)
+        neg_inf = self.global_const.get("scoring", {}).get("negative_infinity", -999)
         ordered = list(reversed(tiers)) if reverse else tiers
         for tier in ordered:
             lo = tier.get("min", neg_inf)
@@ -39,7 +39,7 @@ class BaseScorer(ABC):
                 hi = tier.get("max", float("inf"))
             if lo <= value <= hi:
                 return tier["score"], ""
-        return self.global.get("scoring", {}).get("default_score", 0), "未命中任何档位"
+        return self.global_const.get("scoring", {}).get("default_score", 0), "未命中任何档位"
 
     def _range_score(
         self, value: float | None, tiers: list[dict]
