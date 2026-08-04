@@ -45,7 +45,7 @@
 
 ## 三、五大维度标准化打分
 
-{{ score_rows | md_table(["维度", "得分", "权重", "充足状态"]) }}
+{{ score_rows | md_table({"维度": "label", "得分": "score", "权重": "weight", "充足状态": "sufficiency"}) }}
 
 **综合得分（扣风险前）：** {{ base_score }}/10
 {% if risk_deduction > 0 %}

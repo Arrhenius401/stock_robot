@@ -39,13 +39,21 @@ def _md_table(data, headers=None):
 
     elif isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
         if headers is None:
-            headers = list(data[0].keys())
+            display_headers = list(data[0].keys())
+            data_keys = display_headers
+        elif isinstance(headers, dict):
+            display_headers = list(headers.keys())
+            data_keys = [headers[h] for h in display_headers]
+        else:
+            display_headers = list(headers)
+            data_keys = display_headers
         for item in data:
             row = []
-            for h in headers:
-                val = item.get(h, "")
+            for key in data_keys:
+                val = item.get(key, "")
                 row.append(str(val) if val is not None else "N/A")
             rows.append(row)
+        headers = display_headers
     else:
         return ""
 
