@@ -104,13 +104,16 @@ class Pipeline:
 
             sources = self._registry.get_data_sources(market, data_type)
             for source in sources:
-                try:
-                    result = source.fetch(symbol, data_type=data_type)
-                    if result:
-                        self._set_cache(symbol, data_type, result)
-                        return data_type, result
-                except Exception as e:
-                    logger.warning(f"数据源 {source.__class__.__name__} 获取 {data_type} 失败: {e}")
+                for attempt in range(2):
+                    try:
+                        result = source.fetch(symbol, data_type=data_type)
+                        if result:
+                            self._set_cache(symbol, data_type, result)
+                            return data_type, result
+                    except Exception as e:
+                        logger.warning(f"数据源 {source.__class__.__name__} 获取 {data_type} 失败: {e}")
+                    if attempt == 0:
+                        time.sleep(1)  # 重试前等待 1 秒
             return data_type, None
 
         stagger_counter = 0
@@ -302,8 +305,7 @@ class Pipeline:
         return commentary
 
     def _get_cached(self, symbol: str, data_type: str) -> list | None:
-        date_key = date.today().isoformat()
-        raw = self._cache.get(data_type, symbol, date_key)
+        raw = self._cache.get(data_type, symbol, "latest")
         if raw is None:
             return None
         try:
@@ -313,19 +315,29 @@ class Pipeline:
             return None
 
     def _set_cache(self, symbol: str, data_type: str, data: list):
-        date_key = date.today().isoformat()
+        date_key = "latest"
         try:
-            serialized = json.dumps(
-                [item.model_dump(mode="json") for item in data],
-                ensure_ascii=False, default=str,
-            )
+            dicts = []
+            for item in data:
+                d = item.model_dump(mode="json")
+                # 保存 model_dump 不包含的私有属性
+                if hasattr(item, '_raw_sentiment') and item._raw_sentiment is not None:
+                    d['_raw_sentiment'] = item._raw_sentiment.model_dump(mode="json")
+                if hasattr(item, '_target_mcap'):
+                    d['_target_mcap'] = item._target_mcap
+                if hasattr(item, '_target_rank'):
+                    d['_target_rank'] = item._target_rank
+                dicts.append(d)
+            serialized = json.dumps(dicts, ensure_ascii=False, default=str)
             ttl = self._config.get(f"data.cache_ttl.{TTL_KEY_MAP.get(data_type, 'daily')}", 86400)
             self._cache.put(data_type, symbol, date_key, serialized, ttl_seconds=ttl)
+            self._cache.cleanup_old_entries(data_type, symbol, date_key)
         except Exception as e:
             logger.warning(f"缓存 {data_type} 失败: {e}")
 
     def _deserialize_cache(self, data_type: str, symbol: str, data_list: list) -> list:
-        from data.schemas import FinancialData, PriceData, ValuationData, IndustryData, NewsData
+        from data.schemas import (FinancialData, PriceData, ValuationData,
+                                  IndustryData, NewsData, RawSentimentData)
         cls_map = {
             "price": PriceData, "financial": FinancialData,
             "valuation": ValuationData, "industry": IndustryData, "news": NewsData,
@@ -333,7 +345,20 @@ class Pipeline:
         cls = cls_map.get(data_type)
         if cls is None:
             return []
-        return [cls(**item) for item in data_list]
+        results = []
+        for item in data_list:
+            raw_sentiment_data = item.pop('_raw_sentiment', None)
+            target_mcap = item.pop('_target_mcap', None)
+            target_rank = item.pop('_target_rank', None)
+            obj = cls(**item)
+            if raw_sentiment_data:
+                obj._raw_sentiment = RawSentimentData(**raw_sentiment_data)
+            if target_mcap is not None:
+                obj._target_mcap = target_mcap
+            if target_rank is not None:
+                obj._target_rank = target_rank
+            results.append(obj)
+        return results
 
     @staticmethod
     def _assign_to_context(ctx: AnalysisContext, data_type: str, data: list):

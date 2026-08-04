@@ -76,6 +76,14 @@ class CacheManager:
         with self._get_conn() as conn:
             conn.execute("DELETE FROM cache")
 
+    def cleanup_old_entries(self, data_type: str, symbol: str, keep_date_key: str):
+        """删除同一 (data_type, symbol) 下非当前 date_key 的旧条目"""
+        with self._get_conn() as conn:
+            conn.execute(
+                "DELETE FROM cache WHERE data_type=? AND symbol=? AND date_key!=?",
+                (data_type, symbol, keep_date_key),
+            )
+
     def stats(self) -> dict:
         with self._get_conn() as conn:
             count = conn.execute("SELECT COUNT(*) FROM cache").fetchone()[0]

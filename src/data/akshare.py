@@ -224,35 +224,52 @@ class AkShareAdapter(DataSource):
         days = kwargs.get("days", 250)  # 近一年交易日，覆盖完整行情周期
         end_date = date.today().strftime("%Y%m%d")
         start_date = (date.today() - timedelta(days=days)).strftime("%Y%m%d")
-        # 优先使用腾讯源（stock_zh_a_daily），东方财富源不稳定时自动回退
+
+        def _parse(df, source_label: str) -> list[PriceData]:
+            results = []
+            for _, row in df.iterrows():
+                try:
+                    date_val = row.get("date", row.get("日期"))
+                    open_val = row.get("open", row.get("开盘"))
+                    high_val = row.get("high", row.get("最高"))
+                    low_val = row.get("low", row.get("最低"))
+                    close_val = row.get("close", row.get("收盘"))
+                    vol_val = row.get("volume", row.get("成交量"))
+                    results.append(PriceData(
+                        symbol=symbol,
+                        trade_date=datetime.strptime(str(date_val)[:10], "%Y-%m-%d").date(),
+                        open=float(open_val),
+                        high=float(high_val),
+                        low=float(low_val),
+                        close=float(close_val),
+                        volume=int(float(vol_val)),
+                    ))
+                except (ValueError, KeyError) as e:
+                    logger.warning(f"跳过异常行情数据行: {e}")
+            return results
+
+        # 优先使用腾讯源
         try:
             df = _ak_daily(symbol=symbol, start_date=start_date, end_date=end_date, adjust="qfq")
-        except Exception:
-            df = _ak_hist(
-                symbol=symbol, period="daily",
-                start_date=start_date, end_date=end_date, adjust="qfq"
-            )
-        results = []
-        for _, row in df.iterrows():
-            try:
-                # 兼容两种数据源的列名
-                date_val = row.get("date", row.get("日期"))
-                open_val = row.get("open", row.get("开盘"))
-                high_val = row.get("high", row.get("最高"))
-                low_val = row.get("low", row.get("最低"))
-                close_val = row.get("close", row.get("收盘"))
-                vol_val = row.get("volume", row.get("成交量"))
-                results.append(PriceData(
-                    symbol=symbol,
-                    trade_date=datetime.strptime(str(date_val)[:10], "%Y-%m-%d").date(),
-                    open=float(open_val),
-                    high=float(high_val),
-                    low=float(low_val),
-                    close=float(close_val),
-                    volume=int(float(vol_val)),
-                ))
-            except (ValueError, KeyError) as e:
-                logger.warning(f"跳过异常行情数据行: {e}")
+            results = _parse(df, "tencent")
+            if len(results) >= 60:
+                return results
+            logger.warning(f"腾讯源仅返回 {len(results)} 条行情数据（不足 60），尝试东方财富源")
+        except Exception as e:
+            logger.warning(f"腾讯源行情获取失败: {e}")
+
+        # 腾讯源数据不足或失败 → 回退东方财富源
+        try:
+            df = _ak_hist(symbol=symbol, period="daily",
+                          start_date=start_date, end_date=end_date, adjust="qfq")
+            results = _parse(df, "eastmoney")
+            if len(results) >= 60:
+                return results
+            logger.warning(f"东方财富源仅返回 {len(results)} 条行情数据（不足 60）")
+        except Exception as e:
+            logger.warning(f"东方财富源行情获取也失败: {e}")
+
+        # 两个源都不足，返回能拿到的那份（即使不足 60 条）
         return results
 
     def _fetch_financial(self, symbol: str, **kwargs) -> list[FinancialData]:
