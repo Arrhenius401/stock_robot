@@ -29,11 +29,7 @@
 
 {% set r = results_map.get(dim) %}
 {% if r and r.status != "unavailable" %}
-| 指标 | 数值 |
-|------|------|
-{% for key, value in r.metrics.items() if key not in ["roe_trend", "headlines"] %}
-| {{ key }} | {{ value }} |
-{% endfor %}
+{{ r.metrics | md_table }}
 {% if r.metrics.get("headlines") %}
 {% for headline in r.metrics["headlines"] %}
 - {{ headline }}
@@ -49,11 +45,7 @@
 
 ## 三、五大维度标准化打分
 
-| 维度 | 得分 | 权重 | 充足状态 |
-|------|------|------|----------|
-{% for dim in score_rows %}
-| {{ dim.label }} | {{ dim.score }} | {{ dim.weight }} | {{ dim.sufficiency }} |
-{% endfor %}
+{{ score_rows | md_table }}
 
 **综合得分（扣风险前）：** {{ base_score }}/10
 {% if risk_deduction > 0 %}
