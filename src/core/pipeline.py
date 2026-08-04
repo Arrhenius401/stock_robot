@@ -133,6 +133,16 @@ class Pipeline:
         ctx.sw_industry = classification.sw_level1
         ctx.style_category = classification.style_category
 
+        # 若 CSV 分类为兜底值"综合"，尝试从实时行业数据中获取
+        if ctx.sw_industry == "综合" and ctx.industry_data and ctx.industry_data.industry:
+            real_industry = ctx.industry_data.industry
+            ctx.sw_industry = real_industry
+            # 从 申万→大类 映射重新推导 style_category
+            mapping = self._config_loader._load_yaml(
+                self._config_loader.config_dir / "申万_大类_映射.yaml"
+            )
+            ctx.style_category = mapping.get(real_industry, "高端制造")
+
         return ctx
 
     def run(self, symbol: str, name: str, market: str = "a-shares",

@@ -287,6 +287,7 @@ class AkShareAdapter(DataSource):
         roe_list = df.get("净资产收益率", [])  # ROE（%）
         net_margins = df.get("销售净利率", [])  # 销售净利率（%）
         cash_flow_per_share = df.get("每股经营现金流", [])
+        basic_eps_list = df.get("基本每股收益", [])  # 用于反推总股本
 
         # 取最近 12 期数据（数据按时间升序排列，最新在末尾）
         total = len(periods)
@@ -311,8 +312,15 @@ class AkShareAdapter(DataSource):
                 nm_raw = parse_cn_number(net_margins.iloc[idx] if hasattr(net_margins, 'iloc') else net_margins[idx]) if idx < len(net_margins) else None
                 net_margin = nm_raw / 100.0 if nm_raw is not None and nm_raw > 1 else nm_raw
 
-                # 每股经营现金流 — 总股本未知，暂存 per-share 值
-                ocf = parse_cn_number(cash_flow_per_share.iloc[idx] if hasattr(cash_flow_per_share, 'iloc') else cash_flow_per_share[idx]) if idx < len(cash_flow_per_share) else None
+                # 每股经营现金流 × 总股本 → 经营现金流总额
+                ocf_per_share = parse_cn_number(cash_flow_per_share.iloc[idx] if hasattr(cash_flow_per_share, 'iloc') else cash_flow_per_share[idx]) if idx < len(cash_flow_per_share) else None
+                basic_eps = parse_cn_number(basic_eps_list.iloc[idx] if hasattr(basic_eps_list, 'iloc') else basic_eps_list[idx]) if idx < len(basic_eps_list) else None
+                ocf = None
+                if ocf_per_share is not None and net_profit is not None and basic_eps is not None and basic_eps > 0:
+                    total_shares = net_profit / basic_eps
+                    ocf = ocf_per_share * total_shares
+                elif ocf_per_share is not None:
+                    ocf = ocf_per_share  # 降级：无法反推总股本时保留 per-share 值
 
                 # 从资产负债表映射中获取净资产和总资产
                 date_key = fiscal_date.isoformat()
