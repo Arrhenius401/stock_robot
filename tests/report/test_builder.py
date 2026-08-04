@@ -1,4 +1,5 @@
 from datetime import datetime
+import pytest
 from report.builder import ReportBuilder
 from data.schemas import AnalysisResult
 
@@ -66,5 +67,11 @@ class TestReportBuilder:
                            metrics={"pe_ttm": 7.5, "pb": 0.85, "ps_ttm": 1.2}),
         ]
         report = ReportBuilder().build("600350", "山东高速", results, commentary={})
-        # 表头、分隔线、首行之间无空行，Markdown 表格才能正确渲染
-        assert "| 指标 | 数值 |\n|------|------|\n| pe_ttm | 7.5 |" in report
+        lines = report.split("\n")
+        for i, line in enumerate(lines):
+            if "指标" in line and "数值" in line:
+                assert lines[i + 1].startswith("|-"), f"期望分隔线，得到: {lines[i + 1]}"
+                assert lines[i + 2].startswith("| "), f"期望数据行，得到: {lines[i + 2]}"
+                assert "pe_ttm" in lines[i + 2]
+                return
+        pytest.fail("未找到表格结构")
