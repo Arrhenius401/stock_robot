@@ -408,8 +408,25 @@ def index(symbols, style, output, compare_only):
             name=name, market=market, index_style=index_style,
         ))
 
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+
     pipeline = IndexPipeline()
-    result = pipeline.run(targets)
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("{task.completed}/{task.total}"),
+        console=console,
+        transient=True,
+    ) as progress:
+        task_id = progress.add_task("正在分析指数...", total=None)
+
+        def on_progress(stage, current, total, label):
+            progress.update(task_id, completed=current, total=total,
+                           description=f"[{stage}] {label}")
+
+        result = pipeline.run(targets, on_progress=on_progress)
+        progress.update(task_id, visible=False)
 
     from report.formatter import ReportFormatter
 
