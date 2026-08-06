@@ -44,3 +44,33 @@ class TestIndexDataCollector:
         collector = IndexDataCollector()
         ctx = collector.collect(broad_target)
         assert ctx.price_data is not None
+
+    def test_collect_calls_on_progress_for_each_step_broad(self, broad_target):
+        calls = []
+
+        def track(stage, current, total, label):
+            calls.append((stage, current, total, label))
+
+        collector = IndexDataCollector()
+        collector.collect(broad_target, on_progress=track)
+        assert len(calls) == 5  # price, valuation, capital_flow, macro, sentiment
+        assert all(c[0] == "collect" for c in calls)
+        for i, (_, current, total, _) in enumerate(calls):
+            assert current == i + 1
+            assert total == 5
+
+    def test_collect_calls_on_progress_for_sector(self, sector_target):
+        calls = []
+
+        def track(stage, current, total, label):
+            calls.append((stage, current, total, label))
+
+        collector = IndexDataCollector()
+        collector.collect(sector_target, on_progress=track)
+        assert len(calls) == 4  # sector: no macro step
+
+    def test_collect_without_on_progress_still_works(self, broad_target):
+        collector = IndexDataCollector()
+        ctx = collector.collect(broad_target)  # no on_progress
+        assert ctx.valuation_data is not None
+        assert ctx.macro is not None

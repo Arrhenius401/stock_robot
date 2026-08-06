@@ -1,5 +1,6 @@
 """IndexDataCollector — 按 index_style 编排指数数据采集，只拉取原始数据"""
 import logging
+from collections.abc import Callable
 from core.registry import Registry
 from core.pipeline import ProgressCallback
 from data.schemas import AnalysisTarget, IndexAnalysisContext
@@ -31,7 +32,7 @@ class IndexDataCollector:
         ctx = IndexAnalysisContext(target=target)
 
         # 预计算采集步骤
-        steps: list[tuple[str, str, callable]] = []
+        steps: list[tuple[str, str, Callable]] = []
 
         def _fetch_price():
             price_result = self._adapter.fetch(
@@ -101,7 +102,10 @@ class IndexDataCollector:
 
         total = len(steps)
         for i, (_data_type, label, fetch_fn) in enumerate(steps):
-            fetch_fn()
+            try:
+                fetch_fn()
+            except Exception as e:
+                logger.warning(f"采集 {label} 失败: {e}")
             if on_progress:
                 on_progress("collect", i + 1, total, label)
 
