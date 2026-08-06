@@ -1,6 +1,6 @@
 """IndexCompareReportBuilder — 多指数横向对比"""
 from dataclasses import dataclass, field
-from data.schemas import IndexAnalysisContext, IndexReport
+from data.schemas import IndexAnalysisContext, IndexReport, IndexValuationData
 
 
 @dataclass
@@ -20,17 +20,18 @@ class IndexCompareReportBuilder:
         rows = []
         for ctx, report in zip(contexts, reports):
             val = ctx.valuation_data
-            change_str = (
-                f"{report.overview.get('change_pct', 0):+.2f}%"
-                if report.overview.get("change_pct") is not None
-                else "N/A"
-            )
+            # 防御性取值：报告结构不完整（如 mock/异常数据）时降级为 N/A，不中断整个管道
+            overview = report.overview if isinstance(report.overview, dict) else {}
+            change_pct = overview.get("change_pct", 0)
+            change_str = f"{change_pct:+.2f}%" if change_pct is not None else "N/A"
+            pe_valid = isinstance(val, IndexValuationData) and val.pe_percentile is not None
+            pb_valid = isinstance(val, IndexValuationData) and val.pb_percentile is not None
             rows.append({
                 "name": ctx.target.name,
-                "latest": report.overview.get("latest_close", "N/A"),
+                "latest": overview.get("latest_close", "N/A"),
                 "change": change_str,
-                "pe_pct": f"{val.pe_percentile:.0f}%" if val and val.pe_percentile is not None else "N/A",
-                "pb_pct": f"{val.pb_percentile:.0f}%" if val and val.pb_percentile is not None else "N/A",
+                "pe_pct": f"{val.pe_percentile:.0f}%" if pe_valid else "N/A",
+                "pb_pct": f"{val.pb_percentile:.0f}%" if pb_valid else "N/A",
                 "trend": report.tag_technical,
                 "valuation": report.tag_valuation,
                 "capital": report.tag_capital,
