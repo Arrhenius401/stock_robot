@@ -122,7 +122,8 @@ def main():
 @click.option("--refresh-cache", is_flag=True, help="强制刷新缓存")
 @click.option("--no-llm", is_flag=True, help="仅输出数据，跳过 LLM 解读")
 @click.option("--verbose", "-v", is_flag=True, help="显示采集和分析过程")
-def analyze(symbol, dimension, refresh_cache, no_llm, verbose):
+@click.option("--with-market", is_flag=True, help="在报告中嵌入大盘环境分析")
+def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
     """分析股票并生成研报"""
     from utils.symbols import normalize_symbol, validate_symbol, resolve_name
     from report.builder import ReportBuilder
@@ -237,6 +238,18 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose):
     else:
         price_position = "暂无"
 
+    # 大盘环境快照（可选，供报告中嵌入指数环境摘要）
+    market_env = None
+    if with_market:
+        try:
+            from index.pipeline import IndexPipeline
+            index_pipeline = IndexPipeline()
+            snapshot = index_pipeline.get_snapshot("000300")
+            if snapshot:
+                market_env = snapshot
+        except Exception:
+            pass
+
     builder = ReportBuilder()
     report = builder.build(
         symbol, name, results, commentary,
@@ -250,11 +263,173 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose):
         risk_deduction=risk_deduction,
         final_score=final_score,
         risk_flags=all_risk_flags,
+        market_env=market_env,
     )
 
     saved_path = ReportFormatter.save(report, symbol)
     console.print(ReportFormatter.to_rich_markdown(report))
     console.print(f"\n[dim]报告已保存至: {saved_path}[/dim]")
+
+
+def _render_index_report(report) -> str:
+    """将 IndexReport 渲染为终端可读的 Rich Markdown"""
+    from datetime import datetime
+    from jinja2 import Environment, FileSystemLoader
+    from pathlib import Path
+    from report.builder import _md_table
+
+    template_dir = Path(__file__).parent.parent / "report" / "templates"
+    env = Environment(loader=FileSystemLoader(str(template_dir)),
+                      trim_blocks=True, lstrip_blocks=True)
+    env.filters["md_table"] = _md_table
+    template = env.get_template("index_report.jinja2")
+    md = template.render(
+        code=report.code,
+        name=report.name,
+        generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        overview=report.overview,
+        section_technical=report.section_technical,
+        section_valuation=report.section_valuation,
+        section_capital=report.section_capital,
+        section_macro=report.section_macro,
+        section_sentiment=report.section_sentiment,
+        tag_technical=report.tag_technical,
+        tag_valuation=report.tag_valuation,
+        tag_capital=report.tag_capital,
+        tag_macro=report.tag_macro,
+        tag_sentiment=report.tag_sentiment,
+        composite_comment=report.composite_comment,
+        position_coeff=report.position_coeff,
+        visible_sections=report.visible_sections,
+    )
+    from report.formatter import ReportFormatter
+    return ReportFormatter.to_rich_markdown(md)
+
+
+def _render_index_report_md(report) -> str:
+    """将 IndexReport 渲染为纯 Markdown 文本"""
+    from datetime import datetime
+    from jinja2 import Environment, FileSystemLoader
+    from pathlib import Path
+    from report.builder import _md_table
+
+    template_dir = Path(__file__).parent.parent / "report" / "templates"
+    env = Environment(loader=FileSystemLoader(str(template_dir)),
+                      trim_blocks=True, lstrip_blocks=True)
+    env.filters["md_table"] = _md_table
+    template = env.get_template("index_report.jinja2")
+    return template.render(
+        code=report.code,
+        name=report.name,
+        generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        overview=report.overview,
+        section_technical=report.section_technical,
+        section_valuation=report.section_valuation,
+        section_capital=report.section_capital,
+        section_macro=report.section_macro,
+        section_sentiment=report.section_sentiment,
+        tag_technical=report.tag_technical,
+        tag_valuation=report.tag_valuation,
+        tag_capital=report.tag_capital,
+        tag_macro=report.tag_macro,
+        tag_sentiment=report.tag_sentiment,
+        composite_comment=report.composite_comment,
+        position_coeff=report.position_coeff,
+        visible_sections=report.visible_sections,
+    )
+
+
+def _render_compare_table(compare) -> str:
+    """渲染横向对比表格"""
+    if not compare or not compare.rows:
+        return ""
+    from rich.table import Table
+    # CompareTable 表头为中文、行内 key 为英文，需映射后再取值
+    header_key_map = {
+        "指数名称": "name", "最新点位": "latest", "涨跌幅": "change",
+        "PE 分位": "pe_pct", "PB 分位": "pb_pct", "趋势": "trend",
+        "估值": "valuation", "资金": "capital", "综合评级": "composite",
+    }
+    table = Table(title="指数横向对比")
+    for h in compare.headers:
+        table.add_column(h)
+    for row in compare.rows:
+        table.add_row(*[str(row.get(header_key_map.get(h, h), "")) for h in compare.headers])
+    return table
+
+
+@main.command()
+@click.argument("symbols", nargs=-1, required=True)
+@click.option("--style", "-s", type=click.Choice(["broad", "sector", "overseas"]),
+              help="指数类别（默认自动检测）")
+@click.option("--output", "-o", type=click.Choice(["terminal", "markdown"]),
+              default="terminal", help="输出格式")
+@click.option("--compare-only", is_flag=True, help="仅输出横向对比表格")
+def index(symbols, style, output, compare_only):
+    """分析指数并生成报告"""
+    from utils.symbols import validate_index_symbol, normalize_index_symbol
+    from utils.config import Config
+    from data.index_mapping import IndexMapping
+    from data.schemas import AnalysisTarget
+    from index.pipeline import IndexPipeline
+
+    config = Config()
+    if not _check_disclaimer(config):
+        return
+
+    mapping = IndexMapping()
+    targets = []
+
+    for raw in symbols:
+        if not validate_index_symbol(raw):
+            console.print(f"[red]无效的指数代码: {raw}[/red]")
+            sys.exit(1)
+
+        normalized = normalize_index_symbol(raw)
+        entry = mapping.lookup(normalized)
+
+        if entry is None:
+            if style is None:
+                console.print(
+                    f"[red]无法识别指数 {normalized}，"
+                    f"请用 --style 指定类别 (broad/sector/overseas)[/red]"
+                )
+                sys.exit(1)
+            index_style = style
+            name = raw
+            market = "a-shares"
+        else:
+            index_style = entry.index_style
+            name = entry.name
+            market = entry.market
+
+        targets.append(AnalysisTarget(
+            target_type="index", symbol=normalized,
+            name=name, market=market, index_style=index_style,
+        ))
+
+    pipeline = IndexPipeline()
+    result = pipeline.run(targets)
+
+    from report.formatter import ReportFormatter
+
+    if not compare_only:
+        for report in result.reports:
+            if output == "terminal":
+                console.print(_render_index_report(report))
+            elif output == "markdown":
+                saved = ReportFormatter.save(
+                    _render_index_report_md(report),
+                    report.code
+                )
+                console.print(f"[green]报告已保存: {saved}[/green]")
+
+    if result.compare is not None:
+        console.print(_render_compare_table(result.compare))
+
+    if result.errors:
+        for err in result.errors:
+            console.print(f"[yellow]警告: {err}[/yellow]")
 
 
 @main.group()
