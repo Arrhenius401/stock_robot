@@ -212,6 +212,9 @@ class AnalysisContext(BaseModel):
     sw_industry: str = ""
     style_category: str = ""
 
+    # 大盘环境快照（由 IndexContextEnricher 填充）
+    market_environment: dict | None = None
+
 
 # ============================================================
 # 指数分析数据模型
