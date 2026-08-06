@@ -6,7 +6,7 @@ import logging
 import time
 from datetime import date
 from pathlib import Path
-from data.schemas import AnalysisContext, AnalysisResult
+from data.schemas import AnalysisContext, AnalysisResult, AnalysisTarget
 from data.cache import CacheManager
 from core.registry import Registry
 from utils.config import Config
@@ -147,6 +147,14 @@ class Pipeline:
             ctx.style_category = mapping.get(real_industry, "高端制造")
 
         return ctx
+
+    def collect_from_target(self, target: AnalysisTarget) -> AnalysisContext:
+        """从 AnalysisTarget 收集数据 — 个股管道的入口适配"""
+        return self.collect(
+            symbol=target.symbol,
+            name=target.name,
+            market=target.market,
+        )
 
     def run(self, symbol: str, name: str, market: str = "a-shares",
             dimension: str | None = None, refresh_cache: bool = False,
