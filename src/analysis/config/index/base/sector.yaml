@@ -1,0 +1,23 @@
+meta:
+  index_style: sector
+  description: 行业指数配置 — 偏资金+技术
+
+tags:
+  technical:
+    bull:
+      ma_5_above_ma_20: true
+    bear:
+      ma_5_below_ma_20: true
+    shake:
+      default: true
+
+  valuation:
+    undervalued:
+      pe_percentile_max: 30
+    neutral:
+      pe_percentile_min: 30
+      pe_percentile_max: 70
+    overvalued:
+      pe_percentile_min: 70
+    invalid:
+      valuation_valid: false
