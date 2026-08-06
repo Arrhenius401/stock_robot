@@ -2,6 +2,7 @@
 import logging
 from dataclasses import dataclass, field
 from core.registry import Registry
+from core.pipeline import ProgressCallback
 from data.schemas import AnalysisTarget, IndexAnalysisContext, AnalysisResult, IndexReport
 from index.collector import IndexDataCollector
 from index.enricher import IndexValuationEnricher
@@ -9,6 +10,23 @@ from index.build_single import IndexReportBuilder
 from index.build_compare import IndexCompareReportBuilder, CompareTable
 
 logger = logging.getLogger(__name__)
+
+INDEX_DIMENSION_LABELS = {
+    "index_technical": "技术面分析",
+    "index_valuation": "估值分析",
+    "index_capital_flow": "资金面分析",
+    "index_macro": "宏观分析",
+    "index_sentiment": "舆情分析",
+}
+
+# dimension → 适用的 index_style
+INDEX_DIMENSION_STYLES = {
+    "index_technical": ("broad", "sector", "overseas"),
+    "index_valuation": ("broad", "sector", "overseas"),
+    "index_capital_flow": ("broad", "sector"),
+    "index_macro": ("broad", "overseas"),
+    "index_sentiment": ("broad", "sector", "overseas"),
+}
 
 
 @dataclass
@@ -44,18 +62,25 @@ class IndexPipeline:
             IndexSentimentAnalyzer(),
         ]
 
-    def run(self, targets: list[AnalysisTarget]) -> IndexPipelineResult:
+    def run(self, targets: list[AnalysisTarget],
+            on_progress: ProgressCallback = None) -> IndexPipelineResult:
         reports: list[IndexReport] = []
         contexts: list[IndexAnalysisContext] = []
         errors: list[str] = []
 
         for target in targets:
             try:
-                ctx = self._collector.collect(target)
+                ctx = self._collector.collect(target, on_progress=on_progress)
 
-                # 运行所有分析模块
+                # 按 index_style 过滤适用的分析模块
+                applicable_modules = [
+                    m for m in self._analysis_modules
+                    if target.index_style in INDEX_DIMENSION_STYLES.get(m.dimension, ())
+                ]
+                total = len(applicable_modules)
+
                 results: list[AnalysisResult] = []
-                for module in self._analysis_modules:
+                for i, module in enumerate(applicable_modules):
                     try:
                         result = module.analyze(ctx)
                         results.append(result)
@@ -65,6 +90,9 @@ class IndexPipeline:
                             dimension=module.dimension, status="unavailable",
                             summary=f"分析模块异常: {e}", metrics={}
                         ))
+                    if on_progress:
+                        on_progress("analyze", i + 1, total,
+                                   INDEX_DIMENSION_LABELS.get(module.dimension, module.dimension))
 
                 report = self._report_builder.build(ctx, results)
                 reports.append(report)
