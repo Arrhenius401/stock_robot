@@ -1,0 +1,92 @@
+{# 指数分析报告模板 #}
+# 指数分析报告：{{ name }} ({{ code }})
+
+> 生成时间：{{ generated_at }}
+
+## 概览
+
+| 指标 | 数值 |
+|------|------|
+| 最新点位 | {{ overview.latest_close or "N/A" }} |
+| 涨跌幅 | {{ "%.2f%%"|format(overview.change_pct) if overview.change_pct else "N/A" }} |
+| PE-TTM | {{ "%.2f"|format(overview.pe_ttm) if overview.pe_ttm else "N/A" }}{% if overview.pe_percentile %}（历史分位 {{ "%.0f"|format(overview.pe_percentile) }}%，回看 {{ overview.percentile_lookback_years }} 年）{% endif %} |
+{% if not overview.valuation_valid %}
+> ⚠️ 估值样本不足，分位仅供参考
+{% endif %}
+
+---
+
+## 技术面
+
+{% if section_technical.status != "unavailable" %}
+{{ section_technical.summary }}
+
+{{ section_technical.metrics | md_table }}
+{% else %}
+技术面数据不可用。
+{% endif %}
+
+---
+
+## 估值面
+
+{% if section_valuation.status != "unavailable" %}
+{{ section_valuation.summary }}
+{% if not section_valuation.metrics.valuation_valid %}
+> 估值样本不足配置年限，分位仅供参考。
+{% endif %}
+
+{{ section_valuation.metrics | md_table }}
+{% else %}
+估值数据不可用。
+{% endif %}
+
+---
+
+{% if "capital" in visible_sections %}
+## 资金面
+
+{% if section_capital.status != "unavailable" %}
+{{ section_capital.summary }}
+{% else %}
+资金流向数据不可用。
+{% endif %}
+{% endif %}
+
+---
+
+{% if "macro" in visible_sections %}
+## 宏观面
+
+{% if section_macro.status != "unavailable" %}
+{{ section_macro.summary }}
+> 宏观指标反映国内整体宏观环境。
+{% else %}
+宏观数据不可用。
+{% endif %}
+{% endif %}
+
+---
+
+## 舆情面
+
+{% if section_sentiment.status != "unavailable" %}
+{{ section_sentiment.summary }}
+{% else %}
+暂无有效市场舆情信号。
+{% endif %}
+
+---
+
+## 综合评估
+
+| 维度 | 标签 |
+|------|------|
+| 技术面 | {{ tag_technical }} |
+| 估值面 | {{ tag_valuation }} |
+| 资金面 | {{ tag_capital }} |
+| 宏观面 | {{ tag_macro }} |
+| 舆情面 | {{ tag_sentiment }} |
+
+**综合定性：** {{ composite_comment }}
+**建议仓位参考系数：** {{ position_coeff if position_coeff is not none else "N/A" }}
