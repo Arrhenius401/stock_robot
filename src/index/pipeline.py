@@ -77,6 +77,9 @@ class IndexPipeline:
                     m for m in self._analysis_modules
                     if target.index_style in INDEX_DIMENSION_STYLES.get(m.dimension, ())
                 ]
+                if not applicable_modules:
+                    logger.warning(f"指数 {target.symbol} 的 index_style={target.index_style} "
+                                   "无适用分析模块")
                 total = len(applicable_modules)
 
                 results: list[AnalysisResult] = []
