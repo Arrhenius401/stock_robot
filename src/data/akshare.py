@@ -3,7 +3,10 @@ from datetime import date, datetime, timedelta
 import logging
 import akshare as ak
 from data.base import DataSource
-from data.schemas import PriceData, FinancialData, ValuationData, IndustryData, NewsData
+from data.schemas import (
+    PriceData, FinancialData, ValuationData, IndustryData, NewsData,
+    IndexPriceData, IndexValuationData, CapitalFlowData, MacroContext,
+)
 from utils.numbers import parse_cn_number
 from utils.retry import retry_on_network_error
 
@@ -87,6 +90,21 @@ def _ak_individual_spot_xq(symbol):
 def _ak_board_industry_cons_em(symbol):
     """行业板块成分股接口（带重试）"""
     return ak.stock_board_industry_cons_em(symbol=symbol)
+
+
+def _parse_date(value) -> date:
+    """解析 AkShare 日期值为 date（支持 date/datetime/字符串，格式 YYYY-MM-DD / YYYYMMDD）"""
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value).strip()[:10]
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    raise ValueError(f"无法解析日期: {value}")
 
 
 def _fetch_sw_peers(industry_name: str) -> list[dict]:
@@ -204,12 +222,28 @@ class AkShareAdapter(DataSource):
     """AkShare 数据源适配器 — 支持 A 股全部数据类型"""
 
     def supports(self, market: str, data_type: str) -> bool:
-        return market == "a-shares" and data_type in (
+        if market == "a-shares" and data_type in (
             "price", "financial", "valuation", "industry", "news"
-        )
+        ):
+            return True
+        elif data_type in ("index_price", "index_valuation", "index_capital_flow",
+                           "index_macro", "index_sentiment"):
+            return market in ("a-shares", "hk", "us")
+        return False
 
     def fetch(self, symbol: str, **kwargs) -> list:
         data_type = kwargs.get("data_type", "price")
+        # 指数数据分发（需显式传入 index_style 默认值，故单独处理）
+        if data_type == "index_price":
+            return self._fetch_index_price(symbol, kwargs.get("index_style", "broad"))
+        elif data_type == "index_valuation":
+            return self._fetch_index_valuation(symbol)
+        elif data_type == "index_capital_flow":
+            return self._fetch_capital_flow(symbol, kwargs.get("index_style", "broad"))
+        elif data_type == "index_macro":
+            return self._fetch_index_macro(symbol, kwargs.get("index_style", "broad"))
+        elif data_type == "index_sentiment":
+            return self._fetch_index_sentiment(symbol)
         try:
             method = getattr(self, f"_fetch_{data_type}", None)
             if method is None:
@@ -583,3 +617,212 @@ class AkShareAdapter(DataSource):
         # 把 raw_sentiment 存到 result 的额外属性
         result._raw_sentiment = RawSentimentData(symbol=symbol, fetch_date=today, items=items)
         return [result]
+
+    # ============================================================
+    # 指数数据采集
+    # ============================================================
+
+    @retry_on_network_error()
+    def _fetch_index_price(self, symbol: str, index_style: str) -> list[IndexPriceData]:
+        from data.schemas import IndexPriceData
+
+        try:
+            # A 股指数使用 stock_zh_index_daily_em（主源，东方财富）
+            if index_style in ("broad", "sector"):
+                df = ak.stock_zh_index_daily_em(symbol=symbol)
+                if df is None or df.empty:
+                    # 主源不可用 → 回退腾讯源（参数需 sh/sz 前缀）
+                    tx_symbol = f"sz{symbol}" if symbol.startswith("399") else f"sh{symbol}"
+                    df = ak.stock_zh_index_daily_tx(symbol=tx_symbol)
+            elif index_style == "overseas":
+                # 海外指数用全球指数接口
+                df = ak.index_global_hist_em(symbol=f"全球{symbol}")
+            else:
+                return []
+
+            if df is None or df.empty:
+                return []
+
+            results = []
+            for _, row in df.iterrows():
+                results.append(IndexPriceData(
+                    symbol=symbol,
+                    trade_date=_parse_date(row["date"]),
+                    open=float(row["open"]),
+                    high=float(row["high"]),
+                    low=float(row["low"]),
+                    close=float(row["close"]),
+                    volume=int(row.get("volume", 0)),
+                    turnover=float(row.get("amount", 0)) / 1e8 if row.get("amount") else None,
+                    change_pct=float(row.get("pct_chg", 0)) if row.get("pct_chg") else None,
+                ))
+            return results
+        except Exception as e:
+            logger.warning(f"获取指数 {symbol} 行情失败: {e}")
+            return []
+
+    @retry_on_network_error()
+    def _fetch_index_valuation(self, symbol: str) -> list[IndexValuationData]:
+        from data.schemas import IndexValuationData
+
+        try:
+            # 使用 index_value_hist_funddb 获取指数估值历史（主源）
+            try:
+                df = ak.index_value_hist_funddb(symbol=symbol, indicator="市盈率")
+            except AttributeError:
+                df = None
+            if df is None or df.empty:
+                # 主源缺失 → 回退中证指数估值接口（列为 市盈率1/股息率1，无市净率）
+                df = ak.stock_zh_index_value_csindex(symbol=symbol)
+                if df is not None and not df.empty:
+                    df = df.rename(columns={"市盈率1": "市盈率", "股息率1": "股息率"})
+            if df is None or df.empty:
+                return []
+
+            latest = df.iloc[-1]
+            return [IndexValuationData(
+                symbol=symbol,
+                date=_parse_date(str(latest["日期"])),
+                pe_ttm=float(latest["市盈率"]) if latest.get("市盈率") else None,
+                pb=float(latest.get("市净率", 0)) if latest.get("市净率") else None,
+                dividend_yield=float(latest.get("股息率", 0)) if latest.get("股息率") else None,
+            )]
+        except Exception as e:
+            logger.warning(f"获取指数 {symbol} 估值失败: {e}")
+            return []
+
+    @retry_on_network_error()
+    def _fetch_capital_flow(self, symbol: str, index_style: str) -> list[CapitalFlowData]:
+        from data.schemas import CapitalFlowData
+
+        try:
+            today = date.today()
+            if index_style == "broad":
+                # 全市场北向资金（主源）
+                try:
+                    df = ak.stock_hsgt_north_net_flow_in_em(symbol="北上")
+                except AttributeError:
+                    df = None
+                if df is None or df.empty:
+                    # 主源缺失 → 回退沪深港通资金汇总接口（过滤北向，汇总净流入）
+                    summary = ak.stock_hsgt_fund_flow_summary_em()
+                    if summary is not None and not summary.empty:
+                        north = summary[summary["资金方向"] == "北向"]
+                        if not north.empty:
+                            return [CapitalFlowData(
+                                symbol=symbol, date=today,
+                                north_bound=float(north["资金净流入"].sum()),
+                            )]
+                    return [CapitalFlowData(symbol=symbol, date=today)]
+            elif index_style == "sector":
+                # 行业板块资金流向
+                df = ak.stock_sector_fund_flow_rank(indicator="今日", sector_type="行业资金流向")
+                row = df[df["名称"].str.contains(symbol[:3])] if not df.empty else None
+                if row is not None and not row.empty:
+                    r = row.iloc[0]
+                    return [CapitalFlowData(
+                        symbol=symbol, date=today,
+                        main_net_inflow=float(r.get("主力净流入", 0)) if r.get("主力净流入") else None,
+                    )]
+                return [CapitalFlowData(symbol=symbol, date=today)]
+            else:
+                return [CapitalFlowData(symbol=symbol, date=today)]
+
+            if df is not None and not df.empty:
+                latest = df.iloc[-1]
+                return [CapitalFlowData(
+                    symbol=symbol, date=today,
+                    north_bound=float(latest.get("value", 0)) if latest.get("value") else None,
+                )]
+            return [CapitalFlowData(symbol=symbol, date=today)]
+        except Exception as e:
+            logger.warning(f"获取指数 {symbol} 资金流向失败: {e}")
+            return [CapitalFlowData(symbol=symbol, date=date.today())]
+
+    @retry_on_network_error()
+    def _fetch_index_macro(self, symbol: str, index_style: str) -> list[MacroContext]:
+        from data.schemas import MacroContext
+
+        if index_style == "sector":
+            # sector 保留 MacroContext 实例但字段全 None
+            return [MacroContext(symbol=symbol, fetch_date=date.today())]
+
+        result = MacroContext(symbol=symbol, fetch_date=date.today())
+        try:
+            # PMI（兼容新旧 akshare：新版本降序且列为"制造业-指数"，旧版本升序且列为"制造业"）
+            df_pmi = ak.macro_china_pmi()
+            if df_pmi is not None and not df_pmi.empty:
+                if "制造业-指数" in df_pmi.columns:
+                    latest = df_pmi.iloc[0]
+                    pmi_val = latest.get("制造业-指数")
+                else:
+                    latest = df_pmi.iloc[-1]
+                    pmi_val = latest.get("制造业")
+                result.pmi = float(pmi_val) if pmi_val else None
+
+            # Shibor（3 个月期；兼容新旧 akshare 参数）
+            try:
+                df_shibor = ak.rate_interbank(market="上海银行间同业拆放利率", indicator="Shibor")
+                three_month = df_shibor[df_shibor["期限"] == "3M"]
+                if not three_month.empty:
+                    result.shibor_3m = float(three_month.iloc[-1]["利率"])
+            except Exception:
+                df_shibor = ak.rate_interbank(market="上海银行同业拆借市场", symbol="Shibor人民币", indicator="3月")
+                if df_shibor is not None and not df_shibor.empty:
+                    result.shibor_3m = float(df_shibor.iloc[-1]["利率"])
+
+            # USD/CNY（仅海外指数需要）
+            if index_style == "overseas":
+                usd_cny = None
+                try:
+                    df_fx = ak.fx_spot_quote()
+                    if df_fx is not None and not df_fx.empty:
+                        usd_row = df_fx[df_fx["货币对"] == "美元/人民币"]
+                        if not usd_row.empty:
+                            usd_cny = float(usd_row.iloc[-1]["最新价"])
+                except Exception:
+                    pass
+                if usd_cny is None:
+                    # 回退：中国银行外汇牌价（央行中间价，单位分 → 元）
+                    try:
+                        start = (date.today() - timedelta(days=7)).strftime("%Y%m%d")
+                        end = date.today().strftime("%Y%m%d")
+                        df_boc = ak.currency_boc_sina(symbol="美元", start_date=start, end_date=end)
+                        if df_boc is not None and not df_boc.empty:
+                            usd_cny = float(df_boc.iloc[-1]["央行中间价"]) / 100.0
+                    except Exception:
+                        pass
+                result.usd_cny = usd_cny
+
+        except Exception as e:
+            logger.warning(f"获取宏观数据失败: {e}")
+
+        return [result]
+
+    @retry_on_network_error()
+    def _fetch_index_sentiment(self, symbol: str) -> list[NewsData]:
+        from data.schemas import NewsData
+
+        try:
+            # 全市场要闻（主源，东方财富），不用个股新闻接口
+            try:
+                df = ak.stock_news_main_em()
+            except AttributeError:
+                df = None
+            if df is None or df.empty:
+                # 主源缺失 → 回退财新要闻接口（列为 summary）
+                df = ak.stock_news_main_cx()
+            if df is None or df.empty:
+                return [NewsData(symbol=symbol, date=date.today(), headlines=[])]
+
+            if "title" in df.columns:
+                headlines = df["title"].head(30).tolist()
+            elif "summary" in df.columns:
+                headlines = df["summary"].head(30).tolist()
+            else:
+                headlines = []
+            result = NewsData(symbol=symbol, date=date.today(), headlines=headlines)
+            return [result]
+        except Exception as e:
+            logger.warning(f"获取指数舆情失败: {e}")
+            return [NewsData(symbol=symbol, date=date.today(), headlines=[])]
