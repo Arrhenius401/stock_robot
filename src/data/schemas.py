@@ -168,7 +168,11 @@ class NewsData(BaseModel):
 
 class AnalysisResult(BaseModel):
     """分析模块输出 — 统一结构"""
-    dimension: Literal["financial", "technical", "valuation", "industry", "sentiment"]
+    dimension: Literal[
+        "financial", "technical", "valuation", "industry", "sentiment",
+        "index_technical", "index_valuation", "index_capital_flow",
+        "index_macro", "index_sentiment",
+    ]
     status: Literal["ok", "partial", "unavailable"]
     summary: str
     metrics: dict[str, Any] = Field(default_factory=dict)
