@@ -15,6 +15,15 @@ logger = logging.getLogger(__name__)
 # 单次分析生命周期内复用 stock_individual_info_em 结果
 _info_cache: dict[str, dict] = {}
 
+# 海外指数代码 → 全球指数接口所需的中文名称
+_OVERSEAS_NAME_MAP = {
+    "HSI": "恒生指数",
+    "HSCEI": "恒生中国企业指数",
+    "SPX": "标普500",
+    "IXIC": "纳斯达克综合",
+    "DJI": "道琼斯工业平均",
+}
+
 
 def clear_info_cache():
     """清空个股信息缓存（测试用）"""
@@ -627,16 +636,19 @@ class AkShareAdapter(DataSource):
         from data.schemas import IndexPriceData
 
         try:
-            # A 股指数使用 stock_zh_index_daily_em（主源，东方财富）
-            if index_style in ("broad", "sector"):
+            # 宽基指数使用 stock_zh_index_daily_em（主源，东方财富）
+            if index_style == "broad":
                 df = ak.stock_zh_index_daily_em(symbol=symbol)
                 if df is None or df.empty:
                     # 主源不可用 → 回退腾讯源（参数需 sh/sz 前缀）
                     tx_symbol = f"sz{symbol}" if symbol.startswith("399") else f"sh{symbol}"
                     df = ak.stock_zh_index_daily_tx(symbol=tx_symbol)
+            elif index_style == "sector":
+                # 行业板块指数使用申万指数接口
+                df = ak.index_hist_sw(symbol=symbol)
             elif index_style == "overseas":
-                # 海外指数用全球指数接口
-                df = ak.index_global_hist_em(symbol=f"全球{symbol}")
+                # 海外指数用全球指数接口（参数需中文名称）
+                df = ak.index_global_hist_em(symbol=_OVERSEAS_NAME_MAP.get(symbol, symbol))
             else:
                 return []
 
@@ -716,7 +728,7 @@ class AkShareAdapter(DataSource):
                     return [CapitalFlowData(symbol=symbol, date=today)]
             elif index_style == "sector":
                 # 行业板块资金流向
-                df = ak.stock_sector_fund_flow_rank(indicator="今日", sector_type="行业资金流向")
+                df = ak.stock_sector_fund_flow_rank(indicator="今日", sector_type="行业资金流")
                 row = df[df["名称"].str.contains(symbol[:3])] if not df.empty else None
                 if row is not None and not row.empty:
                     r = row.iloc[0]
