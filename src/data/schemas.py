@@ -207,3 +207,96 @@ class AnalysisContext(BaseModel):
     # 新增 — 行业分类信息
     sw_industry: str = ""
     style_category: str = ""
+
+
+# ============================================================
+# 指数分析数据模型
+# ============================================================
+
+class AnalysisTarget(BaseModel):
+    """描述"分析什么"的值对象，不含业务数据"""
+    target_type: Literal["stock", "index"]
+    symbol: str
+    name: str
+    market: str = "a-shares"
+    index_style: Literal["broad", "sector", "overseas"] | None = None
+
+
+class IndexPriceData(PriceData):
+    """指数日线行情（继承 PriceData 的 OHLCV 字段）"""
+    turnover: float | None = None
+    change_pct: float | None = None
+
+
+class IndexValuationData(BaseModel):
+    """指数估值快照"""
+    symbol: str
+    date: date
+    pe_ttm: float | None = None
+    pb: float | None = None
+    pe_percentile: float | None = None
+    pb_percentile: float | None = None
+    dividend_yield: float | None = None
+    percentile_lookback_years: int = 5
+    percentile_sample_start: date | None = None
+    percentile_sample_end: date | None = None
+    valuation_valid: bool = True
+
+
+class CapitalFlowData(BaseModel):
+    """资金流向"""
+    symbol: str
+    date: date
+    north_bound: float | None = None
+    main_net_inflow: float | None = None
+    margin_balance: float | None = None
+
+
+class MacroContext(BaseModel):
+    """宏观经济指标上下文"""
+    symbol: str
+    fetch_date: date
+    shibor_3m: float | None = None
+    cpi_yoy: float | None = None
+    pmi: float | None = None
+    usd_cny: float | None = None
+    shibor_percentile: float | None = None
+    pmi_percentile: float | None = None
+
+
+class IndexAnalysisContext(BaseModel):
+    """指数分析上下文 — 管道的核心数据容器"""
+    target: AnalysisTarget
+    price_data: list[IndexPriceData] = Field(default_factory=list)
+    valuation_data: IndexValuationData | None = None
+    capital_flow: CapitalFlowData | None = None
+    macro: MacroContext | None = None
+    raw_sentiment: RawSentimentData | None = None
+    sufficiency: DataSufficiency | None = None
+    enriched_sentiment: EnrichedSentiment | None = None
+    risk_flags: list[str] = Field(default_factory=list)
+
+
+class IndexReport(BaseModel):
+    """指数分析报告"""
+    code: str
+    name: str
+    date: date
+    overview: dict
+    section_technical: dict
+    section_valuation: dict
+    section_capital: dict
+    section_macro: dict | None
+    section_sentiment: dict
+
+    tag_technical: Literal["bull", "shake", "bear"]
+    tag_valuation: Literal["undervalued", "neutral", "overvalued", "invalid"]
+    tag_capital: Literal["positive", "neutral", "negative"]
+    tag_macro: Literal["positive", "neutral", "negative", "na"]
+    tag_sentiment: Literal["positive", "neutral", "negative"]
+
+    composite_comment: str
+    position_coeff: float | None
+
+    risk_list: list[str]
+    visible_sections: set[str]
