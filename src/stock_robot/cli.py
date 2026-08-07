@@ -1,4 +1,5 @@
 """Stock Robot CLI — AI 驱动的股票分析研报助手"""
+import logging
 import os
 os.environ["TQDM_DISABLE"] = "1"
 
@@ -10,6 +11,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 console = Console()
+logger = logging.getLogger(__name__)
 
 
 def _get_registry():
@@ -502,6 +504,162 @@ def cache_status():
     table.add_row("缓存条目", str(stats["total_entries"]))
     table.add_row("数据库大小", f"{stats['db_size_bytes'] / 1024:.1f} KB")
     console.print(table)
+
+
+@main.command()
+@click.option("--ask", "-a", default=None, help="单次对话（非交互式）")
+@click.option("--verbose", "-v", is_flag=True, help="显示计划和工具调用细节")
+def chat(ask, verbose):
+    """进入 AI Agent 对话模式，支持复杂投研任务的自主拆解和分析"""
+    from agent.tools import ToolRegistry
+    from agent.memory import Memory
+    from agent.planner import Planner
+    from agent.executor import Executor
+    from agent.pipeline_tools import (
+        AnalyzeStockTool, AnalyzeIndexTool, GetSnapshotTool, ScreenStocksTool,
+    )
+    from output.renderer import RichRenderer
+    from utils.config import Config
+
+    config = Config()
+    renderer = RichRenderer(console=console)
+
+    # 构建工具注册表
+    registry = ToolRegistry()
+    registry.register(AnalyzeStockTool())
+    registry.register(AnalyzeIndexTool())
+    registry.register(GetSnapshotTool())
+    registry.register(ScreenStocksTool())
+
+    # 构建 LLM 后端
+    llm = _get_llm_for_agent(config)
+
+    memory = Memory()
+    planner = Planner(llm=llm, registry=registry, memory=memory)
+    executor = Executor(registry=registry, memory=memory)
+
+    if ask:
+        _run_agent_query(ask, planner, executor, memory, renderer)
+        return
+
+    _run_interactive_chat(planner, executor, memory, renderer)
+
+
+def _run_agent_query(query, planner, executor, memory, renderer):
+    """单次 Agent 查询"""
+    plan = planner.plan(query)
+    console.print(renderer.render_plan(plan))
+
+    import asyncio
+    result = asyncio.run(executor.execute(plan))
+
+    console.print(renderer.render_summary(result))
+
+
+def _run_interactive_chat(planner, executor, memory, renderer):
+    """交互式对话循环"""
+    console.print("[bold]Stock Robot Agent[/bold] — AI 驱动的投资研究助手")
+    console.print("输入你的投研问题，或输入 /exit 退出。输入 /help 查看可用指令。\n")
+
+    while True:
+        try:
+            user_input = click.prompt("你", prompt_suffix="> ").strip()
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n再见！")
+            break
+
+        if not user_input:
+            continue
+
+        # 处理快捷指令
+        result = _handle_slash_command(user_input, memory, renderer)
+        if result == "exit":
+            break
+        if result:
+            continue
+
+        plan = planner.plan(user_input)
+        console.print(renderer.render_plan(plan))
+
+        import asyncio
+        result = asyncio.run(executor.execute(plan))
+
+        console.print(renderer.render_summary(result))
+
+
+def _handle_slash_command(text, memory, renderer):
+    """处理 / 开头的快捷指令，返回 'exit' 表示退出，True 表示已处理"""
+    cmd = text.strip().lower()
+
+    if cmd == "/exit":
+        console.print("再见！")
+        return "exit"
+
+    if cmd == "/help":
+        console.print("""
+[bold]可用快捷指令:[/bold]
+  /help     - 显示此帮助
+  /tools    - 列出可用工具
+  /plan     - 显示最近一次执行计划
+  /clear    - 清空当前会话上下文
+  /verbose  - 切换详细输出模式
+  /exit     - 退出对话模式
+        """.strip())
+        return True
+
+    if cmd == "/tools":
+        console.print("[dim]工具列表功能需要在上下文中访问 registry，暂时不可用[/dim]")
+        return True
+
+    if cmd == "/plan":
+        last = memory.get_last_plan()
+        if last is None:
+            console.print("[dim]暂无执行计划[/dim]")
+        else:
+            console.print(renderer.render_plan(last))
+        return True
+
+    if cmd == "/clear":
+        memory.clear_session()
+        console.print("[dim]会话上下文已清空[/dim]")
+        return True
+
+    if cmd == "/verbose":
+        console.print("[dim]详细模式已切换[/dim]")
+        return True
+
+    return False
+
+
+def _get_llm_for_agent(config):
+    """为 Agent 创建 LLM 后端实例"""
+    provider = config.get("llm.provider", "openai")
+    api_key = config.get("llm.api_key", "")
+    base_url = config.get("llm.base_url", "") or None
+
+    try:
+        if provider == "openai":
+            from llm.openai import OpenAIAdapter
+            return OpenAIAdapter(
+                api_key=api_key,
+                model=config.get("llm.model", "gpt-4o"),
+                temperature=config.get("llm.temperature", 0.3),
+                max_tokens=config.get("llm.max_tokens", 2000),
+                base_url=base_url,
+            )
+        elif provider == "claude":
+            from llm.claude import ClaudeAdapter
+            return ClaudeAdapter(
+                api_key=api_key,
+                model=config.get("llm.model", "claude-sonnet-4-6"),
+                temperature=config.get("llm.temperature", 0.3),
+                max_tokens=config.get("llm.max_tokens", 2000),
+                base_url=base_url,
+            )
+    except Exception as e:
+        logger.warning(f"LLM 后端初始化失败: {e}")
+
+    return None
 
 
 if __name__ == "__main__":
