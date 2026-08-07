@@ -56,3 +56,109 @@ class TestToolProtocol:
         assert tool.name == "test_tool"
         assert tool.source == "pipeline"
         assert tool.tags == ["test"]
+
+
+class FakeTool:
+    def __init__(self, name, description, parameters=None, tags=None,
+                 source="pipeline", return_data=None):
+        self.name = name
+        self.description = description
+        self.parameters = parameters or {"type": "object", "properties": {}}
+        self.tags = tags or []
+        self.source = source
+        self._return = return_data
+
+    async def execute(self, **kwargs):
+        return ToolResult(status="success", data=self._return)
+
+
+class TestToolRegistry:
+    @pytest.fixture
+    def registry(self):
+        from agent.tools import ToolRegistry
+        return ToolRegistry()
+
+    @pytest.fixture
+    def sample_tools(self):
+        return [
+            FakeTool("analyze_stock", "分析单只股票的基本面和技术面，需要 stock_code 参数",
+                     tags=["pipeline", "stock", "analysis"]),
+            FakeTool("analyze_index", "分析指数，需要 index_code 参数",
+                     tags=["pipeline", "index", "analysis"]),
+            FakeTool("rag_search", "搜索知识库获取研报观点",
+                     tags=["rag", "knowledge"]),
+        ]
+
+    def test_register_adds_tool_to_registry(self, registry):
+        tool = FakeTool("test", "test tool")
+        registry.register(tool)
+        assert registry.get("test") is tool
+
+    def test_register_replaces_existing_same_name(self, registry):
+        tool1 = FakeTool("dup", "first")
+        tool2 = FakeTool("dup", "second")
+        registry.register(tool1)
+        registry.register(tool2)
+        assert registry.get("dup") is tool2
+
+    def test_list_all_returns_all_registered_tools(self, registry, sample_tools):
+        for t in sample_tools:
+            registry.register(t)
+        names = [t.name for t in registry.list_all()]
+        assert names == ["analyze_stock", "analyze_index", "rag_search"]
+
+    def test_get_returns_none_for_unknown_name(self, registry):
+        assert registry.get("nonexistent") is None
+
+    def test_match_filters_by_tags(self, registry, sample_tools):
+        for t in sample_tools:
+            registry.register(t)
+
+        results = registry.match("分析", tags=["pipeline"])
+        names = [t.name for t in results]
+        assert "analyze_stock" in names
+        assert "analyze_index" in names
+        assert "rag_search" not in names
+
+    def test_match_without_tags_returns_all_with_similar_description(self, registry, sample_tools):
+        for t in sample_tools:
+            registry.register(t)
+
+        results = registry.match("搜索")
+        names = [t.name for t in results]
+        assert "rag_search" in names
+
+    def test_match_returns_empty_for_no_match(self, registry, sample_tools):
+        for t in sample_tools:
+            registry.register(t)
+
+        results = registry.match("翻译文档", tags=["mcp_external"])
+        assert results == []
+
+    def test_match_tag_index_is_built_on_register(self, registry):
+        tool = FakeTool("multi_tag", "test", tags=["pipeline", "stock", "analysis"])
+        registry.register(tool)
+
+        assert "analyze_stock" not in [t.name for t in registry.match("whatever", tags=["rag"])]
+        result = registry.match("股票", tags=["stock"])[0]
+        assert result.name == "multi_tag"
+
+    def test_register_duplicate_name_updates_tag_index(self, registry):
+        tool1 = FakeTool("t1", "desc", tags=["pipeline"])
+        tool2 = FakeTool("t1", "desc", tags=["rag"])
+        registry.register(tool1)
+        registry.register(tool2)
+
+        assert len(registry.match("desc", tags=["pipeline"])) == 0
+        assert len(registry.match("desc", tags=["rag"])) == 1
+
+    def test_list_all_summary_returns_names_and_descriptions(self, registry, sample_tools):
+        for t in sample_tools:
+            registry.register(t)
+
+        summary = registry.list_all_summary()
+        assert len(summary) == 3
+        for item in summary:
+            assert "name" in item
+            assert "description" in item
+            assert "tags" in item
