@@ -26,4 +26,5 @@ stock-robot = "stock_robot.cli:main"
 dev = [
     "pytest>=8.0",
     "pytest-mock>=3.12",
+    "pytest-asyncio>=1.0",
 ]
