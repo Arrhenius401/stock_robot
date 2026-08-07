@@ -1,5 +1,5 @@
 """工具系统 — ToolProtocol 协议、ToolResult 结构、ToolRegistry 注册表"""
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
 
