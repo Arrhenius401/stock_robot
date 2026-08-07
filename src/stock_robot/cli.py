@@ -662,5 +662,175 @@ def _get_llm_for_agent(config):
     return None
 
 
+# ---------------------------------------------------------------------------
+# RAG 知识库管理命令组
+# ---------------------------------------------------------------------------
+
+@main.group()
+def rag():
+    """知识库管理 — 文档摄入、清理、统计"""
+    pass
+
+
+@rag.command("ingest")
+@click.argument("path")
+@click.option("--source-type", "-s", required=True,
+              type=click.Choice([
+                  "research_reports", "financial_filings",
+                  "policy_macro", "academic",
+                  "history_reports", "system_rules",
+              ]),
+              help="知识库类型")
+@click.option("--title", "-t", default="", help="文档标题")
+@click.option("--date", "-d", default="", help="文档日期 (YYYY-MM-DD)")
+@click.option("--symbol", multiple=True, help="关联股票代码（可多次指定）")
+@click.option("--tag", multiple=True, help="内容标签（可多次指定）")
+def rag_ingest(path, source_type, title, date, symbol, tag):
+    """摄入文档或目录到知识库
+
+    PATH 可以是单个文件或目录路径。
+    """
+    import os
+    from rag.engine import RAGEngine
+
+    console.print(f"[bold]正在摄入知识库...[/bold]")
+    console.print(f"  类型: {source_type}")
+    console.print(f"  路径: {path}")
+
+    engine = RAGEngine()
+    symbols = list(symbol)
+    tags = list(tag)
+
+    if os.path.isdir(path):
+        console.print(f"  模式: 目录批量导入")
+        results = engine.ingest_directory(
+            directory=path,
+            source_type=source_type,
+            title_prefix=title,
+            symbols=symbols,
+            tags=tags,
+        )
+        succeeded = sum(1 for r in results if r.get("status") == "success")
+        skipped = sum(1 for r in results if r.get("status") == "skipped")
+        failed = sum(1 for r in results if r.get("status") == "error")
+        console.print(
+            f"[green]✓ 成功: {succeeded}[/green]  "
+            f"[yellow]跳过: {skipped}[/yellow]  "
+            f"[red]失败: {failed}[/red]"
+        )
+        for r in results:
+            if r.get("status") == "error":
+                console.print(f"  [red]✗ {r.get('file_path', '?')}: {r.get('reason')}[/red]")
+    else:
+        result = engine.ingest_file(
+            file_path=path,
+            source_type=source_type,
+            title=title,
+            date=date,
+            symbols=symbols,
+            tags=tags,
+        )
+        if result["status"] == "success":
+            console.print(
+                f"[green]✓ 摄入成功: {result['chunks_count']} 个分块[/green]"
+            )
+            console.print(f"  哈希: {result.get('source_hash', '')[:16]}...")
+        elif result["status"] == "skipped":
+            console.print(f"[yellow]跳过: {result.get('reason', '?')}[/yellow]")
+        else:
+            console.print(f"[red]✗ 失败: {result.get('reason', '?')}[/red]")
+
+
+@rag.command("clean")
+@click.option("--source", "-s", "source_type",
+              type=click.Choice([
+                  "research_reports", "financial_filings",
+                  "policy_macro", "academic",
+                  "history_reports", "system_rules",
+              ]),
+              help="清除指定知识库类型")
+@click.option("--before", "before_date", default="",
+              help="清除指定日期前的文档 (YYYY-MM-DD)")
+@click.option("--symbol", default="",
+              help="清除指定股票关联的文档")
+@click.option("--dry-run", is_flag=True, default=False,
+              help="预览，不实际删除")
+def rag_clean(source_type, before_date, symbol, dry_run):
+    """清理知识库中的文档"""
+    from rag.engine import RAGEngine
+
+    engine = RAGEngine()
+
+    if dry_run:
+        console.print("[bold yellow]DRY RUN 模式 — 仅预览，不实际删除[/bold yellow]\n")
+
+    if source_type:
+        if dry_run:
+            stats = engine.collection_stats()
+            for s in stats:
+                if s["name"] == source_type:
+                    console.print(
+                        f"将清除 [bold]{source_type}[/bold] 全部 "
+                        f"[bold]{s['count']}[/bold] 个文档"
+                    )
+                    break
+        else:
+            result = engine.delete_by_source_type(source_type)
+            console.print(f"[green]✓ 已清除 {source_type} 知识库[/green]")
+
+    elif before_date:
+        if dry_run:
+            console.print(f"将清除 [bold]{before_date}[/bold] 之前的文档")
+        else:
+            result = engine.delete_before_date(before_date)
+            console.print(
+                f"[green]✓ 已清除 {result['deleted']} 个文档"
+                f"（{before_date} 之前）[/green]"
+            )
+
+    elif symbol:
+        if dry_run:
+            console.print(f"将清除与股票 [bold]{symbol}[/bold] 关联的文档")
+        else:
+            result = engine.delete_by_symbol(symbol)
+            console.print(
+                f"[green]✓ 已清除 {result['deleted']} 个与 {symbol} 关联的文档[/green]"
+            )
+
+    else:
+        console.print(
+            "[yellow]请指定清除条件: --source / --before / --symbol[/yellow]"
+        )
+
+
+@rag.command("stats")
+def rag_stats():
+    """查看知识库各 Collection 统计信息"""
+    from rag.engine import RAGEngine
+
+    engine = RAGEngine()
+    stats = engine.collection_stats()
+    embedding_name = engine.embedding_name
+
+    table = Table(title="RAG 知识库统计")
+    table.add_column("Collection", style="cyan")
+    table.add_column("文档数", justify="right")
+    table.add_column("状态", style="green")
+
+    total = 0
+    for entry in stats:
+        table.add_row(
+            entry["name"],
+            str(entry["count"]),
+            "✓" if entry["count"] > 0 else "空",
+        )
+        total += entry["count"]
+
+    table.add_section()
+    table.add_row("[bold]合计[/bold]", f"[bold]{total}[/bold]", "")
+    console.print(table)
+    console.print(f"\n[dim]Embedding 模型: {embedding_name}[/dim]")
+
+
 if __name__ == "__main__":
     main()
