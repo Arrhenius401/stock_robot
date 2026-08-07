@@ -140,8 +140,17 @@ class TestToolRegistry:
         registry.register(tool)
 
         assert "analyze_stock" not in [t.name for t in registry.match("whatever", tags=["rag"])]
-        result = registry.match("股票", tags=["stock"])[0]
+        # tag 过滤时返回所有标签匹配的工具，即使描述不含关键词（score=0 也返回）
+        result = registry.match("whatever", tags=["stock"])[0]
         assert result.name == "multi_tag"
+
+    def test_match_without_tags_only_returns_score_above_zero(self, registry):
+        """无 tag 过滤时，只返回描述包含关键词的工具（score > 0）"""
+        tool = FakeTool("no_match_tool", "无关描述", tags=["test"])
+        registry.register(tool)
+
+        results = registry.match("xyzabc")
+        assert len(results) == 0
 
     def test_register_duplicate_name_updates_tag_index(self, registry):
         tool1 = FakeTool("t1", "desc", tags=["pipeline"])
