@@ -531,6 +531,18 @@ def chat(ask, verbose):
     registry.register(GetSnapshotTool())
     registry.register(ScreenStocksTool())
 
+    # 注册 RAG 工具（若 ChromaDB 可用，否则静默跳过）
+    try:
+        from agent.rag_tools import RAGSearchTool, RAGListSourcesTool
+        from rag.engine import RAGEngine
+
+        rag_engine = RAGEngine()
+        registry.register(RAGSearchTool(engine=rag_engine))
+        registry.register(RAGListSourcesTool(engine=rag_engine))
+        logger.info("RAG 工具已注册 (embedding=%s)", rag_engine.embedding_name)
+    except Exception as e:
+        logger.warning("RAG 工具不可用，跳过注册: %s", e)
+
     # 构建 LLM 后端
     llm = _get_llm_for_agent(config)
 
