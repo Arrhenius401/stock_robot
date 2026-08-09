@@ -90,6 +90,15 @@ def create_app(registry=None, planner=None, executor=None, memory=None):
         return JSONResponse({"status": "not_implemented", "symbol": symbol,
                             "message": "index 端点将在后续版本中实现完整的 IndexPipeline 调用"}, status_code=501)
 
+    # 挂载 Web UI 静态文件（必须放在所有 API 路由之后，"/" 挂载会兜底捕获其余路径，
+    # 按注册顺序匹配，API 路由优先）
+    from fastapi.staticfiles import StaticFiles
+    import os
+
+    static_dir = os.path.join(os.path.dirname(__file__), "static")
+    if os.path.isdir(static_dir):
+        app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
+
     return app
 
 
