@@ -1,7 +1,8 @@
 """Executor 单元测试"""
 import pytest
+
 from agent.executor import Executor
-from agent.memory import TaskStep, Plan, TaskStatus, Memory
+from agent.memory import Memory, Plan, TaskStatus, TaskStep
 from agent.tools import ToolRegistry, ToolResult
 
 

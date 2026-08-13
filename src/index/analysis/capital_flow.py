@@ -1,5 +1,6 @@
 """指数资金面分析 — 北向资金、主力资金、融资余额"""
-from typing import Any
+from typing import Any, Literal
+
 from analysis.base import AnalysisModule
 from data.schemas import AnalysisResult, IndexAnalysisContext
 from index.enricher import tag_capital
@@ -7,7 +8,7 @@ from index.enricher import tag_capital
 
 class CapitalFlowAnalyzer(AnalysisModule):
     @property
-    def dimension(self) -> str:
+    def dimension(self) -> Literal["index_capital_flow"]:
         return "index_capital_flow"
 
     def analyze(self, context: IndexAnalysisContext,

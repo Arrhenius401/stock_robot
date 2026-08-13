@@ -1,6 +1,7 @@
 """文档分块策略 — 6 种 Collection 类型各自的分块逻辑"""
 import re
 from abc import ABC, abstractmethod
+from typing import ClassVar
 
 
 class Chunker(ABC):
@@ -62,8 +63,8 @@ class PolicyMacroChunker(Chunker):
 class AcademicChunker(Chunker):
     """学术文献 — 按摘要/方法/结论等章节切分"""
 
-    _SECTION_MARKERS = ["摘要", "abstract", "方法", "method", "结论", "conclusion",
-                        "引言", "introduction", "讨论", "discussion"]
+    _SECTION_MARKERS: ClassVar[list[str]] = ["摘要", "abstract", "方法", "method", "结论", "conclusion",
+                                             "引言", "introduction", "讨论", "discussion"]
 
     def chunk(self, text: str) -> list[str]:
         if not text.strip():
@@ -112,7 +113,7 @@ class SystemRulesChunker(Chunker):
 class ChunkerRegistry:
     """分块器注册表 — 按 source_type 映射对应的 Chunker"""
 
-    _MAPPING: dict[str, type[Chunker]] = {
+    _MAPPING: ClassVar[dict[str, type[Chunker]]] = {
         "research_reports": ResearchReportChunker,
         "financial_filings": FinancialFilingChunker,
         "policy_macro": PolicyMacroChunker,

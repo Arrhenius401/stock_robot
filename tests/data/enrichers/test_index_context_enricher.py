@@ -1,6 +1,6 @@
 """个股-指数联动充实器测试"""
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
+
 from src.data.enrichers.index_context_enricher import IndexContextEnricher
 from src.data.schemas import AnalysisContext
 

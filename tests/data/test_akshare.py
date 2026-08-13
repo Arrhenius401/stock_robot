@@ -1,9 +1,11 @@
 from datetime import date
 from http.client import RemoteDisconnected
+
 import pandas as pd
 import pytest
+
 from data.akshare import AkShareAdapter
-from data.schemas import PriceData, FinancialData
+from data.schemas import FinancialData, PriceData
 
 
 class TestAkShareAdapter:

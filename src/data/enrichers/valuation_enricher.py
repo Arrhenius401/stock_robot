@@ -1,10 +1,14 @@
 """估值充实器 — 行情+财报推导日频 PE/PB/PS 序列"""
 import logging
 from statistics import median
+
 from data.enricher import DataEnricher
 from data.schemas import (
-    AnalysisContext, DimensionSufficiency, SufficiencyLevel,
-    EnrichedValuation, DailyValuationPoint,
+    AnalysisContext,
+    DailyValuationPoint,
+    DimensionSufficiency,
+    EnrichedValuation,
+    SufficiencyLevel,
 )
 
 logger = logging.getLogger(__name__)
@@ -156,17 +160,16 @@ class ValuationEnricher(DataEnricher):
                 val = info.get(key)
                 if val is not None:
                     return parse_cn_number(str(val))
-        except Exception:
-            pass
+        except Exception:  # noqa: BLE001 — 总股本获取失败回退财报反推
+            logger.debug("总股本获取失败，回退财报反推")
         # 回退：从最近一期财报反推
         financials = sorted(ctx.financial_data or [], key=lambda x: x.fiscal_quarter)
         if financials:
             latest = financials[-1]
-            if latest.total_equity and latest.total_equity > 0:
-                if ctx.valuation_data and ctx.valuation_data.pb and ctx.valuation_data.pb > 0:
-                    sorted_prices = sorted(ctx.price_data or [], key=lambda x: x.trade_date)
-                    if sorted_prices:
-                        avg_price = sum(p.close for p in sorted_prices[-20:]) / min(20, len(sorted_prices))
-                        if avg_price > 0:
-                            return latest.total_equity * ctx.valuation_data.pb / avg_price
+            if latest.total_equity and latest.total_equity > 0 and ctx.valuation_data and ctx.valuation_data.pb and ctx.valuation_data.pb > 0:
+                sorted_prices = sorted(ctx.price_data or [], key=lambda x: x.trade_date)
+                if sorted_prices:
+                    avg_price = sum(p.close for p in sorted_prices[-20:]) / min(20, len(sorted_prices))
+                    if avg_price > 0:
+                        return latest.total_equity * ctx.valuation_data.pb / avg_price
         return None

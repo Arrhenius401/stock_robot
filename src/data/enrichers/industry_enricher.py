@@ -1,11 +1,16 @@
 """行业充实器 — 同业对比与行业中位数计算"""
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import statistics
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any
+
 from data.enricher import DataEnricher
 from data.schemas import (
-    AnalysisContext, DimensionSufficiency, SufficiencyLevel,
-    EnrichedIndustry, PeerComparison,
+    AnalysisContext,
+    DimensionSufficiency,
+    EnrichedIndustry,
+    PeerComparison,
+    SufficiencyLevel,
 )
 
 logger = logging.getLogger(__name__)
@@ -20,7 +25,7 @@ def _fetch_peer_valuation(code: str) -> tuple[str, float | None, float | None]:
         else:
             xq = f"SZ{code}"
         from data.akshare import _ak_individual_spot_xq
-        spot_df = _ak_individual_spot_xq(xq)
+        spot_df: Any = _ak_individual_spot_xq(xq)
         pe_ttm = None
         pb = None
         if spot_df is not None and "item" in spot_df.columns and "value" in spot_df.columns:
@@ -31,7 +36,7 @@ def _fetch_peer_valuation(code: str) -> tuple[str, float | None, float | None]:
             if not pb_row.empty:
                 pb = parse_cn_number(pb_row["value"].iloc[0])
         return code, pe_ttm, pb
-    except Exception:
+    except Exception:  # noqa: BLE001 — 估值接口失败降级为无估值
         return code, None, None
 
 

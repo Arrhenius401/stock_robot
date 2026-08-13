@@ -1,5 +1,5 @@
 """估值分析模块 — PE/PB/PS 当前值与历史分位"""
-from typing import Any
+from typing import Any, Literal
 
 from analysis.base import AnalysisModule
 from analysis.financial import FinancialAnalyzer
@@ -8,7 +8,7 @@ from data.schemas import AnalysisContext, AnalysisResult, SufficiencyLevel
 
 class ValuationAnalyzer(AnalysisModule):
     @property
-    def dimension(self) -> str:
+    def dimension(self) -> Literal["valuation"]:
         return "valuation"
 
     def analyze(self, context: AnalysisContext,

@@ -1,7 +1,6 @@
-import pytest
+
 import pandas as pd
-from datetime import date
-from data.schemas import PriceData, FinancialData, ValuationData, IndustryData, NewsData
+import pytest
 
 
 @pytest.fixture

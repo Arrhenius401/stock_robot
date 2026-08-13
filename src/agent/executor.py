@@ -1,7 +1,8 @@
 """Executor — 逐步执行引擎，负责工具匹配、执行编排、失败隔离"""
 import logging
 from collections.abc import Callable
-from agent.memory import Memory, TaskStep, Plan, TaskStatus
+
+from agent.memory import Memory, Plan, TaskStatus, TaskStep
 from agent.tools import ToolRegistry, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -83,7 +84,7 @@ class Executor:
     async def _safe_execute(self, tool, kwargs: dict) -> ToolResult:
         try:
             return await tool.execute(**kwargs)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — 工具执行隔离，失败以 ToolResult 返回
             logger.error(f"工具 {tool.name} 执行异常: {e}")
             return ToolResult(status="error", error=str(e),
                              metadata={"source": getattr(tool, "source", "unknown")})

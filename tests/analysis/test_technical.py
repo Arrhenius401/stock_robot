@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+
 from analysis.technical import TechnicalAnalyzer
 from data.schemas import AnalysisContext, PriceData
 

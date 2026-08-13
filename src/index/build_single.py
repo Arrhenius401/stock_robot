@@ -1,8 +1,10 @@
 """IndexReportBuilder — 从 IndexAnalysisContext + list[AnalysisResult] 构建单指数报告"""
-from datetime import datetime, date
+from datetime import datetime
 from pathlib import Path
+
 from jinja2 import Environment, FileSystemLoader
-from data.schemas import IndexAnalysisContext, AnalysisResult, IndexReport
+
+from data.schemas import AnalysisResult, IndexAnalysisContext, IndexReport
 
 
 class IndexReportBuilder:
@@ -36,7 +38,7 @@ class IndexReportBuilder:
         return IndexReport(
             code=ctx.target.symbol,
             name=ctx.target.name,
-            date=date.today(),
+            date=datetime.now().astimezone().date(),
             overview=overview,
             section_technical=technical,
             section_valuation=valuation,

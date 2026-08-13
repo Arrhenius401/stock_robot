@@ -1,12 +1,13 @@
 """指数舆情分析 — 市场层面舆情，禁止个股新闻"""
-from typing import Any
+from typing import Any, Literal
+
 from analysis.base import AnalysisModule
 from data.schemas import AnalysisResult, IndexAnalysisContext
 
 
 class IndexSentimentAnalyzer(AnalysisModule):
     @property
-    def dimension(self) -> str:
+    def dimension(self) -> Literal["index_sentiment"]:
         return "index_sentiment"
 
     def analyze(self, context: IndexAnalysisContext,

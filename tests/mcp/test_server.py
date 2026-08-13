@@ -1,6 +1,9 @@
 """内部 MCP Server 单元测试"""
 import json
+from typing import ClassVar
+
 import pytest
+
 from mcp.schemas import JSONRPCRequest
 from mcp.server import InternalMCPServer
 
@@ -8,8 +11,8 @@ from mcp.server import InternalMCPServer
 class FakeTool:
     name = "test_tool"
     description = "测试工具"
-    parameters = {"type": "object", "properties": {"x": {"type": "integer"}}}
-    tags = ["test"]
+    parameters: ClassVar[dict] = {"type": "object", "properties": {"x": {"type": "integer"}}}
+    tags: ClassVar[list[str]] = ["test"]
     source = "pipeline"
 
     async def execute(self, **kwargs):
@@ -20,8 +23,8 @@ class FakeTool:
 class FakeBrokenTool:
     name = "broken"
     description = "故障工具"
-    parameters = {"type": "object", "properties": {}}
-    tags = ["test"]
+    parameters: ClassVar[dict] = {"type": "object", "properties": {}}
+    tags: ClassVar[list[str]] = ["test"]
     source = "pipeline"
 
     async def execute(self, **kwargs):

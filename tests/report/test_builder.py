@@ -1,7 +1,9 @@
 from datetime import datetime
+
 import pytest
-from report.builder import ReportBuilder
+
 from data.schemas import AnalysisResult
+from report.builder import ReportBuilder
 
 
 class TestReportBuilder:
@@ -58,7 +60,7 @@ class TestReportBuilder:
     def test_report_includes_timestamp(self):
         builder = ReportBuilder()
         report = builder.build("000001", "测试", [], {})
-        now = datetime.now()
+        now = datetime.now().astimezone()
         assert str(now.year) in report
 
     def test_table_header_and_rows_are_contiguous(self):

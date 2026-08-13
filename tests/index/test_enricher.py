@@ -1,11 +1,8 @@
 """指数充实器测试"""
-import pytest
-from datetime import date, timedelta
-from src.index.enricher import compute_percentile, IndexValuationEnricher, tag_valuation
-from src.data.schemas import (
-    AnalysisTarget, IndexAnalysisContext, IndexValuationData,
-    IndexPriceData
-)
+from datetime import datetime, timedelta
+
+from src.data.schemas import AnalysisTarget, IndexAnalysisContext, IndexValuationData
+from src.index.enricher import IndexValuationEnricher, compute_percentile, tag_valuation
 
 
 class TestComputePercentile:
@@ -54,11 +51,11 @@ class TestIndexValuationEnricher:
         )
         ctx = IndexAnalysisContext(target=target)
         ctx.valuation_data = IndexValuationData(
-            symbol="000300", date=date.today(),
+            symbol="000300", date=datetime.now().astimezone().astimezone().date(),
             pe_ttm=12.5, pb=1.4,
         )
         daily = []
-        base = date.today() - timedelta(days=1200)
+        base = datetime.now().astimezone().astimezone().date() - timedelta(days=1200)
         for i in range(1000):
             daily.append(base + timedelta(days=i))
 

@@ -1,4 +1,5 @@
 import pytest
+
 from analysis.base import AnalysisModule
 from data.schemas import AnalysisContext, AnalysisResult
 

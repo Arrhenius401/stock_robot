@@ -1,5 +1,8 @@
 """MCP Gateway 集成测试"""
+from typing import ClassVar
+
 import pytest
+
 from mcp.gateway import MCPGateway
 
 
@@ -17,8 +20,8 @@ class TestMCPGateway:
         class DummyTool:
             name = "dummy"
             description = "test"
-            parameters = {"type": "object", "properties": {}}
-            tags = ["test"]
+            parameters: ClassVar[dict] = {"type": "object", "properties": {}}
+            tags: ClassVar[list[str]] = ["test"]
             source = "pipeline"
             async def execute(self, **kwargs):
                 from agent.tools import ToolResult

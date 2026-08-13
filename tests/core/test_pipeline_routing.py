@@ -1,6 +1,6 @@
 """管道路由测试"""
-import pytest
 from unittest.mock import MagicMock, patch
+
 from src.core.pipeline import Pipeline
 from src.data.schemas import AnalysisTarget
 

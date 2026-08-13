@@ -1,6 +1,9 @@
 """ToolResult / ToolProtocol / ToolRegistry 单元测试"""
+from typing import ClassVar
+
 import pytest
-from agent.tools import ToolResult, ToolProtocol
+
+from agent.tools import ToolResult
 
 
 class TestToolResult:
@@ -43,8 +46,8 @@ class TestToolProtocol:
         class MyTool:
             name = "test_tool"
             description = "用于测试的工具"
-            parameters = {"type": "object", "properties": {}}
-            tags = ["test"]
+            parameters: ClassVar[dict] = {"type": "object", "properties": {}}
+            tags: ClassVar[list[str]] = ["test"]
             source = "pipeline"
 
             async def execute(self, **kwargs):

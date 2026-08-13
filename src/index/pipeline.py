@@ -1,13 +1,19 @@
 """IndexPipeline — 指数分析管道编排"""
 import logging
 from dataclasses import dataclass, field
-from core.registry import Registry
+
 from core.pipeline import ProgressCallback
-from data.schemas import AnalysisTarget, IndexAnalysisContext, AnalysisResult, IndexReport
+from core.registry import Registry
+from data.schemas import (
+    AnalysisResult,
+    AnalysisTarget,
+    IndexAnalysisContext,
+    IndexReport,
+)
+from index.build_compare import CompareTable, IndexCompareReportBuilder
+from index.build_single import IndexReportBuilder
 from index.collector import IndexDataCollector
 from index.enricher import IndexValuationEnricher
-from index.build_single import IndexReportBuilder
-from index.build_compare import IndexCompareReportBuilder, CompareTable
 
 logger = logging.getLogger(__name__)
 
@@ -48,11 +54,11 @@ class IndexPipeline:
         self._analysis_modules = self._init_analysis_modules()
 
     def _init_analysis_modules(self) -> list:
-        from index.analysis.technical import IndexTechnicalAnalyzer
-        from index.analysis.valuation import IndexValuationAnalyzer
         from index.analysis.capital_flow import CapitalFlowAnalyzer
         from index.analysis.macro import MacroAnalyzer
         from index.analysis.sentiment import IndexSentimentAnalyzer
+        from index.analysis.technical import IndexTechnicalAnalyzer
+        from index.analysis.valuation import IndexValuationAnalyzer
 
         return [
             IndexTechnicalAnalyzer(),
@@ -87,7 +93,7 @@ class IndexPipeline:
                     try:
                         result = module.analyze(ctx)
                         results.append(result)
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001 — 单模块失败不影响其他维度
                         logger.error(f"分析模块 {module.dimension} 失败: {e}")
                         results.append(AnalysisResult(
                             dimension=module.dimension, status="unavailable",
@@ -95,13 +101,13 @@ class IndexPipeline:
                         ))
                     if on_progress:
                         on_progress("analyze", i + 1, total,
-                                   INDEX_DIMENSION_LABELS.get(module.dimension, module.dimension))
+                                   INDEX_DIMENSION_LABELS.get(module.dimension) or module.dimension)
 
                 report = self._report_builder.build(ctx, results)
                 reports.append(report)
                 contexts.append(ctx)
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — 单指数失败不影响批量结果
                 logger.error(f"指数 {target.symbol} 分析失败: {e}")
                 errors.append(f"{target.symbol}: {e}")
 
@@ -128,6 +134,6 @@ class IndexPipeline:
                 "pe_percentile": val.pe_percentile,
                 "valuation_valid": val.valuation_valid,
             }
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — 快照为辅助数据，失败返回 None
             logger.warning(f"获取指数快照失败 {symbol}: {e}")
             return None

@@ -1,10 +1,9 @@
 """指数舆情面分析测试"""
-import pytest
-from datetime import date
-from src.index.analysis.sentiment import IndexSentimentAnalyzer
 from src.data.schemas import (
-    AnalysisTarget, IndexAnalysisContext,
+    AnalysisTarget,
+    IndexAnalysisContext,
 )
+from src.index.analysis.sentiment import IndexSentimentAnalyzer
 
 
 class TestIndexSentimentAnalyzer:

@@ -1,9 +1,10 @@
 """FastAPI HTTP API — REST + SSE 流式接口"""
 import json
 import logging
+
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, StreamingResponse
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ def create_app(registry=None, planner=None, executor=None, memory=None):
                 ]},
                 "session_id": session_id,
             })
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — HTTP 边界兜底，返回 500 而非崩溃
             logger.error("Agent 对话失败: %s", e)
             return JSONResponse({"response": f"处理请求时出错: {e}", "session_id": session_id},
                                status_code=500)
@@ -67,7 +68,7 @@ def create_app(registry=None, planner=None, executor=None, memory=None):
                 yield f"data: {json.dumps({'type': 'plan', 'goal': plan.goal, 'steps': [s.description for s in plan.steps]})}\n\n"
                 exec_result = await executor.execute(plan, session_id=request.headers.get("X-Session-Id", "default"))
                 yield f"data: {json.dumps({'type': 'result', 'summary': exec_result.get('summary', '')})}\n\n"
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — SSE 流内兜底，错误以事件返回
                 yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
@@ -92,8 +93,9 @@ def create_app(registry=None, planner=None, executor=None, memory=None):
 
     # 挂载 Web UI 静态文件（必须放在所有 API 路由之后，"/" 挂载会兜底捕获其余路径，
     # 按注册顺序匹配，API 路由优先）
-    from fastapi.staticfiles import StaticFiles
     import os
+
+    from fastapi.staticfiles import StaticFiles
 
     static_dir = os.path.join(os.path.dirname(__file__), "static")
     if os.path.isdir(static_dir):

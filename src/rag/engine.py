@@ -3,6 +3,7 @@ import logging
 import sys
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 from rag.embedding import EmbeddingProvider, create_embedding_provider
 from rag.ingestion import IngestionPipeline
@@ -58,7 +59,8 @@ class RAGEngine:
         self._embedding = embedding_provider or create_embedding_provider()
         self._ingestion = IngestionPipeline(self._embedding)
         self._retrieval = RetrievalPipeline(self._embedding)
-        self._collections: dict[str, object] = {}
+        # chromadb Collection 无类型标注，统一按 Any 处理
+        self._collections: dict[str, Any] = {}
 
         self._init_collections()
         logger.info(
@@ -67,7 +69,7 @@ class RAGEngine:
             persist_path,
         )
 
-    def get_collection(self, name: str):
+    def get_collection(self, name: str) -> Any:
         if name not in self._collections:
             safe_name = name if name in COLLECTION_NAMES else "research_reports"
             self._collections[name] = self._client.get_or_create_collection(
@@ -137,7 +139,7 @@ class RAGEngine:
             date=date,
             symbols=symbols or [],
             tags=tags or [],
-            ingested_at=ingested_at or datetime.now().isoformat(),
+            ingested_at=ingested_at or datetime.now().astimezone().isoformat(),
         )
 
     def ingest_directory(
@@ -182,8 +184,8 @@ class RAGEngine:
                                 if m.get("source_hash") == source_hash
                             ),
                         })
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001 — 单知识库读取失败不阻断清单
+                logger.debug("读取知识库 %s 失败", name)
         return sources
 
     def collection_stats(self) -> list[dict]:
@@ -192,7 +194,8 @@ class RAGEngine:
             collection = self.get_collection(name)
             try:
                 count = collection.count()
-            except Exception:
+            except Exception:  # noqa: BLE001 — 计数失败按 0 处理
+                logger.debug("统计知识库 %s 失败", name)
                 count = 0
             stats.append({"name": name, "count": count})
         return stats
@@ -208,7 +211,7 @@ class RAGEngine:
                 embedding_function=None,
             )
             return {"deleted": -1, "note": f"Collection {source_type} 已重建（全量删除）"}
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — chromadb 异常统一转错误结果
             return {"deleted": 0, "error": str(e)}
 
     def delete_by_symbol(self, symbol: str) -> dict:
@@ -222,8 +225,8 @@ class RAGEngine:
                         chunk_id = data.get("ids", [])[i]
                         collection.delete(ids=[chunk_id])
                         deleted += 1
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001 — 单知识库删除失败不阻断其余
+                logger.debug("按代码删除知识库 %s 失败", name)
         return {"deleted": deleted}
 
     def delete_before_date(self, before_date: str) -> dict:
@@ -238,8 +241,8 @@ class RAGEngine:
                         chunk_id = data.get("ids", [])[i]
                         collection.delete(ids=[chunk_id])
                         deleted += 1
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001 — 单知识库删除失败不阻断其余
+                logger.debug("按日期删除知识库 %s 失败", name)
         return {"deleted": deleted}
 
     @property

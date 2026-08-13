@@ -1,11 +1,12 @@
 """ConfigLoader 单元测试"""
-from pathlib import Path
-import pytest
 import sys
+from pathlib import Path
+
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "src"))
 
-from analysis.config_loader import ConfigLoader, ConfigError
-
+from analysis.config_loader import ConfigLoader
 
 CONFIG_DIR = Path(__file__).parent.parent.parent.parent / "src" / "analysis" / "config"
 

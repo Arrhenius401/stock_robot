@@ -1,6 +1,9 @@
 """OpenAI GPT 适配器"""
 import logging
+from typing import Any
+
 from openai import OpenAI
+
 from llm.base import LLMBackend
 
 logger = logging.getLogger(__name__)
@@ -12,7 +15,7 @@ class OpenAIAdapter(LLMBackend):
         self._model = model
         self._temperature = temperature
         self._max_tokens = max_tokens
-        client_kwargs = {"api_key": api_key}
+        client_kwargs: dict[str, Any] = {"api_key": api_key}
         if base_url:
             client_kwargs["base_url"] = base_url
         self._client = OpenAI(**client_kwargs)
@@ -39,19 +42,20 @@ class OpenAIAdapter(LLMBackend):
             if usage:
                 self._log_usage(usage.prompt_tokens, usage.completion_tokens)
             return content
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — SDK 异常类型不可预测，契约是永不抛出
             logger.error(f"OpenAI API 调用失败: {e}")
             return f"（LLM 分析暂时不可用：{e}，请检查 API 配置）"
 
     def _log_usage(self, prompt_tokens: int, completion_tokens: int):
         try:
             cost = self._estimate_cost(prompt_tokens, completion_tokens)
-            from llm.usage import UsageLogger
             from pathlib import Path
+
+            from llm.usage import UsageLogger
             log_path = Path.home() / ".stock_robot" / "usage.log"
             UsageLogger(log_path).log(self._model, prompt_tokens, completion_tokens, cost)
-        except Exception:
-            pass
+        except Exception:  # noqa: BLE001 — 用量记录失败不得影响生成流程
+            logger.debug("用量记录失败")
 
     def _estimate_cost(self, prompt_tokens: int, completion_tokens: int) -> float:
         pricing = {

@@ -1,14 +1,16 @@
 """指数管道测试"""
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import MagicMock, patch, call
-from src.index.pipeline import IndexPipeline, INDEX_DIMENSION_STYLES
+
 from src.data.schemas import AnalysisTarget
+from src.index.pipeline import IndexPipeline
 
 
 @pytest.fixture
 def mock_pipeline():
-    with patch("src.index.pipeline.IndexDataCollector") as mock_collector, \
-         patch("src.index.pipeline.IndexReportBuilder") as mock_builder:
+    with patch("src.index.pipeline.IndexDataCollector"), \
+         patch("src.index.pipeline.IndexReportBuilder"):
         pipeline = IndexPipeline()
         yield pipeline
 
@@ -50,7 +52,7 @@ class TestIndexPipeline:
         def track(stage, current, total, label):
             calls_record.append((stage, current, total, label))
 
-        with patch("src.index.pipeline.IndexDataCollector") as mock_collector, \
+        with patch("src.index.pipeline.IndexDataCollector"), \
              patch("src.index.pipeline.IndexReportBuilder"):
             pipeline = IndexPipeline()
             target = AnalysisTarget(

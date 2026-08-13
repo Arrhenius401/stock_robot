@@ -1,4 +1,5 @@
 from click.testing import CliRunner
+
 from stock_robot.cli import main
 
 
@@ -19,7 +20,7 @@ class TestCLI:
         mocker.patch("utils.symbols.resolve_name", return_value="平安银行")
         mock_pipeline = mocker.patch("stock_robot.cli._build_pipeline")
         mock_instance = mock_pipeline.return_value
-        from data.schemas import AnalysisResult, AnalysisContext
+        from data.schemas import AnalysisContext, AnalysisResult
         ctx = AnalysisContext(symbol="000001", name="平安银行")
         mock_instance.run.return_value = (
             [AnalysisResult(dimension="financial", status="ok", summary="OK", metrics={"roe": 0.12})],
@@ -51,7 +52,7 @@ class TestCLI:
         mocker.patch("utils.symbols.resolve_name", return_value="平安银行")
         mock_pipeline = mocker.patch("stock_robot.cli._build_pipeline")
         mock_instance = mock_pipeline.return_value
-        from data.schemas import AnalysisResult, AnalysisContext
+        from data.schemas import AnalysisContext, AnalysisResult
         ctx = AnalysisContext(symbol="000001", name="平安银行")
         mock_instance.run.return_value = (
             [AnalysisResult(dimension="financial", status="ok", summary="OK", metrics={})],

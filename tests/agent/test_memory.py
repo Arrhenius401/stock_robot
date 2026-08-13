@@ -1,9 +1,8 @@
 """Memory 数据结构与持久化测试"""
 import json
-import tempfile
 from pathlib import Path
-import pytest
-from agent.memory import TaskStatus, TaskStep, Plan, Memory
+
+from agent.memory import Memory, Plan, TaskStatus, TaskStep
 
 
 class TestTaskStatus:

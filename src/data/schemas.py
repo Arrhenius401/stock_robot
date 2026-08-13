@@ -1,7 +1,8 @@
 from datetime import date, datetime
 from enum import StrEnum
 from typing import Any, Literal
-from pydantic import BaseModel, Field
+
+from pydantic import BaseModel, Field, PrivateAttr
 
 
 class SufficiencyLevel(StrEnum):
@@ -18,13 +19,21 @@ class DimensionSufficiency(BaseModel):
     score_weight: float = 1.0  # sufficient=1.0, partial=0.5, insufficient=0.0
 
 
+def _insufficient_dimension(reason: str) -> DimensionSufficiency:
+    """未采集维度的默认充足状态"""
+    return DimensionSufficiency(
+        level=SufficiencyLevel.INSUFFICIENT, reason=reason,
+        sample_count=0, score_weight=0.0,
+    )
+
+
 class DataSufficiency(BaseModel):
-    """五个维度的充足状态汇总"""
-    price: DimensionSufficiency
-    financial: DimensionSufficiency
-    valuation: DimensionSufficiency
-    industry: DimensionSufficiency
-    sentiment: DimensionSufficiency
+    """五个维度的充足状态汇总 — 各维度默认"未采集"，由充实器逐步填充"""
+    price: DimensionSufficiency = Field(default_factory=lambda: _insufficient_dimension("行情未采集"))
+    financial: DimensionSufficiency = Field(default_factory=lambda: _insufficient_dimension("财务未采集"))
+    valuation: DimensionSufficiency = Field(default_factory=lambda: _insufficient_dimension("估值未采集"))
+    industry: DimensionSufficiency = Field(default_factory=lambda: _insufficient_dimension("行业未采集"))
+    sentiment: DimensionSufficiency = Field(default_factory=lambda: _insufficient_dimension("舆情未采集"))
 
 
 class DailyValuationPoint(BaseModel):
@@ -157,6 +166,9 @@ class IndustryData(BaseModel):
     peers: list[str] = Field(default_factory=list)
     # 新增：头部同行详细数据
     top_peers: list[PeerBasicInfo] = Field(default_factory=list)
+    # 采集层扩展字段（不参与序列化）
+    _target_mcap: float | None = PrivateAttr(default=None)
+    _target_rank: int | None = PrivateAttr(default=None)
 
 
 class NewsData(BaseModel):
@@ -164,6 +176,8 @@ class NewsData(BaseModel):
     symbol: str
     date: date
     headlines: list[str] = Field(default_factory=list)
+    # 采集层扩展字段（不参与序列化）
+    _raw_sentiment: Any = PrivateAttr(default=None)
 
 
 class AnalysisResult(BaseModel):
@@ -202,8 +216,8 @@ class AnalysisContext(BaseModel):
     # 采集层 — 舆情原始数据
     raw_sentiment: RawSentimentData | None = None
 
-    # 充实层产出 — 若对应维度完全拉取失败则为 None
-    sufficiency: DataSufficiency | None = None
+    # 充实层产出 — 各维度默认"未采集"，由充实器逐步填充
+    sufficiency: DataSufficiency = Field(default_factory=DataSufficiency)
     enriched_valuation: EnrichedValuation | None = None
     enriched_industry: EnrichedIndustry | None = None
     enriched_sentiment: EnrichedSentiment | None = None
@@ -245,8 +259,8 @@ class IndexValuationData(BaseModel):
     pb_percentile: float | None = None
     dividend_yield: float | None = None
     percentile_lookback_years: int = 5
-    percentile_sample_start: date | None = None
-    percentile_sample_end: date | None = None
+    percentile_sample_start: "date | None" = None
+    percentile_sample_end: "date | None" = None
     valuation_valid: bool = True
 
 

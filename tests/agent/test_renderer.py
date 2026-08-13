@@ -1,8 +1,9 @@
 """OutputRenderer 协议与实现测试"""
 import pytest
-from output.renderer import OutputRenderer, RichRenderer, JsonRenderer
-from agent.memory import TaskStep, Plan
+
+from agent.memory import Plan, TaskStep
 from agent.tools import ToolResult
+from output.renderer import JsonRenderer, RichRenderer
 
 
 class TestRichRenderer:

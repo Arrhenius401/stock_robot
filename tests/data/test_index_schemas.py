@@ -1,11 +1,12 @@
 """指数数据模型测试"""
-import pytest
-from datetime import date
+from datetime import date, datetime
+
 from src.data.schemas import (
-    AnalysisTarget, IndexPriceData, IndexValuationData,
-    CapitalFlowData, MacroContext, IndexAnalysisContext, IndexReport
+    AnalysisTarget,
+    IndexAnalysisContext,
+    IndexReport,
+    IndexValuationData,
 )
-from src.data.schemas import PriceData, RawSentimentData, EnrichedSentiment, DataSufficiency
 
 
 class TestAnalysisTarget:
@@ -28,13 +29,13 @@ class TestAnalysisTarget:
 
 class TestIndexValuationData:
     def test_default_valuation_valid(self):
-        v = IndexValuationData(symbol="000300", date=date.today())
+        v = IndexValuationData(symbol="000300", date=datetime.now().astimezone().astimezone().date())
         assert v.valuation_valid is True
         assert v.percentile_lookback_years == 5
 
     def test_valuation_invalid_when_sample_short(self):
         v = IndexValuationData(
-            symbol="000300", date=date.today(),
+            symbol="000300", date=datetime.now().astimezone().astimezone().date(),
             valuation_valid=False,
             percentile_sample_start=date(2024, 1, 1),
             percentile_sample_end=date(2026, 8, 1),
@@ -68,7 +69,7 @@ class TestIndexAnalysisContext:
 class TestIndexReport:
     def test_report_visible_sections_broad(self):
         report = IndexReport(
-            code="000300", name="沪深300", date=date.today(),
+            code="000300", name="沪深300", date=datetime.now().astimezone().astimezone().date(),
             overview={}, section_technical={}, section_valuation={},
             section_capital={}, section_macro={}, section_sentiment={},
             tag_technical="bull", tag_valuation="neutral",
@@ -81,7 +82,7 @@ class TestIndexReport:
 
     def test_report_visible_sections_sector_hides_macro(self):
         report = IndexReport(
-            code="399006", name="创业板指", date=date.today(),
+            code="399006", name="创业板指", date=datetime.now().astimezone().astimezone().date(),
             overview={}, section_technical={}, section_valuation={},
             section_capital={}, section_macro=None, section_sentiment={},
             tag_technical="shake", tag_valuation="overvalued",

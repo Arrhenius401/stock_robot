@@ -1,14 +1,14 @@
 """管道调度器 — 串联数据采集→分析→LLM 解读→报告输出的完整流程"""
-from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import logging
 import time
-from datetime import date
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from data.schemas import AnalysisContext, AnalysisResult, AnalysisTarget
-from data.cache import CacheManager
+
 from core.registry import Registry
+from data.cache import CacheManager
+from data.schemas import AnalysisContext, AnalysisResult, AnalysisTarget
 from utils.config import Config
 
 logger = logging.getLogger(__name__)
@@ -81,8 +81,8 @@ class Pipeline:
         self._cache = CacheManager(db_path=cache_db)
 
         # 新增：行业分类器 + 配置加载器
-        from data.industry_classifier import IndustryClassifier
         from analysis.config_loader import ConfigLoader
+        from data.industry_classifier import IndustryClassifier
         self._classifier = IndustryClassifier()
         self._config_loader = ConfigLoader()
 
@@ -110,7 +110,7 @@ class Pipeline:
                         if result:
                             self._set_cache(symbol, data_type, result)
                             return data_type, result
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001 — 多数据源逐个尝试，单源失败降级
                         logger.warning(f"数据源 {source.__class__.__name__} 获取 {data_type} 失败: {e}")
                     if attempt == 0:
                         time.sleep(1)  # 重试前等待 1 秒
@@ -129,7 +129,7 @@ class Pipeline:
                 completed += 1
                 if on_progress:
                     on_progress("collect", completed, total,
-                               DATA_TYPE_LABELS.get(data_type, data_type))
+                               DATA_TYPE_LABELS.get(data_type) or data_type)
 
         # 新增：行业分类查询
         classification = self._classifier.lookup(symbol)
@@ -171,7 +171,13 @@ class Pipeline:
 
         # 充实步骤（collect 之后 analyze 之前）
         from data.enricher import ContextEnricher
-        from data.enrichers import PriceEnricher, FinancialEnricher, ValuationEnricher, IndustryEnricher, SentimentEnricher
+        from data.enrichers import (
+            FinancialEnricher,
+            IndustryEnricher,
+            PriceEnricher,
+            SentimentEnricher,
+            ValuationEnricher,
+        )
 
         enricher = ContextEnricher()
         enricher.register(PriceEnricher())
@@ -203,7 +209,7 @@ class Pipeline:
                 mod = future_map[future]
                 try:
                     results.append(future.result())
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — 单模块失败不影响其他维度
                     logger.error(f"分析模块 {mod.dimension} 执行失败: {e}")
                     results.append(AnalysisResult(
                         dimension=mod.dimension, status="unavailable",
@@ -307,7 +313,7 @@ class Pipeline:
 
             if on_progress:
                 on_progress("llm", 2, 2, "生成 AI 解读")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — LLM 失败不影响确定性分析结果
             logger.error(f"LLM 解读生成失败: {e}")
 
         return commentary
@@ -319,7 +325,7 @@ class Pipeline:
         try:
             data_list = json.loads(raw)
             return self._deserialize_cache(data_type, symbol, data_list)
-        except Exception:
+        except Exception:  # noqa: BLE001 — 缓存损坏视为未命中
             return None
 
     def _set_cache(self, symbol: str, data_type: str, data: list):
@@ -340,12 +346,18 @@ class Pipeline:
             ttl = self._config.get(f"data.cache_ttl.{TTL_KEY_MAP.get(data_type, 'daily')}", 86400)
             self._cache.put(data_type, symbol, date_key, serialized, ttl_seconds=ttl)
             self._cache.cleanup_old_entries(data_type, symbol, date_key)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — 缓存写入失败不影响分析结果
             logger.warning(f"缓存 {data_type} 失败: {e}")
 
     def _deserialize_cache(self, data_type: str, symbol: str, data_list: list) -> list:
-        from data.schemas import (FinancialData, PriceData, ValuationData,
-                                  IndustryData, NewsData, RawSentimentData)
+        from data.schemas import (
+            FinancialData,
+            IndustryData,
+            NewsData,
+            PriceData,
+            RawSentimentData,
+            ValuationData,
+        )
         cls_map = {
             "price": PriceData, "financial": FinancialData,
             "valuation": ValuationData, "industry": IndustryData, "news": NewsData,

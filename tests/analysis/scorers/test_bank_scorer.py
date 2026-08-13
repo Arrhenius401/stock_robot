@@ -1,13 +1,20 @@
 """BankScorer 单元测试"""
+import sys
 from datetime import date
 from pathlib import Path
+
 import pytest
-import sys
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "src"))
 
 from analysis.config_loader import ConfigLoader
 from analysis.scorers.bank import BankScorer
-from data.schemas import AnalysisContext, FinancialData, ValuationData, EnrichedValuation
+from data.schemas import (
+    AnalysisContext,
+    EnrichedValuation,
+    FinancialData,
+    ValuationData,
+)
 
 CONFIG_DIR = Path(__file__).parent.parent.parent.parent / "src" / "analysis" / "config"
 
@@ -33,7 +40,7 @@ class TestBankScorer:
 
     def test_pe_disabled_for_bank(self, config, ctx):
         scorer = BankScorer(config, {})
-        score, detail, _ = scorer.score_valuation(ctx)
+        _, detail, _ = scorer.score_valuation(ctx)
         assert "跳过" in detail or "不适用" in detail or "PE" not in detail
 
     def test_pb_is_primary_metric(self, config, ctx):
@@ -56,5 +63,5 @@ class TestBankScorer:
 
     def test_bank_gross_margin_skipped(self, config, ctx):
         scorer = BankScorer(config, {})
-        score, detail, _ = scorer.score_financial(ctx)
+        _, detail, _ = scorer.score_financial(ctx)
         assert "毛利率" not in detail or "跳过" in detail

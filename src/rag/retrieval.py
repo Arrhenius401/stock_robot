@@ -1,5 +1,6 @@
 """检索流水线 — embedding→向量检索→重排→返回结果"""
 import logging
+
 from rag.embedding import EmbeddingProvider
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ class RetrievalPipeline:
                 n_results=n_results,
                 where=chroma_filter,
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — chromadb 异常降级为空结果
             logger.error("ChromaDB 查询失败: %s", e)
             return []
 
@@ -71,7 +72,7 @@ class RetrievalPipeline:
     ) -> list[dict]:
         try:
             all_data = collection.get()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — chromadb 异常降级为空结果
             logger.error("ChromaDB get 失败: %s", e)
             return []
 
@@ -83,14 +84,13 @@ class RetrievalPipeline:
         query_lower = query.lower()
         for i, doc in enumerate(docs):
             score = sum(1 for word in query_lower.split() if word in doc.lower())
-            if score > 0:
-                if self._match_filters(metas[i] if i < len(metas) else {}, filters):
-                    results.append({
-                        "id": ids[i] if i < len(ids) else "",
-                        "content": doc,
-                        "metadata": metas[i] if i < len(metas) else {},
-                        "score": float(score),
-                    })
+            if score > 0 and self._match_filters(metas[i] if i < len(metas) else {}, filters):
+                results.append({
+                    "id": ids[i] if i < len(ids) else "",
+                    "content": doc,
+                    "metadata": metas[i] if i < len(metas) else {},
+                    "score": float(score),
+                })
 
         results.sort(key=lambda r: r["score"], reverse=True)
         return results[:top_k]

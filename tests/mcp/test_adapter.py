@@ -1,7 +1,8 @@
 """MCPAdapter 单元测试"""
 import pytest
-from mcp.schemas import MCPToolDefinition, MCPToolCallResult
+
 from mcp.adapter import MCPAdapter
+from mcp.schemas import MCPToolCallResult, MCPToolDefinition
 
 
 class TestMCPAdapterToolToProtocol:

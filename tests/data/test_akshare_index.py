@@ -1,6 +1,4 @@
 """AkShare 指数数据采集测试"""
-import pytest
-from datetime import date, datetime
 from data.akshare import AkShareAdapter
 from data.schemas import IndexPriceData
 

@@ -1,6 +1,9 @@
 """FastAPI HTTP API 端点测试"""
+from typing import ClassVar
+
 import pytest
 from httpx import ASGITransport, AsyncClient
+
 from api.app import create_app
 
 
@@ -12,8 +15,8 @@ def app():
     class MockTool:
         name = "test_tool"
         description = "测试工具"
-        parameters = {"type": "object", "properties": {}}
-        tags = ["test"]
+        parameters: ClassVar[dict] = {"type": "object", "properties": {}}
+        tags: ClassVar[list[str]] = ["test"]
         source = "pipeline"
         async def execute(self, **kwargs):
             from agent.tools import ToolResult

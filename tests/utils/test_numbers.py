@@ -1,4 +1,5 @@
 import pytest
+
 from utils.numbers import parse_cn_number
 
 

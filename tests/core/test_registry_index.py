@@ -1,8 +1,7 @@
 """Registry 按 category 筛选测试"""
-import pytest
+from src.analysis.technical import TechnicalAnalyzer
 from src.core.registry import Registry
 from src.index.analysis.technical import IndexTechnicalAnalyzer
-from src.analysis.technical import TechnicalAnalyzer
 
 
 class TestRegistryCategoryFilter:

@@ -1,4 +1,5 @@
 from datetime import date
+
 from analysis.financial import FinancialAnalyzer
 from data.schemas import AnalysisContext, FinancialData
 

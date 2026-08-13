@@ -1,5 +1,5 @@
 """舆情分析模块 — 新闻采集与情绪评估"""
-from typing import Any
+from typing import Any, Literal
 
 from analysis.base import AnalysisModule
 from data.schemas import AnalysisContext, AnalysisResult, SufficiencyLevel
@@ -7,7 +7,7 @@ from data.schemas import AnalysisContext, AnalysisResult, SufficiencyLevel
 
 class SentimentAnalyzer(AnalysisModule):
     @property
-    def dimension(self) -> str:
+    def dimension(self) -> Literal["sentiment"]:
         return "sentiment"
 
     def analyze(self, context: AnalysisContext,

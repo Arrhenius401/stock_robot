@@ -1,5 +1,5 @@
 """技术面分析模块 — 均线系统、MACD、量价分析"""
-from typing import Any
+from typing import Any, Literal
 
 from analysis.base import AnalysisModule
 from data.schemas import AnalysisContext, AnalysisResult, SufficiencyLevel
@@ -7,7 +7,7 @@ from data.schemas import AnalysisContext, AnalysisResult, SufficiencyLevel
 
 class TechnicalAnalyzer(AnalysisModule):
     @property
-    def dimension(self) -> str:
+    def dimension(self) -> Literal["technical"]:
         return "technical"
 
     def analyze(self, context: AnalysisContext,

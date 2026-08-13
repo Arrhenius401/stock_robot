@@ -1,7 +1,6 @@
 """指数代码工具测试"""
-import pytest
-from src.utils.symbols import validate_index_symbol, normalize_index_symbol
-from src.data.index_mapping import IndexMapping, IndexMappingEntry
+from src.data.index_mapping import IndexMapping
+from src.utils.symbols import normalize_index_symbol, validate_index_symbol
 
 
 class TestValidateIndexSymbol:

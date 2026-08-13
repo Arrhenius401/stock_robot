@@ -1,10 +1,12 @@
 """Stock Robot CLI — AI 驱动的股票分析研报助手"""
 import logging
 import os
+
 os.environ["TQDM_DISABLE"] = "1"
 
 import sys
 from pathlib import Path
+
 import click
 from rich.console import Console
 from rich.panel import Panel
@@ -16,13 +18,13 @@ logger = logging.getLogger(__name__)
 
 def _get_registry():
     """构建默认注册表"""
-    from core.registry import Registry
-    from data.akshare import AkShareAdapter
     from analysis.financial import FinancialAnalyzer
-    from analysis.technical import TechnicalAnalyzer
-    from analysis.valuation import ValuationAnalyzer
     from analysis.industry import IndustryAnalyzer
     from analysis.sentiment import SentimentAnalyzer
+    from analysis.technical import TechnicalAnalyzer
+    from analysis.valuation import ValuationAnalyzer
+    from core.registry import Registry
+    from data.akshare import AkShareAdapter
 
     reg = Registry()
     reg.register_data_source(AkShareAdapter())
@@ -36,8 +38,8 @@ def _get_registry():
 
 def _register_llm(reg, config):
     """注册 LLM 后端"""
-    from llm.openai import OpenAIAdapter
     from llm.claude import ClaudeAdapter
+    from llm.openai import OpenAIAdapter
 
     provider = config.get("llm.provider", "openai")
     api_key = config.get("llm.api_key", "")
@@ -74,8 +76,8 @@ def _build_pipeline(llm_enabled=True):
 
 def _get_cache():
     """获取缓存管理器"""
-    from utils.config import Config
     from data.cache import CacheManager
+    from utils.config import Config
     config = Config()
     return CacheManager(db_path=config.config_dir / "cache.db")
 
@@ -115,7 +117,6 @@ def _convert_value(value: str):
 @click.version_option(version="0.1.0")
 def main():
     """Stock Robot — AI 驱动的股票分析研报助手"""
-    pass
 
 
 @main.command()
@@ -127,10 +128,10 @@ def main():
 @click.option("--with-market", is_flag=True, help="在报告中嵌入大盘环境分析")
 def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
     """分析股票并生成研报"""
-    from utils.symbols import normalize_symbol, validate_symbol, resolve_name
     from report.builder import ReportBuilder
     from report.formatter import ReportFormatter
     from utils.config import Config
+    from utils.symbols import normalize_symbol, resolve_name, validate_symbol
 
     config = Config()
     if not _check_disclaimer(config):
@@ -149,7 +150,7 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
     llm_enabled = not no_llm and config.get("llm.enabled", True)
     pipeline = _build_pipeline(llm_enabled=llm_enabled)
 
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 
     try:
         with Progress(
@@ -180,7 +181,7 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
 
             if not verbose:
                 progress.update(task_id, visible=False)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — CLI 顶层兜底，打印错误并退出
         console.print(f"[red]分析失败: {e}[/red]")
         sys.exit(1)
 
@@ -249,8 +250,8 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
             snapshot = index_pipeline.get_snapshot("000300")
             if snapshot:
                 market_env = snapshot
-        except Exception:
-            pass
+        except Exception:  # noqa: BLE001 — 大盘快照为可选信息，失败静默跳过
+            logger.debug("大盘快照获取失败，跳过")
 
     builder = ReportBuilder()
     report = builder.build(
@@ -273,11 +274,12 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
     console.print(f"\n[dim]报告已保存至: {saved_path}[/dim]")
 
 
-def _render_index_report(report) -> str:
+def _render_index_report(report):
     """将 IndexReport 渲染为终端可读的 Rich Markdown"""
     from datetime import datetime
+
     from jinja2 import Environment, FileSystemLoader
-    from pathlib import Path
+
     from report.builder import _md_table
 
     template_dir = Path(__file__).parent.parent / "report" / "templates"
@@ -288,7 +290,7 @@ def _render_index_report(report) -> str:
     md = template.render(
         code=report.code,
         name=report.name,
-        generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        generated_at=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
         overview=report.overview,
         section_technical=report.section_technical,
         section_valuation=report.section_valuation,
@@ -311,8 +313,9 @@ def _render_index_report(report) -> str:
 def _render_index_report_md(report) -> str:
     """将 IndexReport 渲染为纯 Markdown 文本"""
     from datetime import datetime
+
     from jinja2 import Environment, FileSystemLoader
-    from pathlib import Path
+
     from report.builder import _md_table
 
     template_dir = Path(__file__).parent.parent / "report" / "templates"
@@ -323,7 +326,7 @@ def _render_index_report_md(report) -> str:
     return template.render(
         code=report.code,
         name=report.name,
-        generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        generated_at=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
         overview=report.overview,
         section_technical=report.section_technical,
         section_valuation=report.section_valuation,
@@ -341,7 +344,7 @@ def _render_index_report_md(report) -> str:
     )
 
 
-def _render_compare_table(compare) -> str:
+def _render_compare_table(compare) -> Table | str:
     """渲染横向对比表格"""
     if not compare or not compare.rows:
         return ""
@@ -369,11 +372,11 @@ def _render_compare_table(compare) -> str:
 @click.option("--compare-only", is_flag=True, help="仅输出横向对比表格")
 def index(symbols, style, output, compare_only):
     """分析指数并生成报告"""
-    from utils.symbols import validate_index_symbol, normalize_index_symbol
-    from utils.config import Config
     from data.index_mapping import IndexMapping
     from data.schemas import AnalysisTarget
     from index.pipeline import IndexPipeline
+    from utils.config import Config
+    from utils.symbols import normalize_index_symbol, validate_index_symbol
 
     config = Config()
     if not _check_disclaimer(config):
@@ -410,7 +413,7 @@ def index(symbols, style, output, compare_only):
             name=name, market=market, index_style=index_style,
         ))
 
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 
     pipeline = IndexPipeline()
     with Progress(
@@ -454,7 +457,6 @@ def index(symbols, style, output, compare_only):
 @main.group()
 def config():
     """管理配置"""
-    pass
 
 
 @config.command("set")
@@ -482,7 +484,6 @@ def config_get(key):
 @main.group()
 def cache():
     """管理缓存"""
-    pass
 
 
 @cache.command("clear")
@@ -511,13 +512,16 @@ def cache_status():
 @click.option("--verbose", "-v", is_flag=True, help="显示计划和工具调用细节")
 def chat(ask, verbose):
     """进入 AI Agent 对话模式，支持复杂投研任务的自主拆解和分析"""
-    from agent.tools import ToolRegistry
-    from agent.memory import Memory
-    from agent.planner import Planner
     from agent.executor import Executor
+    from agent.memory import Memory
     from agent.pipeline_tools import (
-        AnalyzeStockTool, AnalyzeIndexTool, GetSnapshotTool, ScreenStocksTool,
+        AnalyzeIndexTool,
+        AnalyzeStockTool,
+        GetSnapshotTool,
+        ScreenStocksTool,
     )
+    from agent.planner import Planner
+    from agent.tools import ToolRegistry
     from output.renderer import RichRenderer
     from utils.config import Config
 
@@ -533,14 +537,14 @@ def chat(ask, verbose):
 
     # 注册 RAG 工具（若 ChromaDB 可用，否则静默跳过）
     try:
-        from agent.rag_tools import RAGSearchTool, RAGListSourcesTool
+        from agent.rag_tools import RAGListSourcesTool, RAGSearchTool
         from rag.engine import RAGEngine
 
         rag_engine = RAGEngine()
         registry.register(RAGSearchTool(engine=rag_engine))
         registry.register(RAGListSourcesTool(engine=rag_engine))
         logger.info("RAG 工具已注册 (embedding=%s)", rag_engine.embedding_name)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — RAG 不可用时降级为无 RAG 工具
         logger.warning("RAG 工具不可用，跳过注册: %s", e)
 
     # 构建 LLM 后端
@@ -668,7 +672,7 @@ def _get_llm_for_agent(config):
                 max_tokens=config.get("llm.max_tokens", 2000),
                 base_url=base_url,
             )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — LLM 初始化失败降级为无 LLM 模式
         logger.warning(f"LLM 后端初始化失败: {e}")
 
     return None
@@ -681,7 +685,6 @@ def _get_llm_for_agent(config):
 @main.group()
 def rag():
     """知识库管理 — 文档摄入、清理、统计"""
-    pass
 
 
 @rag.command("ingest")
@@ -703,9 +706,10 @@ def rag_ingest(path, source_type, title, date, symbol, tag):
     PATH 可以是单个文件或目录路径。
     """
     import os
+
     from rag.engine import RAGEngine
 
-    console.print(f"[bold]正在摄入知识库...[/bold]")
+    console.print("[bold]正在摄入知识库...[/bold]")
     console.print(f"  类型: {source_type}")
     console.print(f"  路径: {path}")
 
@@ -714,7 +718,7 @@ def rag_ingest(path, source_type, title, date, symbol, tag):
     tags = list(tag)
 
     if os.path.isdir(path):
-        console.print(f"  模式: 目录批量导入")
+        console.print("  模式: 目录批量导入")
         results = engine.ingest_directory(
             directory=path,
             source_type=source_type,

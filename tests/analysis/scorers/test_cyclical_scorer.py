@@ -1,13 +1,14 @@
 """CyclicalScorer 单元测试"""
-from datetime import date
-from pathlib import Path
-import pytest
 import sys
+from pathlib import Path
+
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "src"))
 
 from analysis.config_loader import ConfigLoader
 from analysis.scorers.cyclical import CyclicalScorer
-from data.schemas import AnalysisContext, EnrichedValuation, EnrichedIndustry
+from data.schemas import AnalysisContext, EnrichedIndustry, EnrichedValuation
 
 CONFIG_DIR = Path(__file__).parent.parent.parent.parent / "src" / "analysis" / "config"
 

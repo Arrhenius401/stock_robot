@@ -8,7 +8,6 @@ import pytest
 
 from rag.embedding import EMBEDDING_DIM
 
-
 COLLECTION_NAMES = [
     "research_reports",
     "financial_filings",

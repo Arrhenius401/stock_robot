@@ -1,6 +1,6 @@
 """CLI index 命令测试"""
-import pytest
 from click.testing import CliRunner
+
 from src.stock_robot.cli import main
 
 

@@ -1,13 +1,11 @@
 """配置加载器 — 深度合并 base + override YAML，校验权重，带内存缓存"""
 from pathlib import Path
-from typing import Any
 
 import yaml
 
 
 class ConfigError(Exception):
     """配置加载/校验异常"""
-    pass
 
 
 class ConfigLoader:

@@ -1,6 +1,6 @@
 """注册机制 — 管理数据源、分析模块、LLM 后端的注册与查找"""
-from data.base import DataSource
 from analysis.base import AnalysisModule
+from data.base import DataSource
 from llm.base import LLMBackend
 
 

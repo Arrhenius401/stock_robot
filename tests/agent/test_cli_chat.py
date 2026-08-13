@@ -1,6 +1,7 @@
 """CLI chat 命令集成测试"""
 import pytest
 from click.testing import CliRunner
+
 from stock_robot.cli import main
 
 

@@ -1,7 +1,8 @@
-from pathlib import Path
 import copy
-import yaml
+from pathlib import Path
+from typing import Any
 
+import yaml
 
 DEFAULT_CONFIG = {
     "llm": {
@@ -31,9 +32,9 @@ class Config:
         self._config_dir = Path(config_dir)
         self._config_dir.mkdir(parents=True, exist_ok=True)
         self._config_path = self._config_dir / "config.yaml"
-        self.data = self._load()
+        self.data: dict[str, Any] = self._load()
 
-    def _load(self) -> dict:
+    def _load(self) -> dict[str, Any]:
         if not self._config_path.exists():
             self._write_default()
             return self._deep_copy(DEFAULT_CONFIG)
@@ -51,7 +52,7 @@ class Config:
         with open(self._config_path, "w", encoding="utf-8") as f:
             yaml.safe_dump(self.data, f, allow_unicode=True, default_flow_style=False)
 
-    def get(self, key: str, default=None):
+    def get(self, key: str, default: Any = None) -> Any:
         keys = key.split(".")
         node = self.data
         for k in keys:
@@ -71,7 +72,7 @@ class Config:
         node[keys[-1]] = value
         self._persist()
 
-    def get_llm_config(self) -> dict:
+    def get_llm_config(self) -> dict[str, Any]:
         return {k: v for k, v in self.data["llm"].items() if k != "api_key"}
 
     @property

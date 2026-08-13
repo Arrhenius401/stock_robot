@@ -1,5 +1,6 @@
 """RetrievalPipeline 单元测试"""
 import pytest
+
 from rag.retrieval import RetrievalPipeline
 
 

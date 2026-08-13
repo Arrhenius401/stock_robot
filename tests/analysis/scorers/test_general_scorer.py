@@ -1,17 +1,23 @@
 """GeneralScorer 单元测试"""
+import sys
 from datetime import date
 from pathlib import Path
+
 import pytest
-import sys
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "src"))
 
 from analysis.config_loader import ConfigLoader
 from analysis.scorers.general import GeneralScorer
 from data.schemas import (
-    AnalysisContext, FinancialData, ValuationData,
-    EnrichedValuation, EnrichedIndustry, EnrichedSentiment, SentimentItem,
+    AnalysisContext,
+    EnrichedIndustry,
+    EnrichedSentiment,
+    EnrichedValuation,
+    FinancialData,
+    SentimentItem,
+    ValuationData,
 )
-
 
 CONFIG_DIR = Path(__file__).parent.parent.parent.parent / "src" / "analysis" / "config"
 
@@ -75,7 +81,7 @@ class TestGeneralScorerValuation:
 
     def test_score_valuation_returns_tuple(self, config, ctx):
         scorer = GeneralScorer(config, {})
-        score, detail, risks = scorer.score_valuation(ctx)
+        score, _, _ = scorer.score_valuation(ctx)
         assert isinstance(score, float)
 
 
@@ -87,7 +93,7 @@ class TestGeneralScorerIndustry:
     def test_no_enriched_industry_returns_base_score(self, config):
         ctx = AnalysisContext(symbol="000333", name="测试")
         scorer = GeneralScorer(config, {})
-        score, detail, risks = scorer.score_industry(ctx)
+        score, detail, _ = scorer.score_industry(ctx)
         assert score >= 5.0
         assert "基础分" in detail
 
@@ -100,7 +106,7 @@ class TestGeneralScorerSentiment:
     def test_no_enriched_sentiment_returns_base_score(self, config):
         ctx = AnalysisContext(symbol="000333", name="测试")
         scorer = GeneralScorer(config, {})
-        score, detail, risks = scorer.score_sentiment(ctx)
+        score, _, _ = scorer.score_sentiment(ctx)
         assert score == 5.0
 
     def test_positive_sentiment_scores_higher(self, config):
@@ -112,5 +118,5 @@ class TestGeneralScorerSentiment:
             ),
         )
         scorer = GeneralScorer(config, {})
-        score, detail, risks = scorer.score_sentiment(ctx)
+        score, _, _ = scorer.score_sentiment(ctx)
         assert score > 5.0

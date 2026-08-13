@@ -1,10 +1,14 @@
 """舆情充实器 — 条目统计、LLM 批量标注"""
 import json
 import logging
+
 from data.enricher import DataEnricher
 from data.schemas import (
-    AnalysisContext, DimensionSufficiency, SufficiencyLevel,
-    EnrichedSentiment, SentimentItem,
+    AnalysisContext,
+    DimensionSufficiency,
+    EnrichedSentiment,
+    SentimentItem,
+    SufficiencyLevel,
 )
 
 logger = logging.getLogger(__name__)
@@ -80,8 +84,7 @@ class SentimentEnricher(DataEnricher):
                     lines = response.split("\n")
                     # 去掉第一行（可能是 ``` 或 ```json）
                     response = "\n".join(lines[1:])
-                    if response.endswith("```"):
-                        response = response[:-3]
+                    response = response.removesuffix("```")
                     response = response.strip()
                 items_data = json.loads(response)
                 # 构建标题→来源映射，用于回传 source 到标注结果
@@ -105,7 +108,7 @@ class SentimentEnricher(DataEnricher):
                         enriched.neutral_count += 1
                     if si.severity == "major":
                         enriched.major_events.append(si)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — LLM 标注失败不阻断舆情分析
                 logger.warning(f"LLM 舆情标注失败: {e}")
 
         ctx.enriched_sentiment = enriched

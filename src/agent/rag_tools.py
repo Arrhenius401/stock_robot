@@ -1,5 +1,6 @@
 """RAG 工具 — rag_search 语义检索 + rag_list_sources 知识源清单"""
 import logging
+
 from agent.tools import ToolResult
 
 logger = logging.getLogger(__name__)
@@ -77,7 +78,7 @@ class RAGSearchTool:
                 },
                 metadata={"source": "rag", "collection": collection_name},
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — 工具执行隔离，失败以 ToolResult 返回
             logger.error("rag_search 执行失败: %s", e)
             return ToolResult(status="error", error=str(e),
                              metadata={"source": "rag"})
@@ -126,7 +127,7 @@ class RAGListSourcesTool:
                 },
                 metadata={"source": "rag"},
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — 工具执行隔离，失败以 ToolResult 返回
             logger.error("rag_list_sources 执行失败: %s", e)
             return ToolResult(status="error", error=str(e),
                              metadata={"source": "rag"})

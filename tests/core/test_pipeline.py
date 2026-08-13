@@ -1,13 +1,18 @@
-import pytest
-from unittest.mock import MagicMock
 from datetime import date
+from unittest.mock import MagicMock
+
 from core.pipeline import Pipeline
 from core.registry import Registry
-from data.schemas import (
-    AnalysisContext, AnalysisResult, FinancialData, PriceData,
-    ValuationData, IndustryData, NewsData,
-)
 from data.base import DataSource
+from data.schemas import (
+    AnalysisContext,
+    AnalysisResult,
+    FinancialData,
+    IndustryData,
+    NewsData,
+    PriceData,
+    ValuationData,
+)
 from llm.base import LLMBackend
 
 
@@ -57,7 +62,7 @@ class TestPipeline:
     def test_run_without_llm(self):
         reg = make_test_registry()
         pipeline = Pipeline(registry=reg, llm_enabled=False)
-        results, commentary, ctx = pipeline.run("000001", "平安银行")
+        results, _, ctx = pipeline.run("000001", "平安银行")
         assert len(results) == 5
         assert all(isinstance(r, AnalysisResult) for r in results)
         assert isinstance(ctx, AnalysisContext)
@@ -213,14 +218,14 @@ class TestPipelineIndustryIntegration:
 
     def test_analysis_results_have_scores(self):
         """分析结果应有配置驱动的分数"""
+        from analysis.financial import FinancialAnalyzer
+        from analysis.industry import IndustryAnalyzer
+        from analysis.sentiment import SentimentAnalyzer
+        from analysis.technical import TechnicalAnalyzer
+        from analysis.valuation import ValuationAnalyzer
         from core.pipeline import Pipeline
         from core.registry import Registry
         from data.akshare import AkShareAdapter
-        from analysis.financial import FinancialAnalyzer
-        from analysis.valuation import ValuationAnalyzer
-        from analysis.industry import IndustryAnalyzer
-        from analysis.technical import TechnicalAnalyzer
-        from analysis.sentiment import SentimentAnalyzer
 
         reg = Registry()
         reg.register_data_source(AkShareAdapter())

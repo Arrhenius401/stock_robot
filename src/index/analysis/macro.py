@@ -1,12 +1,13 @@
 """指数宏观面分析 — PMI、利率、汇率关联"""
-from typing import Any
+from typing import Any, Literal
+
 from analysis.base import AnalysisModule
 from data.schemas import AnalysisResult, IndexAnalysisContext
 
 
 class MacroAnalyzer(AnalysisModule):
     @property
-    def dimension(self) -> str:
+    def dimension(self) -> Literal["index_macro"]:
         return "index_macro"
 
     def analyze(self, context: IndexAnalysisContext,

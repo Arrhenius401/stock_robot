@@ -1,4 +1,5 @@
 from datetime import date
+
 from analysis.sentiment import SentimentAnalyzer
 from data.schemas import AnalysisContext, NewsData
 

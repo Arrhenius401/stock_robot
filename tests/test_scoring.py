@@ -1,11 +1,19 @@
 """打分体系单元测试"""
-import pytest
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+
 from data.schemas import (
-    AnalysisContext, FinancialData, PriceData, ValuationData,
-    EnrichedValuation, EnrichedIndustry, EnrichedSentiment,
-    DailyValuationPoint, PeerComparison, IndustryData,
-    DataSufficiency, DimensionSufficiency, SufficiencyLevel,
+    AnalysisContext,
+    DailyValuationPoint,
+    DataSufficiency,
+    DimensionSufficiency,
+    EnrichedIndustry,
+    EnrichedSentiment,
+    EnrichedValuation,
+    FinancialData,
+    PeerComparison,
+    PriceData,
+    SufficiencyLevel,
+    ValuationData,
 )
 
 
@@ -36,7 +44,7 @@ def make_scoring_context():
                       open=10.0, high=10.5, low=9.8, close=10.2, volume=1000000)
             for i in range(120)
         ],
-        valuation_data=ValuationData(symbol="000001", date=date.today(),
+        valuation_data=ValuationData(symbol="000001", date=datetime.now().astimezone().astimezone().date(),
                                      pe_ttm=7.5, pb=0.85, ps_ttm=1.2),
     )
     ctx.sufficiency = DataSufficiency(
@@ -72,6 +80,7 @@ def make_scoring_context():
 
 def _load_config():
     from pathlib import Path
+
     from analysis.config_loader import ConfigLoader
     config_dir = Path(__file__).parent.parent / "src" / "analysis" / "config"
     return ConfigLoader(config_dir).load("银行")

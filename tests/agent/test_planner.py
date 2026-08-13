@@ -1,8 +1,11 @@
 """Planner 单元测试"""
 import json
+from typing import ClassVar
+
 import pytest
-from agent.planner import Planner, SIMPLE_QUERY_PREFIXES
-from agent.memory import Memory, Plan, TaskStep
+
+from agent.memory import Memory
+from agent.planner import SIMPLE_QUERY_PREFIXES, Planner
 from agent.tools import ToolRegistry
 
 
@@ -88,8 +91,8 @@ class TestPlanner:
         class FakeAnalyzeTool:
             name = "analyze_stock"
             description = "分析股票"
-            parameters = {"type": "object", "properties": {}}
-            tags = ["pipeline"]
+            parameters: ClassVar[dict] = {"type": "object", "properties": {}}
+            tags: ClassVar[list[str]] = ["pipeline"]
             source = "pipeline"
             async def execute(self, **kwargs): pass
 
@@ -118,7 +121,7 @@ class TestPlanner:
             def model_name(self):
                 return "failing-model"
             def generate(self, prompt, system=None, **kwargs):
-                raise Exception("API 不可用")
+                raise RuntimeError("API 不可用")
 
         planner = Planner(llm=FailingLLM(), registry=registry, memory=memory)
         plan = planner.plan("复杂分析任务")

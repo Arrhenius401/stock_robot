@@ -1,8 +1,12 @@
 """MCP JSON-RPC 消息类型与工具定义单元测试"""
 import json
+
 from mcp.schemas import (
-    JSONRPCRequest, JSONRPCResponse, MCPToolDefinition,
-    MCPToolCallResult, MCP_LIST_TOOLS_REQUEST,
+    MCP_LIST_TOOLS_REQUEST,
+    JSONRPCRequest,
+    JSONRPCResponse,
+    MCPToolCallResult,
+    MCPToolDefinition,
 )
 
 

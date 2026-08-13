@@ -1,5 +1,7 @@
 from datetime import date
+
 import pytest
+
 from data.base import DataSource
 from data.schemas import PriceData
 

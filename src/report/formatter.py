@@ -2,10 +2,10 @@
 import re
 from datetime import datetime
 from pathlib import Path
+
+from rich.console import Group
 from rich.markdown import Markdown
 from rich.table import Table
-from rich.console import Group
-
 
 _SEP_RE = re.compile(r'^\|[-\s:|]+\|$')
 
@@ -44,7 +44,7 @@ class ReportFormatter:
             output_dir = Path.cwd() / "reports"
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        filename = f"{symbol}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+        filename = f"{symbol}_{datetime.now().astimezone().strftime('%Y%m%d_%H%M%S')}.md"
         filepath = output_dir / filename
         filepath.write_text(report, encoding="utf-8")
         return filepath
@@ -76,8 +76,7 @@ class ReportFormatter:
 
                 try:
                     renderables.append(_parse_table(tbl_lines))
-                except Exception:
-                    # 解析失败时回退为原始 Markdown
+                except Exception:  # noqa: BLE001 — 表格解析失败回退原始 Markdown
                     renderables.append(Markdown("\n".join(tbl_lines)))
             else:
                 buf.append(line)

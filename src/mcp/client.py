@@ -2,6 +2,7 @@
 import json
 import logging
 import subprocess
+
 from mcp.schemas import MCPToolDefinition
 
 logger = logging.getLogger(__name__)
@@ -18,13 +19,14 @@ class ExternalMCPClient:
     def connect(self):
         cmd = [self._command] + self._args
         try:
-            self._process = subprocess.Popen(
+            proc = subprocess.Popen(
                 cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 text=True, encoding="utf-8", env=self._env,
             )
+            self._process = proc
         except FileNotFoundError:
             raise RuntimeError(f"无法启动 MCP Server: 命令不存在 — {' '.join(cmd)}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — 子进程启动异常类型不可预测，统一转为 RuntimeError
             raise RuntimeError(f"启动 MCP Server 失败: {e}")
 
         init_req = json.dumps({
@@ -32,9 +34,11 @@ class ExternalMCPClient:
             "params": {"protocolVersion": "2024-11-05",
                        "clientInfo": {"name": "stock-robot", "version": "0.1.0"}},
         }, ensure_ascii=False)
-        self._process.stdin.write(init_req + "\n")
-        self._process.stdin.flush()
-        init_resp = self._process.stdout.readline()
+        if proc.stdin is None or proc.stdout is None:
+            raise RuntimeError("MCP Server 管道初始化失败")
+        proc.stdin.write(init_req + "\n")
+        proc.stdin.flush()
+        init_resp = proc.stdout.readline()
         logger.debug("MCP Server 初始化响应: %s", init_resp.strip())
 
     def disconnect(self):
@@ -42,7 +46,7 @@ class ExternalMCPClient:
             try:
                 self._process.terminate()
                 self._process.wait(timeout=5)
-            except Exception:
+            except Exception:  # noqa: BLE001 — 超时/异常均强制 kill
                 self._process.kill()
             finally:
                 self._process = None
@@ -61,14 +65,17 @@ class ExternalMCPClient:
         return self._request_id
 
     def _send_request_sync(self, method: str, params: dict | None = None) -> dict:
-        if not self._process or self._process.poll() is not None:
+        proc = self._process
+        if proc is None or proc.poll() is not None:
             raise RuntimeError("MCP Server 未连接或已退出")
+        if proc.stdin is None or proc.stdout is None:
+            raise RuntimeError("MCP Server 管道不可用")
         req = {"jsonrpc": "2.0", "id": self._next_id(), "method": method}
         if params:
             req["params"] = params
-        self._process.stdin.write(json.dumps(req, ensure_ascii=False) + "\n")
-        self._process.stdin.flush()
-        raw = self._process.stdout.readline()
+        proc.stdin.write(json.dumps(req, ensure_ascii=False) + "\n")
+        proc.stdin.flush()
+        raw = proc.stdout.readline()
         if not raw:
             raise RuntimeError(f"MCP Server 无响应 (method={method})")
         return json.loads(raw)

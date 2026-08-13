@@ -22,7 +22,7 @@ class ToolProtocol(Protocol):
     description: str       # LLM 阅读的语义描述，含使用场景和参数说明
     parameters: dict       # JSON Schema 格式的参数定义
     tags: list[str]        # 语义标签 ["pipeline", "stock", "screening"]
-    source: Literal["pipeline", "rag", "mcp_internal", "mcp_external"]
+    source: str            # pipeline / rag / mcp_internal / mcp_external
 
     async def execute(self, **kwargs) -> ToolResult: ...
 

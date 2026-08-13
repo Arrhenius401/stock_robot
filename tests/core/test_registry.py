@@ -1,8 +1,8 @@
+from analysis.base import AnalysisModule
 from core.registry import Registry
 from data.base import DataSource
-from analysis.base import AnalysisModule
-from llm.base import LLMBackend
 from data.schemas import AnalysisResult
+from llm.base import LLMBackend
 
 
 class FakeSource(DataSource):

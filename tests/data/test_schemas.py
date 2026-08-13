@@ -1,14 +1,16 @@
 from datetime import date
+
 import pytest
 from pydantic import ValidationError
+
 from data.schemas import (
+    AnalysisContext,
+    AnalysisResult,
     FinancialData,
-    PriceData,
-    ValuationData,
     IndustryData,
     NewsData,
-    AnalysisResult,
-    AnalysisContext,
+    PriceData,
+    ValuationData,
 )
 
 

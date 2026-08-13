@@ -1,7 +1,7 @@
 """RAG 工具单元测试"""
 import pytest
-from agent.tools import ToolResult
-from agent.rag_tools import RAGSearchTool, RAGListSourcesTool
+
+from agent.rag_tools import RAGListSourcesTool, RAGSearchTool
 
 
 class FakeRAGEngine:

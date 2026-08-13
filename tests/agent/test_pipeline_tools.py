@@ -1,8 +1,11 @@
 """pipeline_tools 单元测试"""
 import pytest
-from agent.tools import ToolResult
+
 from agent.pipeline_tools import (
-    AnalyzeStockTool, AnalyzeIndexTool, GetSnapshotTool, ScreenStocksTool,
+    AnalyzeIndexTool,
+    AnalyzeStockTool,
+    GetSnapshotTool,
+    ScreenStocksTool,
 )
 
 

@@ -1,5 +1,4 @@
-import pytest
-from report.builder import _md_table, _display_width
+from report.builder import _display_width, _md_table
 
 
 class TestMdTableDict:
