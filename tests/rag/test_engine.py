@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from rag.embedding import EMBEDDING_DIM
+from rag.embedding import EMBEDDING_DIM, EmbeddingProvider
 
 COLLECTION_NAMES = [
     "research_reports",
@@ -107,8 +107,8 @@ class MockClient:
 _PersistentClient = MagicMock(side_effect=MockClient)
 _PersistentClient.__name__ = "PersistentClient"
 
-_FAKE_CHROMADB.PersistentClient = _PersistentClient
-_FAKE_CHROMADB.Client = MagicMock(side_effect=MockClient)
+_FAKE_CHROMADB.PersistentClient = _PersistentClient  # pyright: ignore[reportAttributeAccessIssue]
+_FAKE_CHROMADB.Client = MagicMock(side_effect=MockClient)  # pyright: ignore[reportAttributeAccessIssue]
 
 sys.modules["chromadb"] = _FAKE_CHROMADB
 sys.modules["chromadb.api"] = _FAKE_CHROMADB_API
@@ -146,7 +146,7 @@ for _sub in (
         sys.modules[_sub] = ModuleType(_sub)
 
 
-class SafeTestEmbeddingProvider:
+class SafeTestEmbeddingProvider(EmbeddingProvider):
     """测试用 Embedding 提供者：基于文本哈希生成非零向量"""
 
     @property

@@ -144,7 +144,9 @@ class TestMemory:
         plan2 = Plan(goal="second", steps=[], context_summary="")
         m.add_plan(plan1)
         m.add_plan(plan2)
-        assert m.get_last_plan().goal == "second"
+        last = m.get_last_plan()
+        assert last is not None
+        assert last.goal == "second"
 
     def test_get_last_plan_returns_none_when_empty(self):
         m = Memory()

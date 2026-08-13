@@ -103,7 +103,7 @@ class TestChunkMetadata:
         """验证 source_hash 被设计为必填字段——缺省无法实例化"""
         import pytest
         with pytest.raises(TypeError):
-            ChunkMetadata(
+            ChunkMetadata(  # pyright: ignore[reportCallIssue]
                 source_type="research_reports",
                 source_path="/data/r.pdf",
                 title="无哈希",

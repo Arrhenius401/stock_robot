@@ -1,4 +1,5 @@
 from datetime import date
+from typing import cast
 from unittest.mock import MagicMock
 
 from core.pipeline import Pipeline
@@ -25,7 +26,7 @@ def make_test_registry():
         def fetch(self, symbol, **kwargs):
             data_type = kwargs.get("data_type", "price")
             if data_type == "price":
-                return [PriceData(symbol=symbol, trade_date=date(2026,7,1), open=10, high=11, low=9.5, close=10.5, volume=1e6)]
+                return [PriceData(symbol=symbol, trade_date=date(2026,7,1), open=10, high=11, low=9.5, close=10.5, volume=1_000_000)]
             elif data_type == "financial":
                 return [FinancialData(symbol=symbol, fiscal_quarter=date(2025,12,31), revenue=45e9, net_profit=8.5e9, total_assets=500e9, total_equity=45e9, operating_cash_flow=12e9)]
             elif data_type == "valuation":
@@ -39,8 +40,9 @@ def make_test_registry():
     reg = Registry()
     reg.register_data_source(MockDataSource())
 
-    from analysis.base import AnalysisModule
-    for dim in ["financial", "technical", "valuation", "industry", "sentiment"]:
+    from analysis.base import AnalysisModule, DimensionName
+    dims: list[DimensionName] = ["financial", "technical", "valuation", "industry", "sentiment"]
+    for dim in dims:
         mod = MagicMock(spec=AnalysisModule)
         mod.dimension = dim
         mod.analyze.return_value = AnalysisResult(

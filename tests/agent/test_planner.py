@@ -1,6 +1,5 @@
 """Planner 单元测试"""
 import json
-from typing import ClassVar
 
 import pytest
 
@@ -91,8 +90,8 @@ class TestPlanner:
         class FakeAnalyzeTool:
             name = "analyze_stock"
             description = "分析股票"
-            parameters: ClassVar[dict] = {"type": "object", "properties": {}}
-            tags: ClassVar[list[str]] = ["pipeline"]
+            parameters = {"type": "object", "properties": {}}
+            tags = ["pipeline"]
             source = "pipeline"
             async def execute(self, **kwargs): pass
 

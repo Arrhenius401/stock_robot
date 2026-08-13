@@ -8,18 +8,21 @@ from src.index.enricher import IndexValuationEnricher, compute_percentile, tag_v
 class TestComputePercentile:
     def test_percentile_midpoint(self):
         """当前值恰好为中位数的分位"""
-        values = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+        values = [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0]
         pct = compute_percentile(50, values)
+        assert pct is not None
         assert abs(pct - 50.0) < 5  # 中位数附近
 
     def test_percentile_low(self):
-        values = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+        values = [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0]
         pct = compute_percentile(5, values)
+        assert pct is not None
         assert pct < 10
 
     def test_percentile_high(self):
-        values = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+        values = [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0]
         pct = compute_percentile(200, values)
+        assert pct is not None
         assert pct > 90
 
     def test_percentile_empty(self):
@@ -60,7 +63,9 @@ class TestIndexValuationEnricher:
             daily.append(base + timedelta(days=i))
 
         enricher = IndexValuationEnricher()
-        daily_pe = [10 + (i % 10) for i in range(1000)]
+        daily_pe = [10.0 + (i % 10) for i in range(1000)]
         result = enricher.enrich(ctx, daily_pe_values=daily_pe, daily_pb_values=[])
 
-        assert result.valuation_data.pe_percentile is not None
+        val = result.valuation_data
+        assert val is not None
+        assert val.pe_percentile is not None

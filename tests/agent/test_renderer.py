@@ -1,7 +1,7 @@
 """OutputRenderer 协议与实现测试"""
 import pytest
 
-from agent.memory import Plan, TaskStep
+from agent.memory import Plan, TaskStatus, TaskStep
 from agent.tools import ToolResult
 from output.renderer import JsonRenderer, RichRenderer
 
@@ -15,9 +15,9 @@ class TestRichRenderer:
         plan = Plan(
             goal="找低估值股票",
             steps=[
-                TaskStep(id="s1", description="筛选标的", status="done"),
-                TaskStep(id="s2", description="采集数据", status="running", depends_on=["s1"]),
-                TaskStep(id="s3", description="估值对比", status="pending", depends_on=["s2"]),
+                TaskStep(id="s1", description="筛选标的", status=TaskStatus.DONE),
+                TaskStep(id="s2", description="采集数据", status=TaskStatus.RUNNING, depends_on=["s1"]),
+                TaskStep(id="s3", description="估值对比", status=TaskStatus.PENDING, depends_on=["s2"]),
             ],
         )
         output = renderer.render_plan(plan)
@@ -26,7 +26,7 @@ class TestRichRenderer:
         assert "done" in output.lower()
 
     def test_render_progress_shows_step_info(self, renderer):
-        step = TaskStep(id="s2", description="采集财务数据", status="running")
+        step = TaskStep(id="s2", description="采集财务数据", status=TaskStatus.RUNNING)
         output = renderer.render_progress(step, step_index=1, total=3)
         assert "采集财务数据" in output
         assert "1/3" in output
@@ -51,8 +51,8 @@ class TestRichRenderer:
         plan = Plan(
             goal="找3只被低估的新能源龙头",
             steps=[
-                TaskStep(id="s1", description="筛选标的", status="done"),
-                TaskStep(id="s2", description="分析", status="done"),
+                TaskStep(id="s1", description="筛选标的", status=TaskStatus.DONE),
+                TaskStep(id="s2", description="分析", status=TaskStatus.DONE),
             ],
         )
         output = renderer.render_summary(plan)

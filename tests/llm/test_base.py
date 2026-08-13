@@ -16,7 +16,7 @@ class FakeLLM(LLMBackend):
 class TestLLMBackend:
     def test_cannot_instantiate_abstract(self):
         with pytest.raises(TypeError):
-            LLMBackend()
+            LLMBackend()  # pyright: ignore[reportAbstractUsage]
 
     def test_concrete_implementation_works(self):
         llm = FakeLLM()

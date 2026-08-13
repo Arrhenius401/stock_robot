@@ -22,7 +22,7 @@ class FakeModule(AnalysisModule):
 class TestAnalysisModule:
     def test_cannot_instantiate_abstract(self):
         with pytest.raises(TypeError):
-            AnalysisModule()
+            AnalysisModule()  # pyright: ignore[reportAbstractUsage]
 
     def test_concrete_implementation_works(self):
         mod = FakeModule()

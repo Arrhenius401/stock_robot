@@ -29,7 +29,7 @@ class TestTechnicalAnalyzer:
         # MA/MACD/量价计算已移至 GeneralScorer.score_technical()，通过 config 驱动
 
     def test_insufficient_price_data_returns_partial(self):
-        prices = [PriceData(symbol="000001", trade_date=date(2026,7,1), open=10, high=11, low=9.5, close=10.5, volume=1e6)]
+        prices = [PriceData(symbol="000001", trade_date=date(2026,7,1), open=10, high=11, low=9.5, close=10.5, volume=1_000_000)]
         ctx = AnalysisContext(symbol="000001", name="测试", price_data=prices)
         result = TechnicalAnalyzer().analyze(ctx)
         assert result.status == "partial"

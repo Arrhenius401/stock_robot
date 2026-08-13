@@ -28,8 +28,8 @@ class TestAnalyzeStockTool:
         result = await tool.execute(symbol="000001")
 
         assert result.status == "error"
-        assert "数据源不可用" in result.error
-        assert result.metadata["source"] == "pipeline"
+        assert "数据源不可用" in (result.error or "")
+        assert (result.metadata or {}).get("source") == "pipeline"
 
     @pytest.mark.asyncio
     async def test_execute_calls_pipeline_with_correct_target(self, mocker):
@@ -56,7 +56,7 @@ class TestAnalyzeStockTool:
         tool = AnalyzeStockTool()
         result = await tool.execute(symbol="")
         assert result.status == "error"
-        assert "代码" in result.error
+        assert "代码" in (result.error or "")
 
 
 class TestAnalyzeIndexTool:
@@ -74,7 +74,7 @@ class TestAnalyzeIndexTool:
         tool = AnalyzeIndexTool()
         result = await tool.execute(symbol="")
         assert result.status == "error"
-        assert "代码" in result.error
+        assert "代码" in (result.error or "")
 
     @pytest.mark.asyncio
     async def test_execute_returns_error_when_pipeline_fails(self, mocker):
@@ -85,7 +85,7 @@ class TestAnalyzeIndexTool:
         result = await tool.execute(symbol="000300")
 
         assert result.status == "error"
-        assert "IndexPipeline 执行失败" in result.error
+        assert "IndexPipeline 执行失败" in (result.error or "")
 
     @pytest.mark.asyncio
     async def test_execute_returns_analysis_report(self, mocker):
@@ -157,7 +157,7 @@ class TestGetSnapshotTool:
         result = await tool.execute(symbol="999999")
 
         assert result.status == "error"
-        assert "快照" in result.error or "不支持" in result.error
+        assert "快照" in (result.error or "") or "不支持" in (result.error or "")
 
     @pytest.mark.asyncio
     async def test_execute_returns_error_when_pipeline_fails(self, mocker):
@@ -168,7 +168,7 @@ class TestGetSnapshotTool:
         result = await tool.execute(symbol="000300")
 
         assert result.status == "error"
-        assert "估值数据源不可用" in result.error
+        assert "估值数据源不可用" in (result.error or "")
 
 
 class TestScreenStocksTool:
@@ -190,4 +190,4 @@ class TestScreenStocksTool:
         tool = ScreenStocksTool()
         result = await tool.execute(industry="")
         assert result.status == "error"
-        assert "行业" in result.error
+        assert "行业" in (result.error or "")

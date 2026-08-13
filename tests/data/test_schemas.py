@@ -46,7 +46,7 @@ class TestFinancialData:
 
     def test_missing_required_fields_raises_error(self):
         with pytest.raises(ValidationError):
-            FinancialData(symbol="000001")
+            FinancialData(symbol="000001")  # pyright: ignore[reportCallIssue]
 
     def test_financial_data_allows_none_numeric_fields(self):
         fd = FinancialData(
@@ -213,7 +213,7 @@ class TestAnalysisContext:
                 )
             ],
         )
-        assert len(ctx.financial_data) == 1
+        assert len(ctx.financial_data or []) == 1
 
     def test_to_dict_serializes_correctly(self):
         ctx = AnalysisContext(symbol="000001", name="平安银行")

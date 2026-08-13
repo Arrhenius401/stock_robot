@@ -1,5 +1,6 @@
 """指数横向对比测试"""
 from datetime import datetime
+from typing import Literal, cast
 
 import pytest
 
@@ -23,7 +24,8 @@ def compare_data():
     ]:
         target = AnalysisTarget(
             target_type="index", symbol=code,
-            name=name, market="a-shares", index_style=style
+            name=name, market="a-shares",
+            index_style=cast(Literal["broad", "sector", "overseas"], style),
         )
         ctx = IndexAnalysisContext(target=target)
         ctx.valuation_data = IndexValuationData(

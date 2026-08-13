@@ -4,11 +4,15 @@ from datetime import datetime
 
 import pytest
 
+from rag.embedding import EmbeddingProvider
 from rag.ingestion import IngestionPipeline
 
 
-class FakeEmbeddingProvider:
-    name = "fake"
+class FakeEmbeddingProvider(EmbeddingProvider):
+    @property
+    def name(self) -> str:
+        return "fake"
+
     def embed(self, texts):
         return [[0.1] * 384 for _ in texts]
 

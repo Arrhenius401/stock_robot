@@ -1,6 +1,7 @@
 """RetrievalPipeline 单元测试"""
 import pytest
 
+from rag.embedding import EmbeddingProvider
 from rag.retrieval import RetrievalPipeline
 
 
@@ -21,8 +22,11 @@ class FakeCollection:
         return {"documents": [], "metadatas": [], "ids": []}
 
 
-class FakeEmbeddingProvider:
-    name = "fake"
+class FakeEmbeddingProvider(EmbeddingProvider):
+    @property
+    def name(self) -> str:
+        return "fake"
+
     def embed(self, texts):
         return [[0.2] * 384 for _ in texts]
 

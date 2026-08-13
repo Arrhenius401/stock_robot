@@ -92,7 +92,7 @@ class TestRAGSearchTool:
         tool = RAGSearchTool(engine=BrokenEngine())
         result = await tool.execute(query="测试")
         assert result.status == "error"
-        assert "引擎故障" in result.error
+        assert "引擎故障" in (result.error or "")
 
     @pytest.mark.asyncio
     async def test_execute_missing_query(self):

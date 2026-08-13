@@ -11,7 +11,7 @@ class TestMCPAdapterToolToProtocol:
             name="fetch_stock_data", description="获取股票行情数据",
             input_schema={"type": "object", "properties": {"symbol": {"type": "string"}}, "required": ["symbol"]},
         )
-        tool = MCPAdapter.tool_to_protocol(mcp_tool, source="mcp_internal")
+        tool = MCPAdapter().tool_to_protocol(mcp_tool, source="mcp_internal")
         assert tool.name == "fetch_stock_data"
         assert tool.description == "获取股票行情数据"
         assert tool.source == "mcp_internal"
@@ -21,15 +21,15 @@ class TestMCPAdapterToolToProtocol:
     def test_translate_external_source(self):
         mcp_tool = MCPToolDefinition(name="news_search", description="搜索财经新闻",
                                      input_schema={"type": "object", "properties": {}})
-        tool = MCPAdapter.tool_to_protocol(mcp_tool, source="mcp_external")
+        tool = MCPAdapter().tool_to_protocol(mcp_tool, source="mcp_external")
         assert tool.source == "mcp_external"
 
     def test_translate_tags_based_on_source(self):
         mcp_tool = MCPToolDefinition(name="test_tool", description="测试",
                                      input_schema={"type": "object", "properties": {}})
-        internal = MCPAdapter.tool_to_protocol(mcp_tool, source="mcp_internal")
+        internal = MCPAdapter().tool_to_protocol(mcp_tool, source="mcp_internal")
         assert "mcp" in internal.tags
-        external = MCPAdapter.tool_to_protocol(mcp_tool, source="mcp_external")
+        external = MCPAdapter().tool_to_protocol(mcp_tool, source="mcp_external")
         assert "mcp" in external.tags
 
     @pytest.mark.asyncio
