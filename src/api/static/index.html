@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stock Robot — AI 股票分析助手</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+       background: #1a1a2e; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; }
+header { background: #16213e; padding: 12px 20px; border-bottom: 1px solid #0f3460; display: flex;
+         align-items: center; justify-content: space-between; }
+header h1 { font-size: 18px; color: #e94560; }
+header span { font-size: 12px; color: #888; }
+main { flex: 1; overflow-y: auto; padding: 20px; max-width: 900px; margin: 0 auto; width: 100%; }
+.message { margin-bottom: 16px; padding: 12px 16px; border-radius: 8px; line-height: 1.6; }
+.message.user { background: #0f3460; margin-left: 40px; }
+.message.agent { background: #16213e; margin-right: 40px; border: 1px solid #333; }
+.message .role { font-size: 12px; color: #e94560; margin-bottom: 4px; font-weight: bold; }
+footer { background: #16213e; padding: 12px 20px; border-top: 1px solid #0f3460; display: flex; gap: 8px; }
+footer input { flex: 1; padding: 10px 16px; border-radius: 6px; border: 1px solid #333;
+               background: #1a1a2e; color: #e0e0e0; font-size: 14px; }
+footer input:focus { outline: none; border-color: #e94560; }
+footer button { padding: 10px 20px; border-radius: 6px; background: #e94560; color: white;
+                border: none; cursor: pointer; font-size: 14px; font-weight: bold; }
+footer button:hover { background: #c73a52; }
+footer button:disabled { background: #555; cursor: not-allowed; }
+.tools-bar { display: flex; gap: 8px; padding: 8px 20px; background: #16213e;
+             border-top: 1px solid #0f3460; flex-wrap: wrap; }
+.tools-bar button { padding: 4px 12px; border-radius: 4px; background: #0f3460; color: #aaa;
+                    border: 1px solid #333; cursor: pointer; font-size: 12px; }
+.tools-bar button:hover { background: #1a4a80; color: white; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Stock Robot</h1>
+  <span>AI 驱动的股票分析研报助手</span>
+</header>
+<main id="chat"></main>
+<div class="tools-bar">
+  <button onclick="sendQuick('大盘现在适合入场吗？')">择时研判</button>
+  <button onclick="sendQuick('帮我列出可用工具')">工具列表</button>
+  <button onclick="sendQuick('/clear')">清空会话</button>
+</div>
+<footer>
+  <input id="input" type="text" placeholder="输入你的投资研究问题..."
+         onkeydown="if(event.key==='Enter')sendMessage()">
+  <button id="sendBtn" onclick="sendMessage()">发送</button>
+</footer>
+
+<script>
+const chat = document.getElementById('chat');
+const input = document.getElementById('input');
+const sendBtn = document.getElementById('sendBtn');
+
+function addMessage(role, text, isError) {
+  const div = document.createElement('div');
+  div.className = 'message ' + role + (isError ? '' : '');
+  div.innerHTML = '<div class="role">' + (role === 'user' ? '你' : 'Stock Robot') + '</div>'
+    + '<div class="content">' + text.replace(/\n/g, '<br>') + '</div>';
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+async function sendMessage() {
+  const msg = input.value.trim();
+  if (!msg) return;
+  addMessage('user', msg);
+  input.value = '';
+  sendBtn.disabled = true;
+  if (msg.startsWith('/')) { addMessage('agent', '快捷命令已发送: ' + msg); sendBtn.disabled = false; return; }
+  try {
+    const resp = await fetch('/api/v1/chat', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({message: msg})
+    });
+    const data = await resp.json();
+    addMessage('agent', data.response || JSON.stringify(data), resp.status >= 400);
+  } catch(e) {
+    addMessage('agent', '请求失败: ' + e.message, true);
+  }
+  sendBtn.disabled = false;
+  input.focus();
+}
+
+function sendQuick(msg) { input.value = msg; sendMessage(); }
+input.focus();
+</script>
+</body>
+</html>
