@@ -69,7 +69,7 @@ class TestSessionManager:
         m1.add_message("tool", "结果一")
 
         mgr2 = SessionManager(store, facts_path=facts_path)  # 模拟重启
-        sid2, m2 = mgr2.get_or_create(sid)
+        _, m2 = mgr2.get_or_create(sid)
         assert [m["content"] for m in m2.messages] == ["第一条", "结果一"]
 
     def test_clear_session_keeps_facts(self, store, facts_path):
@@ -123,7 +123,7 @@ class TestSessionManager:
         mgr = SessionManager(store, facts_path=facts_path)
         s1, _ = mgr.get_or_create(None, "会话一")
         time.sleep(0.01)
-        s2, _ = mgr.get_or_create(None, "会话二")
+        _s2, _ = mgr.get_or_create(None, "会话二")
         time.sleep(0.01)
         _, memory1 = mgr.get_or_create(s1)
         memory1.add_message("user", "新消息")
