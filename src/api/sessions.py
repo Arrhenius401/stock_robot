@@ -77,10 +77,15 @@ class SessionStore:
         return [{"role": r[0], "content": r[1]} for r in rows]
 
     def append_message(self, session_id: str, role: str, content: str) -> None:
+        now = time.time()
         with self._get_conn() as conn:
             conn.execute(
                 "INSERT INTO messages (session_id, role, content, created_at) VALUES (?,?,?,?)",
-                (session_id, role, content, time.time()),
+                (session_id, role, content, now),
+            )
+            conn.execute(
+                "UPDATE sessions SET updated_at=? WHERE session_id=?",
+                (now, session_id),
             )
 
     def clear_messages(self, session_id: str) -> None:
@@ -106,6 +111,7 @@ class SessionManager:
 
     def _new_memory(self, session_id: str) -> Memory:
         return Memory(session_id=session_id, message_store=self._store,
+                      max_messages=self._max_messages,
                       facts_path=self._facts_path)
 
     def get_or_create(self, session_id: str | None,
