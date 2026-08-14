@@ -143,7 +143,7 @@ POST /api/v1/analyze {symbol}
   → scoring.py 计算综合评分 → 返回完整报告 JSON
 ```
 
-响应：`{symbol, name, overview{最新收盘/涨跌幅}, score{base/final/risk_deduction}, score_rows, dimensions{...: {status, summary, score, metrics, risk_flags}}, commentary, generated_at}`。数据不足维度 `status: "insufficient"`，HTTP 仍 200。
+响应：`{symbol, name, overview{最新收盘/涨跌幅}, score{base/final/risk_deduction}, score_rows, dimensions{...: {status, summary, score, metrics, risk_flags}}, commentary, generated_at}`。数据不足维度 `status: "unavailable"`（AnalysisResult 原始枚举值），HTTP 仍 200。
 
 ### 5.4 指数分析（index）
 
@@ -164,7 +164,7 @@ POST /api/v1/index {symbol, index_style?}
 | 场景 | 行为 |
 |---|---|
 | 股票代码非法 | 422 + `{detail: "无效的股票代码: xxx"}` |
-| 数据源全失败 | 维度 `status: "insufficient"`，报告正常返回，HTTP 200 |
+| 数据源全失败 | 维度 `status: "unavailable"`（AnalysisResult 原始枚举值），报告正常返回，HTTP 200 |
 | LLM 失败（重试耗尽） | commentary 为缺省提示文本，报告仍返回，HTTP 200（保持 CLI 契约） |
 | 未知 session_id | 404 |
 | 未注入 Agent（空 app 模式） | chat 返回现状提示文本 |
