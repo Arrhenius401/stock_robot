@@ -25,6 +25,7 @@ class TestClaudeAdapter:
         mock_client.messages.create.assert_called_once()
 
     def test_generate_with_error_returns_fallback(self, mocker):
+        mocker.patch("llm.base.time.sleep")
         mock_client = MagicMock()
         mock_client.messages.create.side_effect = Exception("API Error")
         mocker.patch("llm.claude.Anthropic", return_value=mock_client)
@@ -39,10 +40,10 @@ class TestClaudeAdapter:
         mock_anthropic = mocker.patch("llm.claude.Anthropic", return_value=MagicMock())
         ClaudeAdapter(api_key="sk-ant-test", base_url="https://api.deepseek.com/anthropic")
         mock_anthropic.assert_called_once_with(
-            api_key="sk-ant-test", base_url="https://api.deepseek.com/anthropic"
+            api_key="sk-ant-test", base_url="https://api.deepseek.com/anthropic", timeout=60.0
         )
 
     def test_no_base_url_omits_arg(self, mocker):
         mock_anthropic = mocker.patch("llm.claude.Anthropic", return_value=MagicMock())
         ClaudeAdapter(api_key="sk-ant-test")
-        mock_anthropic.assert_called_once_with(api_key="sk-ant-test")
+        mock_anthropic.assert_called_once_with(api_key="sk-ant-test", timeout=60.0)

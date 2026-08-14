@@ -13,6 +13,8 @@ DEFAULT_CONFIG = {
         "base_url": "",
         "temperature": 0.3,
         "max_tokens": 2000,
+        "retry_times": 2,
+        "timeout_seconds": 60,
     },
     "data": {
         "cache_ttl": {

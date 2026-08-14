@@ -11,11 +11,13 @@ logger = logging.getLogger(__name__)
 
 class OpenAIAdapter(LLMBackend):
     def __init__(self, api_key: str, model: str = "gpt-4o", temperature: float = 0.3,
-                 max_tokens: int = 2000, base_url: str | None = None):
+                 max_tokens: int = 2000, base_url: str | None = None,
+                 timeout: float = 60.0, retry_times: int = 2):
         self._model = model
         self._temperature = temperature
         self._max_tokens = max_tokens
-        client_kwargs: dict[str, Any] = {"api_key": api_key}
+        self._retry_times = retry_times
+        client_kwargs: dict[str, Any] = {"api_key": api_key, "timeout": timeout}
         if base_url:
             client_kwargs["base_url"] = base_url
         self._client = OpenAI(**client_kwargs)
@@ -30,12 +32,17 @@ class OpenAIAdapter(LLMBackend):
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
 
-        try:
-            response = self._client.chat.completions.create(
+        def _create():
+            return self._client.chat.completions.create(
                 model=self._model,
                 messages=messages,
                 temperature=kwargs.get("temperature", self._temperature),
                 max_tokens=kwargs.get("max_tokens", self._max_tokens),
+            )
+
+        try:
+            response = self._call_with_retry(
+                _create, retry_times=kwargs.get("retry_times", self._retry_times)
             )
             content = response.choices[0].message.content or ""
             usage = response.usage

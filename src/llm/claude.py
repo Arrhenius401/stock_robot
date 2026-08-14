@@ -12,11 +12,13 @@ logger = logging.getLogger(__name__)
 class ClaudeAdapter(LLMBackend):
     def __init__(self, api_key: str, model: str = "claude-sonnet-4-6",
                  temperature: float = 0.3, max_tokens: int = 2000,
-                 base_url: str | None = None):
+                 base_url: str | None = None, timeout: float = 60.0,
+                 retry_times: int = 2):
         self._model = model
         self._temperature = temperature
         self._max_tokens = max_tokens
-        client_kwargs: dict[str, Any] = {"api_key": api_key}
+        self._retry_times = retry_times
+        client_kwargs: dict[str, Any] = {"api_key": api_key, "timeout": timeout}
         if base_url:
             client_kwargs["base_url"] = base_url
         self._client = Anthropic(**client_kwargs)
@@ -26,7 +28,7 @@ class ClaudeAdapter(LLMBackend):
         return self._model
 
     def generate(self, prompt: str, system: str | None = None, **kwargs) -> str:
-        try:
+        def _create():
             kwargs_dict = {
                 "model": self._model,
                 "max_tokens": kwargs.get("max_tokens", self._max_tokens),
@@ -35,8 +37,12 @@ class ClaudeAdapter(LLMBackend):
             }
             if system:
                 kwargs_dict["system"] = system
+            return self._client.messages.create(**kwargs_dict)
 
-            response = self._client.messages.create(**kwargs_dict)
+        try:
+            response = self._call_with_retry(
+                _create, retry_times=kwargs.get("retry_times", self._retry_times)
+            )
             content = ""
             for block in response.content:
                 if hasattr(block, "text"):
