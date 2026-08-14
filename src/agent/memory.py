@@ -65,11 +65,14 @@ class Plan:
 class Memory:
     """Agent 记忆 —— 三层存储：会话消息 / 计划历史 / 持久化 facts"""
 
-    def __init__(self, max_messages: int = 30, facts_path: Path | None = None):
+    def __init__(self, max_messages: int = 30, facts_path: Path | None = None,
+                 session_id: str | None = None, message_store=None):
         self._max_messages = max_messages
         self.messages: list[dict[str, str]] = []
         self.plan_history: list[Plan] = []
         self.facts: dict[str, Any] = {}
+        self.session_id = session_id
+        self._message_store = message_store
         if facts_path is None:
             facts_path = Path.home() / ".stock_robot" / "agent_facts.json"
         self._facts_path = Path(facts_path)
@@ -79,6 +82,8 @@ class Memory:
         self.messages.append({"role": role, "content": content})
         if len(self.messages) > self._max_messages:
             self.messages = self.messages[-self._max_messages:]
+        if self._message_store is not None and self.session_id:
+            self._message_store.append_message(self.session_id, role, content)
 
     def add_plan(self, plan: Plan) -> None:
         self.plan_history.append(plan)
