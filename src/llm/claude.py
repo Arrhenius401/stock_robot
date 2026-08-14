@@ -18,7 +18,10 @@ class ClaudeAdapter(LLMBackend):
         self._temperature = temperature
         self._max_tokens = max_tokens
         self._retry_times = retry_times
-        client_kwargs: dict[str, Any] = {"api_key": api_key, "timeout": timeout}
+        # 禁用 SDK 内置重试（默认 2 次），重试策略由 _call_with_retry 统一控制，避免叠加放大请求数
+        client_kwargs: dict[str, Any] = {
+            "api_key": api_key, "timeout": timeout, "max_retries": 0,
+        }
         if base_url:
             client_kwargs["base_url"] = base_url
         self._client = Anthropic(**client_kwargs)

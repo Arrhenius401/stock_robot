@@ -43,10 +43,13 @@ class TestOpenAIAdapter:
         mock_openai = mocker.patch("llm.openai.OpenAI", return_value=MagicMock())
         OpenAIAdapter(api_key="sk-test", base_url="https://api.deepseek.com/v1")
         mock_openai.assert_called_once_with(
-            api_key="sk-test", base_url="https://api.deepseek.com/v1", timeout=60.0
+            api_key="sk-test", base_url="https://api.deepseek.com/v1", timeout=60.0,
+            max_retries=0,
         )
 
     def test_no_base_url_omits_arg(self, mocker):
         mock_openai = mocker.patch("llm.openai.OpenAI", return_value=MagicMock())
         OpenAIAdapter(api_key="sk-test")
-        mock_openai.assert_called_once_with(api_key="sk-test", timeout=60.0)
+        mock_openai.assert_called_once_with(
+            api_key="sk-test", timeout=60.0, max_retries=0,
+        )

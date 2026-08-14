@@ -21,6 +21,7 @@ class LLMBackend(ABC):
 
     def _call_with_retry(self, fn, retry_times: int = 2, base_delay: float = 1.0):
         """调用 fn，失败时指数退避重试；重试耗尽后抛出最后一次异常"""
+        retry_times = max(0, retry_times)  # 钳制负数，保证至少执行一次且断言不失效
         last_exc: Exception | None = None
         for attempt in range(retry_times + 1):
             try:

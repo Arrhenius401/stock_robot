@@ -1,12 +1,13 @@
 """LLM 重试机制测试"""
 from unittest.mock import MagicMock
 
+from llm.claude import ClaudeAdapter
 from llm.openai import OpenAIAdapter
 
 
 class TestRetry:
     def test_retries_then_succeeds(self, mocker):
-        mocker.patch("llm.base.time.sleep")
+        sleep_mock = mocker.patch("llm.base.time.sleep")
         mock_client = MagicMock()
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
@@ -23,6 +24,7 @@ class TestRetry:
 
         assert "分析完成" in result
         assert mock_client.chat.completions.create.call_count == 3
+        assert sleep_mock.call_args_list == [mocker.call(1.0), mocker.call(2.0)]
 
     def test_retry_exhausted_returns_error_text(self, mocker):
         mocker.patch("llm.base.time.sleep")
@@ -58,7 +60,6 @@ class TestRetry:
         mock_client.messages.create.side_effect = [Exception("临时故障"), mock_response]
         mocker.patch("llm.claude.Anthropic", return_value=mock_client)
 
-        from llm.claude import ClaudeAdapter
         adapter = ClaudeAdapter(api_key="sk-ant-test")
         result = adapter.generate("分析")
 

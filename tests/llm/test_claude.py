@@ -40,10 +40,13 @@ class TestClaudeAdapter:
         mock_anthropic = mocker.patch("llm.claude.Anthropic", return_value=MagicMock())
         ClaudeAdapter(api_key="sk-ant-test", base_url="https://api.deepseek.com/anthropic")
         mock_anthropic.assert_called_once_with(
-            api_key="sk-ant-test", base_url="https://api.deepseek.com/anthropic", timeout=60.0
+            api_key="sk-ant-test", base_url="https://api.deepseek.com/anthropic", timeout=60.0,
+            max_retries=0,
         )
 
     def test_no_base_url_omits_arg(self, mocker):
         mock_anthropic = mocker.patch("llm.claude.Anthropic", return_value=MagicMock())
         ClaudeAdapter(api_key="sk-ant-test")
-        mock_anthropic.assert_called_once_with(api_key="sk-ant-test", timeout=60.0)
+        mock_anthropic.assert_called_once_with(
+            api_key="sk-ant-test", timeout=60.0, max_retries=0,
+        )
