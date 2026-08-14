@@ -8,8 +8,8 @@ EMBEDDING_DIM = 384  # bge-small-zh 输出维度
 
 # 未安装时置为 None，由 create_embedding_provider 统一降级
 try:
-    from sentence_transformers import (
-        SentenceTransformer,  # type: ignore[import-not-found]
+    from sentence_transformers import (  # pyright: ignore[reportMissingImports]
+        SentenceTransformer,
     )
 except ImportError:
     SentenceTransformer = None

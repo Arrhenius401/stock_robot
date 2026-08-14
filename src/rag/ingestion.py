@@ -87,7 +87,7 @@ class IngestionPipeline:
 
         ids = []
         metadatas = []
-        for i, chunk in enumerate(chunks):
+        for i in range(len(chunks)):
             chunk_id = f"{source_hash}_{i}"
             ids.append(chunk_id)
             from rag.schemas import ChunkMetadata

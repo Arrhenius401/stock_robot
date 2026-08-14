@@ -1,5 +1,4 @@
 from datetime import date
-from typing import cast
 from unittest.mock import MagicMock
 
 from core.pipeline import Pipeline

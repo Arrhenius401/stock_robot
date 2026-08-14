@@ -8,6 +8,8 @@ from data.schemas import (
     SufficiencyLevel,
     ValuationData,
 )
+
+
 def make_ctx(**kwargs) -> AnalysisContext:
     """构造充足度标记为 SUFFICIENT 的上下文，让分析器按自身数据逻辑判定状态"""
     ctx = AnalysisContext(**kwargs)

@@ -1,6 +1,6 @@
-from analysis.base import AnalysisModule
 from typing import Any, cast
 
+from analysis.base import AnalysisModule
 from core.registry import Registry
 from data.base import DataSource
 from data.schemas import AnalysisResult
