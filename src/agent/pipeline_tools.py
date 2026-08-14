@@ -1,8 +1,9 @@
 """Pipeline 工具包装 — 将存量 Pipeline/IndexPipeline 包装为 ToolProtocol
 
 不修改存量代码，仅通过包装器暴露为 Agent 可调用的统一工具。
-所有 _get_pipeline() 方法使用懒加载避免循环导入。
+Pipeline 一律由外部注入（bootstrap 组装），工具自身不构建管道，避免事件循环阻塞与重复组装。
 """
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -118,15 +119,20 @@ class AnalyzeStockTool:
             return ToolResult(status="error", error="股票代码不能为空",
                              metadata={"source": "pipeline"})
 
+        if self._pipeline is None:
+            return ToolResult(status="error", error="Pipeline 未注入，无法执行分析",
+                             metadata={"source": "pipeline"})
+
         from data.schemas import AnalysisTarget
 
         try:
-            pipeline = self._pipeline or self._get_pipeline()
             target = AnalysisTarget(
                 target_type="stock", symbol=symbol,
                 name=symbol, market="a-shares",
             )
-            pipe_result = pipeline.run(targets=[target])
+            pipe_result = await asyncio.to_thread(
+                self._pipeline.run, targets=[target]
+            )
             errors = pipe_result.errors
             reports = pipe_result.reports
 
@@ -154,52 +160,6 @@ class AnalyzeStockTool:
             logger.error(f"analyze_stock 执行失败: {e}")
             return ToolResult(status="error", error=str(e),
                              metadata={"source": "pipeline", "symbol": symbol})
-
-    @staticmethod
-    def _get_pipeline() -> _TargetsRunner:
-        from analysis.financial import FinancialAnalyzer
-        from analysis.industry import IndustryAnalyzer
-        from analysis.sentiment import SentimentAnalyzer
-        from analysis.technical import TechnicalAnalyzer
-        from analysis.valuation import ValuationAnalyzer
-        from core.pipeline import Pipeline
-        from core.registry import Registry
-        from data.akshare import AkShareAdapter
-        from utils.config import Config
-
-        config = Config()
-        reg = Registry()
-        reg.register_data_source(AkShareAdapter())
-        reg.register_analysis_module(FinancialAnalyzer())
-        reg.register_analysis_module(TechnicalAnalyzer())
-        reg.register_analysis_module(ValuationAnalyzer())
-        reg.register_analysis_module(IndustryAnalyzer())
-        reg.register_analysis_module(SentimentAnalyzer())
-
-        provider = config.get("llm.provider", "openai")
-        api_key = config.get("llm.api_key", "")
-        base_url = config.get("llm.base_url", "") or None
-        llm_enabled = config.get("llm.enabled", True)
-
-        if llm_enabled and api_key:
-            if provider == "openai":
-                from llm.openai import OpenAIAdapter
-                reg.register_llm_backend(OpenAIAdapter(
-                    api_key=api_key, model=config.get("llm.model", "gpt-4o"),
-                    temperature=config.get("llm.temperature", 0.3),
-                    max_tokens=config.get("llm.max_tokens", 2000),
-                    base_url=base_url), provider="openai")
-            elif provider == "claude":
-                from llm.claude import ClaudeAdapter
-                reg.register_llm_backend(ClaudeAdapter(
-                    api_key=api_key, model=config.get("llm.model", "claude-sonnet-4-6"),
-                    temperature=config.get("llm.temperature", 0.3),
-                    max_tokens=config.get("llm.max_tokens", 2000),
-                    base_url=base_url), provider="claude")
-
-        pipeline = Pipeline(registry=reg, config=config,
-                           llm_enabled=llm_enabled and bool(api_key))
-        return _wrap_pipeline(pipeline)
 
 
 class AnalyzeIndexTool:
@@ -229,6 +189,10 @@ class AnalyzeIndexTool:
             return ToolResult(status="error", error="指数代码不能为空",
                              metadata={"source": "pipeline"})
 
+        if self._pipeline is None:
+            return ToolResult(status="error", error="IndexPipeline 未注入，无法执行分析",
+                             metadata={"source": "pipeline"})
+
         from data.index_mapping import IndexMapping
         from data.schemas import AnalysisTarget
 
@@ -241,8 +205,7 @@ class AnalyzeIndexTool:
                 market="a-shares",
                 index_style=entry.index_style if entry else "broad",
             )
-            pipeline = self._pipeline or self._get_pipeline()
-            result = pipeline.run(targets=[target])
+            result = await asyncio.to_thread(self._pipeline.run, targets=[target])
 
             if result.errors:
                 return ToolResult(status="error", error="; ".join(result.errors),
@@ -268,11 +231,6 @@ class AnalyzeIndexTool:
             logger.error(f"analyze_index 执行失败: {e}")
             return ToolResult(status="error", error=str(e),
                              metadata={"source": "pipeline", "symbol": symbol})
-
-    @staticmethod
-    def _get_pipeline() -> _TargetsRunner:
-        from index.pipeline import IndexPipeline
-        return IndexPipeline()
 
 
 class GetSnapshotTool:
@@ -302,9 +260,12 @@ class GetSnapshotTool:
             return ToolResult(status="error", error="指数代码不能为空",
                              metadata={"source": "pipeline"})
 
+        if self._pipeline is None:
+            return ToolResult(status="error", error="IndexPipeline 未注入，无法查询快照",
+                             metadata={"source": "pipeline"})
+
         try:
-            pipeline = self._pipeline or self._get_pipeline()
-            data = pipeline.get_snapshot(symbol)
+            data = await asyncio.to_thread(self._pipeline.get_snapshot, symbol)
             if data is None:
                 return ToolResult(
                     status="error",
@@ -317,11 +278,6 @@ class GetSnapshotTool:
             logger.error(f"get_snapshot 执行失败: {e}")
             return ToolResult(status="error", error=str(e),
                              metadata={"source": "pipeline", "symbol": symbol})
-
-    @staticmethod
-    def _get_pipeline() -> _SnapshotProvider:
-        from index.pipeline import IndexPipeline
-        return IndexPipeline()
 
 
 class ScreenStocksTool:

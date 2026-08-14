@@ -58,6 +58,13 @@ class TestAnalyzeStockTool:
         assert result.status == "error"
         assert "代码" in (result.error or "")
 
+    @pytest.mark.asyncio
+    async def test_execute_returns_error_when_pipeline_not_injected(self):
+        tool = AnalyzeStockTool()
+        result = await tool.execute(symbol="000001")
+        assert result.status == "error"
+        assert "未注入" in (result.error or "")
+
 
 class TestAnalyzeIndexTool:
     def test_has_correct_metadata(self):
