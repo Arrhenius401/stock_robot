@@ -33,6 +33,18 @@ chore(项目): 初始化项目脚手架
 - **Pylance**（basic 模式）：项目级配置在 `pyproject.toml` 的 `[tool.pyright]`；CLI 验证用 `pyright`（与 Pylance 同引擎）
 - **pytest**：必须用 `.venv/Scripts/python -m pytest` 运行（`python` 在 PATH 上可能指向 Anaconda 等环境，缺少 pytest-asyncio 会导致 async 测试误报失败）
 
+### 检查时机（重要）
+
+- 全量检查耗时约 4 分钟（ruff 数秒 + pyright ~1 分钟 + pytest ~3 分钟），**默认不要在每次任务中自动运行**
+- 日常编码依赖 IDE 的 Ruff/Pylance 实时诊断（红色/黄色波浪线），无需手动跑检查
+- 仅在以下情况运行全量检查：
+  1. 用户明确要求（如"检查一下"、"验证一下"、"提交前检查"）
+  2. 修改了 src/ 核心逻辑且用户要求确认无回归
+- 日常任务需快速验证时，优先单文件检查：
+  - `ruff check <文件>`（秒级）
+  - `pyright <文件>`（秒级）
+  - `.venv/Scripts/python -m pytest <测试文件> -q`（秒级）
+
 ### 异常处理
 
 - 禁止裸 `except Exception`，以下两类隔离边界除外，且必须记录日志并加 `# noqa: BLE001` 注明理由：
@@ -69,7 +81,7 @@ chore(项目): 初始化项目脚手架
 - 嵌套 if 能合并就合并（SIM102）；遍历只取值的字典用 `.values()`（PERF102）
 - 类级常量列表/字典用 ClassVar 标注
 
-### 提交前检查
+### 提交前检查（用户要求提交时执行）
 
 ```
 ruff check .                # 0 错误
