@@ -320,6 +320,8 @@ cat ~/.stock_robot/config.yaml                   # 完整配置
 | `llm.temperature` | 生成温度 (0-1) | `0.3` |
 | `llm.max_tokens` | 最大输出 token | `2000` |
 | `llm.enabled` | 是否启用 LLM | `true` |
+| `llm.retry_times` | LLM 调用重试次数 | `2` |
+| `llm.timeout_seconds` | LLM 调用超时（秒） | `60` |
 | `data.cache_ttl.daily` | 日频缓存（秒） | `86400` |
 | `data.cache_ttl.quarterly` | 季频缓存（秒） | `604800` |
 

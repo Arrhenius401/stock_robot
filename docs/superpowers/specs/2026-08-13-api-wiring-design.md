@@ -190,7 +190,7 @@ POST /api/v1/index {symbol, index_style?}
 
 ## 9. 验收标准
 
-1. `stock-robot api` 启动后，浏览器打开 Web UI 能与真实 Agent 对话（含 LLM 降级路径：无 key 时单步计划 + 确定性工具仍工作）
+1. `stock-robot api` 启动后，浏览器打开 Web UI 能与真实 Agent 对话（含 LLM 降级路径：无 key 或 LLM 失败时单步计划 + 确定性工具仍工作——含 6 位代码的查询可匹配工具并提取 symbol 参数；纯股票名称查询需 LLM 规划，属后续增强）
 2. `curl /api/v1/analyze {symbol: "600519"}` 返回完整报告 JSON
 3. `curl /api/v1/sessions` 列表/切换/清空可用，重启服务后历史消息恢复
 4. 全量 pytest 通过
