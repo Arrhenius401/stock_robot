@@ -1,7 +1,8 @@
 """评分计算与报告组装测试"""
-from types import SimpleNamespace
+from datetime import date
 from typing import Literal
 
+from data.schemas import AnalysisContext, PriceData
 from report.scoring import build_report, compute_price_info, compute_score_summary
 
 
@@ -14,6 +15,15 @@ def _result(dimension, score,
         score=score, score_detail=score_detail,
         risk_flags=risk_flags or [],
     )
+
+
+def _ctx(price_data=None):
+    return AnalysisContext(symbol="000001", name="测试股票", price_data=price_data)
+
+
+def _price(high, low, close):
+    return PriceData(symbol="000001", trade_date=date(2026, 1, 2),
+                     open=5.0, high=high, low=low, close=close, volume=1000)
 
 
 class TestComputeScoreSummary:
@@ -56,10 +66,7 @@ class TestComputeScoreSummary:
 
 class TestComputePriceInfo:
     def test_price_position(self):
-        ctx = SimpleNamespace(price_data=[
-            SimpleNamespace(high=10.0, low=2.0, close=4.0),
-            SimpleNamespace(high=12.0, low=3.0, close=6.0),
-        ])
+        ctx = _ctx(price_data=[_price(10.0, 2.0, 4.0), _price(12.0, 3.0, 6.0)])
         info = compute_price_info(ctx)
         assert info["year_high"] == 12.0
         assert info["year_low"] == 2.0
@@ -67,7 +74,7 @@ class TestComputePriceInfo:
         assert info["price_position"] == "40%"
 
     def test_no_price_data(self):
-        ctx = SimpleNamespace(price_data=[])
+        ctx = _ctx()
         info = compute_price_info(ctx)
         assert info["year_high"] is None
         assert info["price_position"] == "暂无"
@@ -80,7 +87,7 @@ class TestBuildReport:
         mock_builder.build.return_value = "RENDERED_REPORT"
 
         results = [_result("financial", 8.0)]
-        ctx = SimpleNamespace(price_data=[], industry_data=None)
+        ctx = _ctx()
         report = build_report("000001", "平安银行", results, {"bulk": "解读"},
                               ctx, no_llm=False)
 
