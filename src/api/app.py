@@ -67,12 +67,8 @@ def create_app(core=None, sessions=None):
             return JSONResponse({"response": f"[API 模式] 收到消息: {message}（Agent 核心未注入）",
                                  "session_id": session_id or ""})
 
-        manager = sessions
-        if manager is None:
-            raise HTTPException(status_code=503, detail="会话管理未初始化")
-
         try:
-            sid, memory = manager.get_or_create(session_id, message)
+            sid, memory = sessions.get_or_create(session_id, message)
             memory.add_message("user", message)
             planner, executor = _build_agent(memory)
             plan = await asyncio.to_thread(planner.plan, message)
