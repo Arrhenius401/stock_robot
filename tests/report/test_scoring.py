@@ -1,10 +1,13 @@
 """评分计算与报告组装测试"""
 from types import SimpleNamespace
+from typing import Literal
 
 from report.scoring import build_report, compute_price_info, compute_score_summary
 
 
-def _result(dimension, score, status="ok", risk_flags=None, score_detail=""):
+def _result(dimension, score,
+            status: Literal["ok", "partial", "unavailable"] = "ok",
+            risk_flags=None, score_detail=""):
     from data.schemas import AnalysisResult
     return AnalysisResult(
         dimension=dimension, status=status, summary=f"{dimension} 摘要",
