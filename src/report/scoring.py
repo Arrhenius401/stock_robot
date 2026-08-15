@@ -1,6 +1,8 @@
 """评分计算与报告组装 — CLI 与 API 共用"""
 from dataclasses import dataclass, field
 
+from data.schemas import AnalysisContext, AnalysisResult
+
 DIM_WEIGHTS = {"financial": 0.30, "technical": 0.20,
                "valuation": 0.25, "industry": 0.25}
 DIM_LABELS = {"financial": "财务健康", "technical": "技术趋势",
@@ -21,7 +23,7 @@ class ScoreSummary:
     risk_flags: list[str] = field(default_factory=list)
 
 
-def compute_score_summary(results) -> ScoreSummary:
+def compute_score_summary(results: list[AnalysisResult]) -> ScoreSummary:
     """维度加权得分 + 风险扣分"""
     results_map = {r.dimension: r for r in results}
     score_rows = []
@@ -60,7 +62,7 @@ def compute_score_summary(results) -> ScoreSummary:
                         risk_flags=all_risk_flags)
 
 
-def compute_price_info(ctx) -> dict:
+def compute_price_info(ctx: AnalysisContext) -> dict:
     """从价格序列计算年内高低点与当前位置"""
     price_data = ctx.price_data or []
     year_high = max(p.high for p in price_data) if price_data else None
@@ -75,7 +77,8 @@ def compute_price_info(ctx) -> dict:
             "latest_price": latest_price, "price_position": price_position}
 
 
-def build_report(symbol, name, results, commentary, ctx,
+def build_report(symbol: str, name: str, results: list[AnalysisResult],
+                 commentary: dict[str, str], ctx: AnalysisContext,
                  no_llm: bool = False, market_env: dict | None = None) -> str:
     """组装完整报告文本（ReportBuilder 渲染）"""
     from report.builder import ReportBuilder
