@@ -1,5 +1,6 @@
 """Executor — 逐步执行引擎，负责工具匹配、执行编排、失败隔离"""
 import logging
+import re
 from collections.abc import Callable
 
 from agent.memory import Memory, Plan, TaskStatus, TaskStep
@@ -8,6 +9,17 @@ from agent.tools import ToolRegistry, ToolResult
 logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[str, int, int, str], None] | None
+
+_SYMBOL_PATTERN = re.compile(r"\d{6}")
+
+
+def _extract_tool_args(tool_name: str, description: str) -> dict:
+    """从步骤描述提取工具参数；仅处理带 symbol 参数的确定性工具"""
+    if tool_name in ("analyze_stock", "analyze_index", "get_snapshot"):
+        m = _SYMBOL_PATTERN.search(description)
+        if m:
+            return {"symbol": m.group(0)}
+    return {}
 
 
 class Executor:
@@ -69,6 +81,8 @@ class Executor:
             return
 
         step.tool_name = tool.name
+        if not step.tool_args:
+            step.tool_args = _extract_tool_args(tool.name, step.description)
         result = await self._safe_execute(tool, step.tool_args or {})
 
         if result.status == "error":

@@ -1,15 +1,22 @@
 """Executor 单元测试"""
 import pytest
 
-from agent.executor import Executor
+from agent.executor import Executor, _extract_tool_args
 from agent.memory import Memory, Plan, TaskStatus, TaskStep
 from agent.tools import ToolRegistry, ToolResult
 
 
+def test_extract_tool_args_symbol():
+    """_extract_tool_args 仅从确定性工具的步骤描述提取 6 位代码"""
+    assert _extract_tool_args("analyze_stock", "分析 000001 的财务数据") == {"symbol": "000001"}
+    assert _extract_tool_args("analyze_stock", "没有代码的描述") == {}
+    assert _extract_tool_args("screen_stocks", "筛选新能源股票") == {}
+
+
 class FakeTool:
-    def __init__(self, name, return_data=None, should_fail=False):
+    def __init__(self, name, description=None, return_data=None, should_fail=False):
         self.name = name
-        self.description = f"Tool: {name}"
+        self.description = description or f"Tool: {name}"
         self.parameters = {"type": "object", "properties": {}}
         self.tags = ["test"]
         self.source = "pipeline"
@@ -146,3 +153,20 @@ class TestExecutor:
 
         assert updated.steps[0].tool_name == "tool_a"
         assert updated.steps[0].status == TaskStatus.DONE
+
+    @pytest.mark.asyncio
+    async def test_extracts_symbol_from_description(self, registry, memory):
+        """工具名匹配成功但无参数时，从步骤描述提取 6 位股票代码"""
+        analyze_tool = FakeTool("analyze_stock",
+                                description="对股票进行分析，输出估值报告",
+                                return_data="分析完成")
+        registry.register(analyze_tool)
+        s1 = TaskStep(id="s1", description="分析 000001 的估值", tool_name=None)
+        plan = self.make_plan(steps=[s1])
+        executor = Executor(registry=registry, memory=memory)
+
+        updated = await executor.execute(plan)
+
+        assert updated.steps[0].tool_name == "analyze_stock"
+        assert updated.steps[0].status == TaskStatus.DONE
+        assert analyze_tool.execute_calls == [{"symbol": "000001"}]
