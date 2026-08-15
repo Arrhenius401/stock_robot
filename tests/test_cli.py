@@ -62,3 +62,15 @@ class TestCLI:
         runner = CliRunner()
         result = runner.invoke(main, ["analyze", "000001", "--no-llm"])
         assert result.exit_code == 0
+
+
+def test_api_command_help():
+    """api 命令存在且可显示帮助"""
+    from click.testing import CliRunner
+
+    from stock_robot.cli import main
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["api", "--help"])
+    assert result.exit_code == 0
+    assert "启动 Web API 服务" in result.output

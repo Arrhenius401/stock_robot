@@ -439,51 +439,41 @@ def cache_status():
 
 
 @main.command()
+@click.option("--host", default="127.0.0.1", help="监听地址")
+@click.option("--port", default=8000, type=int, help="监听端口")
+def api(host, port):
+    """启动 Web API 服务（含 Web UI）"""
+    from api.app import create_app
+    from api.bootstrap import build_agent_core
+    from utils.config import Config
+
+    config = Config()
+    core = build_agent_core(config)
+    app = create_app(core=core)
+    logger.info("Stock Robot API 启动于 http://%s:%d", host, port)
+    import uvicorn
+    uvicorn.run(app, host=host, port=port)
+
+
+@main.command()
 @click.option("--ask", "-a", default=None, help="单次对话（非交互式）")
 @click.option("--verbose", "-v", is_flag=True, help="显示计划和工具调用细节")
 def chat(ask, verbose):
     """进入 AI Agent 对话模式，支持复杂投研任务的自主拆解和分析"""
     from agent.executor import Executor
     from agent.memory import Memory
-    from agent.pipeline_tools import (
-        AnalyzeIndexTool,
-        AnalyzeStockTool,
-        GetSnapshotTool,
-        ScreenStocksTool,
-    )
     from agent.planner import Planner
-    from agent.tools import ToolRegistry
+    from api.bootstrap import build_agent_core
     from output.renderer import RichRenderer
     from utils.config import Config
 
     config = Config()
     renderer = RichRenderer(console=console)
-
-    # 构建工具注册表
-    registry = ToolRegistry()
-    registry.register(AnalyzeStockTool())
-    registry.register(AnalyzeIndexTool())
-    registry.register(GetSnapshotTool())
-    registry.register(ScreenStocksTool())
-
-    # 注册 RAG 工具（若 ChromaDB 可用，否则静默跳过）
-    try:
-        from agent.rag_tools import RAGListSourcesTool, RAGSearchTool
-        from rag.engine import RAGEngine
-
-        rag_engine = RAGEngine()
-        registry.register(RAGSearchTool(engine=rag_engine))
-        registry.register(RAGListSourcesTool(engine=rag_engine))
-        logger.info("RAG 工具已注册 (embedding=%s)", rag_engine.embedding_name)
-    except Exception as e:  # noqa: BLE001 — RAG 不可用时降级为无 RAG 工具
-        logger.warning("RAG 工具不可用，跳过注册: %s", e)
-
-    # 构建 LLM 后端
-    llm = _get_llm_for_agent(config)
+    core = build_agent_core(config)
 
     memory = Memory()
-    planner = Planner(llm=llm, registry=registry, memory=memory)
-    executor = Executor(registry=registry, memory=memory)
+    planner = Planner(llm=core.llm, registry=core.registry, memory=memory)
+    executor = Executor(registry=core.registry, memory=memory)
 
     if ask:
         _run_agent_query(ask, planner, executor, memory, renderer)
@@ -576,37 +566,6 @@ def _handle_slash_command(text, memory, renderer):
         return True
 
     return False
-
-
-def _get_llm_for_agent(config):
-    """为 Agent 创建 LLM 后端实例"""
-    provider = config.get("llm.provider", "openai")
-    api_key = config.get("llm.api_key", "")
-    base_url = config.get("llm.base_url", "") or None
-
-    try:
-        if provider == "openai":
-            from llm.openai import OpenAIAdapter
-            return OpenAIAdapter(
-                api_key=api_key,
-                model=config.get("llm.model", "gpt-4o"),
-                temperature=config.get("llm.temperature", 0.3),
-                max_tokens=config.get("llm.max_tokens", 2000),
-                base_url=base_url,
-            )
-        elif provider == "claude":
-            from llm.claude import ClaudeAdapter
-            return ClaudeAdapter(
-                api_key=api_key,
-                model=config.get("llm.model", "claude-sonnet-4-6"),
-                temperature=config.get("llm.temperature", 0.3),
-                max_tokens=config.get("llm.max_tokens", 2000),
-                base_url=base_url,
-            )
-    except Exception as e:  # noqa: BLE001 — LLM 初始化失败降级为无 LLM 模式
-        logger.warning(f"LLM 后端初始化失败: {e}")
-
-    return None
 
 
 # ---------------------------------------------------------------------------
