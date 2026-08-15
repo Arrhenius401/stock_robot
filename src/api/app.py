@@ -34,9 +34,9 @@ def create_app(core=None, sessions=None):
 
     def _build_agent(session_memory):
         """按会话现建轻量 Planner/Executor（两者无状态，构造廉价）"""
+        # 调用方（chat/run_agent）已校验 core 注入，复制到局部变量并断言收窄类型
         agent_core = core
-        if agent_core is None:
-            raise HTTPException(status_code=503, detail="Agent 核心未注入")
+        assert agent_core is not None
         planner = Planner(llm=agent_core.llm, registry=agent_core.registry,
                           memory=session_memory)
         executor = Executor(registry=agent_core.registry, memory=session_memory)
@@ -113,9 +113,9 @@ def create_app(core=None, sessions=None):
 
             async def run_agent():
                 try:
+                    # 事件流入口已校验 sessions 注入，复制到局部变量并断言收窄类型
                     manager = sessions
-                    if manager is None:
-                        raise HTTPException(status_code=503, detail="会话管理未初始化")
+                    assert manager is not None
                     sid, memory = manager.get_or_create(session_id, message)
                     memory.add_message("user", message)
                     planner, executor = _build_agent(memory)
@@ -134,12 +134,17 @@ def create_app(core=None, sessions=None):
                 await queue.put({"type": "done"})
 
             task = asyncio.create_task(run_agent())
-            while True:
-                event = await queue.get()
-                yield f"data: {json.dumps(event, ensure_ascii=False, default=str)}\n\n"
-                if event["type"] == "done":
-                    break
-            await task
+            try:
+                while True:
+                    event = await queue.get()
+                    yield f"data: {json.dumps(event, ensure_ascii=False, default=str)}\n\n"
+                    if event["type"] == "done":
+                        break
+                await task
+            finally:
+                # 客户端断连时取消后台任务，避免 run_agent 泄漏继续执行
+                if not task.done():
+                    task.cancel()
 
         return StreamingResponse(event_stream(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "Connection": "keep-alive"})

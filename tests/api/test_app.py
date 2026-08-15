@@ -4,7 +4,7 @@ import json
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from agent.tools import ToolRegistry, ToolResult
+from agent.tools import ToolProtocol, ToolRegistry, ToolResult
 from api.app import create_app
 from api.bootstrap import AgentCore
 from api.sessions import SessionManager, SessionStore
@@ -68,6 +68,28 @@ def make_core():
                      llm=cast(Any, FakeLLM()))
 
 
+class BrokenRegistry(ToolRegistry):
+    """工具匹配即崩溃的注册表，模拟 Agent 执行链路故障
+
+    注：不能通过"LLM 抛异常"触发 500 —— Planner 会吞掉 LLM 异常降级为单步计划，
+    工具 execute 异常也被 Executor._safe_execute 隔离；唯一能传播到 API 兜底边界的
+    Agent 级故障点是 registry.match（在 _safe_execute 之外调用）。
+    """
+
+    def match(self, description: str,
+              tags: list[str] | None = None) -> list[ToolProtocol]:
+        raise RuntimeError("工具匹配崩溃")
+
+
+def make_broken_core():
+    """Agent 执行链路故障的核心，用于验证 500 兜底与 SSE 错误事件"""
+    from typing import Any, cast
+    return AgentCore(registry=BrokenRegistry(),
+                     pipeline=cast(Any, FakePipeline()),
+                     index_pipeline=cast(Any, FakeIndexPipeline()),
+                     llm=cast(Any, FakeLLM()))
+
+
 @pytest.fixture
 def app(tmp_path):
     store = SessionStore(tmp_path / "sessions.db")
@@ -124,6 +146,18 @@ class TestChatEndpoint:
         assert r2.status_code == 200
         assert r2.json()["session_id"] == sid
 
+    @pytest.mark.asyncio
+    async def test_chat_returns_500_on_agent_failure(self, tmp_path):
+        store = SessionStore(tmp_path / "sessions_err.db")
+        sessions = SessionManager(store, facts_path=tmp_path / "facts_err.json")
+        app_err = create_app(core=make_broken_core(), sessions=sessions)
+        transport = ASGITransport(app=app_err)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            resp = await c.post("/api/v1/chat",
+                                json={"message": "分析平安银行的财务数据"})
+        assert resp.status_code == 500
+        assert "处理请求时出错" in resp.json()["response"]
+
 
 class TestStreamEndpoint:
     @pytest.mark.asyncio
@@ -142,6 +176,23 @@ class TestStreamEndpoint:
                 body += line
         assert '"type": "start"' in body
         assert '"type": "plan"' in body
+        assert '"type": "done"' in body
+
+    @pytest.mark.asyncio
+    async def test_stream_emits_error_event_on_failure(self, tmp_path):
+        store = SessionStore(tmp_path / "sessions_err2.db")
+        sessions = SessionManager(store, facts_path=tmp_path / "facts_err2.json")
+        app_err = create_app(core=make_broken_core(), sessions=sessions)
+        transport = ASGITransport(app=app_err)
+        async with (
+            AsyncClient(transport=transport, base_url="http://test") as c,
+            c.stream("POST", "/api/v1/chat/stream",
+                     json={"message": "分析平安银行的财务数据"}) as resp,
+        ):
+            body = ""
+            async for line in resp.aiter_lines():
+                body += line
+        assert '"type": "error"' in body
         assert '"type": "done"' in body
 
 
@@ -167,6 +218,28 @@ class TestAnalyzeEndpoint:
     async def test_analyze_empty_symbol_returns_422(self, client):
         resp = await client.post("/api/v1/analyze", json={"symbol": ""})
         assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_analyze_returns_500_on_pipeline_failure(self, tmp_path, mocker):
+        mocker.patch("utils.symbols.resolve_name", return_value="平安银行")
+
+        class FailingPipeline:
+            def run(self, symbol, name, market="a-shares"):
+                raise RuntimeError("数据源崩溃")
+
+        from typing import Any, cast
+        core = AgentCore(registry=make_core().registry,
+                         pipeline=cast(Any, FailingPipeline()),
+                         index_pipeline=cast(Any, FakeIndexPipeline()),
+                         llm=cast(Any, FakeLLM()))
+        store = SessionStore(tmp_path / "sessions_err3.db")
+        sessions = SessionManager(store, facts_path=tmp_path / "facts_err3.json")
+        app_err = create_app(core=core, sessions=sessions)
+        transport = ASGITransport(app=app_err)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            resp = await c.post("/api/v1/analyze", json={"symbol": "000001"})
+        assert resp.status_code == 500
+        assert "数据源崩溃" in resp.json()["error"]
 
 
 class TestIndexEndpoint:
