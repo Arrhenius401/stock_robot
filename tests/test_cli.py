@@ -74,3 +74,15 @@ def test_api_command_help():
     result = runner.invoke(main, ["api", "--help"])
     assert result.exit_code == 0
     assert "启动 Web API 服务" in result.output
+
+
+def test_register_llm_keyless_config_registers_nothing(tmp_path):
+    """无 api_key 的默认配置下 _register_llm 不应崩溃、不应注册后端"""
+    from core.registry import Registry
+    from stock_robot.cli import _register_llm
+    from utils.config import Config
+
+    config = Config(config_dir=tmp_path)
+    reg = Registry()
+    _register_llm(reg, config)  # 不应抛异常
+    assert reg.get_llm_backend(config.get("llm.provider", "openai")) is None

@@ -254,7 +254,7 @@ stock-robot api --host 127.0.0.1 --port 8000
 > 无 Agent 模式（仅调试静态页）：`PYTHONPATH=src python -m uvicorn api.app:app`，
 > 该模式下 chat 返回"Agent 核心未注入"提示，analyze/index 返回 503。
 
-**鉴权模式：** 默认仅监听 `127.0.0.1`，无需鉴权。可通过环境变量 `STOCK_ROBOT_API_KEY` 启用 API Key 校验。
+**鉴权模式：** 默认仅监听 `127.0.0.1`，无需鉴权。
 
 ---
 

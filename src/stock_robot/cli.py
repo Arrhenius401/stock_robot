@@ -37,30 +37,12 @@ def _get_registry():
 
 
 def _register_llm(reg, config):
-    """注册 LLM 后端"""
-    from llm.claude import ClaudeAdapter
-    from llm.openai import OpenAIAdapter
+    """注册 LLM 后端（复用 bootstrap 构建逻辑，含重试/超时参数）"""
+    from api.bootstrap import build_llm
 
-    provider = config.get("llm.provider", "openai")
-    api_key = config.get("llm.api_key", "")
-    base_url = config.get("llm.base_url", "") or None
-
-    if provider == "openai":
-        reg.register_llm_backend(
-            OpenAIAdapter(api_key=api_key, model=config.get("llm.model", "gpt-4o"),
-                          temperature=config.get("llm.temperature", 0.3),
-                          max_tokens=config.get("llm.max_tokens", 2000),
-                          base_url=base_url),
-            provider="openai",
-        )
-    elif provider == "claude":
-        reg.register_llm_backend(
-            ClaudeAdapter(api_key=api_key, model=config.get("llm.model", "claude-sonnet-4-6"),
-                          temperature=config.get("llm.temperature", 0.3),
-                          max_tokens=config.get("llm.max_tokens", 2000),
-                          base_url=base_url),
-            provider="claude",
-        )
+    llm = build_llm(config)
+    if llm is not None:
+        reg.register_llm_backend(llm, provider=config.get("llm.provider", "openai"))
 
 
 def _build_pipeline(llm_enabled=True):
