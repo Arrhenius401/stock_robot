@@ -1,6 +1,7 @@
 """Agent 核心组装 — CLI chat 与 API 共用的依赖装配"""
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from agent.pipeline_tools import (
     AnalyzeIndexTool,
@@ -12,6 +13,10 @@ from agent.pipeline_tools import (
 from agent.tools import ToolRegistry
 from llm.base import LLMBackend
 
+if TYPE_CHECKING:
+    from core.pipeline import Pipeline
+    from index.pipeline import IndexPipeline
+
 logger = logging.getLogger(__name__)
 
 
@@ -19,8 +24,8 @@ logger = logging.getLogger(__name__)
 class AgentCore:
     """Agent 运行所需的核心依赖集合"""
     registry: ToolRegistry
-    pipeline: object      # 真实 Pipeline（run(symbol, name, market) 接口）
-    index_pipeline: object
+    pipeline: "Pipeline"          # 真实 Pipeline（run(symbol, name, market) 接口）
+    index_pipeline: "IndexPipeline"
     llm: LLMBackend | None = None
 
 
@@ -57,6 +62,8 @@ def build_llm(config) -> LLMBackend | None:
                 timeout=timeout,
                 retry_times=retry_times,
             )
+        else:
+            logger.warning("未知 LLM provider: %s，LLM 不可用", provider)
     except Exception as e:  # noqa: BLE001 — LLM SDK 初始化失败降级为无 LLM
         logger.warning(f"LLM 后端初始化失败: {e}")
     return None

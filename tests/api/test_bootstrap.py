@@ -1,7 +1,7 @@
 """bootstrap 组装测试"""
 import pytest
 
-from api.bootstrap import build_agent_core
+from api.bootstrap import build_agent_core, build_llm
 from utils.config import Config
 
 
@@ -18,6 +18,10 @@ class TestBuildAgentCore:
         assert tool is not None
         # 私有属性经 getattr 读取（pyright 对 ToolProtocol 无 _pipeline 声明）
         assert getattr(tool, "_pipeline", None) is not None
+        index_tool = core.registry.get("analyze_index")
+        snapshot_tool = core.registry.get("get_snapshot")
+        assert index_tool is not None and getattr(index_tool, "_pipeline", None) is core.index_pipeline
+        assert snapshot_tool is not None and getattr(snapshot_tool, "_pipeline", None) is core.index_pipeline
 
     def test_rag_unavailable_skipped(self, config, mocker):
         mocker.patch("rag.engine.RAGEngine", side_effect=RuntimeError("无 ChromaDB"))
@@ -40,3 +44,33 @@ class TestBuildAgentCore:
         mocker.patch("rag.engine.RAGEngine", side_effect=RuntimeError("无 ChromaDB"))
         core = build_agent_core(config)
         assert core.llm is None
+
+
+class TestBuildLLM:
+    def test_openai_branch_plumbs_timeout_and_retry(self, config, mocker):
+        mock_cls = mocker.patch("llm.openai.OpenAIAdapter")
+        config.set("llm.api_key", "sk-test")
+        config.set("llm.retry_times", 5)
+        config.set("llm.timeout_seconds", 30)
+        llm = build_llm(config)
+        assert llm is mock_cls.return_value
+        kwargs = mock_cls.call_args.kwargs
+        assert kwargs["retry_times"] == 5
+        assert kwargs["timeout"] == 30
+
+    def test_claude_branch_plumbs_timeout_and_retry(self, config, mocker):
+        mock_cls = mocker.patch("llm.claude.ClaudeAdapter")
+        config.set("llm.api_key", "sk-ant-test")
+        config.set("llm.provider", "claude")
+        config.set("llm.retry_times", 3)
+        config.set("llm.timeout_seconds", 45)
+        llm = build_llm(config)
+        assert llm is mock_cls.return_value
+        kwargs = mock_cls.call_args.kwargs
+        assert kwargs["retry_times"] == 3
+        assert kwargs["timeout"] == 45
+
+    def test_init_failure_returns_none(self, config, mocker):
+        mocker.patch("llm.openai.OpenAIAdapter", side_effect=Exception("初始化失败"))
+        config.set("llm.api_key", "sk-test")
+        assert build_llm(config) is None
