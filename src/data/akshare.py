@@ -285,6 +285,7 @@ class AkShareAdapter(DataSource):
 
         def _parse(df, source_label: str) -> list[PriceData]:
             results = []
+            prev_close: float | None = None
             for _, row in df.iterrows():
                 try:
                     date_val = row.get("date", row.get("日期"))
@@ -293,15 +294,26 @@ class AkShareAdapter(DataSource):
                     low_val = row.get("low", row.get("最低"))
                     close_val = row.get("close", row.get("收盘"))
                     vol_val = row.get("volume", row.get("成交量"))
+                    close_f = float(close_val)
+                    # 涨跌幅：优先取源数据列（东方财富），缺失则按前收盘计算（腾讯源）
+                    pct_raw = row.get("涨跌幅", row.get("pct_chg"))
+                    if pct_raw is not None and str(pct_raw) not in ("", "nan"):
+                        change_pct = round(float(pct_raw), 2)
+                    elif prev_close:
+                        change_pct = round((close_f - prev_close) / prev_close * 100, 2)
+                    else:
+                        change_pct = None
                     results.append(PriceData(
                         symbol=symbol,
                         trade_date=datetime.strptime(str(date_val)[:10], "%Y-%m-%d").astimezone().date(),
                         open=float(open_val),
                         high=float(high_val),
                         low=float(low_val),
-                        close=float(close_val),
+                        close=close_f,
                         volume=int(float(vol_val)),
+                        change_pct=change_pct,
                     ))
+                    prev_close = close_f
                 except (ValueError, KeyError) as e:
                     logger.warning(f"跳过异常行情数据行: {e}")
             return results
