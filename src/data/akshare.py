@@ -295,14 +295,17 @@ class AkShareAdapter(DataSource):
                     close_val = row.get("close", row.get("收盘"))
                     vol_val = row.get("volume", row.get("成交量"))
                     close_f = float(close_val)
-                    # 涨跌幅：优先取源数据列（东方财富），缺失则按前收盘计算（腾讯源）
+                    # 涨跌幅：优先取源数据列（东方财富），缺失/坏值则按前收盘计算（腾讯源）。
+                    # 解析隔离在独立 try 中，坏 pct 值不连累整行 OHLCV 数据。
                     pct_raw = row.get("涨跌幅", row.get("pct_chg"))
+                    change_pct = None
                     if pct_raw is not None and str(pct_raw) not in ("", "nan"):
-                        change_pct = round(float(pct_raw), 2)
-                    elif prev_close:
+                        try:
+                            change_pct = round(float(pct_raw), 2)
+                        except (ValueError, TypeError) as e:
+                            logger.debug(f"涨跌幅解析失败，回退按前收盘计算: {e}")
+                    if change_pct is None and prev_close:
                         change_pct = round((close_f - prev_close) / prev_close * 100, 2)
-                    else:
-                        change_pct = None
                     results.append(PriceData(
                         symbol=symbol,
                         trade_date=datetime.strptime(str(date_val)[:10], "%Y-%m-%d").astimezone().date(),
@@ -313,6 +316,8 @@ class AkShareAdapter(DataSource):
                         volume=int(float(vol_val)),
                         change_pct=change_pct,
                     ))
+                    # 异常行不更新 prev_close（真实数据中异常行罕见；若连续异常，
+                    # 下一正常行将相对最后正常收盘计算，属可接受的近似）
                     prev_close = close_f
                 except (ValueError, KeyError) as e:
                     logger.warning(f"跳过异常行情数据行: {e}")

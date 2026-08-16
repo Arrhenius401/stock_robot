@@ -131,6 +131,26 @@ def test_fetch_price_uses_change_pct_column(mocker):
     assert results[1].change_pct == pytest.approx(5.0)
 
 
+def test_fetch_price_nan_change_falls_back_to_compute(mocker):
+    """涨跌幅列为 NaN 时回退按前收盘计算，不丢弃整行"""
+
+    def _mock_hist(symbol, period, start_date, end_date, adjust):
+        return pd.DataFrame([
+            {"日期": "2026-07-01", "开盘": "10.0", "最高": "11.0", "最低": "9.5",
+             "收盘": "10.0", "成交量": 1000, "涨跌幅": "1.20"},
+            {"日期": "2026-07-02", "开盘": "10.1", "最高": "10.8", "最低": "9.9",
+             "收盘": "10.5", "成交量": 1200, "涨跌幅": float("nan")},
+        ])
+
+    mocker.patch("akshare.stock_zh_a_hist", side_effect=_mock_hist)
+    mocker.patch("utils.retry.time.sleep")
+    adapter = AkShareAdapter()
+    results = adapter.fetch("000001", data_type="price", days=365)
+    assert len(results) == 2  # NaN 不丢行
+    assert results[0].change_pct == pytest.approx(1.2)
+    assert results[1].change_pct == pytest.approx(5.0)  # (10.5-10.0)/10.0*100
+
+
 def test_fetch_price_computes_change_pct_without_column(mocker):
     """腾讯源：无涨跌幅列时按前收盘价计算；首行为 None"""
 
