@@ -347,6 +347,8 @@ class TestAnalyzeEndpoint:
         assert data["dimensions"]["financial"]["score"] == 8.0
         assert data["score"]["base"] == 8.0
         assert data["commentary"] == "AI 解读"
+        assert "change_pct" in data["overview"]
+        assert data["overview"]["change_pct"] is None  # FakePipeline 无价格数据
 
     @pytest.mark.asyncio
     async def test_analyze_invalid_symbol_returns_422(self, client):

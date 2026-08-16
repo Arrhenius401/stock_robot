@@ -138,6 +138,7 @@ class PriceData(BaseModel):
     low: float = Field(ge=0)
     close: float = Field(ge=0)
     volume: int = Field(ge=0)
+    change_pct: float | None = None  # 涨跌幅 %
 
 
 class ValuationData(BaseModel):

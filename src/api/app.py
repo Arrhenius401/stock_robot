@@ -218,6 +218,7 @@ def create_app(core=None, sessions=None):
                     "year_high": price_info["year_high"],
                     "year_low": price_info["year_low"],
                     "price_position": price_info["price_position"],
+                    "change_pct": price_info["change_pct"],
                     "industry": ctx.industry_data.industry if ctx.industry_data else "未知",
                 },
                 "score": {"base": summary.base_score, "final": summary.final_score,

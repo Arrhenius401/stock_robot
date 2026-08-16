@@ -73,11 +73,21 @@ class TestComputePriceInfo:
         assert info["latest_price"] == 6.0
         assert info["price_position"] == "40%"
 
+    def test_change_pct_from_latest_price(self):
+        from data.schemas import PriceData
+        prices = [_price(10.0, 2.0, 4.0),
+                  PriceData(symbol="000001", trade_date=date(2026, 1, 3),
+                            open=6.0, high=7.0, low=5.0, close=6.0,
+                            volume=1000, change_pct=1.15)]
+        info = compute_price_info(_ctx(price_data=prices))
+        assert info["change_pct"] == 1.15
+
     def test_no_price_data(self):
         ctx = _ctx()
         info = compute_price_info(ctx)
         assert info["year_high"] is None
         assert info["price_position"] == "暂无"
+        assert info["change_pct"] is None
 
 
 class TestBuildReport:

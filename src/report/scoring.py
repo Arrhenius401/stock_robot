@@ -68,13 +68,15 @@ def compute_price_info(ctx: AnalysisContext) -> dict:
     year_high = max(p.high for p in price_data) if price_data else None
     year_low = min(p.low for p in price_data) if price_data else None
     latest_price = price_data[-1].close if price_data else None
+    change_pct = price_data[-1].change_pct if price_data else None
     if year_high and year_low and latest_price and (year_high - year_low) > 0:
         pct = (latest_price - year_low) / (year_high - year_low) * 100
         price_position = f"{pct:.0f}%"
     else:
         price_position = "暂无"
     return {"year_high": year_high, "year_low": year_low,
-            "latest_price": latest_price, "price_position": price_position}
+            "latest_price": latest_price, "price_position": price_position,
+            "change_pct": change_pct}
 
 
 def build_report(symbol: str, name: str, results: list[AnalysisResult],
