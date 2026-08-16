@@ -428,6 +428,15 @@ class TestSessionsEndpoints:
         resp = await client.get("/api/v1/sessions/nope/messages")
         assert resp.status_code == 404
 
+    @pytest.mark.asyncio
+    async def test_get_messages_after_clear_returns_empty(self, client):
+        r = await client.post("/api/v1/chat", json={"message": "echo 测试"})
+        sid = r.json()["session_id"]
+        await client.post(f"/api/v1/sessions/{sid}/clear")
+        resp = await client.get(f"/api/v1/sessions/{sid}/messages")
+        assert resp.status_code == 200
+        assert resp.json()["messages"] == []
+
 
 class TestNoCoreMode:
     @pytest.fixture
