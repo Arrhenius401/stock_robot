@@ -688,18 +688,38 @@ class AkShareAdapter(DataSource):
                 return []
 
             results = []
+            prev_close: float | None = None
             for _, row in df.iterrows():
-                results.append(IndexPriceData(
-                    symbol=symbol,
-                    trade_date=_parse_date(row["date"]),
-                    open=float(row["open"]),
-                    high=float(row["high"]),
-                    low=float(row["low"]),
-                    close=float(row["close"]),
-                    volume=int(row.get("volume", 0)),
-                    turnover=float(row.get("amount", 0)) / 1e8 if row.get("amount") else None,
-                    change_pct=float(row.get("pct_chg", 0)) if row.get("pct_chg") else None,
-                ))
+                try:
+                    close_f = float(row["close"])
+                    # 涨跌幅：优先取源数据列（部分源/旧版 akshare 提供），缺失/坏值按前收盘计算。
+                    # 注：安装版 akshare 的 stock_zh_index_daily_em 在返回前丢弃承载涨跌幅
+                    # 的 "_" 列，腾讯源亦无涨跌幅列，故实际生效的是按前收盘计算；
+                    # "_" 回退仅为防御未来版本保留该列的情况。
+                    # 解析隔离在独立 try 中，坏 pct 值不连累整行 OHLCV 数据。
+                    pct_raw = row.get("涨跌幅", row.get("pct_chg", row.get("_")))
+                    change_pct = None
+                    if pct_raw is not None and str(pct_raw) not in ("", "nan"):
+                        try:
+                            change_pct = round(float(pct_raw), 2)
+                        except (ValueError, TypeError) as e:
+                            logger.debug(f"指数涨跌幅解析失败，回退按前收盘计算: {e}")
+                    if change_pct is None and prev_close:
+                        change_pct = round((close_f - prev_close) / prev_close * 100, 2)
+                    results.append(IndexPriceData(
+                        symbol=symbol,
+                        trade_date=_parse_date(row["date"]),
+                        open=float(row["open"]),
+                        high=float(row["high"]),
+                        low=float(row["low"]),
+                        close=close_f,
+                        volume=int(row.get("volume", 0)),
+                        turnover=float(row.get("amount", 0)) / 1e8 if row.get("amount") else None,
+                        change_pct=change_pct,
+                    ))
+                    prev_close = close_f
+                except (ValueError, KeyError) as e:
+                    logger.warning(f"跳过异常指数行情数据行: {e}")
             return results
         except Exception as e:
             logger.warning(f"获取指数 {symbol} 行情失败: {e}")
