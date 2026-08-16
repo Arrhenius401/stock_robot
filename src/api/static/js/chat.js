@@ -29,13 +29,15 @@ function appendUser(text) {
   appendBubble("user", mdDiv(text));
 }
 
-let currentPlan = null;
+// 并发守卫：流进行中禁止再次发送（模块级，防同会话并发请求交错）
+let sending = false;
 
+// 返回 { card, stepEls }：计划状态随发送闭包持有，不落模块级变量，避免串会话
 function planCard(evt) {
   const card = el("div", "card");
   card.appendChild(el("div", "card-title", "执行计划"));
   card.appendChild(el("div", "goal", `目标：${evt.goal || "执行任务"}`));
-  currentPlan = { el: card, stepEls: [] };
+  const plan = { card, stepEls: [] };
   for (const desc of evt.steps || []) {
     const row = el("div", "step");
     const left = el("div", "step-left");
@@ -46,9 +48,9 @@ function planCard(evt) {
     row.appendChild(left);
     row.appendChild(status);
     card.appendChild(row);
-    currentPlan.stepEls.push({ dot, status });
+    plan.stepEls.push({ dot, status });
   }
-  return card;
+  return plan;
 }
 
 function setStep(step, state, text) {
@@ -57,10 +59,10 @@ function setStep(step, state, text) {
   step.status.className = `step-status ${state}`;
 }
 
-function updatePlan(evt) {
-  if (!currentPlan) return;
+function updatePlan(plan, evt) {
+  if (!plan) return;
   const idx = (evt.current || 1) - 1;   // current 从 1 起，步骤索引 = current-1
-  currentPlan.stepEls.forEach((s, i) => {
+  plan.stepEls.forEach((s, i) => {
     if (i < idx) {
       setStep(s, "done", "完成");
     } else if (i === idx && evt.stage !== "complete") {
@@ -68,7 +70,7 @@ function updatePlan(evt) {
     }
   });
   if (evt.stage === "complete") {
-    currentPlan.stepEls.forEach((s) => setStep(s, "done", "完成"));
+    plan.stepEls.forEach((s) => setStep(s, "done", "完成"));
   }
 }
 
@@ -116,84 +118,104 @@ export function renderMessageHistory(messages) {
 
 export async function sendMessage(text) {
   const msg = String(text || "").trim();
-  if (!msg) return;
-  // 无 Agent 调试模式下 session 为 null，后端流接口的 text 事件分支仍可用
-  const sid = store.currentSessionId;
-  if (sid) {
-    (store.sessionMessages[sid] = store.sessionMessages[sid] || [])
-      .push({ role: "user", content: msg });
-  }
-  appendUser(msg);
-  currentPlan = null;
-
-  // 【补充 1：发送期间禁用发送按钮，防同会话并发请求交错】
-  const input = document.getElementById("chatInput");
-  const sendBtn = document.getElementById("sendBtn");
-  const finish = () => { sendBtn.disabled = false; input.focus(); };
-  sendBtn.disabled = true;
-
-  const agentBox = appendBubble("agent", el("div", "content"));
-  const thinking = el("div", "thinking", "正在分析…");
-  agentBox.appendChild(thinking);
-
-  const handlers = {
-    plan: (e) => {
-      // 无会话发送时（正常模式冷启动兜底），采纳后端新建的 session
-      if (!store.currentSessionId && e.session_id) {
-        store.currentSessionId = e.session_id;
-        store.sessionMessages[e.session_id] = [{ role: "user", content: msg }];
-      }
-      thinking.remove();
-      agentBox.appendChild(planCard(e));
-    },
-    progress: (e) => updatePlan(e),
-    result: (e) => {
-      thinking.remove();
-      if (currentPlan) currentPlan.stepEls.forEach((s) => setStep(s, "done", "完成"));
-      if (e.summary) agentBox.appendChild(mdDiv(e.summary));
-      for (const t of e.tool_results || []) {
-        const card = toolResultCard({ tool: t.tool, content: t.content || "" });
-        if (t.symbol && t.status === "done") {
-          const link = el("span", "link", "查看完整报告 →");
-          link.addEventListener("click", () => openReport(t.symbol));
-          card.appendChild(link);
-        }
-        agentBox.appendChild(card);
-      }
-      const resultSid = store.currentSessionId || sid;
-      if (resultSid) {
-        (store.sessionMessages[resultSid] = store.sessionMessages[resultSid] || [])
-          .push({ role: "assistant", content: e.summary || "" });
-      }
-      bus.dispatchEvent(new Event("chat-done"));
-    },
-    error: (e) => {
-      thinking.remove();
-      const card = el("div", "error-card");
-      card.appendChild(el("div", "error-msg", e.message || "处理请求时出错"));
-      agentBox.appendChild(card);
-      bus.dispatchEvent(new Event("chat-done"));
-    },
-    // 【补充 2：无 Agent 模式后端发 text 事件，必须渲染否则占位永久停留】
-    text: (e) => {
-      thinking.remove();
-      agentBox.appendChild(mdDiv(e.content));
-    },
-    // 【补充 3：done 事件清理占位（无 Agent 模式或异常路径兜底）】
-    done: () => {
-      thinking.remove();
-      finish();
-    },
-  };
+  if (!msg || sending) return;
+  sending = true;
   try {
-    await api.chatStream(msg, sid, handlers);
-  } catch (err) {
-    thinking.remove();
-    agentBox.appendChild(interruptedCard(() => sendMessage(msg)));
+    // 无 Agent 调试模式下 session 为 null，后端流接口的 text 事件分支仍可用
+    let streamSid = store.currentSessionId;
+    if (streamSid) {
+      (store.sessionMessages[streamSid] = store.sessionMessages[streamSid] || [])
+        .push({ role: "user", content: msg });
+    }
+    appendUser(msg);
+    const input = document.getElementById("chatInput");
+    input.value = "";   // 发送时即清空，流结束不再清（避免吞掉期间新输入）
+    const sendBtn = document.getElementById("sendBtn");
+    const finish = () => { sendBtn.disabled = false; input.focus(); };
+    sendBtn.disabled = true;
+    // 计划状态随本次发送闭包持有，中途切换会话也不会串扰其他会话的计划卡
+    let myPlan = null;
+
+    const agentBox = appendBubble("agent", el("div", "content"));
+    const thinking = el("div", "thinking", "正在分析…");
+    agentBox.appendChild(thinking);
+
+    const handlers = {
+      plan: (e) => {
+        // 无会话发送时（正常模式冷启动兜底），采纳后端新建的 session
+        if (!streamSid && e.session_id) {
+          streamSid = e.session_id;
+          if (!store.currentSessionId) {
+            store.currentSessionId = e.session_id;
+            store.sessionMessages[e.session_id] = [{ role: "user", content: msg }];
+          }
+        }
+        thinking.remove();
+        myPlan = planCard(e);
+        agentBox.appendChild(myPlan.card);
+      },
+      progress: (e) => {
+        // 会话已切换时跳过：气泡已脱离视图，且避免驱动新会话的计划卡。
+        // 取舍：无 Agent 模式 streamSid 为 null，若期间其他流程把 currentSessionId
+        // 置为非 null，进度更新会被跳过；但该模式后端不发 plan 事件、myPlan 恒为
+        // null，此分支实际不会触发；即便触发，updatePlan 只改本气泡（已脱离视图）
+        // 的节点，最多是极端角落下的进度停更——宁可丢进度也不污染新会话视图。
+        if (!myPlan || store.currentSessionId !== streamSid) return;
+        updatePlan(myPlan, e);
+      },
+      result: (e) => {
+        thinking.remove();
+        const isCurrent = store.currentSessionId === streamSid;
+        if (myPlan) myPlan.stepEls.forEach((s) => setStep(s, "done", "完成"));
+        if (e.summary && isCurrent) agentBox.appendChild(mdDiv(e.summary));
+        for (const t of e.tool_results || []) {
+          if (!isCurrent) continue;
+          const card = toolResultCard({ tool: t.tool, content: t.content || "" });
+          if (t.symbol && t.status === "done") {
+            const link = el("span", "link", "查看完整报告 →");
+            link.addEventListener("click", () => openReport(t.symbol));
+            card.appendChild(link);
+          }
+          agentBox.appendChild(card);
+        }
+        if (streamSid) {
+          (store.sessionMessages[streamSid] = store.sessionMessages[streamSid] || [])
+            .push({ role: "assistant", content: e.summary || "" });
+        }
+        bus.dispatchEvent(new Event("chat-done"));
+      },
+      error: (e) => {
+        thinking.remove();
+        if (store.currentSessionId !== streamSid) return;
+        const card = el("div", "error-card");
+        card.appendChild(el("div", "error-msg", e.message || "处理请求时出错"));
+        agentBox.appendChild(card);
+        bus.dispatchEvent(new Event("chat-done"));
+      },
+      // 无 Agent 模式后端发 text 事件，必须渲染否则占位永久停留
+      text: (e) => {
+        thinking.remove();
+        agentBox.appendChild(mdDiv(e.content));
+      },
+      // done 事件清理占位（无 Agent 模式或异常路径兜底）
+      done: () => {
+        thinking.remove();
+        finish();
+      },
+    };
+    try {
+      await api.chatStream(msg, streamSid, handlers);
+    } catch (err) {
+      thinking.remove();
+      if (store.currentSessionId === streamSid) {
+        agentBox.appendChild(interruptedCard(() => sendMessage(msg)));
+      }
+    }
+    finish();
+    input.focus();
+  } finally {
+    sending = false;
   }
-  finish();
-  input.value = "";
-  input.focus();
 }
 
 async function showToolsPanel() {
@@ -224,17 +246,20 @@ export function initChat() {
   const send = () => sendMessage(input.value);
   document.getElementById("sendBtn").addEventListener("click", send);
   input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") send();
+    // isComposing：中文等 IME 组合输入的回车仅确认候选词，不应触发发送
+    if (e.key === "Enter" && !e.isComposing) send();
   });
   document.getElementById("quickTiming").addEventListener(
     "click", () => sendMessage("大盘现在适合入场吗？"));
   document.getElementById("quickTools").addEventListener("click", showToolsPanel);
   document.getElementById("quickClear").addEventListener("click", async () => {
-    if (!store.currentSessionId) return;
+    const target = store.currentSessionId;   // await 期间可能切换会话，先捕获
+    if (!target) return;
     if (!window.confirm("清空当前会话的全部消息？")) return;
     try {
-      await api.clearSession(store.currentSessionId);
-      store.sessionMessages[store.currentSessionId] = [];
+      await api.clearSession(target);
+      if (store.currentSessionId !== target) return;  // 已切换，不动新会话视图
+      store.sessionMessages[target] = [];
       clearChatScroll();
       bus.dispatchEvent(new Event("chat-done"));
     } catch (err) {

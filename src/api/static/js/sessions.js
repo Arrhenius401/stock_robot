@@ -60,13 +60,15 @@ async function selectSession(id) {
   if (!store.sessionMessages[id]) {
     try {
       const data = await api.getMessages(id);
+      if (store.currentSessionId !== id) return;  // 期间已切换到其他会话
       store.sessionMessages[id] = data.messages || [];
     } catch (err) {
-      store.sessionMessages[id] = [];
+      delete store.sessionMessages[id];  // 失败不缓存空数组，下次选择重试
       console.error("恢复会话消息失败:", err);
+      if (store.currentSessionId !== id) return;  // 期间已切换，避免空视图覆盖新会话
     }
   }
-  renderMessageHistory(store.sessionMessages[id]);
+  renderMessageHistory(store.sessionMessages[id] || []);  // 恢复失败时渲染空视图，缓存不落盘
   await refreshSessionList();
 }
 
