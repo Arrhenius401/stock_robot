@@ -1,19 +1,35 @@
 // HTTP 封装：JSON 请求 + SSE 事件流消费
+import { bus } from "./state.js";
+
+// 包装 fetch：网络层失败（fetch reject，通常为 "Failed to fetch"）派发 conn-down，
+// 成功则派发 conn-up，供顶栏全局连接状态条消费
+async function safeFetch(url, options) {
+  try {
+    const resp = await fetch(url, options);
+    bus.dispatchEvent(new Event("conn-up"));
+    return resp;
+  } catch (err) {
+    bus.dispatchEvent(new Event("conn-down"));
+    throw err;
+  }
+}
 
 async function request(path, options = {}) {
-  const resp = await fetch(path, {
+  const resp = await safeFetch(path, {
     headers: { "Content-Type": "application/json" },
     ...options,
   });
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) {
-    throw new Error(data.detail || data.error || `HTTP ${resp.status}`);
+    const err = new Error(data.detail || data.error || `HTTP ${resp.status}`);
+    err.status = resp.status;  // 附带状态码：422 输入校验错误由视图层特殊处理
+    throw err;
   }
   return data;
 }
 
 export async function consumeSSE(url, body, handlers) {
-  const resp = await fetch(url, {
+  const resp = await safeFetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

@@ -250,7 +250,7 @@ stock-robot api --host 127.0.0.1 --port 8000
 主要 API 端点：
 
 - `POST /api/v1/chat` — Agent 对话（body: `{"message": "...", "session_id": "可选"}`）
-- `POST /api/v1/chat/stream` — SSE 流式对话（start/plan/progress/result/done 事件）
+- `POST /api/v1/chat/stream` — SSE 流式对话（start/plan/progress/result/error/text/done 事件）
 - `POST /api/v1/analyze` — 个股分析（body: `{"symbol": "600519"}`），返回完整报告 JSON
 - `POST /api/v1/index` — 指数分析（body: `{"symbols": ["000300", "000905"], "index_style": "可选"}`；单指数兼容 `{"symbol": "000300"}`；多指数响应含 `compare` 对比表）
 - `GET/POST /api/v1/sessions`、`DELETE /api/v1/sessions/{id}`、`POST /api/v1/sessions/{id}/clear`、`GET /api/v1/sessions/{id}/messages` — 会话管理

@@ -2,7 +2,8 @@
 import { store, switchView } from "./state.js";
 import { api } from "./api.js";
 import { renderMarkdown } from "./markdown.js";
-import { el, kv, statusBadge, priceBar, errorCard, skeleton } from "./components.js";
+import { el, kv, statusBadge, priceBar, errorCard, skeleton,
+         showEntryError, clearEntryError } from "./components.js";
 
 const DIM_LABELS = {
   financial: "财务健康", technical: "技术趋势", valuation: "估值合理",
@@ -16,6 +17,7 @@ let reqSeq = 0;  // 请求令牌：慢请求期间二次查询时，丢弃迟到
 
 export async function openReport(symbol) {
   const seq = ++reqSeq;
+  const prevView = store.currentView;  // 记录原视图：422 校验失败时回退
   switchView("report");
   if (store.reportCache[symbol]) {
     renderReport(store.reportCache[symbol]);
@@ -31,6 +33,12 @@ export async function openReport(symbol) {
     renderReport(data);
   } catch (err) {
     if (seq !== reqSeq) return;
+    if (err.status === 422) {
+      // 输入校验失败：回原视图 + 输入框旁红字，不渲染错误卡
+      showEntryError("stockInput", err.message);
+      switchView(prevView);
+      return;
+    }
     box.innerHTML = "";
     box.appendChild(errorCard(`分析失败: ${err.message}`, () => openReport(symbol)));
   }
@@ -169,6 +177,7 @@ export function initReportView() {
   const input = document.getElementById("stockInput");
   const btn = document.getElementById("stockBtn");
   btn.addEventListener("click", () => {
+    clearEntryError("stockInput");  // 重新分析前清除上次校验红字
     const sym = input.value.trim();
     if (sym) openReport(sym);
   });

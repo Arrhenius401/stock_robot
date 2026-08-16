@@ -2,7 +2,7 @@
 import { store, bus, switchView } from "./state.js";
 import { api } from "./api.js";
 import { renderMessageHistory, clearChatScroll } from "./chat.js";
-import { el, esc } from "./components.js";
+import { el } from "./components.js";
 
 const listEl = () => document.getElementById("sessionList");
 
@@ -26,7 +26,8 @@ function renderList(sessions) {
   for (const s of sessions) {
     const item = el("div", `sess${s.session_id === store.currentSessionId ? " active" : ""}`);
     const title = el("span", "t", s.title || "新会话");
-    title.title = esc(s.title || "新会话");
+    // title 属性赋值不走 HTML 解析，直接赋值即可（esc 后会显示实体文本）
+    title.title = s.title || "新会话";
     item.appendChild(title);
     const del = el("span", "x", "✕");
     del.title = "删除会话";

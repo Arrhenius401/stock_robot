@@ -58,3 +58,22 @@ export function skeleton(lines = 6) {
   }
   return box;
 }
+
+// 顶栏输入框旁红字提示：422 输入校验错误时展示，不切换视图
+export function showEntryError(inputId, message) {
+  const input = document.getElementById(inputId);
+  const entry = input.closest(".entry");
+  if (!entry) return;
+  clearEntryError(inputId);
+  const tip = el("div", "entry-error", message);
+  entry.appendChild(tip);
+}
+
+export function clearEntryError(inputId) {
+  const input = document.getElementById(inputId);
+  const entry = input.closest(".entry");
+  if (entry) {
+    const old = entry.querySelector(".entry-error");
+    if (old) old.remove();
+  }
+}

@@ -1,8 +1,9 @@
 // 指数分析视图：多指数对比表 + 逐指数纵向研报
-import { switchView } from "./state.js";
+import { store, switchView } from "./state.js";
 import { api } from "./api.js";
 import { renderMarkdown } from "./markdown.js";
-import { el, kv, tagChip, priceBar, errorCard, skeleton } from "./components.js";
+import { el, kv, tagChip, priceBar, errorCard, skeleton,
+         showEntryError, clearEntryError } from "./components.js";
 
 let reqSeq = 0;  // 请求令牌：慢请求期间二次查询时，丢弃迟到响应/错误
 
@@ -35,6 +36,7 @@ const content = () => document.getElementById("indexContent");
 
 export async function openIndex(codes) {
   const seq = ++reqSeq;
+  const prevView = store.currentView;  // 记录原视图：422 校验失败时回退
   switchView("index");
   const symbols = String(codes || "").trim().split(/\s+/).filter(Boolean);
   if (!symbols.length) return;
@@ -47,6 +49,12 @@ export async function openIndex(codes) {
     renderIndex(data);
   } catch (err) {
     if (seq !== reqSeq) return;
+    if (err.status === 422) {
+      // 输入校验失败：回原视图 + 输入框旁红字，不渲染错误卡
+      showEntryError("indexInput", err.message);
+      switchView(prevView);
+      return;
+    }
     box.innerHTML = "";
     box.appendChild(errorCard(`分析失败: ${err.message}`, () => openIndex(codes)));
   }
@@ -217,6 +225,7 @@ export function initIndexView() {
   const input = document.getElementById("indexInput");
   const btn = document.getElementById("indexBtn");
   btn.addEventListener("click", () => {
+    clearEntryError("indexInput");  // 重新分析前清除上次校验红字
     // 空输入不触发：否则令牌自增会丢弃在途响应、骨架屏永久残留
     if (input.value.trim()) openIndex(input.value);
   });

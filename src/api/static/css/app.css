@@ -22,8 +22,13 @@ button { font-family: inherit; }
 .logo .dot { width: 9px; height: 9px; border-radius: 3px;
              background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
 .entries { margin-left: auto; display: flex; gap: 10px; }
-.entry { display: flex; align-items: center; gap: 6px; background: var(--bg);
+.entry { position: relative; display: flex; align-items: center; gap: 6px; background: var(--bg);
          border: 1px solid var(--border); border-radius: 8px; padding: 4px 6px 4px 10px; }
+.entry-error { position: absolute; top: 100%; left: 10px; margin-top: 4px;
+               color: var(--accent); font-size: 10.5px; white-space: nowrap;
+               background: var(--panel); border: 1px solid rgba(229,72,77,.4);
+               border-radius: 5px; padding: 2px 8px; z-index: 10; }
+.conn-status { color: var(--accent); font-size: 11px; font-weight: 600; }
 .entry label { color: var(--text-4); font-size: 11px; white-space: nowrap; }
 .entry input { background: transparent; border: none; outline: none; color: var(--text);
                width: 88px; font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -167,6 +172,7 @@ button { font-family: inherit; }
 /* ============ 报告/指数视图 ============ */
 .report-content { max-width: 860px; margin: 0 auto; padding: 18px 16px 40px; flex: 1;
                   overflow-y: auto; display: flex; flex-direction: column; gap: 12px; width: 100%; }
+.report { display: flex; flex-direction: column; gap: 12px; }
 .report-header { display: flex; align-items: baseline; gap: 10px; padding: 4px 2px; }
 .stock-name { color: var(--text); font-size: 18px; font-weight: 650; }
 .stock-code { color: var(--text-4); font-size: 12px; }

@@ -85,7 +85,9 @@ function toolResultCard(t) {
   card.appendChild(el("div", "card-title", "工具结果"));
   card.appendChild(el("span", "chip", t.tool));
   const body = el("div", "md tooltext");
-  body.innerHTML = renderMarkdown(t.content);
+  // 流式 result 事件的 content 为原始 memory 消息，含 "[工具名] " 前缀，
+  // 剥离后与历史恢复路径（parseToolMessage 已剥）渲染一致
+  body.innerHTML = renderMarkdown(String(t.content || "").replace(/^\[[^\]]+\]\s*/, ""));
   card.appendChild(body);
   return card;
 }
