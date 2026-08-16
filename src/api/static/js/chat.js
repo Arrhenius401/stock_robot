@@ -116,10 +116,13 @@ export function renderMessageHistory(messages) {
 
 export async function sendMessage(text) {
   const msg = String(text || "").trim();
-  if (!msg || !store.currentSessionId) return;
+  if (!msg) return;
+  // 无 Agent 调试模式下 session 为 null，后端流接口的 text 事件分支仍可用
   const sid = store.currentSessionId;
-  (store.sessionMessages[sid] = store.sessionMessages[sid] || [])
-    .push({ role: "user", content: msg });
+  if (sid) {
+    (store.sessionMessages[sid] = store.sessionMessages[sid] || [])
+      .push({ role: "user", content: msg });
+  }
   appendUser(msg);
   currentPlan = null;
 
@@ -135,6 +138,11 @@ export async function sendMessage(text) {
 
   const handlers = {
     plan: (e) => {
+      // 无会话发送时（正常模式冷启动兜底），采纳后端新建的 session
+      if (!store.currentSessionId && e.session_id) {
+        store.currentSessionId = e.session_id;
+        store.sessionMessages[e.session_id] = [{ role: "user", content: msg }];
+      }
       thinking.remove();
       agentBox.appendChild(planCard(e));
     },
@@ -152,9 +160,11 @@ export async function sendMessage(text) {
         }
         agentBox.appendChild(card);
       }
-      const resultSid = e.session_id || sid;
-      (store.sessionMessages[resultSid] = store.sessionMessages[resultSid] || [])
-        .push({ role: "assistant", content: e.summary || "" });
+      const resultSid = store.currentSessionId || sid;
+      if (resultSid) {
+        (store.sessionMessages[resultSid] = store.sessionMessages[resultSid] || [])
+          .push({ role: "assistant", content: e.summary || "" });
+      }
       bus.dispatchEvent(new Event("chat-done"));
     },
     error: (e) => {
