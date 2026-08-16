@@ -12,7 +12,10 @@ const DIM_ORDER = ["financial", "technical", "valuation", "industry", "sentiment
 
 const content = () => document.getElementById("reportContent");
 
+let reqSeq = 0;  // 请求令牌：慢请求期间二次查询时，丢弃迟到响应/错误
+
 export async function openReport(symbol) {
+  const seq = ++reqSeq;
   switchView("report");
   if (store.reportCache[symbol]) {
     renderReport(store.reportCache[symbol]);
@@ -24,8 +27,10 @@ export async function openReport(symbol) {
   try {
     const data = await api.analyze(symbol);
     store.reportCache[symbol] = data;
+    if (seq !== reqSeq) return;  // 已有更新请求，迟到响应不覆盖新视图
     renderReport(data);
   } catch (err) {
+    if (seq !== reqSeq) return;
     box.innerHTML = "";
     box.appendChild(errorCard(`分析失败: ${err.message}`, () => openReport(symbol)));
   }
