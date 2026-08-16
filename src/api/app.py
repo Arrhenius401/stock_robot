@@ -280,6 +280,15 @@ def create_app(core=None, sessions=None):
             return JSONResponse({"sessions": []})
         return JSONResponse({"sessions": sessions.list_sessions()})
 
+    @app.get("/api/v1/sessions/{session_id}/messages")
+    async def get_session_messages(session_id: str):
+        if sessions is None:
+            raise HTTPException(status_code=503, detail="会话管理未初始化")
+        messages = sessions.get_messages(session_id)
+        if messages is None:
+            raise HTTPException(status_code=404, detail=f"会话不存在: {session_id}")
+        return JSONResponse({"messages": messages})
+
     @app.post("/api/v1/sessions")
     async def create_session():
         if sessions is None:

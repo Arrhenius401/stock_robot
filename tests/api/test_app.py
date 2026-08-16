@@ -411,6 +411,23 @@ class TestSessionsEndpoints:
         resp = await client.post("/api/v1/sessions/nope/clear")
         assert resp.status_code == 404
 
+    @pytest.mark.asyncio
+    async def test_get_messages_returns_history(self, client):
+        r = await client.post("/api/v1/chat", json={"message": "echo 测试"})
+        sid = r.json()["session_id"]
+        resp = await client.get(f"/api/v1/sessions/{sid}/messages")
+        assert resp.status_code == 200
+        msgs = resp.json()["messages"]
+        roles = [m["role"] for m in msgs]
+        assert "user" in roles
+        assert "tool" in roles
+        assert all("content" in m and "role" in m for m in msgs)
+
+    @pytest.mark.asyncio
+    async def test_get_messages_unknown_session_returns_404(self, client):
+        resp = await client.get("/api/v1/sessions/nope/messages")
+        assert resp.status_code == 404
+
 
 class TestNoCoreMode:
     @pytest.fixture
@@ -432,4 +449,9 @@ class TestNoCoreMode:
     @pytest.mark.asyncio
     async def test_analyze_returns_503(self, empty_client):
         resp = await empty_client.post("/api/v1/analyze", json={"symbol": "000001"})
+        assert resp.status_code == 503
+
+    @pytest.mark.asyncio
+    async def test_messages_returns_503(self, empty_client):
+        resp = await empty_client.get("/api/v1/sessions/any/messages")
         assert resp.status_code == 503

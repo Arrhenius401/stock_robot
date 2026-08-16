@@ -138,6 +138,12 @@ class SessionManager:
     def list_sessions(self) -> list[dict]:
         return self._store.list_sessions()
 
+    def get_messages(self, session_id: str) -> list[dict] | None:
+        """按会话读回持久化消息；会话不存在返回 None"""
+        if not self._store.session_exists(session_id):
+            return None
+        return self._store.get_messages(session_id)
+
     def clear(self, session_id: str) -> bool:
         with self._lock:
             if not self._store.session_exists(session_id):
