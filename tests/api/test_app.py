@@ -5,7 +5,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from agent.tools import ToolProtocol, ToolRegistry, ToolResult
-from api.app import create_app
+from api.app import _structured_tool_results, create_app
 from api.bootstrap import AgentCore
 from api.sessions import SessionManager, SessionStore
 
@@ -211,6 +211,33 @@ class TestChatEndpoint:
                                 json={"message": "分析平安银行的财务数据"})
         assert resp.status_code == 500
         assert "处理请求时出错" in resp.json()["response"]
+
+
+class TestStructuredToolResults:
+    def test_only_pairs_messages_after_from_index(self):
+        from agent.memory import Memory, Plan, TaskStatus, TaskStep
+
+        memory = Memory()
+        memory.add_message("tool", "[echo] success: 旧消息")
+        before = len(memory.messages)
+        memory.add_message("tool", "[echo] success: 新消息")
+        plan = Plan(goal="测试", steps=[TaskStep(
+            id="step-1", description="echo 测试",
+            tool_name="echo", status=TaskStatus.DONE)])
+        results = _structured_tool_results(plan, memory, from_index=before)
+        assert len(results) == 1
+        assert results[0]["content"] == "[echo] success: 新消息"
+
+    def test_without_from_index_uses_all_messages(self):
+        from agent.memory import Memory, Plan, TaskStatus, TaskStep
+
+        memory = Memory()
+        memory.add_message("tool", "[echo] success: 第一条")
+        plan = Plan(goal="测试", steps=[TaskStep(
+            id="step-1", description="echo 测试",
+            tool_name="echo", status=TaskStatus.DONE)])
+        results = _structured_tool_results(plan, memory)
+        assert results[0]["content"] == "[echo] success: 第一条"
 
 
 class TestStreamEndpoint:
