@@ -214,30 +214,63 @@ class TestChatEndpoint:
 
 
 class TestStructuredToolResults:
-    def test_only_pairs_messages_after_from_index(self):
-        from agent.memory import Memory, Plan, TaskStatus, TaskStep
+    def _make_plan(self, step_count, max_messages=None):
+        from agent.memory import Memory, TaskStatus
+        from agent.planner import Plan, TaskStep
 
-        memory = Memory()
+        steps = [TaskStep(id=f"step-{i}", description=f"步骤 {i}",
+                          tool_name="echo", status=TaskStatus.DONE)
+                 for i in range(1, step_count + 1)]
+        memory = Memory() if max_messages is None else Memory(max_messages=max_messages)
+        return memory, Plan(goal="测试", steps=steps)
+
+    def test_pairs_only_latest_round_messages(self):
+        memory, plan = self._make_plan(1)
         memory.add_message("tool", "[echo] success: 旧消息")
-        before = len(memory.messages)
         memory.add_message("tool", "[echo] success: 新消息")
-        plan = Plan(goal="测试", steps=[TaskStep(
-            id="step-1", description="echo 测试",
-            tool_name="echo", status=TaskStatus.DONE)])
-        results = _structured_tool_results(plan, memory, from_index=before)
+        results = _structured_tool_results(plan, memory)
         assert len(results) == 1
         assert results[0]["content"] == "[echo] success: 新消息"
 
-    def test_without_from_index_uses_all_messages(self):
-        from agent.memory import Memory, Plan, TaskStatus, TaskStep
+    def test_pairs_steps_in_order(self):
+        memory, plan = self._make_plan(2)
+        memory.add_message("tool", "[echo] success: 第一条")
+        memory.add_message("tool", "[echo] success: 第二条")
+        results = _structured_tool_results(plan, memory)
+        assert [r["content"] for r in results] == [
+            "[echo] success: 第一条", "[echo] success: 第二条"]
+
+    def test_truncation_does_not_mispair(self):
+        """Memory 截断到 max_messages 时尾部配对仍正确"""
+        memory, plan = self._make_plan(2, max_messages=5)
+        memory.add_message("system", "填充1")
+        memory.add_message("system", "填充2")
+        memory.add_message("system", "填充3")
+        memory.add_message("tool", "[echo] success: 旧消息")
+        memory.add_message("system", "填充4")
+        # 此时 5 条已满，后续追加触发截断
+        memory.add_message("system", "开始执行")
+        memory.add_message("tool", "[echo] success: 本轮一")
+        memory.add_message("tool", "[echo] success: 本轮二")
+        results = _structured_tool_results(plan, memory)
+        assert [r["content"] for r in results] == [
+            "[echo] success: 本轮一", "[echo] success: 本轮二"]
+
+    def test_failed_step_gets_none_content(self):
+        from agent.memory import Memory, TaskStatus
+        from agent.planner import Plan, TaskStep
 
         memory = Memory()
-        memory.add_message("tool", "[echo] success: 第一条")
-        plan = Plan(goal="测试", steps=[TaskStep(
-            id="step-1", description="echo 测试",
-            tool_name="echo", status=TaskStatus.DONE)])
+        memory.add_message("tool", "[echo] success: 唯一消息")
+        plan = Plan(goal="测试", steps=[
+            TaskStep(id="s1", description="失败步骤",
+                     tool_name="echo", status=TaskStatus.FAILED),
+            TaskStep(id="s2", description="成功步骤",
+                     tool_name="echo", status=TaskStatus.DONE),
+        ])
         results = _structured_tool_results(plan, memory)
-        assert results[0]["content"] == "[echo] success: 第一条"
+        assert results[0]["content"] is None
+        assert results[1]["content"] == "[echo] success: 唯一消息"
 
 
 class TestStreamEndpoint:

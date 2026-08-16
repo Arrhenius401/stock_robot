@@ -20,14 +20,17 @@ def _json_safe(payload) -> dict:
     return json.loads(json.dumps(payload, ensure_ascii=False, default=str))
 
 
-def _structured_tool_results(plan, memory, from_index: int = 0) -> list[dict]:
-    """从计划步骤与 memory 工具消息按执行顺序配对出结构化结果
+def _structured_tool_results(plan, memory) -> list[dict]:
+    """从计划步骤与 memory 工具消息配对出结构化结果
 
-    Executor 只在步骤成功时写 role=="tool" 消息，且与 DONE 步骤一一对应；
-    from_index 为本次执行开始前的消息数，避免多轮会话配对到旧消息。
+    配对前提：Executor 只在步骤成功时写 role=="tool" 消息，且本轮消息
+    必然位于 memory 消息列表尾部（无其他写入者），故取最后 done_count 条
+    tool 消息按序配对——对 max_messages 截断免疫。
     """
-    tool_msgs = [m["content"] for m in memory.messages[from_index:]
-                 if m["role"] == "tool"]
+    done_count = sum(1 for s in plan.steps
+                     if s.tool_name and s.status == TaskStatus.DONE)
+    tool_msgs = [m["content"] for m in memory.messages
+                 if m["role"] == "tool"][-done_count:] if done_count else []
     results = []
     for step in plan.steps:
         if not step.tool_name:
@@ -35,6 +38,9 @@ def _structured_tool_results(plan, memory, from_index: int = 0) -> list[dict]:
         content = None
         if step.status == TaskStatus.DONE and tool_msgs:
             content = tool_msgs.pop(0)
+        elif step.status == TaskStatus.DONE:
+            # 配对不变量被破坏时（理论上不应发生），记录日志便于诊断
+            logger.warning("结构化工具结果配对不完整: 步骤 %s 缺少对应 tool 消息", step.id)
         results.append({
             "tool": step.tool_name,
             "symbol": (step.tool_args or {}).get("symbol"),
@@ -96,11 +102,10 @@ def create_app(core=None, sessions=None):
             memory.add_message("user", message)
             planner, executor = _build_agent(memory)
             plan = await asyncio.to_thread(planner.plan, message)
-            msg_start = len(memory.messages)
             plan = await executor.execute(plan)
             done = sum(1 for s in plan.steps if s.status == TaskStatus.DONE)
             total = len(plan.steps)
-            tool_results = _structured_tool_results(plan, memory, from_index=msg_start)
+            tool_results = _structured_tool_results(plan, memory)
             return JSONResponse({
                 "response": f"目标: {plan.goal}\n完成: {done}/{total} 步骤",
                 "plan": {"goal": plan.goal, "steps": [
@@ -148,14 +153,12 @@ def create_app(core=None, sessions=None):
                     await queue.put({"type": "plan", "goal": plan.goal,
                                      "steps": [s.description for s in plan.steps],
                                      "session_id": sid})
-                    msg_start = len(memory.messages)
                     plan = await executor.execute(plan, on_progress=on_progress)
                     done = sum(1 for s in plan.steps if s.status == TaskStatus.DONE)
                     total = len(plan.steps)
                     await queue.put({"type": "result",
                                      "summary": f"目标: {plan.goal}\n完成: {done}/{total} 步骤",
-                                     "tool_results": _structured_tool_results(
-                                         plan, memory, from_index=msg_start)})
+                                     "tool_results": _structured_tool_results(plan, memory)})
                 except Exception as e:  # noqa: BLE001 — SSE 流内兜底，错误以事件返回
                     logger.error("Agent 流式对话失败: %s", e)
                     await queue.put({"type": "error", "message": str(e)})
