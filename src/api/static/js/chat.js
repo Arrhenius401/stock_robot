@@ -142,12 +142,15 @@ export async function sendMessage(text) {
 
     const handlers = {
       plan: (e) => {
-        // 无会话发送时（正常模式冷启动兜底），采纳后端新建的 session
+        // 无会话发送时（正常模式冷启动兜底），采纳后端新建的 session。
+        // 用户消息无条件写入（缓存与 result 的 assistant 写保持对称），
+        // 仅 currentSessionId 接管以不劫持用户新选的会话为条件
         if (!streamSid && e.session_id) {
           streamSid = e.session_id;
+          (store.sessionMessages[e.session_id] = store.sessionMessages[e.session_id] || [])
+            .push({ role: "user", content: msg });
           if (!store.currentSessionId) {
             store.currentSessionId = e.session_id;
-            store.sessionMessages[e.session_id] = [{ role: "user", content: msg }];
           }
         }
         thinking.remove();
@@ -186,11 +189,12 @@ export async function sendMessage(text) {
       },
       error: (e) => {
         thinking.remove();
+        // chat-done 先派发：后端可能已建新会话，侧边栏需刷新；视图渲染才需守卫
+        bus.dispatchEvent(new Event("chat-done"));
         if (store.currentSessionId !== streamSid) return;
         const card = el("div", "error-card");
         card.appendChild(el("div", "error-msg", e.message || "处理请求时出错"));
         agentBox.appendChild(card);
-        bus.dispatchEvent(new Event("chat-done"));
       },
       // 无 Agent 模式后端发 text 事件，必须渲染否则占位永久停留
       text: (e) => {
@@ -258,8 +262,8 @@ export function initChat() {
     if (!window.confirm("清空当前会话的全部消息？")) return;
     try {
       await api.clearSession(target);
+      store.sessionMessages[target] = [];  // 服务端已清空，本地缓存先同步
       if (store.currentSessionId !== target) return;  // 已切换，不动新会话视图
-      store.sessionMessages[target] = [];
       clearChatScroll();
       bus.dispatchEvent(new Event("chat-done"));
     } catch (err) {
