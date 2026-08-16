@@ -87,7 +87,17 @@ class FakeIndexReport:
 class FakeIndexPipeline:
     def run(self, targets, on_progress=None):
         from types import SimpleNamespace
-        return SimpleNamespace(reports=[FakeIndexReport()], errors=[])
+        compare = None
+        if len(targets) >= 2:
+            compare = SimpleNamespace(
+                headers=["指数", "收盘"],
+                rows=[{"指数": "000300", "收盘": 3854},
+                      {"指数": "000905", "收盘": 5921}],
+            )
+        return SimpleNamespace(
+            reports=[FakeIndexReport() for _ in targets],
+            compare=compare, errors=[],
+        )
 
 
 def make_core():
@@ -379,10 +389,51 @@ class TestIndexEndpoint:
         data = resp.json()
         assert data["reports"][0]["code"] == "000300"
         assert data["errors"] == []
+        assert data["compare"] is None
 
     @pytest.mark.asyncio
     async def test_index_invalid_symbol_returns_422(self, client):
         resp = await client.post("/api/v1/index", json={"symbol": "###"})
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_index_multi_symbols_returns_compare(self, client, mocker):
+        from types import SimpleNamespace
+        mocker.patch("data.index_mapping.IndexMapping.lookup",
+                     return_value=SimpleNamespace(
+                         name="测试指数", market="a-shares", index_style="broad"))
+        resp = await client.post("/api/v1/index",
+                                 json={"symbols": ["000300", "000905"]})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["reports"]) == 2
+        assert data["compare"]["headers"] == ["指数", "收盘"]
+        assert len(data["compare"]["rows"]) == 2
+        assert data["errors"] == []
+
+    @pytest.mark.asyncio
+    async def test_index_symbols_space_string(self, client, mocker):
+        from types import SimpleNamespace
+        mocker.patch("data.index_mapping.IndexMapping.lookup",
+                     return_value=SimpleNamespace(
+                         name="测试指数", market="a-shares", index_style="broad"))
+        resp = await client.post("/api/v1/index",
+                                 json={"symbols": "000300 000905"})
+        assert resp.status_code == 200
+        assert len(resp.json()["reports"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_index_mixed_valid_invalid(self, client):
+        resp = await client.post("/api/v1/index",
+                                 json={"symbols": ["000300", "###"]})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["reports"]) == 1
+        assert any("无效的指数代码" in e for e in data["errors"])
+
+    @pytest.mark.asyncio
+    async def test_index_all_invalid_returns_422(self, client):
+        resp = await client.post("/api/v1/index", json={"symbols": ["###"]})
         assert resp.status_code == 422
 
 

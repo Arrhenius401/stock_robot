@@ -235,9 +235,15 @@ def create_app(core=None, sessions=None):
     @app.post("/api/v1/index")
     async def index(request: Request):
         body = await request.json()
-        symbol = str(body.get("symbol", "")).strip()
-        index_style = body.get("index_style")
-        if not symbol:
+        raw_symbols = body.get("symbols")
+        if raw_symbols is None:
+            raw_symbols = [str(body.get("symbol", "")).strip()]
+        elif isinstance(raw_symbols, str):
+            raw_symbols = raw_symbols.replace(",", " ").split()
+        else:
+            raw_symbols = [str(s).strip() for s in raw_symbols]
+        symbols = [s for s in raw_symbols if s]
+        if not symbols:
             raise HTTPException(status_code=422, detail="symbol 不能为空")
         if core is None:
             raise HTTPException(status_code=503, detail="Agent 核心未注入")
@@ -246,33 +252,46 @@ def create_app(core=None, sessions=None):
         from data.schemas import AnalysisTarget
         from utils.symbols import normalize_index_symbol, validate_index_symbol
 
-        if not validate_index_symbol(symbol):
-            raise HTTPException(status_code=422, detail=f"无效的指数代码: {symbol}")
-        normalized = normalize_index_symbol(symbol)
-        entry = IndexMapping().lookup(normalized)
-        if entry is None:
-            if index_style not in ("broad", "sector", "overseas"):
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"无法识别指数 {normalized}，请指定 index_style (broad/sector/overseas)")
-            target = AnalysisTarget(target_type="index", symbol=normalized,
-                                    name=normalized, market="a-shares",
-                                    index_style=index_style)
-        else:
-            target = AnalysisTarget(target_type="index", symbol=normalized,
-                                    name=entry.name, market=entry.market,
-                                    index_style=entry.index_style)
+        index_style = body.get("index_style")
+        mapping = IndexMapping()
+        targets: list[AnalysisTarget] = []
+        errors: list[str] = []
+        for sym in symbols:
+            if not validate_index_symbol(sym):
+                errors.append(f"无效的指数代码: {sym}")
+                continue
+            normalized = normalize_index_symbol(sym)
+            entry = mapping.lookup(normalized)
+            if entry is None:
+                if index_style not in ("broad", "sector", "overseas"):
+                    errors.append(
+                        f"无法识别指数 {normalized}，请指定 index_style (broad/sector/overseas)")
+                    continue
+                targets.append(AnalysisTarget(
+                    target_type="index", symbol=normalized, name=normalized,
+                    market="a-shares", index_style=index_style))
+            else:
+                targets.append(AnalysisTarget(
+                    target_type="index", symbol=normalized, name=entry.name,
+                    market=entry.market, index_style=entry.index_style))
+        if not targets:
+            raise HTTPException(status_code=422, detail="；".join(errors))
 
         try:
-            result = await asyncio.to_thread(core.index_pipeline.run, [target])
+            result = await asyncio.to_thread(core.index_pipeline.run, targets)
+            compare = None
+            if result.compare is not None:
+                compare = {"headers": result.compare.headers,
+                           "rows": result.compare.rows}
             payload = {
                 "reports": [r.model_dump(mode="json") for r in result.reports],
-                "errors": result.errors,
+                "compare": compare,
+                "errors": result.errors + errors,
             }
             return JSONResponse(_json_safe(payload))
         except Exception as e:  # noqa: BLE001 — HTTP 边界兜底
             logger.error("指数分析失败: %s", e)
-            return JSONResponse({"symbol": symbol, "error": str(e)}, status_code=500)
+            return JSONResponse({"symbol": symbols[0], "error": str(e)}, status_code=500)
 
     @app.get("/api/v1/sessions")
     async def list_sessions():
