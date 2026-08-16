@@ -20,6 +20,29 @@ def _json_safe(payload) -> dict:
     return json.loads(json.dumps(payload, ensure_ascii=False, default=str))
 
 
+def _structured_tool_results(plan, memory) -> list[dict]:
+    """从计划步骤与 memory 工具消息按执行顺序配对出结构化结果
+
+    Executor 只在步骤成功时写 role=="tool" 消息，且与 DONE 步骤一一对应，
+    按顺序 pop 配对即可；失败步骤 content 为 None。
+    """
+    tool_msgs = [m["content"] for m in memory.messages if m["role"] == "tool"]
+    results = []
+    for step in plan.steps:
+        if not step.tool_name:
+            continue
+        content = None
+        if step.status == TaskStatus.DONE and tool_msgs:
+            content = tool_msgs.pop(0)
+        results.append({
+            "tool": step.tool_name,
+            "symbol": (step.tool_args or {}).get("symbol"),
+            "status": step.status.value,
+            "content": content,
+        })
+    return results
+
+
 def create_app(core=None, sessions=None):
     app = FastAPI(title="Stock Robot API", version="0.1.0",
                   description="AI 驱动的股票分析研报助手 HTTP API")
@@ -75,7 +98,7 @@ def create_app(core=None, sessions=None):
             plan = await executor.execute(plan)
             done = sum(1 for s in plan.steps if s.status == TaskStatus.DONE)
             total = len(plan.steps)
-            tool_results = [m["content"] for m in memory.messages if m["role"] == "tool"]
+            tool_results = _structured_tool_results(plan, memory)
             return JSONResponse({
                 "response": f"目标: {plan.goal}\n完成: {done}/{total} 步骤",
                 "plan": {"goal": plan.goal, "steps": [
@@ -127,7 +150,8 @@ def create_app(core=None, sessions=None):
                     done = sum(1 for s in plan.steps if s.status == TaskStatus.DONE)
                     total = len(plan.steps)
                     await queue.put({"type": "result",
-                                     "summary": f"目标: {plan.goal}\n完成: {done}/{total} 步骤"})
+                                     "summary": f"目标: {plan.goal}\n完成: {done}/{total} 步骤",
+                                     "tool_results": _structured_tool_results(plan, memory)})
                 except Exception as e:  # noqa: BLE001 — SSE 流内兜底，错误以事件返回
                     logger.error("Agent 流式对话失败: %s", e)
                     await queue.put({"type": "error", "message": str(e)})

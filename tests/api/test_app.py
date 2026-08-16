@@ -32,6 +32,38 @@ class EchoTool:
         return ToolResult(status="success", data={"echo": kwargs.get("text", "")})
 
 
+class SymbolLLM:
+    """返回含 6 位股票代码步骤描述的 LLM"""
+
+    def generate(self, prompt, system=None, **kwargs):
+        return json.dumps({
+            "goal": "分析股票估值",
+            "complexity": "simple",
+            "steps": [{"id": "step-1", "description": "分析 000001 的估值"}],
+        }, ensure_ascii=False)
+
+
+class StockTool:
+    name = "analyze_stock"
+    description = "分析股票的基本面与估值数据，输入股票代码"
+    parameters = {"type": "object", "properties": {"symbol": {"type": "string"}}}
+    tags = ["pipeline"]
+    source = "pipeline"
+
+    async def execute(self, **kwargs):
+        return ToolResult(status="success", data={"symbol": kwargs.get("symbol", "")})
+
+
+def make_symbol_core():
+    """注册 StockTool + SymbolLLM 的核心，验证 tool_args symbol 提取链路"""
+    from typing import Any, cast
+    registry = ToolRegistry()
+    registry.register(StockTool())
+    return AgentCore(registry=registry, pipeline=cast(Any, FakePipeline()),
+                     index_pipeline=cast(Any, FakeIndexPipeline()),
+                     llm=cast(Any, SymbolLLM()))
+
+
 class FakePipeline:
     def run(self, symbol, name, market="a-shares"):
         from data.schemas import AnalysisContext, AnalysisResult
@@ -131,7 +163,29 @@ class TestChatEndpoint:
         assert data["session_id"]
         assert "完成: 1/1 步骤" in data["response"]
         assert data["plan"]["steps"][0]["status"] == "done"
-        assert any("echo" in t for t in data["tool_results"])
+        tools = data["tool_results"]
+        assert len(tools) == 1
+        assert tools[0]["tool"] == "echo"
+        assert tools[0]["status"] == "done"
+        assert tools[0]["symbol"] is None
+        assert "echo" in tools[0]["content"]
+
+    @pytest.mark.asyncio
+    async def test_chat_tool_results_include_symbol(self, tmp_path):
+        store = SessionStore(tmp_path / "sessions_sym.db")
+        sessions = SessionManager(store, facts_path=tmp_path / "facts_sym.json")
+        app_sym = create_app(core=make_symbol_core(), sessions=sessions)
+        transport = ASGITransport(app=app_sym)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            resp = await c.post("/api/v1/chat",
+                                json={"message": "分析 000001 的估值"})
+        assert resp.status_code == 200
+        tools = resp.json()["tool_results"]
+        assert len(tools) == 1
+        assert tools[0]["tool"] == "analyze_stock"
+        assert tools[0]["symbol"] == "000001"
+        assert tools[0]["status"] == "done"
+        assert "000001" in tools[0]["content"]
 
     @pytest.mark.asyncio
     async def test_chat_empty_message_returns_422(self, client):
@@ -177,6 +231,18 @@ class TestStreamEndpoint:
         assert '"type": "start"' in body
         assert '"type": "plan"' in body
         assert '"type": "done"' in body
+
+    @pytest.mark.asyncio
+    async def test_stream_result_includes_tool_results(self, client):
+        async with client.stream("POST", "/api/v1/chat/stream",
+                                 json={"message": "echo 测试"}) as resp:
+            assert resp.status_code == 200
+            body = ""
+            async for line in resp.aiter_lines():
+                body += line
+        assert '"type": "result"' in body
+        assert '"tool_results"' in body
+        assert '"tool": "echo"' in body
 
     @pytest.mark.asyncio
     async def test_stream_emits_error_event_on_failure(self, tmp_path):
