@@ -252,6 +252,9 @@ class TestStructuredToolResults:
         memory.add_message("system", "开始执行")
         memory.add_message("tool", "[echo] success: 本轮一")
         memory.add_message("tool", "[echo] success: 本轮二")
+        # 固化前提：截断确实发生（8 条追加、上限 5，最旧的 3 条被丢弃）
+        assert len(memory.messages) == 5
+        assert all(m["content"] != "填充1" for m in memory.messages)
         results = _structured_tool_results(plan, memory)
         assert [r["content"] for r in results] == [
             "[echo] success: 本轮一", "[echo] success: 本轮二"]
