@@ -240,8 +240,12 @@ def create_app(core=None, sessions=None):
             raw_symbols = [str(body.get("symbol", "")).strip()]
         elif isinstance(raw_symbols, str):
             raw_symbols = raw_symbols.replace(",", " ").split()
+        elif isinstance(raw_symbols, (list, tuple)):
+            # null 项直接跳过，避免 str(None) 变成 "None" 干扰后续校验
+            raw_symbols = [str(s).strip() for s in raw_symbols if s is not None]
         else:
-            raw_symbols = [str(s).strip() for s in raw_symbols]
+            raise HTTPException(status_code=422,
+                                detail="symbols 格式无效：应为数组或字符串")
         symbols = [s for s in raw_symbols if s]
         if not symbols:
             raise HTTPException(status_code=422, detail="symbol 不能为空")

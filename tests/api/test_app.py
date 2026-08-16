@@ -436,6 +436,37 @@ class TestIndexEndpoint:
         resp = await client.post("/api/v1/index", json={"symbols": ["###"]})
         assert resp.status_code == 422
 
+    @pytest.mark.asyncio
+    async def test_index_symbols_comma_string(self, client, mocker):
+        from types import SimpleNamespace
+        mocker.patch("data.index_mapping.IndexMapping.lookup",
+                     return_value=SimpleNamespace(
+                         name="测试指数", market="a-shares", index_style="broad"))
+        resp = await client.post("/api/v1/index",
+                                 json={"symbols": "000300,000905"})
+        assert resp.status_code == 200
+        assert len(resp.json()["reports"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_index_empty_symbols_returns_422(self, client):
+        resp = await client.post("/api/v1/index", json={"symbols": []})
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_index_non_list_symbols_returns_422(self, client):
+        resp = await client.post("/api/v1/index", json={"symbols": 123})
+        assert resp.status_code == 422
+        assert "格式无效" in resp.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_index_null_item_skipped(self, client):
+        resp = await client.post("/api/v1/index",
+                                 json={"symbols": [None, "000300"]})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["reports"]) == 1
+        assert data["errors"] == []
+
 
 class TestSessionsEndpoints:
     @pytest.mark.asyncio
