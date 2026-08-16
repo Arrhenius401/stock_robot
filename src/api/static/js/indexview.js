@@ -216,7 +216,10 @@ function compositeCard(r) {
 export function initIndexView() {
   const input = document.getElementById("indexInput");
   const btn = document.getElementById("indexBtn");
-  btn.addEventListener("click", () => openIndex(input.value));
+  btn.addEventListener("click", () => {
+    // 空输入不触发：否则令牌自增会丢弃在途响应、骨架屏永久残留
+    if (input.value.trim()) openIndex(input.value);
+  });
   input.addEventListener("keydown", (e) => {
     // IME 组合输入回车不触发（中文输入法候选确认）
     if (e.key === "Enter" && !e.isComposing) btn.click();
