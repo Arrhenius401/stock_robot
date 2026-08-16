@@ -22,9 +22,9 @@ class TestStaticUI:
 
     @pytest.mark.asyncio
     async def test_js_modules_served(self, client):
-        # 其余组件模块（chat.js/sessions.js/report.js/indexview.js/markdown.js/
-        # components.js）由 Task 6-11 创建后，追加到本列表
-        for path in ("/js/app.js", "/js/api.js", "/js/state.js"):
+        # 其余组件模块（chat.js/sessions.js/report.js/indexview.js/components.js）
+        # 由 Task 7-11 创建后，追加到本列表
+        for path in ("/js/app.js", "/js/api.js", "/js/state.js", "/js/markdown.js"):
             resp = await client.get(path)
             assert resp.status_code == 200, path
 

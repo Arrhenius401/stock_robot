@@ -10,8 +10,9 @@ function inline(s) {
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, text, url) => {
-      // 仅放行 http(s)/mailto 且不含引号——javascript: 协议与属性注入防护
-      const safe = /^(https?:\/\/|mailto:)/i.test(url) && !/["']/.test(url);
+      // 仅放行 http(s)/mailto 且不含引号与格式化字符——
+      // javascript: 协议、属性注入与行内标记污染 href 的防护
+      const safe = /^(https?:\/\/|mailto:)/i.test(url) && !/["'`*]/.test(url);
       return safe
         ? `<a href="${url}" target="_blank" rel="noopener">${text}</a>`
         : text;
