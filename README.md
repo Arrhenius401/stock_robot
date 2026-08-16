@@ -240,15 +240,20 @@ print(f"已处理: {result['processed']}, 跳过: {result['skipped']}, 失败: {
 stock-robot api --host 127.0.0.1 --port 8000
 ```
 
-浏览器打开 http://127.0.0.1:8000 使用 Web 聊天界面。
+浏览器打开 http://127.0.0.1:8000 使用 Web 聊天界面。页面功能：
+
+- **聊天**：SSE 流式展示 Agent 执行计划与进度；工具结果卡可一键跳转完整报告
+- **个股报告**：顶栏输入代码直达，或从聊天结果跳转；完整维度评分 + AI 解读
+- **指数分析**：顶栏支持多指数（空格分隔），自动生成对比表 + 逐指数研报
+- **会话管理**：左侧边栏新建/切换/删除/清空会话，历史消息重启后恢复
 
 主要 API 端点：
 
 - `POST /api/v1/chat` — Agent 对话（body: `{"message": "...", "session_id": "可选"}`）
 - `POST /api/v1/chat/stream` — SSE 流式对话（start/plan/progress/result/done 事件）
 - `POST /api/v1/analyze` — 个股分析（body: `{"symbol": "600519"}`），返回完整报告 JSON
-- `POST /api/v1/index` — 指数分析（body: `{"symbol": "000300", "index_style": "可选"}`）
-- `GET/POST /api/v1/sessions`、`DELETE /api/v1/sessions/{id}`、`POST /api/v1/sessions/{id}/clear` — 会话管理
+- `POST /api/v1/index` — 指数分析（body: `{"symbols": ["000300", "000905"], "index_style": "可选"}`；单指数兼容 `{"symbol": "000300"}`；多指数响应含 `compare` 对比表）
+- `GET/POST /api/v1/sessions`、`DELETE /api/v1/sessions/{id}`、`POST /api/v1/sessions/{id}/clear`、`GET /api/v1/sessions/{id}/messages` — 会话管理
 - `GET /api/v1/tools` — 工具列表
 
 > 无 Agent 模式（仅调试静态页）：`PYTHONPATH=src python -m uvicorn api.app:app`，
