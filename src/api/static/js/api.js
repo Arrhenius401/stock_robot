@@ -19,7 +19,8 @@ export async function consumeSSE(url, body, handlers) {
     body: JSON.stringify(body),
   });
   if (!resp.ok || !resp.body) {
-    throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json().catch(() => ({}));
+    throw new Error(data.detail || data.error || `HTTP ${resp.status}`);
   }
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
@@ -32,7 +33,8 @@ export async function consumeSSE(url, body, handlers) {
     while ((idx = buf.indexOf("\n\n")) >= 0) {
       const frame = buf.slice(0, idx);
       buf = buf.slice(idx + 2);
-      for (const line of frame.split("\n")) {
+      for (const rawLine of frame.split("\n")) {
+        const line = rawLine.replace(/\r$/, "");
         if (!line.startsWith("data: ")) continue;
         let event;
         try {

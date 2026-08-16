@@ -9,6 +9,7 @@ export const store = {
 export const bus = new EventTarget();
 
 export function switchView(name) {
+  if (!document.getElementById(`view-${name}`)) return;
   store.currentView = name;
   document.querySelectorAll(".view").forEach((v) => {
     v.classList.toggle("active", v.id === `view-${name}`);

@@ -26,7 +26,8 @@ button { font-family: inherit; }
          border: 1px solid var(--border); border-radius: 8px; padding: 4px 6px 4px 10px; }
 .entry label { color: var(--text-4); font-size: 11px; white-space: nowrap; }
 .entry input { background: transparent; border: none; outline: none; color: var(--text);
-               width: 72px; font-size: 12px; font-variant-numeric: tabular-nums; }
+               width: 88px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.entry:last-child input { width: 116px; }  /* 指数输入框容纳多代码占位符 */
 .entry button { background: var(--accent); color: #fff; border: none; border-radius: 6px;
                 padding: 5px 12px; font-size: 11.5px; font-weight: 600; cursor: pointer; }
 .entry button:hover { background: #d93a3f; }
