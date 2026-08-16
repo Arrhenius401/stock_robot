@@ -9,8 +9,13 @@ function inline(s) {
   return s
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g,
-             '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, text, url) => {
+      // 仅放行 http(s)/mailto 且不含引号——javascript: 协议与属性注入防护
+      const safe = /^(https?:\/\/|mailto:)/i.test(url) && !/["']/.test(url);
+      return safe
+        ? `<a href="${url}" target="_blank" rel="noopener">${text}</a>`
+        : text;
+    });
 }
 
 export function renderMarkdown(text) {
