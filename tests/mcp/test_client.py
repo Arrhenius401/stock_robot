@@ -1,8 +1,10 @@
 """外部 MCP Client 单元测试"""
 import json
+
 import pytest
-from mcp.schemas import MCPToolDefinition
+
 from mcp.client import ExternalMCPClient
+from mcp.schemas import MCPToolDefinition
 
 
 class FakeProcess:

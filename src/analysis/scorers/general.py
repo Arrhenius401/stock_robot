@@ -1,8 +1,8 @@
 """通用计分器 — 纯 YAML 驱动，无硬编码阈值"""
 from statistics import mean
 
-from data.schemas import AnalysisContext
 from analysis.scorers.base import BaseScorer
+from data.schemas import AnalysisContext
 
 
 class GeneralScorer(BaseScorer):

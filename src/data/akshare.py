@@ -1,11 +1,24 @@
 """AkShare 数据源适配器 — A 股数据采集"""
-from datetime import date, datetime, timedelta
 import logging
+from datetime import date, datetime, timedelta
+from typing import Any, cast
+
 import akshare as ak
+
+# akshare 无完整类型标注，接口返回值形态随版本变化，统一按 Any 处理
+ak = cast(Any, ak)
+
 from data.base import DataSource
 from data.schemas import (
-    PriceData, FinancialData, ValuationData, IndustryData, NewsData,
-    IndexPriceData, IndexValuationData, CapitalFlowData, MacroContext,
+    CapitalFlowData,
+    FinancialData,
+    IndexPriceData,
+    IndexValuationData,
+    IndustryData,
+    MacroContext,
+    NewsData,
+    PriceData,
+    ValuationData,
 )
 from utils.numbers import parse_cn_number
 from utils.retry import retry_on_network_error
@@ -38,12 +51,13 @@ def get_individual_info(symbol: str) -> dict:
                 xq_symbol = f"SH{symbol}"
             else:
                 xq_symbol = f"SZ{symbol}"
-            df = ak.stock_individual_basic_info_xq(symbol=xq_symbol)
+            df: Any = ak.stock_individual_basic_info_xq(symbol=xq_symbol)
             if "item" in df.columns and "value" in df.columns:
                 _info_cache[symbol] = dict(zip(df["item"], df["value"]))
             else:
                 _info_cache[symbol] = {}
         except Exception:
+            logger.debug(f"获取个股基本信息失败: {symbol}")
             _info_cache[symbol] = {}
     return _info_cache[symbol]
 
@@ -110,19 +124,20 @@ def _parse_date(value) -> date:
     text = str(value).strip()[:10]
     for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d"):
         try:
-            return datetime.strptime(text, fmt).date()
+            return datetime.strptime(text, fmt).astimezone().date()
         except ValueError:
             continue
     raise ValueError(f"无法解析日期: {value}")
 
 
-def _fetch_sw_peers(industry_name: str) -> list[dict]:
+def _fetch_sw_peers(industry_name: str) -> list[dict[str, Any]]:
     """通过申万行业分类获取同行股票（含 PE/PB/市值，来源 legulegu.com）
     返回 list[dict]，每个 dict 包含: symbol, name, market_cap, pe_ttm, pb
     """
-    import requests as _req
     from io import StringIO as _StringIO
+
     import pandas as _pd
+    import requests as _req
     from bs4 import BeautifulSoup as _BeautifulSoup
 
     # 第一步：获取申万三级行业代码列表（带浏览器请求头，绕过 Cloudflare）
@@ -179,7 +194,7 @@ def _fetch_sw_peers(industry_name: str) -> list[dict]:
         return []
 
     # 第二步：从 legulegu.com 直接抓取成分股数据
-    peers = []
+    peers: list[dict[str, Any]] = []
     for sw_code in matched_codes:
         try:
             url = f"https://legulegu.com/stockdata/index-composition?industryCode={sw_code}"
@@ -207,9 +222,9 @@ def _fetch_sw_peers(industry_name: str) -> list[dict]:
                     if "." in code:
                         code = code.split(".")[0]
 
-                    mcap_raw = row.get("市值（亿元）")
-                    pe_raw = row.get("市盈率ttm")
-                    pb_raw = row.get("市净率")
+                    mcap_raw: Any = row.get("市值（亿元）")
+                    pe_raw: Any = row.get("市盈率ttm")
+                    pb_raw: Any = row.get("市净率")
 
                     peers.append({
                         "symbol": code,
@@ -265,11 +280,12 @@ class AkShareAdapter(DataSource):
 
     def _fetch_price(self, symbol: str, **kwargs) -> list[PriceData]:
         days = kwargs.get("days", 250)  # 近一年交易日，覆盖完整行情周期
-        end_date = date.today().strftime("%Y%m%d")
-        start_date = (date.today() - timedelta(days=days)).strftime("%Y%m%d")
+        end_date = datetime.now().astimezone().date().strftime("%Y%m%d")
+        start_date = (datetime.now().astimezone().date() - timedelta(days=days)).strftime("%Y%m%d")
 
         def _parse(df, source_label: str) -> list[PriceData]:
             results = []
+            prev_close: float | None = None
             for _, row in df.iterrows():
                 try:
                     date_val = row.get("date", row.get("日期"))
@@ -278,15 +294,31 @@ class AkShareAdapter(DataSource):
                     low_val = row.get("low", row.get("最低"))
                     close_val = row.get("close", row.get("收盘"))
                     vol_val = row.get("volume", row.get("成交量"))
+                    close_f = float(close_val)
+                    # 涨跌幅：优先取源数据列（东方财富），缺失/坏值则按前收盘计算（腾讯源）。
+                    # 解析隔离在独立 try 中，坏 pct 值不连累整行 OHLCV 数据。
+                    pct_raw = row.get("涨跌幅", row.get("pct_chg"))
+                    change_pct = None
+                    if pct_raw is not None and str(pct_raw) not in ("", "nan"):
+                        try:
+                            change_pct = round(float(pct_raw), 2)
+                        except (ValueError, TypeError) as e:
+                            logger.debug(f"涨跌幅解析失败，回退按前收盘计算: {e}")
+                    if change_pct is None and prev_close:
+                        change_pct = round((close_f - prev_close) / prev_close * 100, 2)
                     results.append(PriceData(
                         symbol=symbol,
-                        trade_date=datetime.strptime(str(date_val)[:10], "%Y-%m-%d").date(),
+                        trade_date=datetime.strptime(str(date_val)[:10], "%Y-%m-%d").astimezone().date(),
                         open=float(open_val),
                         high=float(high_val),
                         low=float(low_val),
-                        close=float(close_val),
+                        close=close_f,
                         volume=int(float(vol_val)),
+                        change_pct=change_pct,
                     ))
+                    # 异常行不更新 prev_close（真实数据中异常行罕见；若连续异常，
+                    # 下一正常行将相对最后正常收盘计算，属可接受的近似）
+                    prev_close = close_f
                 except (ValueError, KeyError) as e:
                     logger.warning(f"跳过异常行情数据行: {e}")
             return results
@@ -316,16 +348,16 @@ class AkShareAdapter(DataSource):
         return results
 
     def _fetch_financial(self, symbol: str, **kwargs) -> list[FinancialData]:
-        df = ak.stock_financial_abstract_ths(symbol=symbol)
+        df: Any = ak.stock_financial_abstract_ths(symbol=symbol)
 
         # 从资产负债表端点补充 total_equity / total_assets（同花顺源，非东方财富）
         balance_map: dict[str, tuple[float | None, float | None]] = {}
         try:
-            bs_df = ak.stock_financial_debt_ths(symbol=symbol)
+            bs_df: Any = ak.stock_financial_debt_ths(symbol=symbol)
             for _, row in bs_df.iterrows():
                 period_str = str(row.get("报告期", ""))
                 try:
-                    period_date = datetime.strptime(period_str, "%Y-%m-%d").date().isoformat()
+                    period_date = datetime.strptime(period_str, "%Y-%m-%d").astimezone().date().isoformat()
                 except ValueError:
                     continue
                 equity = parse_cn_number(row.get("*所有者权益（或股东权益）合计"))
@@ -337,7 +369,7 @@ class AkShareAdapter(DataSource):
                     assets = parse_cn_number(row.get("资产合计"))
                 balance_map[period_date] = (equity, assets)
         except Exception:
-            logger.debug(f"资产负债表数据获取失败，将使用利润表数据")
+            logger.debug("资产负债表数据获取失败，将使用利润表数据")
 
         results = []
         periods = df.get("报告期", [])
@@ -356,9 +388,9 @@ class AkShareAdapter(DataSource):
             try:
                 period_str = str(periods.iloc[idx] if hasattr(periods, 'iloc') else periods[idx])
                 try:
-                    fiscal_date = datetime.strptime(period_str, "%Y-%m-%d").date()
+                    fiscal_date = datetime.strptime(period_str, "%Y-%m-%d").astimezone().date()
                 except ValueError:
-                    fiscal_date = datetime.strptime(period_str, "%Y%m%d").date()
+                    fiscal_date = datetime.strptime(period_str, "%Y%m%d").astimezone().date()
 
                 revenue = parse_cn_number(revenues.iloc[idx] if hasattr(revenues, 'iloc') else revenues[idx]) if idx < len(revenues) else None
                 net_profit = parse_cn_number(profits.iloc[idx] if hasattr(profits, 'iloc') else profits[idx]) if idx < len(profits) else None
@@ -407,7 +439,7 @@ class AkShareAdapter(DataSource):
 
         # 优先：单只股票轻量接口（雪球）
         try:
-            df = _ak_individual_spot_xq(symbol)
+            df: Any = _ak_individual_spot_xq(symbol)
             if "item" in df.columns and "value" in df.columns:
                 pe_row = df[df["item"] == "市盈率(动)"]
                 pb_row = df[df["item"] == "市净率"]
@@ -416,19 +448,19 @@ class AkShareAdapter(DataSource):
                 if not pb_row.empty:
                     pb = parse_cn_number(pb_row["value"].iloc[0])
         except Exception:
-            pass
+            logger.debug("雪球估值接口失败，回退全市场接口")
 
         # 回退：旧全市场接口
         if pe_ttm is None and pb is None:
             try:
-                df = _ak_spot_em()
+                df: Any = _ak_spot_em()
                 row = df[df["代码"] == symbol]
                 pe_ttm = parse_cn_number(row["市盈率-动态"].iloc[0]) if not row.empty and row["市盈率-动态"].iloc[0] != "-" else None
                 pb = parse_cn_number(row["市净率"].iloc[0]) if not row.empty and row["市净率"].iloc[0] != "-" else None
             except Exception:
-                pass
+                logger.debug("全市场估值接口失败，估值字段为空")
 
-        return [ValuationData(symbol=symbol, date=date.today(), pe_ttm=pe_ttm, pb=pb, ps_ttm=None)]
+        return [ValuationData(symbol=symbol, date=datetime.now().astimezone().date(), pe_ttm=pe_ttm, pb=pb, ps_ttm=None)]
 
     def _fetch_industry(self, symbol: str, **kwargs) -> list[IndustryData]:
         from data.schemas import PeerBasicInfo
@@ -450,13 +482,13 @@ class AkShareAdapter(DataSource):
         # 回退：新端点失败时尝试旧行业名称端点
         if not industry or industry == "未知":
             try:
-                name_df = _ak_industry_name()
+                name_df: Any = _ak_industry_name()
                 if "板块名称" in name_df.columns:
                     names = name_df["板块名称"].tolist()
                     if names:
                         industry = str(names[0])
             except Exception:
-                pass
+                logger.debug("行业名称接口失败，使用空行业名")
 
         # 通过申万行业分类获取同行成分股（优先；东方财富端点不稳定）
         all_peer_symbols: list[str] = []
@@ -489,7 +521,7 @@ class AkShareAdapter(DataSource):
             else:
                 # 回退：东方财富端点
                 try:
-                    board_df = _ak_board_industry_cons_em(industry)
+                    board_df: Any = _ak_board_industry_cons_em(industry)
                     if board_df is not None and len(board_df) > 0:
                         # ...（保留旧逻辑作为回退）
                         cols = list(board_df.columns)
@@ -542,14 +574,14 @@ class AkShareAdapter(DataSource):
         """拉取近 30 天新闻和公告，附带 RawSentimentData"""
         from data.schemas import RawSentimentData, RawSentimentItem
 
-        today = date.today()
+        today = datetime.now().astimezone().date()
         start_date = today - timedelta(days=30)
         items = []
         seen_titles = set()
 
         # 拉取新闻
         try:
-            df = _ak_news(symbol)
+            df: Any = _ak_news(symbol)
             for _, row in df.head(20).iterrows():
                 title = str(row.get("标题", "") or row.get("title", "") or row.get("新闻标题", ""))
                 if not title or title in seen_titles:
@@ -560,9 +592,9 @@ class AkShareAdapter(DataSource):
                 try:
                     raw_date = row.get("发布时间", "") or row.get("时间", "")
                     if raw_date:
-                        pub_date = datetime.strptime(str(raw_date)[:10], "%Y-%m-%d").date()
-                except Exception:
-                    pass
+                        pub_date = datetime.strptime(str(raw_date)[:10], "%Y-%m-%d").astimezone().date()
+                except (ValueError, TypeError):
+                    logger.debug("新闻发布时间解析失败，使用今天日期")
                 if pub_date >= start_date:
                     items.append(RawSentimentItem(
                         title=title, source="news", publish_date=pub_date, content=content,
@@ -573,7 +605,7 @@ class AkShareAdapter(DataSource):
         # 拉取公告（stock_notice_report 的 symbol 参数是报告类型而非股票代码）
         try:
             today_str = today.strftime("%Y%m%d")
-            announce_df = ak.stock_notice_report(symbol="全部", date=today_str)
+            announce_df: Any = ak.stock_notice_report(symbol="全部", date=today_str)
             if announce_df is not None and not announce_df.empty:
                 cols = list(announce_df.columns)
                 # 探测列名映射
@@ -605,9 +637,9 @@ class AkShareAdapter(DataSource):
                     pub_date = today
                     if date_col:
                         try:
-                            pub_date = datetime.strptime(str(row[date_col])[:10], "%Y-%m-%d").date()
-                        except Exception:
-                            pass
+                            pub_date = datetime.strptime(str(row[date_col])[:10], "%Y-%m-%d").astimezone().date()
+                        except (ValueError, TypeError):
+                            logger.debug("公告日期解析失败，使用今天日期")
                     if pub_date >= start_date:
                         items.append(RawSentimentItem(
                             title=title, source="announcement",
@@ -638,17 +670,17 @@ class AkShareAdapter(DataSource):
         try:
             # 宽基指数使用 stock_zh_index_daily_em（主源，东方财富）
             if index_style == "broad":
-                df = ak.stock_zh_index_daily_em(symbol=symbol)
+                df: Any = ak.stock_zh_index_daily_em(symbol=symbol)
                 if df is None or df.empty:
                     # 主源不可用 → 回退腾讯源（参数需 sh/sz 前缀）
                     tx_symbol = f"sz{symbol}" if symbol.startswith("399") else f"sh{symbol}"
-                    df = ak.stock_zh_index_daily_tx(symbol=tx_symbol)
+                    df: Any = ak.stock_zh_index_daily_tx(symbol=tx_symbol)
             elif index_style == "sector":
                 # 行业板块指数使用申万指数接口
-                df = ak.index_hist_sw(symbol=symbol)
+                df: Any = ak.index_hist_sw(symbol=symbol)
             elif index_style == "overseas":
                 # 海外指数用全球指数接口（参数需中文名称）
-                df = ak.index_global_hist_em(symbol=_OVERSEAS_NAME_MAP.get(symbol, symbol))
+                df: Any = ak.index_global_hist_em(symbol=_OVERSEAS_NAME_MAP.get(symbol, symbol))
             else:
                 return []
 
@@ -656,18 +688,38 @@ class AkShareAdapter(DataSource):
                 return []
 
             results = []
+            prev_close: float | None = None
             for _, row in df.iterrows():
-                results.append(IndexPriceData(
-                    symbol=symbol,
-                    trade_date=_parse_date(row["date"]),
-                    open=float(row["open"]),
-                    high=float(row["high"]),
-                    low=float(row["low"]),
-                    close=float(row["close"]),
-                    volume=int(row.get("volume", 0)),
-                    turnover=float(row.get("amount", 0)) / 1e8 if row.get("amount") else None,
-                    change_pct=float(row.get("pct_chg", 0)) if row.get("pct_chg") else None,
-                ))
+                try:
+                    close_f = float(row["close"])
+                    # 涨跌幅：优先取源数据列（部分源/旧版 akshare 提供），缺失/坏值按前收盘计算。
+                    # 注：安装版 akshare 的 stock_zh_index_daily_em 在返回前丢弃承载涨跌幅
+                    # 的 "_" 列，腾讯源亦无涨跌幅列，故实际生效的是按前收盘计算；
+                    # "_" 回退仅为防御未来版本保留该列的情况。
+                    # 解析隔离在独立 try 中，坏 pct 值不连累整行 OHLCV 数据。
+                    pct_raw = row.get("涨跌幅", row.get("pct_chg", row.get("_")))
+                    change_pct = None
+                    if pct_raw is not None and str(pct_raw) not in ("", "nan"):
+                        try:
+                            change_pct = round(float(pct_raw), 2)
+                        except (ValueError, TypeError) as e:
+                            logger.debug(f"指数涨跌幅解析失败，回退按前收盘计算: {e}")
+                    if change_pct is None and prev_close:
+                        change_pct = round((close_f - prev_close) / prev_close * 100, 2)
+                    results.append(IndexPriceData(
+                        symbol=symbol,
+                        trade_date=_parse_date(row["date"]),
+                        open=float(row["open"]),
+                        high=float(row["high"]),
+                        low=float(row["low"]),
+                        close=close_f,
+                        volume=int(row.get("volume", 0)),
+                        turnover=float(row.get("amount", 0)) / 1e8 if row.get("amount") else None,
+                        change_pct=change_pct,
+                    ))
+                    prev_close = close_f
+                except (ValueError, KeyError) as e:
+                    logger.warning(f"跳过异常指数行情数据行: {e}")
             return results
         except Exception as e:
             logger.warning(f"获取指数 {symbol} 行情失败: {e}")
@@ -680,12 +732,12 @@ class AkShareAdapter(DataSource):
         try:
             # 使用 index_value_hist_funddb 获取指数估值历史（主源）
             try:
-                df = ak.index_value_hist_funddb(symbol=symbol, indicator="市盈率")
+                df = ak.index_value_hist_funddb(symbol=symbol, indicator="市盈率")  # pyright: ignore[reportAttributeAccessIssue]
             except AttributeError:
                 df = None
             if df is None or df.empty:
                 # 主源缺失 → 回退中证指数估值接口（列为 市盈率1/股息率1，无市净率）
-                df = ak.stock_zh_index_value_csindex(symbol=symbol)
+                df: Any = ak.stock_zh_index_value_csindex(symbol=symbol)
                 if df is not None and not df.empty:
                     df = df.rename(columns={"市盈率1": "市盈率", "股息率1": "股息率"})
             if df is None or df.empty:
@@ -708,16 +760,16 @@ class AkShareAdapter(DataSource):
         from data.schemas import CapitalFlowData
 
         try:
-            today = date.today()
+            today = datetime.now().astimezone().date()
             if index_style == "broad":
                 # 全市场北向资金（主源）
                 try:
-                    df = ak.stock_hsgt_north_net_flow_in_em(symbol="北上")
+                    df = ak.stock_hsgt_north_net_flow_in_em(symbol="北上")  # pyright: ignore[reportAttributeAccessIssue]
                 except AttributeError:
                     df = None
                 if df is None or df.empty:
                     # 主源缺失 → 回退沪深港通资金汇总接口（过滤北向，汇总净流入）
-                    summary = ak.stock_hsgt_fund_flow_summary_em()
+                    summary: Any = ak.stock_hsgt_fund_flow_summary_em()
                     if summary is not None and not summary.empty:
                         north = summary[summary["资金方向"] == "北向"]
                         if not north.empty:
@@ -728,7 +780,7 @@ class AkShareAdapter(DataSource):
                     return [CapitalFlowData(symbol=symbol, date=today)]
             elif index_style == "sector":
                 # 行业板块资金流向
-                df = ak.stock_sector_fund_flow_rank(indicator="今日", sector_type="行业资金流")
+                df: Any = ak.stock_sector_fund_flow_rank(indicator="今日", sector_type="行业资金流")
                 row = df[df["名称"].str.contains(symbol[:3])] if not df.empty else None
                 if row is not None and not row.empty:
                     r = row.iloc[0]
@@ -749,7 +801,7 @@ class AkShareAdapter(DataSource):
             return [CapitalFlowData(symbol=symbol, date=today)]
         except Exception as e:
             logger.warning(f"获取指数 {symbol} 资金流向失败: {e}")
-            return [CapitalFlowData(symbol=symbol, date=date.today())]
+            return [CapitalFlowData(symbol=symbol, date=datetime.now().astimezone().date())]
 
     @retry_on_network_error()
     def _fetch_index_macro(self, symbol: str, index_style: str) -> list[MacroContext]:
@@ -757,12 +809,12 @@ class AkShareAdapter(DataSource):
 
         if index_style == "sector":
             # sector 保留 MacroContext 实例但字段全 None
-            return [MacroContext(symbol=symbol, fetch_date=date.today())]
+            return [MacroContext(symbol=symbol, fetch_date=datetime.now().astimezone().date())]
 
-        result = MacroContext(symbol=symbol, fetch_date=date.today())
+        result = MacroContext(symbol=symbol, fetch_date=datetime.now().astimezone().date())
         try:
             # PMI（兼容新旧 akshare：新版本降序且列为"制造业-指数"，旧版本升序且列为"制造业"）
-            df_pmi = ak.macro_china_pmi()
+            df_pmi: Any = ak.macro_china_pmi()
             if df_pmi is not None and not df_pmi.empty:
                 if "制造业-指数" in df_pmi.columns:
                     latest = df_pmi.iloc[0]
@@ -774,12 +826,12 @@ class AkShareAdapter(DataSource):
 
             # Shibor（3 个月期；兼容新旧 akshare 参数）
             try:
-                df_shibor = ak.rate_interbank(market="上海银行间同业拆放利率", indicator="Shibor")
+                df_shibor: Any = ak.rate_interbank(market="上海银行间同业拆放利率", indicator="Shibor")
                 three_month = df_shibor[df_shibor["期限"] == "3M"]
                 if not three_month.empty:
                     result.shibor_3m = float(three_month.iloc[-1]["利率"])
             except Exception:
-                df_shibor = ak.rate_interbank(market="上海银行同业拆借市场", symbol="Shibor人民币", indicator="3月")
+                df_shibor: Any = ak.rate_interbank(market="上海银行同业拆借市场", symbol="Shibor人民币", indicator="3月")
                 if df_shibor is not None and not df_shibor.empty:
                     result.shibor_3m = float(df_shibor.iloc[-1]["利率"])
 
@@ -787,23 +839,23 @@ class AkShareAdapter(DataSource):
             if index_style == "overseas":
                 usd_cny = None
                 try:
-                    df_fx = ak.fx_spot_quote()
+                    df_fx: Any = ak.fx_spot_quote()
                     if df_fx is not None and not df_fx.empty:
                         usd_row = df_fx[df_fx["货币对"] == "美元/人民币"]
                         if not usd_row.empty:
                             usd_cny = float(usd_row.iloc[-1]["最新价"])
                 except Exception:
-                    pass
+                    logger.debug("外汇即期接口失败，回退中行牌价")
                 if usd_cny is None:
                     # 回退：中国银行外汇牌价（央行中间价，单位分 → 元）
                     try:
-                        start = (date.today() - timedelta(days=7)).strftime("%Y%m%d")
-                        end = date.today().strftime("%Y%m%d")
-                        df_boc = ak.currency_boc_sina(symbol="美元", start_date=start, end_date=end)
+                        start = (datetime.now().astimezone().date() - timedelta(days=7)).strftime("%Y%m%d")
+                        end = datetime.now().astimezone().date().strftime("%Y%m%d")
+                        df_boc: Any = ak.currency_boc_sina(symbol="美元", start_date=start, end_date=end)
                         if df_boc is not None and not df_boc.empty:
                             usd_cny = float(df_boc.iloc[-1]["央行中间价"]) / 100.0
                     except Exception:
-                        pass
+                        logger.debug("中行外汇牌价接口失败")
                 result.usd_cny = usd_cny
 
         except Exception as e:
@@ -818,14 +870,14 @@ class AkShareAdapter(DataSource):
         try:
             # 全市场要闻（主源，东方财富），不用个股新闻接口
             try:
-                df = ak.stock_news_main_em()
+                df = ak.stock_news_main_em()  # pyright: ignore[reportAttributeAccessIssue]
             except AttributeError:
                 df = None
             if df is None or df.empty:
                 # 主源缺失 → 回退财新要闻接口（列为 summary）
-                df = ak.stock_news_main_cx()
+                df: Any = ak.stock_news_main_cx()
             if df is None or df.empty:
-                return [NewsData(symbol=symbol, date=date.today(), headlines=[])]
+                return [NewsData(symbol=symbol, date=datetime.now().astimezone().date(), headlines=[])]
 
             if "title" in df.columns:
                 headlines = df["title"].head(30).tolist()
@@ -833,8 +885,8 @@ class AkShareAdapter(DataSource):
                 headlines = df["summary"].head(30).tolist()
             else:
                 headlines = []
-            result = NewsData(symbol=symbol, date=date.today(), headlines=headlines)
+            result = NewsData(symbol=symbol, date=datetime.now().astimezone().date(), headlines=headlines)
             return [result]
         except Exception as e:
             logger.warning(f"获取指数舆情失败: {e}")
-            return [NewsData(symbol=symbol, date=date.today(), headlines=[])]
+            return [NewsData(symbol=symbol, date=datetime.now().astimezone().date(), headlines=[])]

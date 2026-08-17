@@ -1,6 +1,7 @@
 """充实器基类和编排器"""
-from abc import ABC, abstractmethod
 import logging
+from abc import ABC, abstractmethod
+
 from data.schemas import AnalysisContext
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,6 @@ class ContextEnricher:
         for enricher in self._enrichers:
             try:
                 ctx = enricher.enrich(ctx)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — 单充实器失败不影响整体
                 logger.error(f"充实器 {enricher.__class__.__name__} 失败: {e}")
         return ctx

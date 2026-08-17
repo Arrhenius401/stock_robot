@@ -22,7 +22,7 @@ class ToolProtocol(Protocol):
     description: str       # LLM 阅读的语义描述，含使用场景和参数说明
     parameters: dict       # JSON Schema 格式的参数定义
     tags: list[str]        # 语义标签 ["pipeline", "stock", "screening"]
-    source: Literal["pipeline", "rag", "mcp_internal", "mcp_external"]
+    source: str            # pipeline / rag / mcp_internal / mcp_external
 
     async def execute(self, **kwargs) -> ToolResult: ...
 
@@ -93,6 +93,16 @@ class ToolRegistry:
                     score += 1
             if score > 0 or tags:
                 scored.append((score, tool))
+
+        if not scored and not tags:
+            # CJK 无空格输入回退：按字符二元组匹配工具名/描述
+            bigrams = {desc_lower[i:i + 2] for i in range(len(desc_lower) - 1)}
+            for name in candidates:
+                tool = self._tools[name]
+                combined = f"{tool.name} {tool.description}".lower()
+                score = sum(1 for bg in bigrams if bg in combined)
+                if score > 0:
+                    scored.append((score, tool))
 
         scored.sort(key=lambda x: x[0], reverse=True)
         return [tool for _, tool in scored]

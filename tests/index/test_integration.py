@@ -1,7 +1,8 @@
 """指数管道端到端集成测试"""
 import pytest
-from src.index.pipeline import IndexPipeline
+
 from src.data.schemas import AnalysisTarget
+from src.index.pipeline import IndexPipeline
 
 
 class TestIndexPipelineIntegration:

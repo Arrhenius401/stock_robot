@@ -1,6 +1,8 @@
 """ToolResult / ToolProtocol / ToolRegistry 单元测试"""
+
 import pytest
-from agent.tools import ToolResult, ToolProtocol
+
+from agent.tools import ToolResult
 
 
 class TestToolResult:
@@ -151,6 +153,16 @@ class TestToolRegistry:
 
         results = registry.match("xyzabc")
         assert len(results) == 0
+
+    def test_match_falls_back_to_cjk_bigrams(self, registry):
+        """无空格中文输入按字符二元组回退匹配工具名/描述"""
+        tool = FakeTool("demo_analysis", "对股票进行全面分析，返回报告",
+                        tags=["demo"], source="test")
+        registry.register(tool)
+
+        candidates = registry.match("帮我分析平安银行")
+
+        assert [t.name for t in candidates] == ["demo_analysis"]
 
     def test_register_duplicate_name_updates_tag_index(self, registry):
         tool1 = FakeTool("t1", "desc", tags=["pipeline"])

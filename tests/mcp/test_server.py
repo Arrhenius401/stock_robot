@@ -1,6 +1,8 @@
 """内部 MCP Server 单元测试"""
 import json
+
 import pytest
+
 from mcp.schemas import JSONRPCRequest
 from mcp.server import InternalMCPServer
 
@@ -56,7 +58,7 @@ class TestInternalMCPServer:
         srv = InternalMCPServer(name="empty", version="0.1.0")
         req = JSONRPCRequest(method="tools/list", id=1)
         resp = srv.handle_request(req)
-        assert resp.result["tools"] == []
+        assert (resp.result or {}).get("tools") == []
 
     @pytest.mark.asyncio
     async def test_handle_tools_call_success(self, server):
@@ -87,7 +89,7 @@ class TestInternalMCPServer:
             "name": "broken", "arguments": {},
         })
         resp = await srv.handle_request_async(req)
-        assert resp.result["isError"] is True
+        assert (resp.result or {}).get("isError") is True
 
     def test_handle_unknown_method(self, server):
         req = JSONRPCRequest(method="unknown/method", id=6)
@@ -100,4 +102,4 @@ class TestInternalMCPServer:
         srv.register_tools([FakeTool(), FakeBrokenTool()])
         req = JSONRPCRequest(method="tools/list", id=1)
         resp = srv.handle_request(req)
-        assert len(resp.result["tools"]) == 2
+        assert len((resp.result or {}).get("tools", [])) == 2

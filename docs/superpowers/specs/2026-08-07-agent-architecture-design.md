@@ -286,7 +286,7 @@ class ChunkMetadata:
 
 | 组件 | 开发阶段 | 线上可升级 |
 |------|---------|-----------|
-| Embedding | `bge-small-zh`（本地） | OpenAI `text-embedding-3-small` |
+| Embedding | `bge-small-zh`（本地） | OpenAI `text-embedding-3-small` | 
 | 向量库 | ChromaDB（本地） | Milvus Lite 或云服务 |
 | 重排器 | `bge-reranker-base`（本地） | Cohere Rerank API |
 

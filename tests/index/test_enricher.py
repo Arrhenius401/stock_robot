@@ -1,28 +1,28 @@
 """指数充实器测试"""
-import pytest
-from datetime import date, timedelta
-from src.index.enricher import compute_percentile, IndexValuationEnricher, tag_valuation
-from src.data.schemas import (
-    AnalysisTarget, IndexAnalysisContext, IndexValuationData,
-    IndexPriceData
-)
+from datetime import datetime, timedelta
+
+from src.data.schemas import AnalysisTarget, IndexAnalysisContext, IndexValuationData
+from src.index.enricher import IndexValuationEnricher, compute_percentile, tag_valuation
 
 
 class TestComputePercentile:
     def test_percentile_midpoint(self):
         """当前值恰好为中位数的分位"""
-        values = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+        values = [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0]
         pct = compute_percentile(50, values)
+        assert pct is not None
         assert abs(pct - 50.0) < 5  # 中位数附近
 
     def test_percentile_low(self):
-        values = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+        values = [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0]
         pct = compute_percentile(5, values)
+        assert pct is not None
         assert pct < 10
 
     def test_percentile_high(self):
-        values = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+        values = [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0]
         pct = compute_percentile(200, values)
+        assert pct is not None
         assert pct > 90
 
     def test_percentile_empty(self):
@@ -54,16 +54,18 @@ class TestIndexValuationEnricher:
         )
         ctx = IndexAnalysisContext(target=target)
         ctx.valuation_data = IndexValuationData(
-            symbol="000300", date=date.today(),
+            symbol="000300", date=datetime.now().astimezone().astimezone().date(),
             pe_ttm=12.5, pb=1.4,
         )
         daily = []
-        base = date.today() - timedelta(days=1200)
+        base = datetime.now().astimezone().astimezone().date() - timedelta(days=1200)
         for i in range(1000):
             daily.append(base + timedelta(days=i))
 
         enricher = IndexValuationEnricher()
-        daily_pe = [10 + (i % 10) for i in range(1000)]
+        daily_pe = [10.0 + (i % 10) for i in range(1000)]
         result = enricher.enrich(ctx, daily_pe_values=daily_pe, daily_pb_values=[])
 
-        assert result.valuation_data.pe_percentile is not None
+        val = result.valuation_data
+        assert val is not None
+        assert val.pe_percentile is not None

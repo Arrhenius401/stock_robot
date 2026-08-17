@@ -1,10 +1,12 @@
 """指数资金面分析测试"""
-import pytest
-from datetime import date
-from src.index.analysis.capital_flow import CapitalFlowAnalyzer
+from datetime import datetime
+
 from src.data.schemas import (
-    AnalysisTarget, IndexAnalysisContext, CapitalFlowData,
+    AnalysisTarget,
+    CapitalFlowData,
+    IndexAnalysisContext,
 )
+from src.index.analysis.capital_flow import CapitalFlowAnalyzer
 
 
 class TestCapitalFlowAnalyzer:
@@ -27,7 +29,7 @@ class TestCapitalFlowAnalyzer:
         )
         ctx = IndexAnalysisContext(target=target)
         ctx.capital_flow = CapitalFlowData(
-            symbol="000300", date=date.today(),
+            symbol="000300", date=datetime.now().astimezone().astimezone().date(),
             north_bound=5.2, main_net_inflow=10.0
         )
         result = CapitalFlowAnalyzer().analyze(ctx)

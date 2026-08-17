@@ -1,10 +1,12 @@
 """指数宏观面分析测试"""
-import pytest
-from datetime import date
-from src.index.analysis.macro import MacroAnalyzer
+from datetime import datetime
+
 from src.data.schemas import (
-    AnalysisTarget, IndexAnalysisContext, MacroContext,
+    AnalysisTarget,
+    IndexAnalysisContext,
+    MacroContext,
 )
+from src.index.analysis.macro import MacroAnalyzer
 
 
 class TestMacroAnalyzer:
@@ -17,6 +19,6 @@ class TestMacroAnalyzer:
             name="电子", market="a-shares", index_style="sector"
         )
         ctx = IndexAnalysisContext(target=target)
-        ctx.macro = MacroContext(symbol="801080", fetch_date=date.today())
+        ctx.macro = MacroContext(symbol="801080", fetch_date=datetime.now().astimezone().astimezone().date())
         result = MacroAnalyzer().analyze(ctx)
         assert result.metrics["tag"] == "na"

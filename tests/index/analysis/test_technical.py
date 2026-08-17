@@ -1,8 +1,10 @@
 """指数技术面分析测试"""
+from datetime import datetime, timedelta
+
 import pytest
-from datetime import date, timedelta
-from src.index.analysis.technical import IndexTechnicalAnalyzer
+
 from src.data.schemas import AnalysisTarget, IndexAnalysisContext, IndexPriceData
+from src.index.analysis.technical import IndexTechnicalAnalyzer
 
 
 @pytest.fixture
@@ -12,7 +14,7 @@ def tech_ctx():
         name="沪深300", market="a-shares", index_style="broad"
     )
     ctx = IndexAnalysisContext(target=target)
-    base = date.today() - timedelta(days=120)
+    base = datetime.now().astimezone().astimezone().date() - timedelta(days=120)
     prices = []
     for i in range(120):
         prices.append(IndexPriceData(

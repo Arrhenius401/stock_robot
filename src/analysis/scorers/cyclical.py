@@ -1,6 +1,6 @@
 """周期资源计分器 — PE 反转逻辑 + 毛利率波动豁免"""
-from data.schemas import AnalysisContext
 from analysis.scorers.general import GeneralScorer
+from data.schemas import AnalysisContext
 
 
 class CyclicalScorer(GeneralScorer):

@@ -1,7 +1,9 @@
 """报告构建器 — 将分析结果组装为 Markdown 报告"""
 from datetime import datetime
 from pathlib import Path
+
 from jinja2 import Environment, FileSystemLoader
+
 from data.schemas import AnalysisResult
 
 
@@ -109,7 +111,7 @@ class ReportBuilder:
             symbol=symbol,
             name=name,
             market="A 股",
-            generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            generated_at=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
             no_llm=no_llm,
             industry=industry,
             year_high=year_high,

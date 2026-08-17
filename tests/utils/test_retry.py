@@ -1,5 +1,7 @@
-import pytest
 from http.client import RemoteDisconnected
+
+import pytest
+
 from utils.retry import retry_on_network_error
 
 

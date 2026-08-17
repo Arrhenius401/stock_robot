@@ -1,13 +1,18 @@
 """IngestionPipeline 单元测试"""
 import hashlib
-import pytest
 from datetime import datetime
-from rag.schemas import ChunkMetadata
+
+import pytest
+
+from rag.embedding import EmbeddingProvider
 from rag.ingestion import IngestionPipeline
 
 
-class FakeEmbeddingProvider:
-    name = "fake"
+class FakeEmbeddingProvider(EmbeddingProvider):
+    @property
+    def name(self) -> str:
+        return "fake"
+
     def embed(self, texts):
         return [[0.1] * 384 for _ in texts]
 
@@ -70,7 +75,7 @@ class TestIngestionPipeline:
 
     def test_ingest_text_adds_to_collection(self, pipeline):
         collection = FakeCollection()
-        now = datetime.now().isoformat()
+        now = datetime.now().astimezone().isoformat()
         pipeline.ingest_text(
             collection=collection,
             text="测试分块文本。\n\n第二段落内容。",
@@ -86,7 +91,7 @@ class TestIngestionPipeline:
 
     def test_ingest_text_skips_empty_content(self, pipeline):
         collection = FakeCollection()
-        now = datetime.now().isoformat()
+        now = datetime.now().astimezone().isoformat()
         pipeline.ingest_text(
             collection=collection,
             text="   \n  ",

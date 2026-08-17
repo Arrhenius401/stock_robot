@@ -4,88 +4,69 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Stock Robot — AI 股票分析助手</title>
-<style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-       background: #1a1a2e; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; }
-header { background: #16213e; padding: 12px 20px; border-bottom: 1px solid #0f3460; display: flex;
-         align-items: center; justify-content: space-between; }
-header h1 { font-size: 18px; color: #e94560; }
-header span { font-size: 12px; color: #888; }
-main { flex: 1; overflow-y: auto; padding: 20px; max-width: 900px; margin: 0 auto; width: 100%; }
-.message { margin-bottom: 16px; padding: 12px 16px; border-radius: 8px; line-height: 1.6; }
-.message.user { background: #0f3460; margin-left: 40px; }
-.message.agent { background: #16213e; margin-right: 40px; border: 1px solid #333; }
-.message .role { font-size: 12px; color: #e94560; margin-bottom: 4px; font-weight: bold; }
-footer { background: #16213e; padding: 12px 20px; border-top: 1px solid #0f3460; display: flex; gap: 8px; }
-footer input { flex: 1; padding: 10px 16px; border-radius: 6px; border: 1px solid #333;
-               background: #1a1a2e; color: #e0e0e0; font-size: 14px; }
-footer input:focus { outline: none; border-color: #e94560; }
-footer button { padding: 10px 20px; border-radius: 6px; background: #e94560; color: white;
-                border: none; cursor: pointer; font-size: 14px; font-weight: bold; }
-footer button:hover { background: #c73a52; }
-footer button:disabled { background: #555; cursor: not-allowed; }
-.tools-bar { display: flex; gap: 8px; padding: 8px 20px; background: #16213e;
-             border-top: 1px solid #0f3460; flex-wrap: wrap; }
-.tools-bar button { padding: 4px 12px; border-radius: 4px; background: #0f3460; color: #aaa;
-                    border: 1px solid #333; cursor: pointer; font-size: 12px; }
-.tools-bar button:hover { background: #1a4a80; color: white; }
-</style>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='4' fill='%23e5484d'/></svg>">
+<link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
-<header>
-  <h1>Stock Robot</h1>
-  <span>AI 驱动的股票分析研报助手</span>
+<header class="topbar">
+  <div class="logo"><span class="dot"></span>Stock Robot</div>
+  <div class="entries">
+    <div class="entry">
+      <label for="stockInput">个股分析</label>
+      <input id="stockInput" placeholder="600519">
+      <button id="stockBtn">分析</button>
+    </div>
+    <div class="entry">
+      <label for="indexInput">指数分析</label>
+      <input id="indexInput" placeholder="000300 000905">
+      <button id="indexBtn">分析</button>
+    </div>
+  </div>
+  <div class="conn-status" id="connStatus" hidden>⚠ 无法连接服务</div>
 </header>
-<main id="chat"></main>
-<div class="tools-bar">
-  <button onclick="sendQuick('大盘现在适合入场吗？')">择时研判</button>
-  <button onclick="sendQuick('帮我列出可用工具')">工具列表</button>
-  <button onclick="sendQuick('/clear')">清空会话</button>
+<div class="layout">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-top">
+      <button class="new-session" id="newSessionBtn"><span class="plus">＋</span><span class="txt"> 新建会话</span></button>
+      <button class="collapse-btn" id="collapseBtn" title="折叠/展开侧边栏">«</button>
+    </div>
+    <div class="session-list" id="sessionList"></div>
+    <nav class="nav">
+      <div class="nav-item on" data-view="chat">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span>聊天</span>
+      </div>
+      <div class="nav-item" data-view="report">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 3 5-6"/></svg>
+        <span>个股报告</span>
+      </div>
+      <div class="nav-item" data-view="index">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 6l-9.5 9.5-5-5L1 18"/><path d="M17 6h6v6"/></svg>
+        <span>指数分析</span>
+      </div>
+    </nav>
+  </aside>
+  <main class="main">
+    <div class="view active" id="view-chat">
+      <div class="chat-scroll" id="chatScroll"></div>
+      <div class="quick-bar">
+        <button id="quickTiming">择时研判</button>
+        <button id="quickTools">工具列表</button>
+        <button id="quickClear">清空会话</button>
+      </div>
+      <div class="chat-input">
+        <input id="chatInput" placeholder="输入你的投资研究问题...">
+        <button id="sendBtn">发送</button>
+      </div>
+    </div>
+    <div class="view" id="view-report">
+      <div id="reportContent" class="report-content"></div>
+    </div>
+    <div class="view" id="view-index">
+      <div id="indexContent" class="report-content"></div>
+    </div>
+  </main>
 </div>
-<footer>
-  <input id="input" type="text" placeholder="输入你的投资研究问题..."
-         onkeydown="if(event.key==='Enter')sendMessage()">
-  <button id="sendBtn" onclick="sendMessage()">发送</button>
-</footer>
-
-<script>
-const chat = document.getElementById('chat');
-const input = document.getElementById('input');
-const sendBtn = document.getElementById('sendBtn');
-
-function addMessage(role, text, isError) {
-  const div = document.createElement('div');
-  div.className = 'message ' + role + (isError ? '' : '');
-  div.innerHTML = '<div class="role">' + (role === 'user' ? '你' : 'Stock Robot') + '</div>'
-    + '<div class="content">' + text.replace(/\n/g, '<br>') + '</div>';
-  chat.appendChild(div);
-  chat.scrollTop = chat.scrollHeight;
-}
-
-async function sendMessage() {
-  const msg = input.value.trim();
-  if (!msg) return;
-  addMessage('user', msg);
-  input.value = '';
-  sendBtn.disabled = true;
-  if (msg.startsWith('/')) { addMessage('agent', '快捷命令已发送: ' + msg); sendBtn.disabled = false; return; }
-  try {
-    const resp = await fetch('/api/v1/chat', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({message: msg})
-    });
-    const data = await resp.json();
-    addMessage('agent', data.response || JSON.stringify(data), resp.status >= 400);
-  } catch(e) {
-    addMessage('agent', '请求失败: ' + e.message, true);
-  }
-  sendBtn.disabled = false;
-  input.focus();
-}
-
-function sendQuick(msg) { input.value = msg; sendMessage(); }
-input.focus();
-</script>
+<script type="module" src="/js/app.js"></script>
 </body>
 </html>

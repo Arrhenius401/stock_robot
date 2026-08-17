@@ -1,10 +1,12 @@
 """输出渲染 — 协议定义 + Rich/JSON 实现"""
 import json
-from typing import Any, Protocol
+from typing import Protocol
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from agent.memory import Plan, TaskStep, TaskStatus
+
+from agent.memory import Plan, TaskStatus, TaskStep
 from agent.tools import ToolResult
 
 
@@ -127,4 +129,4 @@ def _status_icon(status: str) -> str:
         TaskStatus.FAILED: "✗",
         TaskStatus.SKIPPED: "—",
     }
-    return icons.get(status, "?")
+    return icons.get(TaskStatus(status), "?")

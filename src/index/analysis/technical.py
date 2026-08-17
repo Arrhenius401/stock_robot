@@ -1,5 +1,6 @@
 """指数技术面分析 — 趋势、均线、支撑/压力位"""
-from typing import Any
+from typing import Any, Literal
+
 from analysis.base import AnalysisModule
 from data.schemas import AnalysisResult, IndexAnalysisContext, SufficiencyLevel
 from index.enricher import tag_technical
@@ -7,7 +8,7 @@ from index.enricher import tag_technical
 
 class IndexTechnicalAnalyzer(AnalysisModule):
     @property
-    def dimension(self) -> str:
+    def dimension(self) -> Literal["index_technical"]:
         return "index_technical"
 
     def analyze(self, context: IndexAnalysisContext,

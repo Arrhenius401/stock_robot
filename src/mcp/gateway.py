@@ -1,8 +1,9 @@
 """MCP Gateway 入口 — 统一管理内部 Server 与外部 Client"""
 import logging
-from mcp.server import InternalMCPServer
-from mcp.client import ExternalMCPClient
+
 from mcp.adapter import MCPAdapter
+from mcp.client import ExternalMCPClient
+from mcp.server import InternalMCPServer
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ class MCPGateway:
         resp = self._server._handle_tools_list(
             JSONRPCRequest(method="tools/list", id=0)
         )
-        return resp.result.get("tools", [])
+        return (resp.result or {}).get("tools", [])
 
     def get_server(self) -> InternalMCPServer:
         return self._server
@@ -84,7 +85,7 @@ class MCPGateway:
         for name, client in list(self._clients.items()):
             try:
                 client.disconnect()
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — 断开失败不阻断其余客户端清理
                 logger.warning("断开 %s 失败: %s", name, e)
         self._clients.clear()
 

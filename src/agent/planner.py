@@ -1,6 +1,7 @@
 """Planner — LLM 驱动的任务拆解，只做拆解不绑定工具"""
 import json
 import logging
+
 from agent.memory import Memory, Plan, TaskStep
 
 logger = logging.getLogger(__name__)
@@ -74,7 +75,7 @@ class Planner:
             plan = self._parse_response(response, user_input)
             plan.context_summary = context_summary
             return plan
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — LLM 失败降级为单步计划
             logger.warning(f"Planner LLM 调用失败，使用降级单步计划: {e}")
             return self._fallback_plan(user_input, context_summary)
 

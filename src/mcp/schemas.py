@@ -1,6 +1,7 @@
 """MCP JSON-RPC 2.0 消息类型与工具定义"""
 import json
 from dataclasses import dataclass, field
+from typing import Any
 
 MCP_LIST_TOOLS_REQUEST = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
 
@@ -41,7 +42,8 @@ class JSONRPCResponse:
                  error: dict | None = None, jsonrpc: str = "2.0"):
         self.id = id
         self.result = result
-        self.error = error
+        # 实例属性与同名 classmethod error() 冲突
+        self.error = error  # pyright: ignore[reportAttributeAccessIssue]
         self.jsonrpc = jsonrpc
 
     @classmethod
@@ -76,7 +78,7 @@ class MCPToolDefinition:
                    input_schema=d.get("inputSchema", {}))
 
     def to_dict(self) -> dict:
-        result = {"name": self.name, "description": self.description}
+        result: dict[str, Any] = {"name": self.name, "description": self.description}
         if self.input_schema: result["inputSchema"] = self.input_schema
         return result
 

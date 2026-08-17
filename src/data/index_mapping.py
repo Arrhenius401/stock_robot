@@ -1,14 +1,17 @@
 """指数代码 → 名称 → 类别映射表"""
-from pathlib import Path
 import csv
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Literal, cast
+
+IndexStyle = Literal["broad", "sector", "overseas"]
 
 
 @dataclass
 class IndexMappingEntry:
     symbol: str
     name: str
-    index_style: str    # "broad" | "sector" | "overseas"
+    index_style: IndexStyle
     market: str = "a-shares"
 
 
@@ -32,7 +35,7 @@ class IndexMapping:
                 self._mapping[symbol] = IndexMappingEntry(
                     symbol=symbol,
                     name=row["name"],
-                    index_style=row["index_style"],
+                    index_style=cast(IndexStyle, row["index_style"]),
                     market=row.get("market", "a-shares"),
                 )
 

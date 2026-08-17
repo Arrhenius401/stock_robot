@@ -1,11 +1,16 @@
 """指数单报告构建器测试"""
+from datetime import date, datetime
+
 import pytest
-from datetime import date
-from src.index.build_single import IndexReportBuilder
+
 from data.schemas import (
-    AnalysisTarget, IndexAnalysisContext, IndexValuationData,
-    AnalysisResult, IndexReport
+    AnalysisResult,
+    AnalysisTarget,
+    IndexAnalysisContext,
+    IndexReport,
+    IndexValuationData,
 )
+from src.index.build_single import IndexReportBuilder
 
 
 @pytest.fixture
@@ -16,7 +21,7 @@ def broad_ctx():
     )
     ctx = IndexAnalysisContext(target=target)
     ctx.valuation_data = IndexValuationData(
-        symbol="000300", date=date.today(),
+        symbol="000300", date=datetime.now().astimezone().astimezone().date(),
         pe_ttm=12.5, pb=1.4, pe_percentile=68.0,
         percentile_lookback_years=5,
         percentile_sample_start=date(2021, 8, 1),

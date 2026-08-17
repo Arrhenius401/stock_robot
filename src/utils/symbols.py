@@ -1,6 +1,7 @@
 """股票代码工具 — 标准化、校验、名称解析"""
-import re
 import logging
+import re
+from typing import Any
 
 from utils.retry import retry_on_network_error
 
@@ -58,11 +59,11 @@ def validate_symbol(symbol: str) -> bool:
 def resolve_name(symbol: str) -> str:
     """解析股票代码对应的公司名称"""
     try:
-        df = _ak_code_name()
+        df: Any = _ak_code_name()
         row = df[df["code"] == normalize_symbol(symbol)]
         if not row.empty:
             return str(row["name"].iloc[0])
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — 第三方接口异常类型不可预测，降级返回空名
         logger.warning(f"股票名称解析失败 {symbol}: {e}")
     return ""
 
@@ -76,7 +77,7 @@ def validate_index_symbol(symbol: str) -> bool:
     if re.match(r"^[A-Z]{2,10}$", cleaned):
         return True
     # A 股指数：可选前缀 + 数字
-    prefix, digits = _extract_prefix_and_digits(cleaned.lower())
+    _, digits = _extract_prefix_and_digits(cleaned.lower())
     if not digits or len(digits) < 5:
         return False
     code = digits.zfill(6)

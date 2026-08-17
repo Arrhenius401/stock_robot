@@ -1,6 +1,6 @@
-import tempfile
 from pathlib import Path
-from utils.config import Config, DEFAULT_CONFIG
+
+from utils.config import Config
 
 
 class TestConfig:

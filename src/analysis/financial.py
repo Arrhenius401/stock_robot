@@ -1,5 +1,5 @@
 """财务分析模块 — 配置驱动，无硬编码阈值"""
-from typing import Any
+from typing import Any, Literal
 
 from analysis.base import AnalysisModule
 from data.schemas import AnalysisContext, AnalysisResult, SufficiencyLevel
@@ -7,7 +7,7 @@ from data.schemas import AnalysisContext, AnalysisResult, SufficiencyLevel
 
 class FinancialAnalyzer(AnalysisModule):
     @property
-    def dimension(self) -> str:
+    def dimension(self) -> Literal["financial"]:
         return "financial"
 
     def analyze(self, context: AnalysisContext,
@@ -74,13 +74,13 @@ class FinancialAnalyzer(AnalysisModule):
     @staticmethod
     def _get_scorer(config: dict[str, Any]):
         strategy_key = config.get("meta", {}).get("strategy_key", "GeneralScorer")
-        from analysis.scorers.general import GeneralScorer
         from analysis.scorers.bank import BankScorer
         from analysis.scorers.cyclical import CyclicalScorer
-        from analysis.scorers.tech_growth import TechGrowthScorer
-        from analysis.scorers.real_estate import RealEstateScorer
+        from analysis.scorers.general import GeneralScorer
         from analysis.scorers.non_bank_financial import NonBankFinancialScorer
         from analysis.scorers.pharma import PharmaScorer
+        from analysis.scorers.real_estate import RealEstateScorer
+        from analysis.scorers.tech_growth import TechGrowthScorer
 
         strategy_map = {
             "GeneralScorer": GeneralScorer,

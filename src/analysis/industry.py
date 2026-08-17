@@ -1,5 +1,5 @@
 """行业分析模块 — 行业分类与同业对比"""
-from typing import Any
+from typing import Any, Literal
 
 from analysis.base import AnalysisModule
 from data.schemas import AnalysisContext, AnalysisResult, SufficiencyLevel
@@ -7,7 +7,7 @@ from data.schemas import AnalysisContext, AnalysisResult, SufficiencyLevel
 
 class IndustryAnalyzer(AnalysisModule):
     @property
-    def dimension(self) -> str:
+    def dimension(self) -> Literal["industry"]:
         return "industry"
 
     def analyze(self, context: AnalysisContext,

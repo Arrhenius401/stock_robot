@@ -1,5 +1,7 @@
 from datetime import date
+
 import pytest
+
 from data.base import DataSource
 from data.schemas import PriceData
 
@@ -26,7 +28,7 @@ class FakeSource(DataSource):
 class TestDataSource:
     def test_cannot_instantiate_abstract(self):
         with pytest.raises(TypeError):
-            DataSource()
+            DataSource()  # pyright: ignore[reportAbstractUsage]
 
     def test_concrete_implementation_works(self):
         source = FakeSource()

@@ -1,10 +1,11 @@
 """IndexDataCollector — 按 index_style 编排指数数据采集，只拉取原始数据"""
 import logging
 from collections.abc import Callable
-from core.registry import Registry
+
 from core.pipeline import ProgressCallback
-from data.schemas import AnalysisTarget, IndexAnalysisContext
+from core.registry import Registry
 from data.akshare import AkShareAdapter
+from data.schemas import AnalysisTarget, IndexAnalysisContext
 
 logger = logging.getLogger(__name__)
 
@@ -93,9 +94,10 @@ class IndexDataCollector:
         if target.index_style in ("broad", "overseas"):
             steps.append(("index_macro", INDEX_COLLECT_LABELS["index_macro"], _fetch_macro))
         elif target.index_style == "sector":
+            from datetime import datetime
+
             from data.schemas import MacroContext
-            from datetime import date
-            ctx.macro = MacroContext(symbol=target.symbol, fetch_date=date.today())
+            ctx.macro = MacroContext(symbol=target.symbol, fetch_date=datetime.now().astimezone().date())
 
         # 舆情（所有类别）
         steps.append(("index_sentiment", INDEX_COLLECT_LABELS["index_sentiment"], _fetch_sentiment))
@@ -104,7 +106,7 @@ class IndexDataCollector:
         for i, (_data_type, label, fetch_fn) in enumerate(steps):
             try:
                 fetch_fn()
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — 单项采集失败不影响其余维度
                 logger.warning(f"采集 {label} 失败: {e}")
             if on_progress:
                 on_progress("collect", i + 1, total, label)

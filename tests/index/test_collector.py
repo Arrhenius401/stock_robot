@@ -1,9 +1,9 @@
 """指数数据采集器测试"""
+
 import pytest
-from unittest.mock import MagicMock, patch
-from datetime import date
-from src.index.collector import IndexDataCollector
+
 from data.schemas import AnalysisTarget, IndexAnalysisContext
+from src.index.collector import IndexDataCollector
 
 
 @pytest.fixture

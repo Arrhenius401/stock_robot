@@ -1,9 +1,8 @@
 """Embedding 提供者抽象与实现单元测试"""
-import pytest
 from rag.embedding import (
     EmbeddingProvider,
-    SentenceTransformersProvider,
     KeywordFallbackProvider,
+    SentenceTransformersProvider,
     create_embedding_provider,
 )
 

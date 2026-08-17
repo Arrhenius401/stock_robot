@@ -19,6 +19,10 @@ class LocalReportSync:
         skipped = 0
         failed = 0
 
+        engine = self._engine
+        if engine is None:
+            return {"processed": 0, "skipped": 0, "failed": 0, "note": "引擎未注入"}
+
         new_files = self.scan_new_files()
         for file_info in new_files:
             try:
@@ -30,7 +34,7 @@ class LocalReportSync:
                     symbols_from_name = self._symbols_from_filename(file_info["name"])
                     symbols = symbols_from_name
 
-                result = self._engine.ingest_file(
+                result = engine.ingest_file(
                     file_path=file_info["path"],
                     source_type="history_reports",
                     title=file_info["name"].replace(".md", ""),
@@ -45,7 +49,7 @@ class LocalReportSync:
                 else:
                     failed += 1
                     logger.warning("报告同步失败: %s", file_info["path"])
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — 单文件同步失败不阻断批量
                 failed += 1
                 logger.error("同步报告异常: %s → %s", file_info.get("path", "?"), e)
 
@@ -110,5 +114,5 @@ class LocalReportSync:
             sources = self._engine.list_sources()
             return {s["source_hash"] for s in sources
                     if s.get("collection") == "history_reports"}
-        except Exception:
+        except Exception:  # noqa: BLE001 — 已入库哈希加载失败视为空集
             return set()

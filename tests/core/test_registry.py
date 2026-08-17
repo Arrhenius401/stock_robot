@@ -1,8 +1,10 @@
+from typing import Any, cast
+
+from analysis.base import AnalysisModule
 from core.registry import Registry
 from data.base import DataSource
-from analysis.base import AnalysisModule
-from llm.base import LLMBackend
 from data.schemas import AnalysisResult
+from llm.base import LLMBackend
 
 
 class FakeSource(DataSource):
@@ -50,7 +52,7 @@ class TestRegistry:
             def dimension(self):
                 return "fake"
             def analyze(self, ctx):
-                return AnalysisResult(dimension="fake", status="ok", summary="ok", metrics={})
+                return AnalysisResult(dimension=cast(Any, "fake"), status="ok", summary="ok", metrics={})
 
         r.register_analysis_module(FakeMod())
         results = r.get_analysis_modules()

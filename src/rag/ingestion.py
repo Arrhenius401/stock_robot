@@ -29,11 +29,11 @@ class IngestionPipeline:
     ) -> dict:
         symbols = symbols or []
         tags = tags or []
-        ingested_at = datetime.now().isoformat()
+        ingested_at = datetime.now().astimezone().isoformat()
 
         try:
             text = self.load_document(file_path)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — 文件加载异常统一转错误结果
             logger.error("加载文件失败 %s: %s", file_path, e)
             return {"status": "error", "reason": str(e), "file_path": file_path}
 
@@ -87,7 +87,7 @@ class IngestionPipeline:
 
         ids = []
         metadatas = []
-        for i, chunk in enumerate(chunks):
+        for i in range(len(chunks)):
             chunk_id = f"{source_hash}_{i}"
             ids.append(chunk_id)
             from rag.schemas import ChunkMetadata
@@ -161,5 +161,6 @@ class IngestionPipeline:
                 limit=1,
             )
             return len(existing.get("metadatas", [])) > 0
-        except Exception:
+        except Exception:  # noqa: BLE001 — 查重失败视为不重复
+            logger.debug("文档查重失败: %s", doc_hash)
             return False

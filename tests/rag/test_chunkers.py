@@ -1,14 +1,12 @@
 """文档分块策略单元测试"""
-import pytest
 from rag.chunkers import (
-    Chunker,
-    ResearchReportChunker,
-    FinancialFilingChunker,
-    PolicyMacroChunker,
     AcademicChunker,
-    HistoryReportChunker,
-    SystemRulesChunker,
     ChunkerRegistry,
+    FinancialFilingChunker,
+    HistoryReportChunker,
+    PolicyMacroChunker,
+    ResearchReportChunker,
+    SystemRulesChunker,
 )
 
 

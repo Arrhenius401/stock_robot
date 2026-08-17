@@ -1,11 +1,16 @@
 """指数横向对比测试"""
+from datetime import datetime
+from typing import Literal, cast
+
 import pytest
-from datetime import date
-from src.index.build_compare import IndexCompareReportBuilder, CompareTable
+
 from src.data.schemas import (
-    AnalysisTarget, IndexAnalysisContext, IndexValuationData,
-    AnalysisResult, IndexReport
+    AnalysisTarget,
+    IndexAnalysisContext,
+    IndexReport,
+    IndexValuationData,
 )
+from src.index.build_compare import CompareTable, IndexCompareReportBuilder
 
 
 @pytest.fixture
@@ -19,16 +24,17 @@ def compare_data():
     ]:
         target = AnalysisTarget(
             target_type="index", symbol=code,
-            name=name, market="a-shares", index_style=style
+            name=name, market="a-shares",
+            index_style=cast(Literal["broad", "sector", "overseas"], style),
         )
         ctx = IndexAnalysisContext(target=target)
         ctx.valuation_data = IndexValuationData(
-            symbol=code, date=date.today(), pe_ttm=12.0, pe_percentile=50.0,
+            symbol=code, date=datetime.now().astimezone().astimezone().date(), pe_ttm=12.0, pe_percentile=50.0,
             valuation_valid=True
         )
         contexts.append(ctx)
         reports.append(IndexReport(
-            code=code, name=name, date=date.today(),
+            code=code, name=name, date=datetime.now().astimezone().astimezone().date(),
             overview={"latest_close": 4000.0, "change_pct": 0.5},
             section_technical={}, section_valuation={},
             section_capital={}, section_macro={}, section_sentiment={},

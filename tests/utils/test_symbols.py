@@ -1,6 +1,6 @@
 from http.client import RemoteDisconnected
 
-from utils.symbols import normalize_symbol, validate_symbol, resolve_name
+from utils.symbols import normalize_symbol, resolve_name, validate_symbol
 
 
 class TestNormalizeSymbol:

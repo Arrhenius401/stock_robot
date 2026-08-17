@@ -1,19 +1,22 @@
 """充实器单元测试"""
-import pytest
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+
+from data.enrichers.financial_enricher import FinancialEnricher
+from data.enrichers.industry_enricher import IndustryEnricher
+from data.enrichers.price_enricher import PriceEnricher
+from data.enrichers.sentiment_enricher import SentimentEnricher
+from data.enrichers.valuation_enricher import ValuationEnricher
 from data.schemas import (
     AnalysisContext,
     FinancialData,
+    IndustryData,
+    PeerBasicInfo,
     PriceData,
+    RawSentimentData,
+    RawSentimentItem,
     SufficiencyLevel,
     ValuationData,
 )
-from data.enrichers.price_enricher import PriceEnricher
-from data.enrichers.financial_enricher import FinancialEnricher
-from data.enrichers.valuation_enricher import ValuationEnricher
-from data.enrichers.industry_enricher import IndustryEnricher
-from data.enrichers.sentiment_enricher import SentimentEnricher
-from data.schemas import IndustryData, PeerBasicInfo, RawSentimentData, RawSentimentItem
 
 
 def make_price_data(n: int) -> list[PriceData]:
@@ -148,7 +151,7 @@ class TestValuationEnricher:
         ctx = AnalysisContext(symbol="000001", name="测试",
                               price_data=prices, financial_data=financials)
         # 模拟 valuation_data（当前单时点估值，用于总股本回退逻辑）
-        ctx.valuation_data = ValuationData(symbol="000001", date=date.today(),
+        ctx.valuation_data = ValuationData(symbol="000001", date=datetime.now().astimezone().astimezone().date(),
                                            pe_ttm=7.5, pb=0.85, ps_ttm=1.2)
         ctx = PriceEnricher().enrich(ctx)
         ctx = FinancialEnricher().enrich(ctx)
@@ -185,12 +188,12 @@ class TestIndustryEnricher:
 def make_raw_sentiment(n: int) -> RawSentimentData:
     items = [
         RawSentimentItem(
-            title=f"测试标题 {i}", source="news", publish_date=date.today(),
+            title=f"测试标题 {i}", source="news", publish_date=datetime.now().astimezone().astimezone().date(),
             content=f"测试内容 {i}",
         )
         for i in range(n)
     ]
-    return RawSentimentData(symbol="000001", fetch_date=date.today(), items=items)
+    return RawSentimentData(symbol="000001", fetch_date=datetime.now().astimezone().astimezone().date(), items=items)
 
 
 class TestSentimentEnricher:

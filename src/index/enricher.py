@@ -63,9 +63,9 @@ class IndexValuationEnricher:
 
         val = ctx.valuation_data
 
-        if daily_pe_values:
+        if daily_pe_values and val.pe_ttm is not None:
             val.pe_percentile = compute_percentile(val.pe_ttm, daily_pe_values)
-        if daily_pb_values:
+        if daily_pb_values and val.pb is not None:
             val.pb_percentile = compute_percentile(val.pb, daily_pb_values)
 
         # 分位元数据

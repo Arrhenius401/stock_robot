@@ -1,5 +1,7 @@
 """MCP Gateway 集成测试"""
+
 import pytest
+
 from mcp.gateway import MCPGateway
 
 

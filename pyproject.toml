@@ -34,3 +34,21 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+
+[tool.pyright]
+typeCheckingMode = "basic"
+venvPath = "."
+venv = ".venv"
+include = ["src", "tests"]
+
+[tool.ruff]
+target-version = "py311"
+
+# 第三方数据源适配层：akshare/requests/pandas 异常类型不可预测，
+# 允许 except Exception 兜底降级（均须记录日志）
+# 工具定义类：name/parameters/tags 为类级常量元数据（只读，不修改），属惯用模式
+[tool.ruff.lint.per-file-ignores]
+"src/data/akshare.py" = ["BLE001"]
+"src/agent/pipeline_tools.py" = ["RUF012"]
+"src/agent/rag_tools.py" = ["RUF012"]
+"tests/**" = ["RUF012"]

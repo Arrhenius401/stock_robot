@@ -1,13 +1,18 @@
-import pytest
-from unittest.mock import MagicMock
 from datetime import date
+from unittest.mock import MagicMock
+
 from core.pipeline import Pipeline
 from core.registry import Registry
-from data.schemas import (
-    AnalysisContext, AnalysisResult, FinancialData, PriceData,
-    ValuationData, IndustryData, NewsData,
-)
 from data.base import DataSource
+from data.schemas import (
+    AnalysisContext,
+    AnalysisResult,
+    FinancialData,
+    IndustryData,
+    NewsData,
+    PriceData,
+    ValuationData,
+)
 from llm.base import LLMBackend
 
 
@@ -20,7 +25,7 @@ def make_test_registry():
         def fetch(self, symbol, **kwargs):
             data_type = kwargs.get("data_type", "price")
             if data_type == "price":
-                return [PriceData(symbol=symbol, trade_date=date(2026,7,1), open=10, high=11, low=9.5, close=10.5, volume=1e6)]
+                return [PriceData(symbol=symbol, trade_date=date(2026,7,1), open=10, high=11, low=9.5, close=10.5, volume=1_000_000)]
             elif data_type == "financial":
                 return [FinancialData(symbol=symbol, fiscal_quarter=date(2025,12,31), revenue=45e9, net_profit=8.5e9, total_assets=500e9, total_equity=45e9, operating_cash_flow=12e9)]
             elif data_type == "valuation":
@@ -34,8 +39,9 @@ def make_test_registry():
     reg = Registry()
     reg.register_data_source(MockDataSource())
 
-    from analysis.base import AnalysisModule
-    for dim in ["financial", "technical", "valuation", "industry", "sentiment"]:
+    from analysis.base import AnalysisModule, DimensionName
+    dims: list[DimensionName] = ["financial", "technical", "valuation", "industry", "sentiment"]
+    for dim in dims:
         mod = MagicMock(spec=AnalysisModule)
         mod.dimension = dim
         mod.analyze.return_value = AnalysisResult(
@@ -57,7 +63,7 @@ class TestPipeline:
     def test_run_without_llm(self):
         reg = make_test_registry()
         pipeline = Pipeline(registry=reg, llm_enabled=False)
-        results, commentary, ctx = pipeline.run("000001", "平安银行")
+        results, _, ctx = pipeline.run("000001", "平安银行")
         assert len(results) == 5
         assert all(isinstance(r, AnalysisResult) for r in results)
         assert isinstance(ctx, AnalysisContext)
@@ -213,14 +219,14 @@ class TestPipelineIndustryIntegration:
 
     def test_analysis_results_have_scores(self):
         """分析结果应有配置驱动的分数"""
+        from analysis.financial import FinancialAnalyzer
+        from analysis.industry import IndustryAnalyzer
+        from analysis.sentiment import SentimentAnalyzer
+        from analysis.technical import TechnicalAnalyzer
+        from analysis.valuation import ValuationAnalyzer
         from core.pipeline import Pipeline
         from core.registry import Registry
         from data.akshare import AkShareAdapter
-        from analysis.financial import FinancialAnalyzer
-        from analysis.valuation import ValuationAnalyzer
-        from analysis.industry import IndustryAnalyzer
-        from analysis.technical import TechnicalAnalyzer
-        from analysis.sentiment import SentimentAnalyzer
 
         reg = Registry()
         reg.register_data_source(AkShareAdapter())

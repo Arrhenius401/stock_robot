@@ -1,6 +1,6 @@
 import json
 import time
-from pathlib import Path
+
 from data.cache import CacheManager
 from data.schemas import PriceData
 

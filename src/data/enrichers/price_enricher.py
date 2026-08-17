@@ -1,6 +1,11 @@
 """行情数据充足判定充实器"""
 from data.enricher import DataEnricher
-from data.schemas import AnalysisContext, DimensionSufficiency, DataSufficiency, SufficiencyLevel
+from data.schemas import (
+    AnalysisContext,
+    DataSufficiency,
+    DimensionSufficiency,
+    SufficiencyLevel,
+)
 
 
 class PriceEnricher(DataEnricher):

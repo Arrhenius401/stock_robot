@@ -1,5 +1,6 @@
 """指数估值面分析 — PE/PB 历史分位 + 估值区域判断"""
-from typing import Any
+from typing import Any, Literal
+
 from analysis.base import AnalysisModule
 from data.schemas import AnalysisResult, IndexAnalysisContext
 from index.enricher import tag_valuation
@@ -7,7 +8,7 @@ from index.enricher import tag_valuation
 
 class IndexValuationAnalyzer(AnalysisModule):
     @property
-    def dimension(self) -> str:
+    def dimension(self) -> Literal["index_valuation"]:
         return "index_valuation"
 
     def analyze(self, context: IndexAnalysisContext,

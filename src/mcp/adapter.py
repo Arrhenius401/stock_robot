@@ -1,8 +1,10 @@
 """MCP <-> ToolProtocol 适配器"""
 import json
 import logging
+from typing import cast
+
 from agent.tools import ToolResult
-from mcp.schemas import MCPToolDefinition, MCPToolCallResult
+from mcp.schemas import MCPToolCallResult, MCPToolDefinition
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +21,7 @@ class MCPAdapter:
         """
         if mcp_tool is None:
             # 类方法风格：第一个位置参数实际是 mcp_tool，本方法无 caller 上下文
-            mcp_tool = self
+            mcp_tool = cast(MCPToolDefinition, self)
             adapter = None
         else:
             adapter = self
@@ -35,8 +37,13 @@ class MCPAdapter:
             source = src
 
             async def execute(self, **kwargs):
+                # 闭包捕获的变量不做流收窄，复制到局部变量
+                caller = adapter
+                if caller is None or caller._caller is None:
+                    return ToolResult(status="error", error="无 MCP 调用器上下文",
+                                     metadata={"source": source})
                 try:
-                    mcp_result = await adapter._caller.call_tool(name=mcp_tool.name, arguments=kwargs)
+                    mcp_result = await caller._caller.call_tool(name=mcp_tool.name, arguments=kwargs)
                     if mcp_result.is_error:
                         error_text = "".join(c.get("text", "") for c in mcp_result.content)
                         return ToolResult(status="error", error=error_text,
@@ -44,7 +51,7 @@ class MCPAdapter:
                     result_text = "".join(c.get("text", "") for c in mcp_result.content)
                     return ToolResult(status="success", data=result_text,
                                      metadata={"source": source, "mcp_tool": mcp_tool.name})
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — 工具执行隔离，失败以 ToolResult 返回
                     logger.error("MCP 工具 %s 执行失败: %s", mcp_tool.name, e)
                     return ToolResult(status="error", error=str(e),
                                      metadata={"source": source, "mcp_tool": mcp_tool.name})

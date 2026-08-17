@@ -232,54 +232,34 @@ print(f"已处理: {result['processed']}, 跳过: {result['skipped']}, 失败: {
 
 ---
 
-### HTTP API（新增）
+### Web UI
 
-启动 HTTP 服务，将 Agent 和工具能力通过 REST API 暴露：
-
-```bash
-# 启动服务（默认 127.0.0.1:8000）
-PYTHONPATH=src python -m uvicorn api.app:app --host 127.0.0.1 --port 8000
-
-# 开发模式自动重载
-PYTHONPATH=src python -m uvicorn api.app:app --reload
-```
-
-**API 端点：**
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `GET` | `/health` | 健康检查 |
-| `GET` | `/api/v1/tools` | 列出可用工具 |
-| `POST` | `/api/v1/chat` | Agent 对话（JSON 响应） |
-| `POST` | `/api/v1/chat/stream` | Agent 对话（SSE 流式） |
-| `POST` | `/api/v1/analyze` | 存量分析（开发中） |
-| `POST` | `/api/v1/index` | 存量指数（开发中） |
-| `GET` | `/` | Web UI |
-
-**示例调用：**
+一键启动（自动注入 Agent 核心）：
 
 ```bash
-# 健康检查
-curl http://127.0.0.1:8000/health
-
-# 查询工具列表
-curl http://127.0.0.1:8000/api/v1/tools
-
-# Agent 对话
-curl -X POST http://127.0.0.1:8000/api/v1/chat \
-  -H "Content-Type: application/json" \
-  -H "X-Session-Id: my-session" \
-  -d '{"message": "帮我分析平安银行的估值水平"}'
-
-# SSE 流式对话
-curl -X POST http://127.0.0.1:8000/api/v1/chat/stream \
-  -H "Content-Type: application/json" \
-  -d '{"message": "对比新能源龙头的估值"}'
+stock-robot api --host 127.0.0.1 --port 8000
 ```
 
-启动后浏览器打开 `http://127.0.0.1:8000/` 进入 Web 聊天界面。
+浏览器打开 http://127.0.0.1:8000 使用 Web 聊天界面。页面功能：
 
-**鉴权模式：** 默认仅监听 `127.0.0.1`，无需鉴权。可通过环境变量 `STOCK_ROBOT_API_KEY` 启用 API Key 校验。
+- **聊天**：SSE 流式展示 Agent 执行计划与进度；工具结果卡可一键跳转完整报告
+- **个股报告**：顶栏输入代码直达，或从聊天结果跳转；完整维度评分 + AI 解读
+- **指数分析**：顶栏支持多指数（空格分隔），自动生成对比表 + 逐指数研报
+- **会话管理**：左侧边栏新建/切换/删除/清空会话，历史消息重启后恢复
+
+主要 API 端点：
+
+- `POST /api/v1/chat` — Agent 对话（body: `{"message": "...", "session_id": "可选"}`）
+- `POST /api/v1/chat/stream` — SSE 流式对话（start/plan/progress/result/error/text/done 事件）
+- `POST /api/v1/analyze` — 个股分析（body: `{"symbol": "600519"}`），返回完整报告 JSON
+- `POST /api/v1/index` — 指数分析（body: `{"symbols": ["000300", "000905"], "index_style": "可选"}`；单指数兼容 `{"symbol": "000300"}`；多指数响应含 `compare` 对比表）
+- `GET/POST /api/v1/sessions`、`DELETE /api/v1/sessions/{id}`、`POST /api/v1/sessions/{id}/clear`、`GET /api/v1/sessions/{id}/messages` — 会话管理
+- `GET /api/v1/tools` — 工具列表
+
+> 无 Agent 模式（仅调试静态页）：`PYTHONPATH=src python -m uvicorn api.app:app`，
+> 该模式下 chat 返回"Agent 核心未注入"提示，analyze/index 返回 503。
+
+**鉴权模式：** 默认仅监听 `127.0.0.1`，无需鉴权。
 
 ---
 
@@ -296,7 +276,7 @@ MCP Gateway 兼顾两种角色：**内部 Server**（将本地工具标准化暴
   "mcpServers": {
     "stock-robot": {
       "command": "python",
-      "args": ["-c", "from mcp.gateway import MCPGateway; from agent.pipeline_tools import AnalyzeStockTool; gw = MCPGateway(); gw.register_local_tool(AnalyzeStockTool()); gw.serve_stdio()"]
+      "args": ["-c", "from mcp.gateway import MCPGateway; from api.bootstrap import build_agent_core; gw = MCPGateway(); core = build_agent_core(); [gw.register_local_tool(t) for t in core.registry.list_all()]; gw.serve_stdio()"]
     }
   }
 }
@@ -345,6 +325,8 @@ cat ~/.stock_robot/config.yaml                   # 完整配置
 | `llm.temperature` | 生成温度 (0-1) | `0.3` |
 | `llm.max_tokens` | 最大输出 token | `2000` |
 | `llm.enabled` | 是否启用 LLM | `true` |
+| `llm.retry_times` | LLM 调用重试次数 | `2` |
+| `llm.timeout_seconds` | LLM 调用超时（秒） | `60` |
 | `data.cache_ttl.daily` | 日频缓存（秒） | `86400` |
 | `data.cache_ttl.quarterly` | 季频缓存（秒） | `604800` |
 

@@ -1,11 +1,12 @@
 """内部 MCP Server — stdio JSON-RPC 暴露本地工具"""
-import json
-import sys
-import logging
 import asyncio
-from mcp.schemas import JSONRPCRequest, JSONRPCResponse, MCPToolCallResult
+import json
+import logging
+import sys
+
+from agent.tools import ToolProtocol, ToolResult
 from mcp.adapter import MCPAdapter
-from agent.tools import ToolResult
+from mcp.schemas import JSONRPCRequest, JSONRPCResponse
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ class InternalMCPServer:
     def __init__(self, name: str, version: str):
         self._name = name
         self._version = version
-        self._tools: dict[str, object] = {}
+        self._tools: dict[str, ToolProtocol] = {}
         self._adapter = MCPAdapter()
         self._initialized = False
 
@@ -73,7 +74,7 @@ class InternalMCPServer:
             return JSONRPCResponse.error(req.id, ERROR_PARAMS, f"未知工具: {tool_name}")
         try:
             result = await tool.execute(**arguments)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — 工具执行隔离，失败以 ToolResult 返回
             logger.error("工具 %s 执行异常: %s", tool_name, e)
             result = ToolResult(status="error", error=str(e))
         mcp_result = MCPAdapter.result_to_mcp(result)

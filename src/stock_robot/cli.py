@@ -1,10 +1,12 @@
 """Stock Robot CLI — AI 驱动的股票分析研报助手"""
 import logging
 import os
+
 os.environ["TQDM_DISABLE"] = "1"
 
 import sys
 from pathlib import Path
+
 import click
 from rich.console import Console
 from rich.panel import Panel
@@ -16,13 +18,13 @@ logger = logging.getLogger(__name__)
 
 def _get_registry():
     """构建默认注册表"""
-    from core.registry import Registry
-    from data.akshare import AkShareAdapter
     from analysis.financial import FinancialAnalyzer
-    from analysis.technical import TechnicalAnalyzer
-    from analysis.valuation import ValuationAnalyzer
     from analysis.industry import IndustryAnalyzer
     from analysis.sentiment import SentimentAnalyzer
+    from analysis.technical import TechnicalAnalyzer
+    from analysis.valuation import ValuationAnalyzer
+    from core.registry import Registry
+    from data.akshare import AkShareAdapter
 
     reg = Registry()
     reg.register_data_source(AkShareAdapter())
@@ -35,30 +37,12 @@ def _get_registry():
 
 
 def _register_llm(reg, config):
-    """注册 LLM 后端"""
-    from llm.openai import OpenAIAdapter
-    from llm.claude import ClaudeAdapter
+    """注册 LLM 后端（复用 bootstrap 构建逻辑，含重试/超时参数）"""
+    from api.bootstrap import build_llm
 
-    provider = config.get("llm.provider", "openai")
-    api_key = config.get("llm.api_key", "")
-    base_url = config.get("llm.base_url", "") or None
-
-    if provider == "openai":
-        reg.register_llm_backend(
-            OpenAIAdapter(api_key=api_key, model=config.get("llm.model", "gpt-4o"),
-                          temperature=config.get("llm.temperature", 0.3),
-                          max_tokens=config.get("llm.max_tokens", 2000),
-                          base_url=base_url),
-            provider="openai",
-        )
-    elif provider == "claude":
-        reg.register_llm_backend(
-            ClaudeAdapter(api_key=api_key, model=config.get("llm.model", "claude-sonnet-4-6"),
-                          temperature=config.get("llm.temperature", 0.3),
-                          max_tokens=config.get("llm.max_tokens", 2000),
-                          base_url=base_url),
-            provider="claude",
-        )
+    llm = build_llm(config)
+    if llm is not None:
+        reg.register_llm_backend(llm, provider=config.get("llm.provider", "openai"))
 
 
 def _build_pipeline(llm_enabled=True):
@@ -74,8 +58,8 @@ def _build_pipeline(llm_enabled=True):
 
 def _get_cache():
     """获取缓存管理器"""
-    from utils.config import Config
     from data.cache import CacheManager
+    from utils.config import Config
     config = Config()
     return CacheManager(db_path=config.config_dir / "cache.db")
 
@@ -115,7 +99,6 @@ def _convert_value(value: str):
 @click.version_option(version="0.1.0")
 def main():
     """Stock Robot — AI 驱动的股票分析研报助手"""
-    pass
 
 
 @main.command()
@@ -127,10 +110,9 @@ def main():
 @click.option("--with-market", is_flag=True, help="在报告中嵌入大盘环境分析")
 def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
     """分析股票并生成研报"""
-    from utils.symbols import normalize_symbol, validate_symbol, resolve_name
-    from report.builder import ReportBuilder
     from report.formatter import ReportFormatter
     from utils.config import Config
+    from utils.symbols import normalize_symbol, resolve_name, validate_symbol
 
     config = Config()
     if not _check_disclaimer(config):
@@ -149,7 +131,7 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
     llm_enabled = not no_llm and config.get("llm.enabled", True)
     pipeline = _build_pipeline(llm_enabled=llm_enabled)
 
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 
     try:
         with Progress(
@@ -180,65 +162,9 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
 
             if not verbose:
                 progress.update(task_id, visible=False)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — CLI 顶层兜底，打印错误并退出
         console.print(f"[red]分析失败: {e}[/red]")
         sys.exit(1)
-
-    # 计算综合打分
-    dim_weights = {"financial": 0.30, "technical": 0.20,
-                   "valuation": 0.25, "industry": 0.25}
-    base_score = 0.0
-    total_weight = 0.0
-    results_map = {r.dimension: r for r in results}
-    score_rows = []
-    all_risk_flags = []
-    sufficiency_label = {"ok": "充足", "partial": "部分可用", "unavailable": "数据不足"}
-    dim_labels = {"financial": "财务健康", "technical": "技术趋势",
-                  "valuation": "估值合理", "industry": "行业对比",
-                  "sentiment": "舆情风险"}
-    dim_weight_labels = {"financial": "30%", "technical": "20%",
-                         "valuation": "25%", "industry": "25%",
-                         "sentiment": "不计分"}
-
-    for dim, weight in dim_weights.items():
-        r = results_map.get(dim)
-        if r and r.score is not None:
-            base_score += r.score * weight
-            total_weight += weight
-
-    if total_weight > 0:
-        base_score = round(base_score / total_weight, 1)
-
-    # 计算风险扣分（每条风险标签扣 1 分，上限 10）
-    risk_deduction = 0
-    for r in results:
-        risk_deduction += len(r.risk_flags)
-    risk_deduction = min(risk_deduction, 10)
-    final_score = max(0, base_score - risk_deduction)
-
-    # 构建打分行
-    for dim, label in dim_labels.items():
-        r = results_map.get(dim)
-        if r:
-            score_rows.append({
-                "label": label,
-                "score": f"{r.score:.1f}" if r.score is not None else "N/A",
-                "weight": dim_weight_labels[dim],
-                "sufficiency": sufficiency_label.get(r.status, r.status),
-                "detail": r.score_detail or "",
-            })
-        all_risk_flags.extend(r.risk_flags if r else [])
-
-    # 基础信息
-    price_data = ctx.price_data or []
-    year_high = max(p.high for p in price_data) if price_data else None
-    year_low = min(p.low for p in price_data) if price_data else None
-    latest_price = price_data[-1].close if price_data else None
-    if year_high and year_low and latest_price and (year_high - year_low) > 0:
-        pct = (latest_price - year_low) / (year_high - year_low) * 100
-        price_position = f"{pct:.0f}%"
-    else:
-        price_position = "暂无"
 
     # 大盘环境快照（可选，供报告中嵌入指数环境摘要）
     market_env = None
@@ -249,35 +175,24 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
             snapshot = index_pipeline.get_snapshot("000300")
             if snapshot:
                 market_env = snapshot
-        except Exception:
-            pass
+        except Exception:  # noqa: BLE001 — 大盘快照为可选信息，失败静默跳过
+            logger.debug("大盘快照获取失败，跳过")
 
-    builder = ReportBuilder()
-    report = builder.build(
-        symbol, name, results, commentary,
-        no_llm=no_llm,
-        industry=(ctx.industry_data.industry if ctx.industry_data else "未知"),
-        year_high=f"{year_high:.2f}" if year_high else "暂无",
-        year_low=f"{year_low:.2f}" if year_low else "暂无",
-        price_position=price_position,
-        score_rows=score_rows,
-        base_score=base_score,
-        risk_deduction=risk_deduction,
-        final_score=final_score,
-        risk_flags=all_risk_flags,
-        market_env=market_env,
-    )
+    from report.scoring import build_report
+    report = build_report(symbol, name, results, commentary, ctx,
+                          no_llm=no_llm, market_env=market_env)
 
     saved_path = ReportFormatter.save(report, symbol)
     console.print(ReportFormatter.to_rich_markdown(report))
     console.print(f"\n[dim]报告已保存至: {saved_path}[/dim]")
 
 
-def _render_index_report(report) -> str:
+def _render_index_report(report):
     """将 IndexReport 渲染为终端可读的 Rich Markdown"""
     from datetime import datetime
+
     from jinja2 import Environment, FileSystemLoader
-    from pathlib import Path
+
     from report.builder import _md_table
 
     template_dir = Path(__file__).parent.parent / "report" / "templates"
@@ -288,7 +203,7 @@ def _render_index_report(report) -> str:
     md = template.render(
         code=report.code,
         name=report.name,
-        generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        generated_at=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
         overview=report.overview,
         section_technical=report.section_technical,
         section_valuation=report.section_valuation,
@@ -311,8 +226,9 @@ def _render_index_report(report) -> str:
 def _render_index_report_md(report) -> str:
     """将 IndexReport 渲染为纯 Markdown 文本"""
     from datetime import datetime
+
     from jinja2 import Environment, FileSystemLoader
-    from pathlib import Path
+
     from report.builder import _md_table
 
     template_dir = Path(__file__).parent.parent / "report" / "templates"
@@ -323,7 +239,7 @@ def _render_index_report_md(report) -> str:
     return template.render(
         code=report.code,
         name=report.name,
-        generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        generated_at=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
         overview=report.overview,
         section_technical=report.section_technical,
         section_valuation=report.section_valuation,
@@ -341,7 +257,7 @@ def _render_index_report_md(report) -> str:
     )
 
 
-def _render_compare_table(compare) -> str:
+def _render_compare_table(compare) -> Table | str:
     """渲染横向对比表格"""
     if not compare or not compare.rows:
         return ""
@@ -369,11 +285,11 @@ def _render_compare_table(compare) -> str:
 @click.option("--compare-only", is_flag=True, help="仅输出横向对比表格")
 def index(symbols, style, output, compare_only):
     """分析指数并生成报告"""
-    from utils.symbols import validate_index_symbol, normalize_index_symbol
-    from utils.config import Config
     from data.index_mapping import IndexMapping
     from data.schemas import AnalysisTarget
     from index.pipeline import IndexPipeline
+    from utils.config import Config
+    from utils.symbols import normalize_index_symbol, validate_index_symbol
 
     config = Config()
     if not _check_disclaimer(config):
@@ -410,7 +326,7 @@ def index(symbols, style, output, compare_only):
             name=name, market=market, index_style=index_style,
         ))
 
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 
     pipeline = IndexPipeline()
     with Progress(
@@ -454,7 +370,6 @@ def index(symbols, style, output, compare_only):
 @main.group()
 def config():
     """管理配置"""
-    pass
 
 
 @config.command("set")
@@ -482,7 +397,6 @@ def config_get(key):
 @main.group()
 def cache():
     """管理缓存"""
-    pass
 
 
 @cache.command("clear")
@@ -507,48 +421,41 @@ def cache_status():
 
 
 @main.command()
+@click.option("--host", default="127.0.0.1", help="监听地址")
+@click.option("--port", default=8000, type=int, help="监听端口")
+def api(host, port):
+    """启动 Web API 服务（含 Web UI）"""
+    from api.app import create_app
+    from api.bootstrap import build_agent_core
+    from utils.config import Config
+
+    config = Config()
+    core = build_agent_core(config)
+    app = create_app(core=core)
+    logger.info("Stock Robot API 启动于 http://%s:%d", host, port)
+    import uvicorn
+    uvicorn.run(app, host=host, port=port)
+
+
+@main.command()
 @click.option("--ask", "-a", default=None, help="单次对话（非交互式）")
 @click.option("--verbose", "-v", is_flag=True, help="显示计划和工具调用细节")
 def chat(ask, verbose):
     """进入 AI Agent 对话模式，支持复杂投研任务的自主拆解和分析"""
-    from agent.tools import ToolRegistry
+    from agent.executor import Executor
     from agent.memory import Memory
     from agent.planner import Planner
-    from agent.executor import Executor
-    from agent.pipeline_tools import (
-        AnalyzeStockTool, AnalyzeIndexTool, GetSnapshotTool, ScreenStocksTool,
-    )
+    from api.bootstrap import build_agent_core
     from output.renderer import RichRenderer
     from utils.config import Config
 
     config = Config()
     renderer = RichRenderer(console=console)
-
-    # 构建工具注册表
-    registry = ToolRegistry()
-    registry.register(AnalyzeStockTool())
-    registry.register(AnalyzeIndexTool())
-    registry.register(GetSnapshotTool())
-    registry.register(ScreenStocksTool())
-
-    # 注册 RAG 工具（若 ChromaDB 可用，否则静默跳过）
-    try:
-        from agent.rag_tools import RAGSearchTool, RAGListSourcesTool
-        from rag.engine import RAGEngine
-
-        rag_engine = RAGEngine()
-        registry.register(RAGSearchTool(engine=rag_engine))
-        registry.register(RAGListSourcesTool(engine=rag_engine))
-        logger.info("RAG 工具已注册 (embedding=%s)", rag_engine.embedding_name)
-    except Exception as e:
-        logger.warning("RAG 工具不可用，跳过注册: %s", e)
-
-    # 构建 LLM 后端
-    llm = _get_llm_for_agent(config)
+    core = build_agent_core(config)
 
     memory = Memory()
-    planner = Planner(llm=llm, registry=registry, memory=memory)
-    executor = Executor(registry=registry, memory=memory)
+    planner = Planner(llm=core.llm, registry=core.registry, memory=memory)
+    executor = Executor(registry=core.registry, memory=memory)
 
     if ask:
         _run_agent_query(ask, planner, executor, memory, renderer)
@@ -643,37 +550,6 @@ def _handle_slash_command(text, memory, renderer):
     return False
 
 
-def _get_llm_for_agent(config):
-    """为 Agent 创建 LLM 后端实例"""
-    provider = config.get("llm.provider", "openai")
-    api_key = config.get("llm.api_key", "")
-    base_url = config.get("llm.base_url", "") or None
-
-    try:
-        if provider == "openai":
-            from llm.openai import OpenAIAdapter
-            return OpenAIAdapter(
-                api_key=api_key,
-                model=config.get("llm.model", "gpt-4o"),
-                temperature=config.get("llm.temperature", 0.3),
-                max_tokens=config.get("llm.max_tokens", 2000),
-                base_url=base_url,
-            )
-        elif provider == "claude":
-            from llm.claude import ClaudeAdapter
-            return ClaudeAdapter(
-                api_key=api_key,
-                model=config.get("llm.model", "claude-sonnet-4-6"),
-                temperature=config.get("llm.temperature", 0.3),
-                max_tokens=config.get("llm.max_tokens", 2000),
-                base_url=base_url,
-            )
-    except Exception as e:
-        logger.warning(f"LLM 后端初始化失败: {e}")
-
-    return None
-
-
 # ---------------------------------------------------------------------------
 # RAG 知识库管理命令组
 # ---------------------------------------------------------------------------
@@ -681,7 +557,6 @@ def _get_llm_for_agent(config):
 @main.group()
 def rag():
     """知识库管理 — 文档摄入、清理、统计"""
-    pass
 
 
 @rag.command("ingest")
@@ -703,9 +578,10 @@ def rag_ingest(path, source_type, title, date, symbol, tag):
     PATH 可以是单个文件或目录路径。
     """
     import os
+
     from rag.engine import RAGEngine
 
-    console.print(f"[bold]正在摄入知识库...[/bold]")
+    console.print("[bold]正在摄入知识库...[/bold]")
     console.print(f"  类型: {source_type}")
     console.print(f"  路径: {path}")
 
@@ -714,7 +590,7 @@ def rag_ingest(path, source_type, title, date, symbol, tag):
     tags = list(tag)
 
     if os.path.isdir(path):
-        console.print(f"  模式: 目录批量导入")
+        console.print("  模式: 目录批量导入")
         results = engine.ingest_directory(
             directory=path,
             source_type=source_type,

@@ -1,4 +1,5 @@
 from unittest.mock import MagicMock
+
 from llm.openai import OpenAIAdapter
 
 
@@ -27,6 +28,7 @@ class TestOpenAIAdapter:
         assert call_args["temperature"] == 0.3
 
     def test_generate_with_error_returns_data_only_message(self, mocker):
+        mocker.patch("llm.base.time.sleep")
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = Exception("API Error")
         mocker.patch("llm.openai.OpenAI", return_value=mock_client)
@@ -41,10 +43,13 @@ class TestOpenAIAdapter:
         mock_openai = mocker.patch("llm.openai.OpenAI", return_value=MagicMock())
         OpenAIAdapter(api_key="sk-test", base_url="https://api.deepseek.com/v1")
         mock_openai.assert_called_once_with(
-            api_key="sk-test", base_url="https://api.deepseek.com/v1"
+            api_key="sk-test", base_url="https://api.deepseek.com/v1", timeout=60.0,
+            max_retries=0,
         )
 
     def test_no_base_url_omits_arg(self, mocker):
         mock_openai = mocker.patch("llm.openai.OpenAI", return_value=MagicMock())
         OpenAIAdapter(api_key="sk-test")
-        mock_openai.assert_called_once_with(api_key="sk-test")
+        mock_openai.assert_called_once_with(
+            api_key="sk-test", timeout=60.0, max_retries=0,
+        )

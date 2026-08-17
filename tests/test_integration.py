@@ -1,16 +1,15 @@
 """管道端到端集成测试"""
-import pytest
 
 
 class TestPipelineIntegration:
     def test_pipeline_runs_without_error(self):
         """验证完整管道：采集 → 充实 → 分析（不含 LLM 调用）"""
-        from core.registry import Registry
-        from data.akshare import AkShareAdapter
-        from core.pipeline import Pipeline
-        from utils.config import Config
         from analysis.financial import FinancialAnalyzer
         from analysis.valuation import ValuationAnalyzer
+        from core.pipeline import Pipeline
+        from core.registry import Registry
+        from data.akshare import AkShareAdapter
+        from utils.config import Config
 
         reg = Registry()
         reg.register_data_source(AkShareAdapter())
@@ -21,7 +20,7 @@ class TestPipelineIntegration:
         pipeline = Pipeline(registry=reg, config=config, llm_enabled=False)
 
         result = pipeline.run("000001", "平安银行", dimension="financial")
-        results, commentary, ctx = result
+        results, _, ctx = result
 
         assert len(results) > 0
         assert results[0].dimension == "financial"
@@ -32,15 +31,15 @@ class TestPipelineIntegration:
 
     def test_pipeline_all_dimensions(self):
         """完整五维度分析（不含 LLM 调用）"""
-        from core.registry import Registry
-        from data.akshare import AkShareAdapter
-        from core.pipeline import Pipeline
-        from utils.config import Config
         from analysis.financial import FinancialAnalyzer
-        from analysis.technical import TechnicalAnalyzer
-        from analysis.valuation import ValuationAnalyzer
         from analysis.industry import IndustryAnalyzer
         from analysis.sentiment import SentimentAnalyzer
+        from analysis.technical import TechnicalAnalyzer
+        from analysis.valuation import ValuationAnalyzer
+        from core.pipeline import Pipeline
+        from core.registry import Registry
+        from data.akshare import AkShareAdapter
+        from utils.config import Config
 
         reg = Registry()
         reg.register_data_source(AkShareAdapter())
@@ -53,7 +52,7 @@ class TestPipelineIntegration:
         config = Config()
         pipeline = Pipeline(registry=reg, config=config, llm_enabled=False)
 
-        results, commentary, ctx = pipeline.run("000001", "平安银行")
+        results, _, _ = pipeline.run("000001", "平安银行")
 
         assert len(results) == 5
         dimensions = {r.dimension for r in results}

@@ -1,9 +1,11 @@
 from datetime import date
 from http.client import RemoteDisconnected
+
 import pandas as pd
 import pytest
+
 from data.akshare import AkShareAdapter
-from data.schemas import PriceData, FinancialData
+from data.schemas import FinancialData, PriceData
 
 
 class TestAkShareAdapter:
@@ -106,6 +108,71 @@ def test_fetch_price_retries_on_network_error(mocker):
     results = adapter.fetch("000001", data_type="price")
     assert calls["n"] == 2  # 第一次失败被重试
     assert len(results) == 1
+
+
+def test_fetch_price_uses_change_pct_column(mocker):
+    """东方财富源：优先使用数据行的涨跌幅列"""
+
+    def _mock_hist(symbol, period, start_date, end_date, adjust):
+        return pd.DataFrame([
+            {"日期": "2026-07-01", "开盘": "10.0", "最高": "11.0", "最低": "9.5",
+             "收盘": "10.0", "成交量": 1000, "涨跌幅": "1.20"},
+            {"日期": "2026-07-02", "开盘": "10.1", "最高": "10.8", "最低": "9.9",
+             "收盘": "10.5", "成交量": 1200, "涨跌幅": "5.00"},
+        ])
+
+    mocker.patch("akshare.stock_zh_a_hist", side_effect=_mock_hist)
+    # 根 conftest 将腾讯源 patch 成 ConnectionError，会触发重试退避，屏蔽真实 sleep
+    mocker.patch("utils.retry.time.sleep")
+    adapter = AkShareAdapter()
+    results = adapter.fetch("000001", data_type="price", days=365)
+    assert len(results) == 2
+    assert results[0].change_pct == pytest.approx(1.2)
+    assert results[1].change_pct == pytest.approx(5.0)
+
+
+def test_fetch_price_nan_change_falls_back_to_compute(mocker):
+    """涨跌幅列为 NaN 时回退按前收盘计算，不丢弃整行"""
+
+    def _mock_hist(symbol, period, start_date, end_date, adjust):
+        return pd.DataFrame([
+            {"日期": "2026-07-01", "开盘": "10.0", "最高": "11.0", "最低": "9.5",
+             "收盘": "10.0", "成交量": 1000, "涨跌幅": "1.20"},
+            {"日期": "2026-07-02", "开盘": "10.1", "最高": "10.8", "最低": "9.9",
+             "收盘": "10.5", "成交量": 1200, "涨跌幅": float("nan")},
+        ])
+
+    mocker.patch("akshare.stock_zh_a_hist", side_effect=_mock_hist)
+    mocker.patch("utils.retry.time.sleep")
+    adapter = AkShareAdapter()
+    results = adapter.fetch("000001", data_type="price", days=365)
+    assert len(results) == 2  # NaN 不丢行
+    assert results[0].change_pct == pytest.approx(1.2)
+    assert results[1].change_pct == pytest.approx(5.0)  # (10.5-10.0)/10.0*100
+
+
+def test_fetch_price_computes_change_pct_without_column(mocker):
+    """腾讯源：无涨跌幅列时按前收盘价计算；首行为 None"""
+
+    # 60 行数据使 _fetch_price 满足 >=60 阈值直接返回，避免回退到未被 mock 的东方财富源
+    dates = pd.date_range("2026-04-01", periods=60, freq="B").strftime("%Y-%m-%d").tolist()
+    rows = [
+        {"date": d, "open": "10.0", "high": "10.6", "low": "9.8",
+         "close": "10.0" if i < 59 else "10.5", "volume": 1000}
+        for i, d in enumerate(dates)
+    ]
+
+    def _mock_daily(symbol, start_date, end_date, adjust):
+        return pd.DataFrame(rows)
+
+    # 根 conftest 全局把腾讯源 patch 成 ConnectionError，此处覆盖为成功返回
+    mocker.patch("akshare.stock_zh_a_daily", side_effect=_mock_daily)
+    adapter = AkShareAdapter()
+    results = adapter.fetch("000001", data_type="price", days=365)
+    assert len(results) == 60
+    assert results[0].change_pct is None  # 首行无前收盘
+    assert results[1].change_pct == pytest.approx(0.0)  # 中间行收盘持平
+    assert results[-1].change_pct == pytest.approx(5.0)  # (10.5-10.0)/10.0*100
 
 
 def test_fetch_valuation_falls_back_to_old_endpoint(mocker):

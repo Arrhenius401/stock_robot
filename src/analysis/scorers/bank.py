@@ -1,6 +1,6 @@
 """银行专用计分器 — PB 为主要估值指标，自定义风控指标"""
-from data.schemas import AnalysisContext
 from analysis.scorers.general import GeneralScorer
+from data.schemas import AnalysisContext
 
 
 class BankScorer(GeneralScorer):

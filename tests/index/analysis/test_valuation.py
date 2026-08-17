@@ -1,8 +1,8 @@
 """指数估值面分析测试"""
-import pytest
-from datetime import date
-from src.index.analysis.valuation import IndexValuationAnalyzer
+from datetime import datetime
+
 from src.data.schemas import AnalysisTarget, IndexAnalysisContext, IndexValuationData
+from src.index.analysis.valuation import IndexValuationAnalyzer
 
 
 class TestIndexValuationAnalyzer:
@@ -25,7 +25,7 @@ class TestIndexValuationAnalyzer:
         )
         ctx = IndexAnalysisContext(target=target)
         ctx.valuation_data = IndexValuationData(
-            symbol="000300", date=date.today(),
+            symbol="000300", date=datetime.now().astimezone().astimezone().date(),
             pe_ttm=12.5, pe_percentile=40.0,
             valuation_valid=True
         )
@@ -40,7 +40,7 @@ class TestIndexValuationAnalyzer:
         )
         ctx = IndexAnalysisContext(target=target)
         ctx.valuation_data = IndexValuationData(
-            symbol="000300", date=date.today(),
+            symbol="000300", date=datetime.now().astimezone().astimezone().date(),
             pe_ttm=12.5, valuation_valid=False
         )
         result = IndexValuationAnalyzer().analyze(ctx)

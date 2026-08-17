@@ -1,6 +1,14 @@
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Literal
+
 from data.schemas import AnalysisContext, AnalysisResult
+
+# 与 AnalysisResult.dimension 的 Literal 取值保持一致
+DimensionName = Literal[
+    "financial", "technical", "valuation", "industry", "sentiment",
+    "index_technical", "index_valuation", "index_capital_flow",
+    "index_macro", "index_sentiment",
+]
 
 
 class AnalysisModule(ABC):
@@ -8,7 +16,7 @@ class AnalysisModule(ABC):
 
     @property
     @abstractmethod
-    def dimension(self) -> str:
+    def dimension(self) -> DimensionName:
         """分析维度标识"""
         ...
 
