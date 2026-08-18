@@ -141,3 +141,63 @@ class TestExecutionGraph:
 
         # 同 thread 恢复：s2 执行完成，s1 状态不被覆盖
         assert state2["done_ids"] == ["s1", "s2"]
+
+    @pytest.mark.asyncio
+    async def test_no_candidate_step_marks_failed_and_cascades(self):
+        """LLM 无候选（空注册表 + 无模型）→ 步骤 failed，依赖级联 skipped，不崩溃"""
+        reg = ToolRegistry()  # 空注册表：任何描述都无候选
+        memory = Memory()
+        graph = build_execution_graph(reg, memory, model=None)
+        plan = Plan(goal="测试", steps=[
+            TaskStep(id="s1", description="无工具可匹配"),
+            TaskStep(id="s2", description="依赖s1", depends_on=["s1"]),
+        ])
+
+        state = await graph.ainvoke(
+            plan_to_state(plan),
+            config={"configurable": {"thread_id": "t-fix1"}})
+
+        assert state["failed_ids"] == ["s1"]
+        assert state["skipped_ids"] == ["s2"]
+        assert state["pending_ids"] == []
+        # 失败原因写入 memory
+        assert any(m["role"] == "system" and "步骤 s1 失败" in m["content"]
+                   for m in memory.messages)
+
+    @pytest.mark.asyncio
+    async def test_persist_dir_checkpoint_survives_new_graph(self, tmp_path):
+        """AsyncSqliteSaver 落盘：新图实例 + 同 thread 可从磁盘恢复步骤状态"""
+        reg = make_registry()
+        memory = Memory()
+        db_path = tmp_path / "ckpt.sqlite"
+        plan = Plan(goal="测试", steps=[
+            TaskStep(id="s1", description="第一步", tool_name="tool_a", tool_args={}),
+            TaskStep(id="s2", description="第二步", tool_name="tool_b", tool_args={},
+                     depends_on=["s1"]),
+        ])
+        cfg = {"configurable": {"thread_id": "t-persist"}}
+
+        graph1 = build_execution_graph(reg, memory, model=None,
+                                       persist_dir=str(db_path))
+        await graph1.ainvoke(plan_to_state(plan), config=cfg)
+
+        # 新图实例（新连接）读同一文件，同 thread：仅传 goal，步骤从磁盘恢复
+        graph2 = build_execution_graph(make_registry(), Memory(), model=None,
+                                       persist_dir=str(db_path))
+        state2 = await graph2.ainvoke(
+            {"goal": "测试", "steps": [
+                {"id": "s1", "description": "第一步", "tool_name": "tool_a",
+                 "tool_args": {}, "status": "done", "depends_on": []},
+                {"id": "s2", "description": "第二步", "tool_name": "tool_b",
+                 "tool_args": {}, "status": "pending", "depends_on": ["s1"]},
+            ], "pending_ids": ["s2"], "done_ids": ["s1"], "failed_ids": [],
+             "skipped_ids": [], "decision_history": [], "tool_results": [],
+             "messages": []}, config=cfg)
+
+        assert state2["done_ids"] == ["s1", "s2"]
+
+        # 关闭 aiosqlite 连接，避免事件循环关闭后连接工作线程告警
+        for g in (graph1, graph2):
+            conn = getattr(getattr(g, "checkpointer", None), "conn", None)
+            if conn is not None:
+                await conn.close()

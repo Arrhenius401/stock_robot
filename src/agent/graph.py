@@ -12,8 +12,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CHECKPOINT_DIR = Path.home() / ".stock_robot" / "langgraph_checkpoints.sqlite"
 
-_TERMINAL = ("done", "failed", "skipped")
-
 
 class GraphState(TypedDict):
     goal: str
@@ -111,6 +109,14 @@ def _cascade_skip(state: GraphState, failed_id: str) -> None:
             _cascade_skip(state, s["id"])
 
 
+def route_from_decide(state: GraphState) -> str:
+    """decide 后路由：无 tool_name（决策失败）直接进 feedback 处理失败逻辑"""
+    if not state["pending_ids"]:
+        return "feedback"
+    step = _step_by_id(state, state["pending_ids"][0])
+    return "execute" if step is not None and step.get("tool_name") else "feedback"
+
+
 def build_execution_graph(registry: ToolRegistry, memory: Memory, model=None,
                           persist_dir: str | None = None,
                           on_progress: Callable[[str, int, int, str], None] | None = None) -> Any:
@@ -137,8 +143,7 @@ def build_execution_graph(registry: ToolRegistry, memory: Memory, model=None,
                 state["decision_history"], state["tool_results"])
             if chosen_tool is None:
                 step["status"] = "failed"
-                state["failed_ids"].append(step["id"])
-                return {"steps": state["steps"], "failed_ids": state["failed_ids"]}
+                return {"steps": state["steps"]}
             reason = "llm"
         step["tool_name"] = chosen_tool
         step["tool_args"] = chosen_args or {}
@@ -174,8 +179,10 @@ def build_execution_graph(registry: ToolRegistry, memory: Memory, model=None,
                         if s["id"] == step_id), 0) + 1
             on_progress("execute", idx, len(state["steps"]), step["description"])
         if result is None or result["status"] == "error":
-            step["status"] = "failed"
-            state["failed_ids"].append(step_id)
+            if step["status"] != "failed":
+                step["status"] = "failed"
+            if step_id not in state["failed_ids"]:
+                state["failed_ids"].append(step_id)
             memory.add_message("system",
                                f"步骤 {step_id} 失败: {result and result['error']}")
             _cascade_skip(state, step_id)
@@ -198,7 +205,8 @@ def build_execution_graph(registry: ToolRegistry, memory: Memory, model=None,
     builder.add_node("execute", execute_node)
     builder.add_node("feedback", feedback_node)
     builder.add_edge(START, "decide")
-    builder.add_edge("decide", "execute")
+    builder.add_conditional_edges("decide", route_from_decide,
+                                  {"execute": "execute", "feedback": "feedback"})
     builder.add_edge("execute", "feedback")
     builder.add_conditional_edges("feedback", route,
                                   {"decide": "decide", END: END})
