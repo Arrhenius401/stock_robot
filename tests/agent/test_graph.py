@@ -1,4 +1,6 @@
 """LangGraph 执行图单元测试（真实跑图，仅 mock LLM 模型）"""
+from typing import cast
+
 import pytest
 
 from agent.graph import build_execution_graph
@@ -166,7 +168,7 @@ class TestExecutionGraph:
 
     @pytest.mark.asyncio
     async def test_persist_dir_checkpoint_survives_new_graph(self, tmp_path):
-        """AsyncSqliteSaver 落盘：新图实例 + 同 thread 可从磁盘恢复步骤状态"""
+        """AsyncSqliteSaver 落盘：新图实例 + 同 thread 从磁盘恢复终态（非重算）"""
         reg = make_registry()
         memory = Memory()
         db_path = tmp_path / "ckpt.sqlite"
@@ -181,23 +183,18 @@ class TestExecutionGraph:
                                        persist_dir=str(db_path))
         await graph1.ainvoke(plan_to_state(plan), config=cfg)
 
-        # 新图实例（新连接）读同一文件，同 thread：仅传 goal，步骤从磁盘恢复
-        graph2 = build_execution_graph(make_registry(), Memory(), model=None,
+        # 新图实例（新连接）读同一文件，同 thread：仅传 goal，终态从磁盘恢复
+        reg2 = make_registry()
+        graph2 = build_execution_graph(reg2, Memory(), model=None,
                                        persist_dir=str(db_path))
-        state2 = await graph2.ainvoke(
-            {"goal": "测试", "steps": [
-                {"id": "s1", "description": "第一步", "tool_name": "tool_a",
-                 "tool_args": {}, "status": "done", "depends_on": []},
-                {"id": "s2", "description": "第二步", "tool_name": "tool_b",
-                 "tool_args": {}, "status": "pending", "depends_on": ["s1"]},
-            ], "pending_ids": ["s2"], "done_ids": ["s1"], "failed_ids": [],
-             "skipped_ids": [], "decision_history": [], "tool_results": [],
-             "messages": []}, config=cfg)
+        state2 = await graph2.ainvoke({"goal": "测试"}, config=cfg)
+        await graph2.checkpointer.conn.close()
 
         assert state2["done_ids"] == ["s1", "s2"]
+        assert all(s["status"] == "done" for s in state2["steps"])
+        # s2 未重新执行：恢复而非重算（MemorySaver 下此断言必失败）
+        tool_b = cast(FakeTool, reg2._tools["tool_b"])
+        assert tool_b.execute_calls == []
 
-        # 关闭 aiosqlite 连接，避免事件循环关闭后连接工作线程告警
-        for g in (graph1, graph2):
-            conn = getattr(getattr(g, "checkpointer", None), "conn", None)
-            if conn is not None:
-                await conn.close()
+        # 关闭 graph1 的 aiosqlite 连接，避免事件循环关闭后连接工作线程告警
+        await graph1.checkpointer.conn.close()

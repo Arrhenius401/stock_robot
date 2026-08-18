@@ -4,6 +4,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, TypedDict
 
+from langgraph.graph import END
+
 from agent.memory import Memory, Plan, TaskStatus, TaskStep
 from agent.tool_selector import ToolSelector
 from agent.tools import ToolRegistry
@@ -112,7 +114,7 @@ def _cascade_skip(state: GraphState, failed_id: str) -> None:
 def route_from_decide(state: GraphState) -> str:
     """decide 后路由：无 tool_name（决策失败）直接进 feedback 处理失败逻辑"""
     if not state["pending_ids"]:
-        return "feedback"
+        return END
     step = _step_by_id(state, state["pending_ids"][0])
     return "execute" if step is not None and step.get("tool_name") else "feedback"
 
@@ -187,8 +189,10 @@ def build_execution_graph(registry: ToolRegistry, memory: Memory, model=None,
                                f"步骤 {step_id} 失败: {result and result['error']}")
             _cascade_skip(state, step_id)
         else:
-            step["status"] = "done"
-            state["done_ids"].append(step_id)
+            if step["status"] != "done":
+                step["status"] = "done"
+            if step_id not in state["done_ids"]:
+                state["done_ids"].append(step_id)
             memory.add_message(
                 "tool", f"[{step.get('tool_name')}] {result['status']}: "
                         f"{result['data']}")
@@ -206,7 +210,8 @@ def build_execution_graph(registry: ToolRegistry, memory: Memory, model=None,
     builder.add_node("feedback", feedback_node)
     builder.add_edge(START, "decide")
     builder.add_conditional_edges("decide", route_from_decide,
-                                  {"execute": "execute", "feedback": "feedback"})
+                                  {"execute": "execute", "feedback": "feedback",
+                                   END: END})
     builder.add_edge("execute", "feedback")
     builder.add_conditional_edges("feedback", route,
                                   {"decide": "decide", END: END})
