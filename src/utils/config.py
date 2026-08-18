@@ -24,6 +24,21 @@ DEFAULT_CONFIG = {
         },
         "disclaimer_accepted": False,
     },
+    "api": {
+        "host": "127.0.0.1",
+        "port": 25618,
+    },
+    "signal": {
+        "thresholds": {
+            "attack": 7,
+            "watch": 4,
+        },
+        "actions": {
+            "attack": {"action": "可考虑建仓/加仓", "position": "60%-80%"},
+            "watch": {"action": "持有观察，等待明确方向", "position": "30%-50%"},
+            "defend": {"action": "减仓或回避", "position": "0%-20%"},
+        },
+    },
 }
 
 
