@@ -181,8 +181,10 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
             logger.debug("大盘快照获取失败，跳过")
 
     from report.scoring import build_report
+    from report.signal import load_signal_config
     report = build_report(symbol, name, results, commentary, ctx,
-                          no_llm=no_llm, market_env=market_env)
+                          no_llm=no_llm, market_env=market_env,
+                          signal_cfg=load_signal_config(config))
 
     saved_path = ReportFormatter.save(report, symbol)
     console.print(ReportFormatter.to_rich_markdown(report))
