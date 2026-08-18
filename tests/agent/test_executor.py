@@ -171,3 +171,30 @@ class TestExecutor:
         assert updated.steps[0].tool_name == "analyze_stock"
         assert updated.steps[0].status == TaskStatus.DONE
         assert analyze_tool.execute_calls == [{"symbol": "000001"}]
+
+    @pytest.mark.asyncio
+    async def test_execute_with_model_uses_llm_decision(self, registry, memory):
+        from tests.agent.fake_chat_model import FakeChatModel, make_tool_call
+        model = FakeChatModel(tool_calls=[make_tool_call("tool_b", {"x": 1})])
+        plan = self.make_plan()
+        plan.steps[0].description = "执行 tool_b 相关操作"
+        plan.steps[0].tool_name = None
+        executor = Executor(registry=registry, memory=memory, model=model)
+
+        updated = await executor.execute(plan)
+
+        assert updated.steps[0].tool_name == "tool_b"
+        assert updated.steps[0].tool_args == {"x": 1}
+        assert updated.steps[0].status == TaskStatus.DONE
+
+    @pytest.mark.asyncio
+    async def test_execute_without_model_falls_back_to_keyword(self, registry, memory):
+        plan = self.make_plan()
+        plan.steps[0].description = "执行 tool_a 操作"
+        plan.steps[0].tool_name = None
+        executor = Executor(registry=registry, memory=memory)
+
+        updated = await executor.execute(plan)
+
+        assert updated.steps[0].tool_name == "tool_a"
+        assert updated.steps[0].status == TaskStatus.DONE
