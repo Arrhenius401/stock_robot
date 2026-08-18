@@ -24,7 +24,7 @@ CHAT_PHRASES = {
 _CHAT_PHRASE_PATTERN = re.compile(
     "(?:" + "|".join(re.escape(p) for p in sorted(CHAT_PHRASES, key=len, reverse=True)) + ")+"
 )
-_PUNCTUATION = "，。！？,．.!?~～ \t\n"
+_PUNCTUATION = "，。！？,．.!?~～、… \t\n"
 
 PLANNER_SYSTEM_PROMPT = """你是一个股票投研任务规划器。你的职责是将用户的投资研究问题拆解为有序的执行步骤。
 

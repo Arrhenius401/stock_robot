@@ -291,9 +291,9 @@ CHAT_PHRASES = {
 }
 
 _CHAT_PHRASE_PATTERN = re.compile(
-    "|".join(re.escape(p) for p in sorted(CHAT_PHRASES, key=len, reverse=True)) + "+"
+    "(?:" + "|".join(re.escape(p) for p in sorted(CHAT_PHRASES, key=len, reverse=True)) + ")+"
 )
-_PUNCTUATION = "，。！？,．.!?~～ \t\n"
+_PUNCTUATION = "，。！？,．.!?~～、… \t\n"
 ```
 
 `Planner` 类内新增方法（放在 `_is_simple_query` 之前）：
