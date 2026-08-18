@@ -25,5 +25,6 @@ class FakeChatModel:
         return FakeAIMessage(content=self._content, tool_calls=self._tool_calls)
 
 
-def make_tool_call(name: str, args: dict | None = None) -> dict:
-    return {"name": name, "args": args or {}}
+def make_tool_call(name: str, args: dict | None = None,
+                   call_id: str = "call_1") -> dict:
+    return {"name": name, "args": args or {}, "id": call_id}

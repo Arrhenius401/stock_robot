@@ -3,7 +3,11 @@ import pytest
 
 from agent.tool_selector import ToolSelector
 from agent.tools import ToolRegistry, ToolResult
-from tests.agent.fake_chat_model import FakeChatModel, make_tool_call
+from tests.agent.fake_chat_model import (
+    FakeAIMessage,
+    FakeChatModel,
+    make_tool_call,
+)
 
 
 class FakeTool:
@@ -68,6 +72,45 @@ class TestToolSelector:
         # 非法工具名 → 一次强制重试 → 仍非法 → 关键词降级
         assert name == "analyze_stock"
         assert len(model.calls) == 2
+
+    @pytest.mark.asyncio
+    async def test_retry_succeeds_when_second_response_valid(self):
+        class RetryModel(FakeChatModel):
+            def __init__(self):
+                super().__init__()
+                self._responses = [
+                    [make_tool_call("not_exist", {}, call_id="call_bad")],
+                    [make_tool_call("analyze_stock", {"symbol": "000001"},
+                                    call_id="call_ok")],
+                ]
+
+            async def ainvoke(self, messages, **kwargs):
+                self.calls.append(messages)
+                return FakeAIMessage(tool_calls=self._responses.pop(0))
+
+        model = RetryModel()
+        selector = ToolSelector(registry=make_registry(), model=model)
+
+        name, args = await selector.select(make_step(), [], [])
+
+        # 重试轮返回合法工具 → 直接返回，验证重试不是死代码
+        assert name == "analyze_stock"
+        assert args == {"symbol": "000001"}
+        assert len(model.calls) == 2
+
+    @pytest.mark.asyncio
+    async def test_retry_messages_include_tool_response(self):
+        model = FakeChatModel(tool_calls=[make_tool_call("not_exist", {},
+                                                         call_id="call_x")])
+        selector = ToolSelector(registry=make_registry(), model=model)
+
+        await selector.select(make_step(), [], [])
+
+        # 第二次调用消息里应有 tool 角色回应（带 tool_call_id）
+        second = model.calls[1]
+        tool_msgs = [m for m in second if m.get("role") == "tool"]
+        assert len(tool_msgs) == 1
+        assert tool_msgs[0]["tool_call_id"] == "call_x"
 
     @pytest.mark.asyncio
     async def test_llm_exception_falls_back_to_keyword(self):
