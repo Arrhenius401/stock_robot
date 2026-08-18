@@ -1439,7 +1439,7 @@ import logging
 from collections.abc import Callable
 
 from agent.graph import DEFAULT_CHECKPOINT_DIR, build_execution_graph, \
-    plan_to_state, state_to_plan
+    close_checkpointer, plan_to_state, state_to_plan
 from agent.memory import Memory, Plan
 from agent.tools import ToolRegistry
 
@@ -1453,6 +1453,8 @@ class Executor:
 
     工具决策：LLM tool calling（model 注入时）→ ToolRegistry 关键词匹配降级。
     失败隔离：单步失败 → 级联 skip 依赖步骤，其余继续。
+    连接生命周期：每次 execute 构建图，finally 中显式关闭 checkpointer 连接
+    （aiosqlite 连接不会被 GC 回收）。
     """
 
     def __init__(self, registry: ToolRegistry, memory: Memory, model=None,
@@ -1463,64 +1465,31 @@ class Executor:
         self._session_id = session_id
         # persist_dir=None 时用内存 checkpointer（测试/无会话场景）
         self._persist_dir = persist_dir
-        self._graph = None
-        self._on_progress: ProgressCallback = None
 
     async def execute(self, plan: Plan,
                       on_progress: ProgressCallback = None) -> Plan:
         """执行 Plan，返回更新后的 Plan（含步骤状态和结果）"""
-        self._on_progress = on_progress
         self._memory.add_plan(plan)
         self._memory.add_message("system", f"开始执行计划: {plan.goal}")
 
-        if self._graph is None:
-            self._graph = build_execution_graph(
-                self._registry, self._memory, self._model, self._persist_dir,
-                on_progress=self._on_progress)
-
+        graph = build_execution_graph(
+            self._registry, self._memory, self._model, self._persist_dir,
+            on_progress=on_progress)
         state = plan_to_state(plan, self._session_id)
         from langchain_core.runnables import RunnableConfig
         config: RunnableConfig = {
             "configurable": {"thread_id": self._session_id or "cli"}}
         try:
-            await self._graph.ainvoke(state, config)  # 异步节点须用 ainvoke
+            await graph.ainvoke(state, config)  # 异步节点须用 ainvoke
         finally:
-            self._on_progress = None
+            await close_checkpointer(graph)
 
         state_to_plan(state, plan)
         self._memory.add_message("system", f"计划执行完成: {plan.goal}")
         return plan
 ```
 
-**说明：** 图节点内部负责 per-step 的 `memory.add_message("system"/"tool", ...)` 与 `on_progress("execute", ...)` 回调（feedback_node 中触发）。为最小化改动，`on_progress` 在 `execute()` 前通过 `self._on_progress` 注入并在图节点闭包中读取：
-
-在 `graph.py` 的 `build_execution_graph` 签名后追加闭包访问（修改 Task 6 代码）：
-
-```python
-def build_execution_graph(registry: ToolRegistry, memory: Memory, model=None,
-                          persist_dir: str | None = None,
-                          on_progress: Callable[[str, int, int, str], None] | None = None) -> Any:
-```
-
-并在 `feedback_node` 中调用进度回调（在 `memory.add_message("system", f"执行: ...")` 之后）：
-
-```python
-        if on_progress:
-            idx = next((i for i, s in enumerate(state["steps"])
-                        if s["id"] == step_id), 0) + 1
-            on_progress("execute", idx, len(state["steps"]), step["description"])
-```
-
-（graph.py 顶部 `from collections.abc import Callable` 导入。）
-
-`Executor.execute` 传入进度回调：
-
-```python
-        if self._graph is None:
-            self._graph = build_execution_graph(
-                self._registry, self._memory, self._model, self._persist_dir,
-                on_progress=self._on_progress)
-```
+**说明：** 图节点内部负责 per-step 的 `memory.add_message("system"/"tool", ...)` 与 `on_progress("execute", ...)` 回调（feedback_node 中触发，Task 6 已实现 `on_progress` 参数）。Executor 每次 execute 现建图（compile 毫秒级），finally 关闭连接，避免 aiosqlite 非 daemon 线程泄漏。
 
 - [ ] **Step 3: 运行现有测试适配**
 
