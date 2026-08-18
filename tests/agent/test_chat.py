@@ -33,6 +33,22 @@ class TestChatResponder:
         assert last_messages[0]["role"] == "system"
 
     @pytest.mark.asyncio
+    async def test_reply_does_not_duplicate_current_user_message(self):
+        """当前用户消息已写入 memory 时（API 路径），上下文不重复"""
+        model = FakeChatModel(content="好的")
+        responder = ChatResponder(model=model)
+        memory = Memory()
+        memory.add_message("user", "你好")
+
+        await responder.reply("你好", memory)
+
+        last_messages = model.calls[0]
+        user_msgs = [m for m in last_messages
+                     if m.get("role") == "user"
+                     and m.get("content") == "你好"]
+        assert len(user_msgs) == 1
+
+    @pytest.mark.asyncio
     async def test_no_model_returns_fallback(self):
         responder = ChatResponder(model=None)
 
