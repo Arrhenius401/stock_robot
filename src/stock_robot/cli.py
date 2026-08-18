@@ -442,7 +442,9 @@ def api(host, port):
 @click.option("--verbose", "-v", is_flag=True, help="显示计划和工具调用细节")
 def chat(ask, verbose):
     """进入 AI Agent 对话模式，支持复杂投研任务的自主拆解和分析"""
+    from agent.chat import ChatResponder
     from agent.executor import Executor
+    from agent.graph import DEFAULT_CHECKPOINT_DIR
     from agent.memory import Memory
     from agent.planner import Planner
     from api.bootstrap import build_agent_core
@@ -455,18 +457,26 @@ def chat(ask, verbose):
 
     memory = Memory()
     planner = Planner(llm=core.llm, registry=core.registry, memory=memory)
-    executor = Executor(registry=core.registry, memory=memory)
+    executor = Executor(registry=core.registry, memory=memory, model=core.model,
+                        persist_dir=str(DEFAULT_CHECKPOINT_DIR))
+    chat_responder = ChatResponder(model=core.model)
 
     if ask:
-        _run_agent_query(ask, planner, executor, memory, renderer)
+        _run_agent_query(ask, planner, executor, memory, renderer, chat_responder)
         return
 
-    _run_interactive_chat(planner, executor, memory, renderer)
+    _run_interactive_chat(planner, executor, memory, renderer, chat_responder)
 
 
-def _run_agent_query(query, planner, executor, memory, renderer):
+def _run_agent_query(query, planner, executor, memory, renderer, chat_responder):
     """单次 Agent 查询"""
     plan = planner.plan(query)
+    if plan.mode == "chat":
+        import asyncio
+        reply = asyncio.run(chat_responder.reply(query, memory))
+        memory.add_message("assistant", reply)
+        console.print(reply)
+        return
     console.print(renderer.render_plan(plan))
 
     import asyncio
@@ -475,7 +485,7 @@ def _run_agent_query(query, planner, executor, memory, renderer):
     console.print(renderer.render_summary(result))
 
 
-def _run_interactive_chat(planner, executor, memory, renderer):
+def _run_interactive_chat(planner, executor, memory, renderer, chat_responder):
     """交互式对话循环"""
     console.print("[bold]Stock Robot Agent[/bold] — AI 驱动的投资研究助手")
     console.print("输入你的投研问题，或输入 /exit 退出。输入 /help 查看可用指令。\n")
@@ -498,6 +508,13 @@ def _run_interactive_chat(planner, executor, memory, renderer):
             continue
 
         plan = planner.plan(user_input)
+        if plan.mode == "chat":
+            import asyncio
+            reply = asyncio.run(chat_responder.reply(user_input, memory))
+            memory.add_message("assistant", reply)
+            console.print(reply)
+            continue
+
         console.print(renderer.render_plan(plan))
 
         import asyncio
