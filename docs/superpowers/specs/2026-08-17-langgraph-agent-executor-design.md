@@ -17,6 +17,7 @@
 | 模型层 | 双轨：agent 用 LangChain 模型（tool calling），自建 LLM 后端不动 | 确定性管道层不引入框架依赖 |
 | 会话持久化 | 双写：SqliteSaver checkpointer + 现有 SessionStore 消息表 | 简历卖点（状态持久化）+ 前端 API 不变 |
 | 图形态 | 单图循环：决策 → 执行 → 反馈 →（条件边回决策）| 保留"先计划后执行"产品语义 |
+| 闲聊识别 | 硬编码"纯客套"快路径（宁可漏判不可误判）+ LLM 分类为主机制 | 常用客套零成本；业务请求绝不被吞 |
 
 ## 架构与组件
 
@@ -26,6 +27,7 @@
 |---|---|
 | `graph.py` | LangGraph 状态图定义（StateSchema、节点、边、编译）+ `Executor` 接口兼容层 |
 | `tool_selector.py` | LLM 工具决策（步骤描述 + 候选工具 + 执行历史 → 工具名和参数）|
+| `chat.py` | ChatResponder — 闲聊的普通对话回复（LangChain 模型，无工具绑定）|
 
 改造：
 - `Executor.execute(plan, on_progress=None)` 签名保留，内部替换为图执行：Plan → state → 跑图 → state → Plan。
@@ -75,6 +77,44 @@ Executor.execute(plan):
 - checkpointer（SqliteSaver）持久化在 `~/.stock_robot/langgraph_checkpoints.sqlite`，与现有 `sessions.db` 分开。
 - 双写：graph 执行后同步 `memory.add_message("tool", ...)` 走现有 `message_store` 落 SQLite，前端 API 不变。
 
+## 闲聊识别与普通会话
+
+现状问题：任何输入都会拆计划执行，"你好"也会走工具匹配失败路径。目标：无明确投研指令的闲聊按普通 AI 会话回应。
+
+### Plan 模型
+
+`Plan` 增加 `mode: Literal["task", "chat"] = "task"`，chat 模式 `steps=[]`。
+
+### 识别机制（Planner 内，不新增 LLM 调用）
+
+**设计原则：硬编码路径宁可漏判（多花一次 LLM 调用），不可误判（吞掉业务请求）；所有模糊地带交给 LLM 语义判断。**
+
+1. **硬编码"纯客套"快路径**：整条消息去掉标点后**完全等于**少量客套短语（谢谢/辛苦了/你好/再见/拜拜/你是谁 等），且长度 ≤ 10 字、无数字 → 直接 chat，零成本；同时作为 LLM 不可用时的兜底。
+   - 判定用"完全等于"而非"前缀匹配"："谢谢，帮我分析600519" 不会被拦截。
+   - 任何含糊情况一律不拦截，交给 LLM。
+2. **LLM 分类为主机制**：plan prompt 增加 `"mode": "task"|"chat"` 输出，拆计划调用顺带完成分类，不加调用次数。mode 判断规则：
+   - **task**：涉及任何证券标的——股票代码、公司名（贵州茅台/宁德时代）、指数名（上证指数/沪深300/中证500）、行业、宏观政策、数据查询；以及任何可拆解为多步的投研请求
+   - **chat**：仅当与投资研究完全无关（问候、道谢、闲聊、非金融话题）
+   - 公司名/指数名查询归为 task，为后续"名字 → 查询分析出报告"功能预留（届时只需新增解析工具，分类提示词不用改）
+3. **LLM 不可用回退**：客套表覆盖，其余按 task 单步（现状兜底）。
+
+### ChatResponder（新模块 `src/agent/chat.py`）
+
+- 输入：Memory 上下文窗口（保持多轮能力）+ 用户消息。
+- 用 LangChain 模型（与 graph 共用模型工厂，不绑工具）普通对话生成回复。
+- 回复写入 Memory（role=`assistant`，走 `message_store` 落 SQLite，Web UI 前端照常渲染）。
+- 失败降级：固定提示语（"这个问题我暂时无法回答，可以试试让我分析某只股票…"）。
+
+### 调用方适配（cli.py、api/app.py 的 chat 与 chat_stream）
+
+- `plan.mode == "chat"` → 跳过 Executor，走 ChatResponder。
+- CLI：直接打印回复（不渲染计划/摘要）。
+- API：`response=回复`；`plan={goal, mode:"chat", steps:[]}`；SSE 发 `text` 事件（已有事件类型）。
+
+### 图不变
+
+闲聊在 Planner 层拦截，不进 LangGraph 图。
+
 ## LLM 工具决策
 
 - 用 LangChain 原生 tool calling（`model.bind_tools([...])`），LLM 返回结构化 `tool_calls`，不解析 JSON 文本。
@@ -98,8 +138,9 @@ Executor.execute(plan):
 
 ### 对外接口
 
-- `Executor.execute` 签名保留，`cli.py`/`api/app.py` 13 处调用方零改动。
-- `render_plan`/`render_summary` UI 语义不变。
+- `Executor.execute` 签名保留。
+- `cli.py`/`api/app.py` 调用方仅新增 chat 分支（`plan.mode == "chat"` → ChatResponder，见"闲聊识别与普通会话"），task 路径逻辑零改动。
+- `render_plan`/`render_summary` UI 语义不变（chat 模式不渲染计划，直接打印回复）。
 - `on_progress` 回调在节点内触发（"execute" 阶段事件），SSE 进度流不变。
 - `ToolResult`/`ToolRegistry`/`Memory` 全部不动。
 
@@ -132,5 +173,10 @@ Executor.execute(plan):
 Mock 方式：LangChain 模型层用轻量 FakeChatModel（实现 `bind_tools`/`ainvoke` 返回固定 `tool_calls`），不 mock LangGraph 运行时本身，真实跑图。
 
 适配现有：`tests/api/test_app.py` 的 chat 流程用例（注入 FakeChatModel 的 core）。
+
+闲聊识别与 ChatResponder 测试：
+- Planner：纯客套 → chat；"谢谢，帮我分析600519" → 不拦截走 task；LLM 返回 `mode=chat` → chat；LLM 返回 `mode=task`（含公司名/指数名查询）→ task；LLM 失败回退。
+- ChatResponder：回复生成、历史上下文、降级提示。
+- `tests/api/test_app.py`：chat 模式响应结构（response=回复、plan.mode="chat"）。
 
 验证：单文件 `pyright`/`ruff` 秒级检查；提交前全量 `ruff check .` + `pyright` + pytest。
