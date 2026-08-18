@@ -1,7 +1,12 @@
 """ChatResponder 单元测试"""
 import pytest
 
-from agent.chat import FALLBACK_REPLY, ChatResponder, _extract_text
+from agent.chat import (
+    LLM_ERROR_REPLY,
+    MODEL_NOT_CONFIGURED_REPLY,
+    ChatResponder,
+    _extract_text,
+)
 from agent.memory import Memory
 from tests.agent.fake_chat_model import FakeChatModel
 
@@ -92,15 +97,15 @@ class TestChatResponder:
         assert not any("[analyze_stock]" in c for c in contents)
 
     @pytest.mark.asyncio
-    async def test_no_model_returns_fallback(self):
+    async def test_no_model_returns_not_configured(self):
         responder = ChatResponder(model=None)
 
         reply = await responder.reply("你好", Memory())
 
-        assert reply == FALLBACK_REPLY
+        assert reply == MODEL_NOT_CONFIGURED_REPLY
 
     @pytest.mark.asyncio
-    async def test_model_exception_returns_fallback(self):
+    async def test_model_exception_returns_error_reply_with_reason(self):
         class ExplodingModel(FakeChatModel):
             async def ainvoke(self, messages, **kwargs):
                 raise RuntimeError("API 不可用")
@@ -109,4 +114,27 @@ class TestChatResponder:
 
         reply = await responder.reply("你好", Memory())
 
-        assert reply == FALLBACK_REPLY
+        assert reply == LLM_ERROR_REPLY.format(error="API 不可用")
+
+    @pytest.mark.asyncio
+    async def test_reply_extracts_text_blocks_from_list_content(self):
+        """DeepSeek 端点返回 thinking+text 块列表，只取 text 且不含内部思考"""
+        model = FakeChatModel(content=[
+            {"type": "thinking", "signature": "sig-1", "thinking": "内部思考"},
+            {"type": "text", "text": "你好！很高兴见到你。"},
+        ])
+        responder = ChatResponder(model=model)
+
+        reply = await responder.reply("你好", Memory())
+
+        assert reply == "你好！很高兴见到你。"
+        assert "thinking" not in reply and "sig-1" not in reply
+
+    @pytest.mark.asyncio
+    async def test_reply_empty_content_returns_error_reply(self):
+        model = FakeChatModel(content=[])
+        responder = ChatResponder(model=model)
+
+        reply = await responder.reply("你好", Memory())
+
+        assert reply == LLM_ERROR_REPLY.format(error="模型未返回有效回复")

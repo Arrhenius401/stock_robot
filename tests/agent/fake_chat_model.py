@@ -1,8 +1,9 @@
 """FakeChatModel — 模拟 LangChain ChatModel 的 bind_tools/ainvoke，供测试注入"""
+from typing import Any
 
 
 class FakeAIMessage:
-    def __init__(self, content: str = "", tool_calls=None):
+    def __init__(self, content: Any = "", tool_calls=None):
         self.content = content
         self.tool_calls = tool_calls or []
 
@@ -10,7 +11,7 @@ class FakeAIMessage:
 class FakeChatModel:
     """bind_tools 返回自身；ainvoke 返回固定 tool_calls 或文本回复"""
 
-    def __init__(self, tool_calls=None, content: str = "测试回复"):
+    def __init__(self, tool_calls=None, content: Any = "测试回复"):
         self._tool_calls = tool_calls or []
         self._content = content
         self.bound_tools = None

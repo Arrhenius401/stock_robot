@@ -6,8 +6,8 @@ from agent.memory import Memory
 
 logger = logging.getLogger(__name__)
 
-FALLBACK_REPLY = ("这个问题我暂时无法回答。可以试试让我分析某只股票"
-                  "（如 600519）或查询指数（如上证指数）。")
+MODEL_NOT_CONFIGURED_REPLY = "AI 对话未启用：请在配置中设置 llm.api_key"
+LLM_ERROR_REPLY = "（AI 回复暂时不可用：{error}，请检查 API 配置）"
 
 CHAT_SYSTEM_PROMPT = """你是一个友好、专业的股票投研助手。
 当用户闲聊（问候、道谢、日常话题）时，自然地进行普通对话；
@@ -35,14 +35,14 @@ def _extract_text(content: Any) -> str:
 
 
 class ChatResponder:
-    """普通会话回复 — 保持多轮上下文，失败降级为固定提示"""
+    """普通会话回复 — 保持多轮上下文，失败降级为可诊断提示"""
 
     def __init__(self, model=None):
         self._model = model
 
     async def reply(self, user_input: str, memory: Memory) -> str:
         if self._model is None:
-            return FALLBACK_REPLY
+            return MODEL_NOT_CONFIGURED_REPLY
         try:
             messages = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}]
             for msg in memory.get_context_window(n=10):
@@ -55,8 +55,10 @@ class ChatResponder:
                 messages.append({"role": "user", "content": user_input})
 
             response = await self._model.ainvoke(messages)
-            content = getattr(response, "content", "")
-            return content if isinstance(content, str) else str(content)
-        except Exception as e:  # noqa: BLE001 — LLM 边界异常降级固定提示
+            content = _extract_text(getattr(response, "content", ""))
+            if not content:
+                return LLM_ERROR_REPLY.format(error="模型未返回有效回复")
+            return content
+        except Exception as e:  # noqa: BLE001 — LLM 边界异常降级可诊断提示
             logger.error("闲聊回复失败: %s", e)
-            return FALLBACK_REPLY
+            return LLM_ERROR_REPLY.format(error=e)
