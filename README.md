@@ -237,10 +237,16 @@ print(f"已处理: {result['processed']}, 跳过: {result['skipped']}, 失败: {
 一键启动（自动注入 Agent 核心）：
 
 ```bash
+stock-robot api
+```
+
+默认监听 `127.0.0.1:25618`（端口可在配置文件 `~/.stock_robot/config.yaml` 的 `api.port` 中自定义，CLI 参数 `--host`/`--port` 优先于配置）：
+
+```bash
 stock-robot api --host 127.0.0.1 --port 8000
 ```
 
-浏览器打开 http://127.0.0.1:8000 使用 Web 聊天界面。页面功能：
+浏览器打开 http://127.0.0.1:25618 使用 Web 聊天界面。页面功能：
 
 - **聊天**：SSE 流式展示 Agent 执行计划与进度；工具结果卡可一键跳转完整报告
 - **个股报告**：顶栏输入代码直达，或从聊天结果跳转；完整维度评分 + AI 解读
@@ -251,7 +257,7 @@ stock-robot api --host 127.0.0.1 --port 8000
 
 - `POST /api/v1/chat` — Agent 对话（body: `{"message": "...", "session_id": "可选"}`）
 - `POST /api/v1/chat/stream` — SSE 流式对话（start/plan/progress/result/error/text/done 事件）
-- `POST /api/v1/analyze` — 个股分析（body: `{"symbol": "600519"}`），返回完整报告 JSON
+- `POST /api/v1/analyze` — 个股分析（body: `{"symbol": "600519"}`），返回完整报告 JSON（含 `signal` 操作信号字段：`level` 为 `attack`/`watch`/`defend`，`label`/`action`/`position` 为中文展示与动作建议；阈值与动作文案可在配置 `signal` 节自定义）
 - `POST /api/v1/index` — 指数分析（body: `{"symbols": ["000300", "000905"], "index_style": "可选"}`；单指数兼容 `{"symbol": "000300"}`；多指数响应含 `compare` 对比表）
 - `GET/POST /api/v1/sessions`、`DELETE /api/v1/sessions/{id}`、`POST /api/v1/sessions/{id}/clear`、`GET /api/v1/sessions/{id}/messages` — 会话管理
 - `GET /api/v1/tools` — 工具列表
