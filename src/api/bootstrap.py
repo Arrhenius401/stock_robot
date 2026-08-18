@@ -27,6 +27,7 @@ class AgentCore:
     pipeline: "Pipeline"          # 真实 Pipeline（run(symbol, name, market) 接口）
     index_pipeline: "IndexPipeline"
     llm: LLMBackend | None = None
+    model: object | None = None   # LangChain 聊天模型（agent 层 tool calling / 闲聊）
 
 
 def build_llm(config) -> LLMBackend | None:
@@ -122,5 +123,8 @@ def build_agent_core(config=None, llm_enabled: bool | None = None) -> AgentCore:
     except Exception as e:  # noqa: BLE001 — RAG 不可用时降级为无 RAG 工具
         logger.warning("RAG 工具不可用，跳过注册: %s", e)
 
+    from agent.model_factory import create_chat_model
+
     return AgentCore(registry=registry, pipeline=pipeline,
-                     index_pipeline=index_pipeline, llm=llm)
+                     index_pipeline=index_pipeline, llm=llm,
+                     model=create_chat_model(config))
