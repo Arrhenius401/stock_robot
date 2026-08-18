@@ -15,7 +15,9 @@ def create_chat_model(config) -> Any | None:
     if not api_key:
         return None
     base_url = config.get("llm.base_url", "") or None
-    model = config.get("llm.model", "gpt-4o")
+    # 默认模型按 provider 区分：llm.model 未配置时避免拿到跨 provider 非法模型名
+    default_model = "claude-sonnet-4-6" if provider == "claude" else "gpt-4o"
+    model = config.get("llm.model", default_model) or default_model
     temperature = config.get("llm.temperature", 0.3)
     timeout = config.get("llm.timeout_seconds", 60)
 

@@ -34,3 +34,23 @@ def test_openai_provider_returns_chat_model():
     model = create_chat_model(config)
     assert model is not None
     assert model.model_name == "gpt-4o"
+
+
+def test_claude_provider_returns_chat_model():
+    config = FakeConfig({"llm": {
+        "provider": "claude", "api_key": "sk-x", "model": "claude-sonnet-4-6",
+        "base_url": "", "temperature": 0.3, "timeout_seconds": 60,
+    }})
+    model = create_chat_model(config)
+    assert model is not None
+    assert model.model == "claude-sonnet-4-6"
+
+
+def test_claude_provider_without_model_uses_claude_default():
+    config = FakeConfig({"llm": {
+        "provider": "claude", "api_key": "sk-x", "model": "",
+        "base_url": "", "temperature": 0.3, "timeout_seconds": 60,
+    }})
+    model = create_chat_model(config)
+    assert model is not None
+    assert model.model == "claude-sonnet-4-6"
