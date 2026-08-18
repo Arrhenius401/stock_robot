@@ -787,13 +787,17 @@ def create_chat_model(config) -> object | None:
 
     try:
         if provider == "openai":
+            from langchain_core.utils.secret_str import SecretStr
             from langchain_openai import ChatOpenAI
-            return ChatOpenAI(model=model, api_key=api_key, base_url=base_url,
-                              temperature=temperature, timeout=timeout)
+            return ChatOpenAI(model=model, api_key=SecretStr(api_key),
+                              base_url=base_url, temperature=temperature,
+                              timeout=timeout)
         elif provider == "claude":
+            from langchain_core.utils.secret_str import SecretStr
             from langchain_anthropic import ChatAnthropic
-            return ChatAnthropic(model=model, api_key=api_key, base_url=base_url,
-                                 temperature=temperature, timeout=timeout)
+            return ChatAnthropic(model=model, api_key=SecretStr(api_key),
+                                 base_url=base_url, temperature=temperature,
+                                 timeout=timeout)
         logger.warning("未知 LLM provider: %s，LangChain 模型不可用", provider)
     except Exception as e:  # noqa: BLE001 — SDK 初始化失败降级为无模型
         logger.warning("LangChain 模型初始化失败: %s", e)
@@ -1190,13 +1194,22 @@ def state_to_plan(state: GraphState, plan: Plan) -> Plan:
 
 
 def create_checkpointer(persist_dir: str | None) -> Any:
-    """SqliteSaver 持久化；初始化失败降级 MemorySaver"""
+    """SqliteSaver 持久化；初始化失败降级 MemorySaver
+
+    langgraph-checkpoint-sqlite 3.x 中 from_conn_string 是上下文管理器，
+    不能直接作为 saver 返回；改为自建 sqlite3 连接传入 SqliteSaver(conn)，
+    连接保持打开直至 Executor/图被回收。check_same_thread=False 供 ainvoke
+    （事件循环线程）访问。
+    """
     if persist_dir is None:
         from langgraph.checkpoint.memory import MemorySaver
         return MemorySaver()
     try:
+        import sqlite3
+
         from langgraph.checkpoint.sqlite import SqliteSaver
-        return SqliteSaver.from_conn_string(str(persist_dir))
+        conn = sqlite3.connect(str(persist_dir), check_same_thread=False)
+        return SqliteSaver(conn)
     except Exception as e:  # noqa: BLE001 — checkpointer 失败降级内存
         logger.warning("SqliteSaver 初始化失败 (%s)，降级 MemorySaver", e)
         from langgraph.checkpoint.memory import MemorySaver
@@ -1339,7 +1352,17 @@ async def _safe_execute(tool, kwargs: dict) -> Any:
 - [ ] **Step 3: 运行测试**
 
 Run: `.venv/Scripts/python -m pytest tests/agent/test_graph.py -q`
-Expected: 全绿。若 `graph.ainvoke` 报 checkpointer 异步不支持错误（SqliteSaver 在 ainvoke 下需要 AsyncSqliteSaver），将测试与 Executor 中的调用统一改为 `await asyncio.to_thread(graph.invoke, state, config)`，并同步修改 Task 7 的 Executor 实现。
+Expected: 全绿。
+
+**探针已验证（Task 0，langgraph 1.2.11）：异步节点必须用 `ainvoke`，sync `invoke` 不再桥接。** 若 `ainvoke` + `SqliteSaver` 组合报异步不支持错误，改用 `AsyncSqliteSaver`：
+
+```python
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+# create_checkpointer 中：saver = await AsyncSqliteSaver.from_conn_string(str(persist_dir))
+# 或 sqlite3.connect + AsyncSqliteSaver(conn, autocommit=True) 后 await saver.setup()
+```
+
+（此时代码路径需适配 async 生命周期，测试与 Executor 仍统一用 `ainvoke`。）
 
 - [ ] **Step 4: 类型检查 + 提交**
 
@@ -1403,7 +1426,6 @@ Expected: FAIL（Executor 不接受 model 参数——尚未重写）
 
 ```python
 """Executor — LangGraph 执行图包装，保留逐步执行、失败隔离语义"""
-import asyncio
 import logging
 from collections.abc import Callable
 
@@ -1444,12 +1466,15 @@ class Executor:
 
         if self._graph is None:
             self._graph = build_execution_graph(
-                self._registry, self._memory, self._model, self._persist_dir)
+                self._registry, self._memory, self._model, self._persist_dir,
+                on_progress=self._on_progress)
 
         state = plan_to_state(plan, self._session_id)
-        config = {"configurable": {"thread_id": self._session_id or "cli"}}
+        from langchain_core.runnables import RunnableConfig
+        config: RunnableConfig = {
+            "configurable": {"thread_id": self._session_id or "cli"}}
         try:
-            await asyncio.to_thread(self._graph.invoke, state, config)
+            await self._graph.ainvoke(state, config)  # 异步节点须用 ainvoke
         finally:
             self._on_progress = None
 
