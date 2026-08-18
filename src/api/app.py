@@ -8,7 +8,9 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from agent.chat import ChatResponder
 from agent.executor import Executor
+from agent.graph import DEFAULT_CHECKPOINT_DIR
 from agent.memory import TaskStatus
 from agent.planner import Planner
 
@@ -63,14 +65,18 @@ def create_app(core=None, sessions=None):
         sessions = SessionManager(SessionStore(Config().config_dir / "sessions.db"))
 
     def _build_agent(session_memory):
-        """按会话现建轻量 Planner/Executor（两者无状态，构造廉价）"""
+        """按会话现建轻量 Planner/Executor/ChatResponder（无状态，构造廉价）"""
         # 调用方（chat/run_agent）已校验 core 注入，复制到局部变量并断言收窄类型
         agent_core = core
         assert agent_core is not None
         planner = Planner(llm=agent_core.llm, registry=agent_core.registry,
                           memory=session_memory)
-        executor = Executor(registry=agent_core.registry, memory=session_memory)
-        return planner, executor
+        executor = Executor(registry=agent_core.registry, memory=session_memory,
+                            model=agent_core.model,
+                            session_id=session_memory.session_id or "",
+                            persist_dir=str(DEFAULT_CHECKPOINT_DIR))
+        chat_responder = ChatResponder(model=agent_core.model)
+        return planner, executor, chat_responder
 
     def _extract_session_id(body: dict, request: Request):
         return body.get("session_id") or request.headers.get("X-Session-Id")
@@ -100,8 +106,18 @@ def create_app(core=None, sessions=None):
         try:
             sid, memory = sessions.get_or_create(session_id, message)
             memory.add_message("user", message)
-            planner, executor = _build_agent(memory)
+            planner, executor, chat_responder = _build_agent(memory)
             plan = await asyncio.to_thread(planner.plan, message)
+            if plan.mode == "chat":
+                # 闲聊：ChatResponder 普通会话回复，跳过执行器并写入会话消息
+                reply = await chat_responder.reply(message, memory)
+                memory.add_message("assistant", reply)
+                return JSONResponse({
+                    "response": reply,
+                    "plan": {"goal": plan.goal, "mode": "chat", "steps": []},
+                    "tool_results": [],
+                    "session_id": sid,
+                })
             plan = await executor.execute(plan)
             done = sum(1 for s in plan.steps if s.status == TaskStatus.DONE)
             total = len(plan.steps)
@@ -148,8 +164,15 @@ def create_app(core=None, sessions=None):
                     assert manager is not None
                     sid, memory = manager.get_or_create(session_id, message)
                     memory.add_message("user", message)
-                    planner, executor = _build_agent(memory)
+                    planner, executor, chat_responder = _build_agent(memory)
                     plan = await asyncio.to_thread(planner.plan, message)
+                    if plan.mode == "chat":
+                        # 闲聊：直接发 text 事件后结束，不再走执行器与 result 事件
+                        reply = await chat_responder.reply(message, memory)
+                        memory.add_message("assistant", reply)
+                        await queue.put({"type": "text", "content": reply})
+                        await queue.put({"type": "done"})
+                        return
                     await queue.put({"type": "plan", "goal": plan.goal,
                                      "steps": [s.description for s in plan.steps],
                                      "session_id": sid})
