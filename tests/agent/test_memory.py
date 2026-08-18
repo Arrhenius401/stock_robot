@@ -106,6 +106,14 @@ class TestPlan:
         plan = Plan(goal="test", steps=[s1, s2], context_summary="")
         assert plan.all_done()
 
+    def test_plan_default_mode_is_task(self):
+        plan = Plan(goal="测试", steps=[])
+        assert plan.mode == "task"
+
+    def test_plan_chat_mode(self):
+        plan = Plan(goal="你好", steps=[], mode="chat")
+        assert plan.mode == "chat"
+
 
 class TestMemory:
     def test_create_empty_memory(self, tmp_path):
