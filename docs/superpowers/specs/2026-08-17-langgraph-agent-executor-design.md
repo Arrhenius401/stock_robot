@@ -57,25 +57,29 @@ class GraphState(TypedDict):
 
 1. `decide_node` — 取 `pending_ids` 第一个步骤，构建 LLM 消息（系统提示：工具协议说明 + 候选工具 JSON Schema；用户消息：步骤描述 + 相关上下文 + 最近 tool_results），调用绑定工具的 ChatModel 做 tool calling → 解析工具名 + 参数写入 `tool_name/tool_args`；LLM 失败/解析失败 → `ToolRegistry.match()` 降级；再失败 → 该步 FAILED。
 2. `execute_node` — 调工具（沿用 `_safe_execute` 隔离逻辑），结果写入 `tool_results`。
-3. `feedback_node` — 更新步骤状态（DONE/FAILED → 级联 skipped）、重算 `pending_ids`、工具结果追加进 `messages`。
+3. `feedback_node` — 更新步骤状态（DONE/FAILED → 级联 skipped）、重算 `pending_ids`、工具结果与 memory 消息写入。
 
 ### 边
 
-- 恒等边：`decide → execute → feedback`
+- 条件边：`decide → execute`（步骤有 tool_name 时）或 `decide → feedback`（决策失败时直接走失败级联）
+- 恒等边：`execute → feedback`
 - 条件边：`feedback → decide`（有 pending 则循环）、`feedback → END`（全部终态）
 
 ### 外部接口数据流
 
 ```
 Executor.execute(plan):
-  state = plan_to_state(plan)
-  final = graph.invoke(state, config={"configurable": {"thread_id": session_id or ""}})
+  graph = build_execution_graph(registry, memory, model, persist_dir, on_progress)
+  state = plan_to_state(plan, session_id)
+  final = await graph.ainvoke(state, config={"configurable": {"thread_id": session_id or "cli"}})
+  await close_checkpointer(graph)
   return state_to_plan(final)
 ```
 
 - `session_id`：CLI 无会话传空串，API 传真实 session_id。
-- checkpointer（SqliteSaver）持久化在 `~/.stock_robot/langgraph_checkpoints.sqlite`，与现有 `sessions.db` 分开。
-- 双写：graph 执行后同步 `memory.add_message("tool", ...)` 走现有 `message_store` 落 SQLite，前端 API 不变。
+- checkpointer（AsyncSqliteSaver，langgraph-checkpoint-sqlite 3.x 的同步 SqliteSaver 不支持异步调用）持久化在 `~/.stock_robot/langgraph_checkpoints.sqlite`，与现有 `sessions.db` 分开；aiosqlite 连接不被 GC 回收，每次 execute 结束后由 `close_checkpointer` 显式关闭，图每次 execute 现建（compile 毫秒级）。
+- 双写：graph 执行后同步 `memory.add_message("system"/"tool", ...)` 走现有 `message_store` 落 SQLite，前端 API 不变。
+- `decision_history` 每步记录 `{step_id, chosen_tool, reason}`，reason ∈ {"plan"（计划预置工具）, "llm"（LLM tool calling 决策）, "fallback"（关键词降级）}。
 
 ## 闲聊识别与普通会话
 
