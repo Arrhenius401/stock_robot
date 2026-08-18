@@ -52,6 +52,18 @@ def _structured_tool_results(plan, memory) -> list[dict]:
     return results
 
 
+def _build_signal_payload(final_score: float) -> dict:
+    """从配置加载信号映射并构造 API 信号字段（配置损坏时抛 ValueError 由边界兜底）"""
+    from report.signal import SIGNAL_LABELS, derive_signal, load_signal_config
+    from utils.config import Config
+
+    cfg = load_signal_config(Config())
+    level = derive_signal(final_score, cfg.thresholds)
+    action = cfg.actions[level]
+    return {"level": level, "label": SIGNAL_LABELS[level],
+            "action": action.action, "position": action.position}
+
+
 def create_app(core=None, sessions=None):
     app = FastAPI(title="Stock Robot API", version="0.1.0",
                   description="AI 驱动的股票分析研报助手 HTTP API")
@@ -249,6 +261,7 @@ def create_app(core=None, sessions=None):
                 "score_rows": summary.score_rows,
                 "dimensions": dimensions,
                 "commentary": commentary.get("bulk", ""),
+                "signal": _build_signal_payload(summary.final_score),
                 "generated_at": datetime.now().astimezone().isoformat(),
             }
             return JSONResponse(_json_safe(payload))

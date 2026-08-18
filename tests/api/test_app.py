@@ -111,6 +111,26 @@ def make_core():
                      llm=cast(Any, FakeLLM()))
 
 
+class TestAnalyzeSignal:
+    def test_analyze_response_contains_signal(self):
+        """/api/v1/analyze 响应含结构化 signal 字段（FakePipeline 得分为 8 → 进攻）"""
+        from fastapi.testclient import TestClient
+
+        from api.app import create_app
+
+        app = create_app(core=make_core(), sessions=None)
+        client = TestClient(app)
+        resp = client.post("/api/v1/analyze", json={"symbol": "000001"})
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["signal"] == {
+            "level": "attack",
+            "label": "进攻",
+            "action": "可考虑建仓/加仓",
+            "position": "60%-80%",
+        }
+
+
 class ChatModeLLM:
     """返回 mode=chat 计划的 LLM"""
 
