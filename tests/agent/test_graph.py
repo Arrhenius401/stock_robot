@@ -3,7 +3,7 @@ from typing import cast
 
 import pytest
 
-from agent.graph import build_execution_graph
+from agent.graph import build_execution_graph, close_checkpointer
 from agent.memory import Memory, Plan, TaskStep
 from agent.tools import ToolRegistry, ToolResult
 from tests.agent.fake_chat_model import FakeChatModel, make_tool_call
@@ -138,8 +138,8 @@ class TestExecutionGraph:
                 {"id": "s2", "description": "第二步", "tool_name": "tool_b",
                  "tool_args": {}, "status": "pending", "depends_on": ["s1"]},
             ], "pending_ids": ["s2"], "done_ids": ["s1"], "failed_ids": [],
-             "skipped_ids": [], "decision_history": [], "tool_results": [],
-             "messages": []}, config=cfg)
+             "skipped_ids": [], "decision_history": [], "tool_results": []},
+            config=cfg)
 
         # 同 thread 恢复：s2 执行完成，s1 状态不被覆盖
         assert state2["done_ids"] == ["s1", "s2"]
@@ -167,6 +167,13 @@ class TestExecutionGraph:
                    for m in memory.messages)
 
     @pytest.mark.asyncio
+    async def test_close_checkpointer_safe_for_memory_saver(self):
+        """MemorySaver 无 conn 属性，close 应安全跳过"""
+        reg = make_registry()
+        graph = build_execution_graph(reg, Memory(), model=None)
+        await close_checkpointer(graph)  # 不抛异常即通过
+
+    @pytest.mark.asyncio
     async def test_persist_dir_checkpoint_survives_new_graph(self, tmp_path):
         """AsyncSqliteSaver 落盘：新图实例 + 同 thread 从磁盘恢复终态（非重算）"""
         reg = make_registry()
@@ -188,7 +195,7 @@ class TestExecutionGraph:
         graph2 = build_execution_graph(reg2, Memory(), model=None,
                                        persist_dir=str(db_path))
         state2 = await graph2.ainvoke({"goal": "测试"}, config=cfg)
-        await graph2.checkpointer.conn.close()
+        await close_checkpointer(graph2)
 
         assert state2["done_ids"] == ["s1", "s2"]
         assert all(s["status"] == "done" for s in state2["steps"])
@@ -197,4 +204,4 @@ class TestExecutionGraph:
         assert tool_b.execute_calls == []
 
         # 关闭 graph1 的 aiosqlite 连接，避免事件循环关闭后连接工作线程告警
-        await graph1.checkpointer.conn.close()
+        await close_checkpointer(graph1)

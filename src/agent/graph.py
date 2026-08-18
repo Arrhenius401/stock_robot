@@ -24,10 +24,10 @@ class GraphState(TypedDict):
     skipped_ids: list[str]
     decision_history: list[dict]
     tool_results: list[dict]
-    messages: list[dict]         # 决策上下文消息（跨步累积）
 
 
 def plan_to_state(plan: Plan, session_id: str = "") -> GraphState:
+    # session_id 预留：会话标识（Task 7 Executor 传入）
     return {
         "goal": plan.goal,
         "steps": [{
@@ -38,7 +38,6 @@ def plan_to_state(plan: Plan, session_id: str = "") -> GraphState:
         "pending_ids": [s.id for s in plan.get_pending_steps()],
         "done_ids": [], "failed_ids": [], "skipped_ids": [],
         "decision_history": [], "tool_results": [],
-        "messages": [],
     }
 
 
@@ -65,7 +64,8 @@ def create_checkpointer(persist_dir: str | None) -> Any:
     同步返回惰性启动的连接代理（setup() 时 await 启动），但构造函数需要
     运行中的事件循环（asyncio.get_running_loop）——build_execution_graph
     在 async 执行路径（Executor.execute / 测试）中调用，前提满足；无事件
-    循环时降级 MemorySaver。连接保持打开直至 Executor/图被回收。
+    循环时降级 MemorySaver。连接由调用方负责显式关闭（close_checkpointer）：
+    aiosqlite 连接不会被 GC 回收，事件循环关闭时其工作线程会报错退出。
     """
     if persist_dir is None:
         from langgraph.checkpoint.memory import MemorySaver
@@ -81,6 +81,21 @@ def create_checkpointer(persist_dir: str | None) -> Any:
         return MemorySaver()
 
 
+async def close_checkpointer(graph) -> None:
+    """显式关闭 checkpointer 连接（aiosqlite 连接不会被 GC 关闭）
+
+    在 Executor 执行结束后调用；MemorySaver 无 conn 属性，安全跳过。
+    """
+    saver = getattr(graph, "checkpointer", None)
+    conn = getattr(saver, "conn", None)
+    if conn is None:
+        return
+    try:
+        await conn.close()
+    except Exception:  # noqa: BLE001 — 关闭失败不影响执行结果
+        logger.debug("关闭 checkpointer 连接失败")
+
+
 def _step_by_id(state: GraphState, step_id: str) -> dict | None:
     for s in state["steps"]:
         if s["id"] == step_id:
@@ -89,7 +104,11 @@ def _step_by_id(state: GraphState, step_id: str) -> dict | None:
 
 
 def _recompute_pending(state: GraphState) -> list[str]:
-    """重算可执行步骤：pending 且依赖全部终态（done/skipped）"""
+    """重算可执行步骤：pending 且依赖全部终态（done/skipped）
+
+    输入 state 需保证级联一致：failed 依赖的级联 skip 由 _cascade_skip 维护，
+    手工构造含 failed 依赖的 state 时不做防御性 skip。
+    """
     terminal = set(state["done_ids"]) | set(state["skipped_ids"])
     ready = []
     for s in state["steps"]:
@@ -144,7 +163,6 @@ def build_execution_graph(registry: ToolRegistry, memory: Memory, model=None,
                 TaskStep(id=step["id"], description=step["description"]),
                 state["decision_history"], state["tool_results"])
             if chosen_tool is None:
-                step["status"] = "failed"
                 return {"steps": state["steps"]}
             reason = "llm"
         step["tool_name"] = chosen_tool
@@ -185,8 +203,9 @@ def build_execution_graph(registry: ToolRegistry, memory: Memory, model=None,
                 step["status"] = "failed"
             if step_id not in state["failed_ids"]:
                 state["failed_ids"].append(step_id)
-            memory.add_message("system",
-                               f"步骤 {step_id} 失败: {result and result['error']}")
+            memory.add_message(
+                "system", f"步骤 {step_id} 失败: "
+                          f"{result and result['error'] or '决策失败（无候选工具）'}")
             _cascade_skip(state, step_id)
         else:
             if step["status"] != "done":
@@ -227,6 +246,6 @@ async def _safe_execute(tool, kwargs: dict) -> Any:
         return await tool.execute(**kwargs)
     except Exception as e:  # noqa: BLE001 — 工具执行隔离，失败以 ToolResult 返回
         from agent.tools import ToolResult
-        logger.error(f"工具 {tool.name} 执行异常: {e}")
+        logger.error("工具 %s 执行异常: %s", tool.name, e)
         return ToolResult(status="error", error=str(e),
                           metadata={"source": getattr(tool, "source", "unknown")})
