@@ -76,6 +76,29 @@ def test_api_command_help():
     assert "启动 Web API 服务" in result.output
 
 
+def test_api_bind_resolution_uses_config_defaults(tmp_path):
+    """未传 host/port 时读配置 api.host/api.port（默认 127.0.0.1:25618）"""
+    from stock_robot.cli import _resolve_api_bind
+    from utils.config import Config
+
+    cfg = Config(config_dir=tmp_path)
+    assert _resolve_api_bind(None, None, cfg) == ("127.0.0.1", 25618)
+    assert _resolve_api_bind("0.0.0.0", None, cfg) == ("0.0.0.0", 25618)
+    assert _resolve_api_bind(None, 9000, cfg) == ("127.0.0.1", 9000)
+
+
+def test_api_bind_resolution_uses_configured_values(tmp_path):
+    """配置自定义 api.port 后未传参时生效"""
+    from stock_robot.cli import _resolve_api_bind
+    from utils.config import Config
+
+    cfg = Config(config_dir=tmp_path)
+    cfg.set("api.port", 9000)
+    cfg.set("api.host", "0.0.0.0")
+    assert _resolve_api_bind(None, None, cfg) == ("0.0.0.0", 9000)
+    assert _resolve_api_bind(None, 8000, cfg) == ("0.0.0.0", 8000)  # CLI 优先
+
+
 def test_register_llm_keyless_config_registers_nothing(tmp_path):
     """无 api_key 的默认配置下 _register_llm 不应崩溃、不应注册后端"""
     from core.registry import Registry

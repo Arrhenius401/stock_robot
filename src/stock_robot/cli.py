@@ -15,6 +15,8 @@ from rich.table import Table
 console = Console()
 logger = logging.getLogger(__name__)
 
+from utils.config import Config
+
 
 def _get_registry():
     """构建默认注册表"""
@@ -420,21 +422,28 @@ def cache_status():
     console.print(table)
 
 
+def _resolve_api_bind(host: str | None, port: int | None, config: Config) -> tuple[str, int]:
+    """解析 API 监听地址：CLI 显式参数 > 配置文件 > 默认值"""
+    resolved_host = host or config.get("api.host", "127.0.0.1")
+    resolved_port = port if port is not None else config.get("api.port", 25618)
+    return resolved_host, resolved_port
+
+
 @main.command()
-@click.option("--host", default="127.0.0.1", help="监听地址")
-@click.option("--port", default=8000, type=int, help="监听端口")
+@click.option("--host", default=None, help="监听地址（默认读配置 api.host，缺省 127.0.0.1）")
+@click.option("--port", default=None, type=int, help="监听端口（默认读配置 api.port，缺省 25618）")
 def api(host, port):
     """启动 Web API 服务（含 Web UI）"""
     from api.app import create_app
     from api.bootstrap import build_agent_core
-    from utils.config import Config
 
     config = Config()
+    bind_host, bind_port = _resolve_api_bind(host, port, config)
     core = build_agent_core(config)
     app = create_app(core=core)
-    logger.info("Stock Robot API 启动于 http://%s:%d", host, port)
+    logger.info("Stock Robot API 启动于 http://%s:%d", bind_host, bind_port)
     import uvicorn
-    uvicorn.run(app, host=host, port=port)
+    uvicorn.run(app, host=bind_host, port=bind_port)
 
 
 @main.command()
