@@ -1,9 +1,31 @@
 """ChatResponder 单元测试"""
 import pytest
 
-from agent.chat import FALLBACK_REPLY, ChatResponder
+from agent.chat import FALLBACK_REPLY, ChatResponder, _extract_text
 from agent.memory import Memory
 from tests.agent.fake_chat_model import FakeChatModel
+
+
+class TestExtractText:
+    def test_str_passthrough(self):
+        assert _extract_text("你好") == "你好"
+
+    def test_list_joins_text_blocks_skips_thinking(self):
+        content = [
+            {"type": "thinking", "signature": "sig-1", "thinking": "内部思考"},
+            {"type": "text", "text": "你好！"},
+            {"type": "text", "text": "有什么可以帮你？"},
+        ]
+        assert _extract_text(content) == "你好！有什么可以帮你？"
+
+    def test_list_ignores_non_dict_blocks(self):
+        assert _extract_text(["裸字符串块",
+                              {"type": "text", "text": "有效文本"}]) == "有效文本"
+
+    def test_empty_content_returns_empty_string(self):
+        assert _extract_text([]) == ""
+        assert _extract_text(None) == ""
+        assert _extract_text(12345) == ""
 
 
 class TestChatResponder:

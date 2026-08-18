@@ -1,5 +1,6 @@
 """ChatResponder — 闲聊的普通 AI 会话回复（LangChain 模型，无工具绑定）"""
 import logging
+from typing import Any
 
 from agent.memory import Memory
 
@@ -11,6 +12,26 @@ FALLBACK_REPLY = ("这个问题我暂时无法回答。可以试试让我分析�
 CHAT_SYSTEM_PROMPT = """你是一个友好、专业的股票投研助手。
 当用户闲聊（问候、道谢、日常话题）时，自然地进行普通对话；
 当用户提出投研相关问题时，简短回答并建议使用分析功能。"""
+
+
+def _extract_text(content: Any) -> str:
+    """从模型响应 content 提取用户可见文本
+
+    LangChain AIMessage.content 两种形态：OpenAI 风格为 str 原样返回；
+    Anthropic 风格为内容块列表（含 thinking 块），只拼接 type == "text"
+    的块文本，thinking/signature 不展示给用户。
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text = block.get("text", "")
+                if isinstance(text, str):
+                    parts.append(text)
+        return "".join(parts)
+    return ""
 
 
 class ChatResponder:
