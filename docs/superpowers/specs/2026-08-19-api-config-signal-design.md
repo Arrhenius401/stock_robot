@@ -71,7 +71,8 @@ signal:
   - `final_score >= watch 阈值` → `watch`
   - 否则 → `defend`
 - `load_signal_config(config: Config) -> SignalConfig`——从 `Config` 读取并校验：
-  - 校验三个信号键齐全（actions 与 thresholds 均须含 attack/watch/defend），缺失即抛 `ValueError`——回测契约完整性，宁可显式失败。
+  - 校验阈值键齐全（thresholds 须含 attack/watch 两键；defend 无独立阈值，得分低于 watch 即防御），缺失即抛 `ValueError`——回测契约完整性，宁可显式失败。
+  - 校验 actions 三个信号键齐全（attack/watch/defend），缺失即抛 `ValueError`。
   - 校验阈值合法：`0 < watch < attack <= 10`，非法抛 `ValueError`。
   - 动作字段缺失时用默认值兜底。
 
