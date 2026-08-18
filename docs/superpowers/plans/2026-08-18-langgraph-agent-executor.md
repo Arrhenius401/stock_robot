@@ -648,12 +648,21 @@ class ToolSelector:
             if tc.get("name") in valid_names:
                 return tc["name"], tc.get("args") or {}
 
-        # 一次强制重试：明确候选范围
-        messages = messages + [
-            {"role": "assistant", "content": "（未选择合法工具）"},
-            {"role": "user", "content": "只能从候选工具中选择一个: "
-                                        + ", ".join(sorted(valid_names))},
+        # 一次强制重试：对非法 tool call 逐一补 tool 角色回应
+        # （OpenAI/Anthropic 要求 assistant 消息的 tool_calls 必须紧跟 tool 回应，
+        #  否则 400；伪造 assistant 消息会让重试在真实 provider 下必然失败）
+        invalid = [tc for tc in response.tool_calls
+                   if tc.get("name") not in valid_names]
+        extra = [
+            {"role": "tool", "tool_call_id": tc.get("id", ""),
+             "name": tc.get("name", ""),
+             "content": f"候选工具中不存在 {tc.get('name')}，请重新选择"}
+            for tc in invalid
         ]
+        extra.append({"role": "user",
+                      "content": "只能从候选工具中选择一个: "
+                                 + ", ".join(sorted(valid_names))})
+        messages = messages + extra
         response = await bound.ainvoke(messages)
         for tc in response.tool_calls:
             if tc.get("name") in valid_names:
