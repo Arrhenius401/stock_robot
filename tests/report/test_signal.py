@@ -3,6 +3,7 @@ import pytest
 
 from report.signal import (
     SIGNAL_LABELS,
+    Signal,
     derive_signal,
     load_signal_config,
 )
@@ -12,7 +13,7 @@ from utils.config import Config
 class TestDeriveSignal:
     def test_threshold_boundaries(self):
         # 默认阈值：attack=7, watch=4
-        thresholds = {"attack": 7.0, "watch": 4.0}
+        thresholds: dict[Signal, float] = {"attack": 7.0, "watch": 4.0}
         assert derive_signal(7.0, thresholds) == "attack"
         assert derive_signal(6.9, thresholds) == "watch"
         assert derive_signal(4.0, thresholds) == "watch"
@@ -21,7 +22,7 @@ class TestDeriveSignal:
         assert derive_signal(10.0, thresholds) == "attack"
 
     def test_custom_thresholds(self):
-        thresholds = {"attack": 8.0, "watch": 5.0}
+        thresholds: dict[Signal, float] = {"attack": 8.0, "watch": 5.0}
         assert derive_signal(7.5, thresholds) == "watch"
         assert derive_signal(8.0, thresholds) == "attack"
         assert derive_signal(4.9, thresholds) == "defend"
@@ -71,6 +72,7 @@ class TestLoadSignalConfig:
         "signal: {thresholds: {attack: 4, watch: 7}}\n",  # watch >= attack
         "signal: {thresholds: {attack: 11, watch: 4}}\n",  # attack > 10
         "signal: {thresholds: {attack: 7, watch: 0}}\n",   # watch <= 0
+        "signal: {thresholds: {attack: true, watch: 4}}\n",  # bool 不是合法阈值
     ])
     def test_invalid_config_raises(self, tmp_path, yaml_text):
         config_file = tmp_path / "config.yaml"
