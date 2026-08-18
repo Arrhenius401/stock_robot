@@ -112,12 +112,13 @@ def make_core():
 
 
 class TestAnalyzeSignal:
-    def test_analyze_response_contains_signal(self):
+    def test_analyze_response_contains_signal(self, mocker):
         """/api/v1/analyze 响应含结构化 signal 字段（FakePipeline 得分为 8 → 进攻）"""
         from fastapi.testclient import TestClient
 
         from api.app import create_app
 
+        mocker.patch("utils.symbols.resolve_name", return_value="平安银行")
         app = create_app(core=make_core(), sessions=None)
         client = TestClient(app)
         resp = client.post("/api/v1/analyze", json={"symbol": "000001"})
