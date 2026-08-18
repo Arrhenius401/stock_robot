@@ -25,8 +25,9 @@ class ChatResponder:
         try:
             messages = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}]
             for msg in memory.get_context_window(n=10):
-                role = "assistant" if msg["role"] == "assistant" else "user"
-                messages.append({"role": role, "content": msg["content"]})
+                if msg["role"] not in ("user", "assistant"):
+                    continue
+                messages.append({"role": msg["role"], "content": msg["content"]})
             # API 调用方已把当前用户消息写入 memory，避免上下文重复
             last = messages[-1] if messages else None
             if last is None or last.get("content") != user_input:

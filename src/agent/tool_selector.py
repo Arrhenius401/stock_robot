@@ -33,8 +33,9 @@ def _extract_tool_args(tool_name: str, description: str) -> dict:
 
 
 class ToolSelector:
-    """步骤 → (tool_name, tool_args)；无法决策返回 (None, None)
+    """步骤 → (tool_name, tool_args, source)；无法决策返回 (None, None, "fallback")
 
+    source ∈ {"llm", "fallback"}，供 decision_history 标注决策来源。
     降级阶梯: LLM tool calling → 关键词匹配（ToolRegistry.match）→ None
     """
 
@@ -43,8 +44,8 @@ class ToolSelector:
         self._model = model  # LangChain ChatModel（第三方对象，类型不定）
 
     async def select(self, step: TaskStep, decision_history: list[dict],
-                     tool_results: list[dict]) -> tuple[str | None, dict | None]:
-        """决策一步的工具与参数；返回 (None, None) 表示无法决策"""
+                     tool_results: list[dict]) -> tuple[str | None, dict | None, str]:
+        """决策一步的工具与参数；返回 (None, None, "fallback") 表示无法决策"""
         if self._model is None:
             return self._keyword_fallback(step)
         try:
@@ -56,7 +57,7 @@ class ToolSelector:
         return self._keyword_fallback(step)
 
     async def _llm_select(self, step: TaskStep,
-                          tool_results: list[dict]) -> tuple[str, dict] | None:
+                          tool_results: list[dict]) -> tuple[str, dict, str] | None:
         candidates = self._registry.match(step.description)[:_MAX_CANDIDATES]
         if not candidates:
             return None
@@ -72,14 +73,19 @@ class ToolSelector:
         valid_names = {t.name for t in candidates}
         for tc in response.tool_calls:
             if tc.get("name") in valid_names:
-                return tc["name"], tc.get("args") or {}
+                return tc["name"], tc.get("args") or {}, "llm"
 
-        # 一次强制重试：对非法 tool call 逐一补 tool 角色回应
-        # （OpenAI/Anthropic 要求 assistant 消息的 tool_calls 必须紧跟 tool 回应，
-        #  否则 400；伪造 assistant 消息会让重试在真实 provider 下必然失败）
+        # 一次强制重试：先补回首次响应的 assistant 消息（含 tool_calls），
+        # 再对非法 tool call 逐一补 tool 角色回应——OpenAI/Anthropic 要求
+        # tool 回应的 tool_call_id 必须匹配历史中的 assistant tool call
         invalid = [tc for tc in response.tool_calls
                    if tc.get("name") not in valid_names]
-        extra = [
+        extra = [{
+            "role": "assistant",
+            "content": getattr(response, "content", "") or "",
+            "tool_calls": list(response.tool_calls),
+        }]
+        extra += [
             {"role": "tool", "tool_call_id": tc.get("id", ""),
              "name": tc.get("name", ""),
              "content": f"候选工具中不存在 {tc.get('name')}，请重新选择"}
@@ -92,7 +98,7 @@ class ToolSelector:
         response = await bound.ainvoke(messages)
         for tc in response.tool_calls:
             if tc.get("name") in valid_names:
-                return tc["name"], tc.get("args") or {}
+                return tc["name"], tc.get("args") or {}, "llm"
         return None
 
     def _build_messages(self, step: TaskStep, tool_results: list[dict]) -> list[dict]:
@@ -110,9 +116,9 @@ class ToolSelector:
             {"role": "user", "content": "\n".join(parts)},
         ]
 
-    def _keyword_fallback(self, step: TaskStep) -> tuple[str | None, dict | None]:
+    def _keyword_fallback(self, step: TaskStep) -> tuple[str | None, dict | None, str]:
         candidates = self._registry.match(step.description)
         if not candidates:
-            return None, None
+            return None, None, "fallback"
         tool = candidates[0]
-        return tool.name, _extract_tool_args(tool.name, step.description)
+        return tool.name, _extract_tool_args(tool.name, step.description), "fallback"

@@ -49,6 +49,27 @@ class TestChatResponder:
         assert len(user_msgs) == 1
 
     @pytest.mark.asyncio
+    async def test_reply_filters_non_user_assistant_roles(self):
+        """混合会话中 system/tool 消息不进入闲聊上下文（仅 user/assistant）"""
+        model = FakeChatModel(content="好的")
+        responder = ChatResponder(model=model)
+        memory = Memory()
+        memory.add_message("user", "你好")
+        memory.add_message("assistant", "回答")
+        memory.add_message("tool", "[analyze_stock] 数据")
+        memory.add_message("system", "执行: 分析")
+        memory.add_message("user", "接着聊")
+
+        await responder.reply("接着聊", memory)
+
+        last_messages = model.calls[0]
+        roles = [m["role"] for m in last_messages]
+        # system prompt + 过滤后的 user/assistant（当前消息已在 memory，去重不追加）
+        assert roles == ["system", "user", "assistant", "user"]
+        contents = [str(m.get("content", "")) for m in last_messages]
+        assert not any("[analyze_stock]" in c for c in contents)
+
+    @pytest.mark.asyncio
     async def test_no_model_returns_fallback(self):
         responder = ChatResponder(model=None)
 

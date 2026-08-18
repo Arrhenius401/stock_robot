@@ -41,11 +41,12 @@ class TestToolSelector:
             "analyze_stock", {"symbol": "000001"})])
         selector = ToolSelector(registry=make_registry(), model=model)
 
-        name, args = await selector.select(
+        name, args, source = await selector.select(
             make_step("分析 000001 估值，查询 知识库"), [], [])
 
         assert name == "analyze_stock"
         assert args == {"symbol": "000001"}
+        assert source == "llm"
         # 候选工具应绑定给 LLM（不超过 4 个）
         assert model.bound_tools is not None
         assert len(model.bound_tools) == 2
@@ -57,20 +58,22 @@ class TestToolSelector:
         model = FakeChatModel(tool_calls=[])
         selector = ToolSelector(registry=make_registry(), model=model)
 
-        name, _ = await selector.select(
+        name, _, source = await selector.select(
             make_step("执行 analyze_stock 操作"), [], [])
 
         assert name == "analyze_stock"
+        assert source == "fallback"
 
     @pytest.mark.asyncio
     async def test_llm_invalid_tool_name_retries_then_falls_back(self):
         model = FakeChatModel(tool_calls=[make_tool_call("not_exist", {})])
         selector = ToolSelector(registry=make_registry(), model=model)
 
-        name, _ = await selector.select(make_step(), [], [])
+        name, _, source = await selector.select(make_step(), [], [])
 
         # 非法工具名 → 一次强制重试 → 仍非法 → 关键词降级
         assert name == "analyze_stock"
+        assert source == "fallback"
         assert len(model.calls) == 2
 
     @pytest.mark.asyncio
@@ -91,26 +94,33 @@ class TestToolSelector:
         model = RetryModel()
         selector = ToolSelector(registry=make_registry(), model=model)
 
-        name, args = await selector.select(make_step(), [], [])
+        name, args, source = await selector.select(make_step(), [], [])
 
         # 重试轮返回合法工具 → 直接返回，验证重试不是死代码
         assert name == "analyze_stock"
         assert args == {"symbol": "000001"}
+        assert source == "llm"
         assert len(model.calls) == 2
 
     @pytest.mark.asyncio
-    async def test_retry_messages_include_tool_response(self):
+    async def test_retry_messages_include_assistant_and_tool_response(self):
         model = FakeChatModel(tool_calls=[make_tool_call("not_exist", {},
                                                          call_id="call_x")])
         selector = ToolSelector(registry=make_registry(), model=model)
 
         await selector.select(make_step(), [], [])
 
-        # 第二次调用消息里应有 tool 角色回应（带 tool_call_id）
         second = model.calls[1]
+        # 重试消息在 system+user 之后补回首次 assistant 响应（含 tool_calls），
+        # tool 回应紧随其后，tool_call_id 与 assistant tool call 匹配
+        assistant_msgs = [m for m in second if m.get("role") == "assistant"]
+        assert len(assistant_msgs) == 1
+        assert assistant_msgs[0]["tool_calls"][0]["id"] == "call_x"
         tool_msgs = [m for m in second if m.get("role") == "tool"]
         assert len(tool_msgs) == 1
         assert tool_msgs[0]["tool_call_id"] == "call_x"
+        # assistant 消息紧跟 tool 回应（provider 校验顺序要求）
+        assert second.index(tool_msgs[0]) == second.index(assistant_msgs[0]) + 1
 
     @pytest.mark.asyncio
     async def test_llm_exception_falls_back_to_keyword(self):
@@ -120,36 +130,40 @@ class TestToolSelector:
 
         selector = ToolSelector(registry=make_registry(), model=ExplodingModel())
 
-        name, _ = await selector.select(make_step("执行 rag_search 检索"), [], [])
+        name, _, source = await selector.select(
+            make_step("执行 rag_search 检索"), [], [])
 
         assert name == "rag_search"
+        assert source == "fallback"
 
     @pytest.mark.asyncio
     async def test_no_model_uses_keyword_fallback(self):
         selector = ToolSelector(registry=make_registry(), model=None)
 
-        name, _ = await selector.select(make_step(), [], [])
+        name, _, source = await selector.select(make_step(), [], [])
 
         assert name == "analyze_stock"
+        assert source == "fallback"
 
     @pytest.mark.asyncio
     async def test_keyword_fallback_extracts_symbol(self):
         selector = ToolSelector(registry=make_registry(), model=None)
 
-        name, args = await selector.select(
+        name, args, source = await selector.select(
             make_step("分析 000001 的估值"), [], [])
 
         assert name == "analyze_stock"
         assert args == {"symbol": "000001"}
+        assert source == "fallback"
 
     @pytest.mark.asyncio
     async def test_no_candidates_returns_none(self):
         selector = ToolSelector(registry=make_registry(), model=None)
 
-        name, args = await selector.select(make_step("完全无关的描述"), [], [])
+        name, args, source = await selector.select(
+            make_step("完全无关的描述"), [], [])
 
-        assert name is None
-        assert args is None
+        assert (name, args, source) == (None, None, "fallback")
 
     @pytest.mark.asyncio
     async def test_decision_context_includes_recent_results(self):

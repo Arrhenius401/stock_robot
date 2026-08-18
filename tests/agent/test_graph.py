@@ -118,6 +118,24 @@ class TestExecutionGraph:
         assert state["decision_history"][0]["reason"] == "llm"
 
     @pytest.mark.asyncio
+    async def test_keyword_decision_marks_reason_fallback(self):
+        """无模型 → 关键词降级决策，decision_history 标注 fallback"""
+        reg = make_registry()
+        memory = Memory()
+        graph = build_execution_graph(reg, memory, model=None)
+        plan = Plan(goal="测试", steps=[
+            TaskStep(id="s1", description="执行 tool_a 相关操作")])
+
+        state = await graph.ainvoke(
+            plan_to_state(plan),
+            config={"configurable": {"thread_id": "t-fbk"}})
+
+        assert state["steps"][0]["tool_name"] == "tool_a"
+        assert state["steps"][0]["status"] == "done"
+        assert state["decision_history"][0]["chosen_tool"] == "tool_a"
+        assert state["decision_history"][0]["reason"] == "fallback"
+
+    @pytest.mark.asyncio
     async def test_checkpointer_resumes_same_thread(self):
         reg = make_registry()
         memory = Memory()

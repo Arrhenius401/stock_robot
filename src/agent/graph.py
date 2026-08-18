@@ -159,12 +159,12 @@ def build_execution_graph(registry: ToolRegistry, memory: Memory, model=None,
         chosen_args = step.get("tool_args")
         reason = "plan"
         if chosen_tool is None:
-            chosen_tool, chosen_args = await selector.select(
+            chosen_tool, chosen_args, source = await selector.select(
                 TaskStep(id=step["id"], description=step["description"]),
                 state["decision_history"], state["tool_results"])
             if chosen_tool is None:
                 return {"steps": state["steps"]}
-            reason = "llm"
+            reason = source
         step["tool_name"] = chosen_tool
         step["tool_args"] = chosen_args or {}
         state["decision_history"].append({

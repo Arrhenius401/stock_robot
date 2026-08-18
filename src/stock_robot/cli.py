@@ -473,6 +473,8 @@ def _run_agent_query(query, planner, executor, memory, renderer, chat_responder)
     plan = planner.plan(query)
     if plan.mode == "chat":
         import asyncio
+        # 与 API 路径对称：先写 user 再回复，保证 memory 有完整 user/assistant 轮次
+        memory.add_message("user", query)
         reply = asyncio.run(chat_responder.reply(query, memory))
         memory.add_message("assistant", reply)
         console.print(reply)
@@ -510,6 +512,8 @@ def _run_interactive_chat(planner, executor, memory, renderer, chat_responder):
         plan = planner.plan(user_input)
         if plan.mode == "chat":
             import asyncio
+            # 与 API 路径对称：先写 user 再回复，保证 memory 有完整 user/assistant 轮次
+            memory.add_message("user", user_input)
             reply = asyncio.run(chat_responder.reply(user_input, memory))
             memory.add_message("assistant", reply)
             console.print(reply)
