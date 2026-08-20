@@ -3,9 +3,9 @@ from push.store import PushStore
 
 
 def _sub(**kw: object):
-    base: dict = dict(name="自选池", symbols=["600519", "000300"],
-                      channel="email", time="08:00",
-                      created_at="2026-08-20T08:00:00+08:00")
+    base: dict = {"name": "自选池", "symbols": ["600519", "000300"],
+                  "channel": "email", "time": "08:00",
+                  "created_at": "2026-08-20T08:00:00+08:00"}
     base.update(kw)
     return Subscription(**base)
 
