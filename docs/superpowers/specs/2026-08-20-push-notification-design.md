@@ -116,7 +116,7 @@ class PushBackend(Protocol):
     def send(self, *, title: str, content: str, content_type: Literal["html", "markdown"], subject: str = "") -> None: ...
 ```
 
-- `EmailBackend`：smtplib + email.mime，`content_type="html"`，markdown 全文转 HTML（新增 markdown 依赖）
+- `EmailBackend`：smtplib + email.mime，`content_type="html"`；**后端内部**将 markdown 全文转 HTML（新增 markdown 依赖），executor 统一传 markdown 内容
 - `WeComBackend`：企业微信应用消息 API（requests），`content_type="markdown"`；access_token 缓存（7200s TTL）；失败自动取新 token 重试一次
 
 ## 错误处理
