@@ -26,8 +26,11 @@ class TestEmailBackend:
             backend.send(title="t", content="c", content_type="markdown")
 
     def test_send_ssl_465(self, mocker):
-        import email
+        import email.header
         from email import message_from_string
+        from email.message import Message
+        from typing import cast
+
         smtp_cls = mocker.patch("smtplib.SMTP_SSL")
         backend = EmailBackend(_email_cfg())
         backend.send(title="标题", content="**加粗**", content_type="markdown")
@@ -37,7 +40,11 @@ class TestEmailBackend:
         msg = message_from_string(ctx.sendmail.call_args.args[2])
         # 主题/正文因中文分别走 RFC2047/base64 编码，解码后再断言
         subject = str(email.header.make_header(email.header.decode_header(msg["Subject"])))
-        body = msg.get_payload()[0].get_payload(decode=True).decode("utf-8")
+        payload = msg.get_payload()
+        assert isinstance(payload, list)
+        decoded = cast(Message, payload[0]).get_payload(decode=True)
+        assert isinstance(decoded, bytes)
+        body = decoded.decode("utf-8")
         assert "标题" in subject
         assert "<strong>加粗</strong>" in body  # markdown 已转 HTML
 
