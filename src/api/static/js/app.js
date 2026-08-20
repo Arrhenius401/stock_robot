@@ -4,6 +4,7 @@ import { initChat } from "./chat.js";
 import { initReportView } from "./report.js";
 import { initIndexView } from "./indexview.js";
 import { initSessions, initSessionStartup } from "./sessions.js";
+import { initSubscriptions } from "./subscriptions.js";
 
 function init() {
   document.querySelectorAll(".nav-item").forEach((n) => {
@@ -17,6 +18,7 @@ function init() {
   initReportView();
   initIndexView();
   initSessions();
+  initSubscriptions();
   initSessionStartup().catch((e) => console.error("会话初始化失败:", e));
 }
 
