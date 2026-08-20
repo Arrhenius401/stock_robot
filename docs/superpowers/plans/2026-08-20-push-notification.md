@@ -1505,7 +1505,9 @@ class TestSubscriptionsAPI:
         assert resp.json()["channel"] == "wecom"
         assert push.reload_calls == 2
         got = client.get(f"/api/v1/subscriptions/{sub_id}").json()
-        assert got["symbols"] == ["000001"]
+        # symbols 为 SubscriptionSymbol dict 列表（字符串简写 → kind=auto）
+        assert got["symbols"] == [{"symbol": "000001", "kind": "auto",
+                                   "index_style": None}]
 
     def test_delete_and_reload(self, tmp_path):
         app, push = _make_app(tmp_path)
@@ -1730,8 +1732,27 @@ class TestSubscribe:
         assert result.exit_code == 0
         created = instance.create.call_args.args[0]
         assert created.name == "自选池"
-        assert created.symbols == ["600519", "000300"]
+        assert [s.symbol for s in created.symbols] == ["600519", "000300"]
         assert created.channel == "email"
+
+    def test_add_explicit_kind(self, mocker, tmp_path):
+        mock_store = mocker.patch("push.store.PushStore")
+        instance = mock_store.return_value
+        instance.create.return_value = 8
+        runner = CliRunner()
+        result = runner.invoke(main, [
+            "subscribe", "add",
+            "--name", "指数池",
+            "--symbols", "000001",
+            "--kind", "index",
+            "--index-style", "broad",
+            "--channel", "email",
+            "--time", "08:30",
+        ])
+        assert result.exit_code == 0
+        created = instance.create.call_args.args[0]
+        assert created.symbols[0].kind == "index"
+        assert created.symbols[0].index_style == "broad"
 
     def test_add_invalid_channel(self):
         runner = CliRunner()
@@ -1797,7 +1818,11 @@ def subscribe():
 @click.option("--channel", type=click.Choice(["email", "wecom"]), required=True,
               help="推送渠道")
 @click.option("--time", "push_time", required=True, help="每日推送时间 HH:MM")
-def subscribe_add(name, symbols, channel, push_time):
+@click.option("--kind", type=click.Choice(["auto", "stock", "index"]),
+              default="auto", help="标的类型（默认 auto 自动判定）")
+@click.option("--index-style", type=click.Choice(["broad", "sector", "overseas"]),
+              default=None, help="指数风格（kind=index 时使用）")
+def subscribe_add(name, symbols, channel, push_time, kind, index_style):
     """创建订阅"""
     import re
     from datetime import datetime, timezone
@@ -1808,9 +1833,11 @@ def subscribe_add(name, symbols, channel, push_time):
 
     config = Config()
     store = PushStore(config.config_dir / "push.db")
+    # 订阅级类型选项作为所有标的的默认值（API 支持 per-symbol 覆盖）
     sub = Subscription(
         name=name,
-        symbols=[s for s in re.split(r"[,，\s]+", symbols) if s],
+        symbols=[{"symbol": s, "kind": kind, "index_style": index_style}
+                 for s in re.split(r"[,，\s]+", symbols) if s],
         channel=channel,
         time=push_time,
         created_at=datetime.now().astimezone().isoformat(),
@@ -1838,7 +1865,8 @@ def subscribe_list():
         status = "启用" if sub.enabled else "停用"
         if last:
             status += f"（上次 {last['ok']}/{last['total']} 成功）"
-        table.add_row(str(sub.id), sub.name, "、".join(sub.symbols),
+        table.add_row(str(sub.id), sub.name,
+                      "、".join(s.symbol for s in sub.symbols),
                       sub.channel, sub.time, status)
     console.print(table)
 
@@ -1955,6 +1983,17 @@ git commit -m "feat(推送): CLI subscribe 命令组"
         <div class="subs-form-row">
           <input id="subName" placeholder="订阅名称（如：自选池）">
           <input id="subSymbols" placeholder="标的代码，空格分隔（600519 000300）">
+          <select id="subKind">
+            <option value="auto">自动判定</option>
+            <option value="stock">股票</option>
+            <option value="index">指数</option>
+          </select>
+          <select id="subIndexStyle">
+            <option value="">指数风格（自动）</option>
+            <option value="broad">宽基</option>
+            <option value="sector">行业</option>
+            <option value="overseas">海外</option>
+          </select>
           <select id="subChannel">
             <option value="email">邮箱（全文）</option>
             <option value="wecom">企业微信（摘要）</option>
@@ -2046,7 +2085,10 @@ function subCard(sub) {
         `上次执行 ${new Date(last.ran_at * 1000).toLocaleString()} · ${last.ok}/${last.total} 成功`));
   }
   card.appendChild(head);
-  card.appendChild(el("div", "sub-symbols", sub.symbols.join("、")));
+  // symbols 为 SubscriptionSymbol dict 列表：{symbol, kind, index_style}
+  const label = (s) => s.kind === "index" ? `${s.symbol}（指数${s.index_style ? `/${s.index_style}` : ""}）`
+    : s.kind === "stock" ? `${s.symbol}（股票）` : s.symbol;
+  card.appendChild(el("div", "sub-symbols", sub.symbols.map(label).join("、")));
   const actions = el("div", "sub-actions");
   const toggleBtn = el("button", "btn-sm", sub.enabled ? "停用" : "启用");
   toggleBtn.addEventListener("click", async () => {
@@ -2085,12 +2127,17 @@ async function createSubscription() {
   clearError();
   const name = document.getElementById("subName").value.trim();
   const symbols = document.getElementById("subSymbols").value.trim().split(/\s+/).filter(Boolean);
+  const kind = document.getElementById("subKind").value;
+  const indexStyle = document.getElementById("subIndexStyle").value || null;
   const channel = document.getElementById("subChannel").value;
   const time = document.getElementById("subTime").value;
   if (!name) return showError("请输入订阅名称");
   if (!symbols.length) return showError("请输入至少一个标的代码");
+  // 订阅级类型作为所有标的默认值；kind=auto 时 index_style 不传
+  const items = symbols.map((s) => kind === "auto"
+    ? s : { symbol: s, kind, index_style: indexStyle });
   try {
-    await api.createSubscription({ name, symbols, channel, time });
+    await api.createSubscription({ name, symbols: items, channel, time });
     document.getElementById("subName").value = "";
     document.getElementById("subSymbols").value = "";
     loadList();
@@ -2137,5 +2184,6 @@ git commit -m "feat(推送): Web UI 订阅管理页面"
 
 - **Spec 覆盖**：models/store（spec 数据模型节）、backends（推送后端节）、summary（推送内容节）、executor（调度与执行节）、scheduler（调度节）、API 6 端点（三端管理节）、CLI subscribe（三端管理节）、Web UI（三端管理节）、push_runs 记录（executor/store）、全局开关（scheduler.start 判 push.enabled）、手动触发后台线程（API run 端点）。
 - **歧义修正**：指数 `IndexMapping().lookup` 未命中时的 index_style 归属（海外默认 overseas、A 股默认 broad）在 Task 6 明确。
+- **模型变更（2026-08-20 用户决策）**：`symbols` 从 `list[str]` 改为 `list[SubscriptionSymbol]`（`symbol` + `kind: stock/index/auto` + `index_style`），解决 000001 上证指数 vs 平安银行歧义。Task 2/3/6 已按此返工（Subscription before-validator 兼容字符串简写；store JSON 用 model_dump；executor 按显式 kind 分派）。Task 8 API 的 `_parse_subscription` 无需改（模型 validator 处理 str/dict），仅测试断言 symbols 为 dict 列表；Task 9 CLI 增加 `--kind`/`--index-style` 选项；Task 10 UI 增加类型与指数风格选择器。
 - **测试环境事实**：conftest.py 已 mock akshare 网络调用，executor 测试无需额外网络 mock；`resolve_name` 在 executor 测试中 mock。
 - **依赖顺序**：Task 2→3→4→5→6→7→8→9→10（Task 1 独立），各任务可独立提交。
