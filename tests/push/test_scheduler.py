@@ -1,6 +1,6 @@
 from apscheduler.triggers.cron import CronTrigger
 
-from push.models import Subscription
+from push.models import Subscription, SubscriptionSymbol
 from push.scheduler import PushScheduler
 
 
@@ -57,7 +57,7 @@ class _SchedulerStub:
 
 class TestPushScheduler:
     def test_start_registers_jobs(self, mocker):
-        subs = [Subscription(id=1, name="a", symbols=["600519"], channel="email",
+        subs = [Subscription(id=1, name="a", symbols=[SubscriptionSymbol(symbol="600519")], channel="email",
                              time="08:30", enabled=True)]
         stub = _SchedulerStub()
         mocker.patch("push.scheduler.BackgroundScheduler", return_value=stub)
@@ -80,9 +80,9 @@ class TestPushScheduler:
         mocker.patch("push.scheduler.BackgroundScheduler").assert_not_called()
 
     def test_reload_after_enabled_toggle(self, mocker):
-        subs = [Subscription(id=1, name="a", symbols=["600519"], channel="email",
+        subs = [Subscription(id=1, name="a", symbols=[SubscriptionSymbol(symbol="600519")], channel="email",
                              time="08:00", enabled=True),
-                Subscription(id=2, name="b", symbols=["000300"], channel="wecom",
+                Subscription(id=2, name="b", symbols=[SubscriptionSymbol(symbol="000300")], channel="wecom",
                              time="09:00", enabled=False)]
         stub = _SchedulerStub()
         mocker.patch("push.scheduler.BackgroundScheduler", return_value=stub)
@@ -95,7 +95,7 @@ class TestPushScheduler:
 
     def test_run_invokes_executor(self, mocker):
         executor = _Executor()
-        subs = [Subscription(id=1, name="a", symbols=["600519"], channel="email",
+        subs = [Subscription(id=1, name="a", symbols=[SubscriptionSymbol(symbol="600519")], channel="email",
                              time="08:00", enabled=True)]
         stub = _SchedulerStub()
         mocker.patch("push.scheduler.BackgroundScheduler", return_value=stub)

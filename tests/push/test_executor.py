@@ -1,6 +1,6 @@
 from data.schemas import AnalysisContext, AnalysisResult
 from push.executor import PushExecutor
-from push.models import Subscription
+from push.models import Subscription, SubscriptionSymbol
 
 
 class _Core:
@@ -60,7 +60,7 @@ class TestPushExecutor:
     def test_stock_email_sends_full(self, mocker, tmp_path):
         from push.store import PushStore
         store = PushStore(tmp_path / "push.db")
-        sub_id = store.create(Subscription(name="t", symbols=["600519"],
+        sub_id = store.create(Subscription(name="t", symbols=[SubscriptionSymbol(symbol="600519")],
                                            channel="email", time="08:00"))
         backend = _Backend()
         mocker.patch("push.executor.get_backend", return_value=backend)
@@ -79,7 +79,7 @@ class TestPushExecutor:
     def test_stock_wecom_sends_summary(self, mocker, tmp_path):
         from push.store import PushStore
         store = PushStore(tmp_path / "push.db")
-        sub_id = store.create(Subscription(name="t", symbols=["600519"],
+        sub_id = store.create(Subscription(name="t", symbols=[SubscriptionSymbol(symbol="600519")],
                                            channel="wecom", time="08:00"))
         backend = _Backend()
         mocker.patch("push.executor.get_backend", return_value=backend)
@@ -95,7 +95,7 @@ class TestPushExecutor:
     def test_index_wecom_sends_summary(self, mocker, tmp_path):
         from push.store import PushStore
         store = PushStore(tmp_path / "push.db")
-        sub_id = store.create(Subscription(name="t", symbols=["000300"],
+        sub_id = store.create(Subscription(name="t", symbols=[SubscriptionSymbol(symbol="000300")],
                                            channel="wecom", time="08:00"))
         backend = _Backend()
         mocker.patch("push.executor.get_backend", return_value=backend)
@@ -111,7 +111,7 @@ class TestPushExecutor:
     def test_failed_symbol_isolated(self, mocker, tmp_path):
         from push.store import PushStore
         store = PushStore(tmp_path / "push.db")
-        sub_id = store.create(Subscription(name="t", symbols=["600519", "BAD!!"],
+        sub_id = store.create(Subscription(name="t", symbols=[SubscriptionSymbol(symbol="600519"), SubscriptionSymbol(symbol="BAD!!")],
                                            channel="email", time="08:00"))
         backend = _Backend()
         mocker.patch("push.executor.get_backend", return_value=backend)

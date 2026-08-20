@@ -160,9 +160,10 @@ class TestSubscribe:
 
     def test_list_prints_table(self, mocker, tmp_path):
         mock_store = mocker.patch("push.store.PushStore")
-        from push.models import Subscription
+        from push.models import Subscription, SubscriptionSymbol
         mock_store.return_value.list.return_value = [
-            Subscription(id=1, name="自选池", symbols=["600519"],
+            Subscription(id=1, name="自选池",
+                         symbols=[SubscriptionSymbol(symbol="600519")],
                          channel="email", time="08:30")]
         runner = CliRunner()
         result = runner.invoke(main, ["subscribe", "list"])
@@ -180,8 +181,9 @@ class TestSubscribe:
     def test_run_triggers_executor(self, mocker, tmp_path):
         mock_store = mocker.patch("push.store.PushStore")
         mocker.patch("api.bootstrap.build_agent_core")  # 避免真实构建 AgentCore
-        from push.models import Subscription
-        sub = Subscription(id=1, name="自选池", symbols=["600519"],
+        from push.models import Subscription, SubscriptionSymbol
+        sub = Subscription(id=1, name="自选池",
+                           symbols=[SubscriptionSymbol(symbol="600519")],
                            channel="email", time="08:30")
         mock_store.return_value.get.return_value = sub
         mock_executor = mocker.patch("push.executor.PushExecutor")

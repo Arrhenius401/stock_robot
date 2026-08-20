@@ -6,14 +6,14 @@ from push.models import Subscription, SubscriptionSymbol
 
 class TestSubscription:
     def test_valid(self):
-        sub = Subscription(name="自选池", symbols=["600519", "000300"],
+        sub = Subscription(name="自选池", symbols=["600519", "000300"],  # pyright: ignore[reportArgumentType] 简写入参由 before-validator 兼容
                            channel="email", time="08:00")
         assert sub.enabled is True
         assert sub.id is None
         assert sub.symbols[0].kind == "auto"
 
     def test_symbols_whitespace_stripped(self):
-        sub = Subscription(name="t", symbols=[" 600519 ", "  "],
+        sub = Subscription(name="t", symbols=[" 600519 ", "  "],  # pyright: ignore[reportArgumentType] 简写入参由 before-validator 兼容
                            channel="wecom", time="09:30")
         assert sub.symbols[0].symbol == "600519"
         assert len(sub.symbols) == 1
@@ -24,13 +24,16 @@ class TestSubscription:
 
     def test_bad_time_rejected(self):
         with pytest.raises(ValidationError):
-            Subscription(name="t", symbols=["600519"], channel="email", time="8:00")
+            Subscription(name="t", symbols=["600519"],  # pyright: ignore[reportArgumentType]
+                           channel="email", time="8:00")
         with pytest.raises(ValidationError):
-            Subscription(name="t", symbols=["600519"], channel="email", time="25:00")
+            Subscription(name="t", symbols=["600519"],  # pyright: ignore[reportArgumentType]
+                           channel="email", time="25:00")
 
     def test_bad_channel_rejected(self):
         with pytest.raises(ValidationError):
-            Subscription(name="t", symbols=["600519"], channel="sms", time="08:00")
+            Subscription(name="t", symbols=["600519"], channel="sms",  # pyright: ignore[reportArgumentType] 故意非法 channel
+                           time="08:00")
 
 
 class TestSubscriptionSymbol:
@@ -50,7 +53,7 @@ class TestSubscriptionSymbol:
     def test_dict_items_parsed(self):
         sub = Subscription(
             name="t",
-            symbols=[
+            symbols=[  # pyright: ignore[reportArgumentType] dict 简写入参由 before-validator 兼容
                 {"symbol": "000001", "kind": "index", "index_style": "broad"},
                 {"symbol": "600519"},
             ],
@@ -61,13 +64,13 @@ class TestSubscriptionSymbol:
 
     def test_invalid_kind_rejected(self):
         with pytest.raises(ValidationError):
-            Subscription(name="t", symbols=[{"symbol": "600519", "kind": "sms"}],
+            Subscription(name="t", symbols=[{"symbol": "600519", "kind": "sms"}],  # pyright: ignore[reportArgumentType] 故意非法 kind
                          channel="email", time="08:00")
 
     def test_mixed_string_and_dict(self):
         sub = Subscription(
             name="t",
-            symbols=["600519", {"symbol": "000300", "kind": "index"}],
+            symbols=["600519", {"symbol": "000300", "kind": "index"}],  # pyright: ignore[reportArgumentType] 混合简写由 before-validator 兼容
             channel="email", time="08:00")
         assert len(sub.symbols) == 2
         assert sub.symbols[1].kind == "index"
