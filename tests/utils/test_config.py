@@ -61,3 +61,14 @@ data:
         assert cfg.data["signal"]["actions"]["attack"] == {"action": "可考虑建仓/加仓", "position": "60%-80%"}
         assert cfg.data["signal"]["actions"]["watch"] == {"action": "持有观察，等待明确方向", "position": "30%-50%"}
         assert cfg.data["signal"]["actions"]["defend"] == {"action": "减仓或回避", "position": "0%-20%"}
+
+
+class TestPushConfig:
+    def test_default_push_section(self, tmp_path):
+        cfg = Config(config_dir=tmp_path)
+        assert cfg.get("push.enabled") is True
+        assert cfg.get("push.max_symbols_per_subscription") == 20
+        assert cfg.get("push.email.smtp_host") == "smtp.qq.com"
+        assert cfg.get("push.email.smtp_port") == 465
+        assert cfg.get("push.email.smtp_user") == ""
+        assert cfg.get("push.wecom.to_user") == "@all"

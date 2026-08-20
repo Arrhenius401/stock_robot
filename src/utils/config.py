@@ -28,6 +28,23 @@ DEFAULT_CONFIG = {
         "host": "127.0.0.1",
         "port": 25618,
     },
+    "push": {
+        "enabled": True,
+        "max_symbols_per_subscription": 20,
+        "email": {
+            "smtp_host": "smtp.qq.com",
+            "smtp_port": 465,
+            "smtp_user": "",
+            "smtp_password": "",
+            "to_addr": "",
+        },
+        "wecom": {
+            "corp_id": "",
+            "agent_id": "",
+            "secret": "",
+            "to_user": "@all",
+        },
+    },
     "signal": {
         "thresholds": {
             "attack": 7,
