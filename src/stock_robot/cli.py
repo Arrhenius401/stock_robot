@@ -752,5 +752,140 @@ def rag_stats():
     console.print(f"\n[dim]Embedding 模型: {embedding_name}[/dim]")
 
 
+@main.group()
+def subscribe():
+    """管理每日定时推送订阅（邮件/企业微信）"""
+
+
+@subscribe.command("add")
+@click.option("--name", required=True, help="订阅名称")
+@click.option("--symbols", required=True, help="标的代码，逗号/空格分隔")
+@click.option("--channel", type=click.Choice(["email", "wecom"]), required=True,
+              help="推送渠道")
+@click.option("--time", "push_time", required=True, help="每日推送时间 HH:MM")
+@click.option("--kind", type=click.Choice(["auto", "stock", "index"]),
+              default="auto", help="标的类型（默认 auto 自动判定）")
+@click.option("--index-style", type=click.Choice(["broad", "sector", "overseas"]),
+              default=None, help="指数风格（kind=index 时使用）")
+def subscribe_add(name, symbols, channel, push_time, kind, index_style):
+    """创建订阅"""
+    import re
+    from datetime import datetime
+    from typing import Any
+
+    from push.models import Subscription
+    from push.store import PushStore
+    from utils.config import Config
+
+    config = Config()
+    store = PushStore(config.config_dir / "push.db")
+    # 订阅级类型选项作为所有标的的默认值（API 支持 per-symbol 覆盖）；
+    # pydantic before-validator 接受 dict 简写，标注 list[Any] 规避静态类型误报
+    raw_symbols: list[Any] = [
+        {"symbol": s, "kind": kind, "index_style": index_style}
+        for s in re.split(r"[,，\s]+", symbols) if s
+    ]
+    sub = Subscription(
+        name=name,
+        symbols=raw_symbols,
+        channel=channel,
+        time=push_time,
+        created_at=datetime.now().astimezone().isoformat(),
+    )
+    sub_id = store.create(sub)
+    console.print(f"[green]已创建订阅 #{sub_id}: {name}（{channel} {push_time}）[/green]")
+
+
+@subscribe.command("list")
+def subscribe_list():
+    """列出全部订阅"""
+    from push.store import PushStore
+    from utils.config import Config
+
+    store = PushStore(Config().config_dir / "push.db")
+    table = Table(title="推送订阅")
+    table.add_column("ID", style="cyan")
+    table.add_column("名称", style="white")
+    table.add_column("标的", style="yellow")
+    table.add_column("渠道", style="green")
+    table.add_column("时间", style="magenta")
+    table.add_column("状态", style="green")
+    for sub in store.list():
+        last = store.last_run(sub.id) if sub.id else None
+        status = "启用" if sub.enabled else "停用"
+        if last:
+            status += f"（上次 {last['ok']}/{last['total']} 成功）"
+        table.add_row(str(sub.id), sub.name,
+                      "、".join(s.symbol for s in sub.symbols),
+                      sub.channel, sub.time, status)
+    console.print(table)
+
+
+@subscribe.command("remove")
+@click.option("--id", "sub_id", type=int, required=True, help="订阅 ID")
+def subscribe_remove(sub_id):
+    """删除订阅"""
+    from push.store import PushStore
+    from utils.config import Config
+
+    store = PushStore(Config().config_dir / "push.db")
+    if store.delete(sub_id):
+        console.print(f"[green]已删除订阅 #{sub_id}[/green]")
+    else:
+        console.print(f"[red]订阅 #{sub_id} 不存在[/red]")
+
+
+@subscribe.command("enable")
+@click.option("--id", "sub_id", type=int, required=True, help="订阅 ID")
+def subscribe_enable(sub_id):
+    """启用订阅"""
+    _set_enabled(sub_id, True)
+
+
+@subscribe.command("disable")
+@click.option("--id", "sub_id", type=int, required=True, help="订阅 ID")
+def subscribe_disable(sub_id):
+    """停用订阅"""
+    _set_enabled(sub_id, False)
+
+
+def _set_enabled(sub_id: int, enabled: bool):
+    from push.store import PushStore
+    from utils.config import Config
+
+    store = PushStore(Config().config_dir / "push.db")
+    sub = store.get(sub_id)
+    if sub is None:
+        console.print(f"[red]订阅 #{sub_id} 不存在[/red]")
+        return
+    sub.enabled = enabled
+    store.update(sub)
+    console.print(f"[green]订阅 #{sub_id} 已{'启用' if enabled else '停用'}[/green]")
+
+
+@subscribe.command("run")
+@click.option("--id", "sub_id", type=int, required=True, help="订阅 ID")
+def subscribe_run(sub_id):
+    """手动触发一次推送（同步执行，耗时取决于标的数）"""
+    from push.executor import PushExecutor
+    from push.store import PushStore
+    from utils.config import Config
+
+    config = Config()
+    store = PushStore(config.config_dir / "push.db")
+    sub = store.get(sub_id)
+    if sub is None:
+        console.print(f"[red]订阅 #{sub_id} 不存在[/red]")
+        return
+    from api.bootstrap import build_agent_core
+    core = build_agent_core(config)
+    executor = PushExecutor(core, store, config)
+    with console.status("正在生成报告并推送..."):
+        result = executor.run_subscription(sub)
+    console.print(f"[green]推送完成: {result['ok']}/{result['total']} 成功[/green]")
+    for failure in result["failures"]:
+        console.print(f"[yellow]失败: {failure}[/yellow]")
+
+
 if __name__ == "__main__":
     main()

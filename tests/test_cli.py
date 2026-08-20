@@ -109,3 +109,86 @@ def test_register_llm_keyless_config_registers_nothing(tmp_path):
     reg = Registry()
     _register_llm(reg, config)  # 不应抛异常
     assert reg.get_llm_backend(config.get("llm.provider", "openai")) is None
+
+
+class TestSubscribe:
+    def test_add_creates_subscription(self, mocker, tmp_path):
+        mock_store = mocker.patch("push.store.PushStore")
+        instance = mock_store.return_value
+        instance.create.return_value = 7
+        runner = CliRunner()
+        result = runner.invoke(main, [
+            "subscribe", "add",
+            "--name", "自选池",
+            "--symbols", "600519,000300",
+            "--channel", "email",
+            "--time", "08:30",
+        ])
+        assert result.exit_code == 0
+        created = instance.create.call_args.args[0]
+        assert created.name == "自选池"
+        assert [s.symbol for s in created.symbols] == ["600519", "000300"]
+        assert created.channel == "email"
+
+    def test_add_explicit_kind(self, mocker, tmp_path):
+        mock_store = mocker.patch("push.store.PushStore")
+        instance = mock_store.return_value
+        instance.create.return_value = 8
+        runner = CliRunner()
+        result = runner.invoke(main, [
+            "subscribe", "add",
+            "--name", "指数池",
+            "--symbols", "000001",
+            "--kind", "index",
+            "--index-style", "broad",
+            "--channel", "email",
+            "--time", "08:30",
+        ])
+        assert result.exit_code == 0
+        created = instance.create.call_args.args[0]
+        assert created.symbols[0].kind == "index"
+        assert created.symbols[0].index_style == "broad"
+
+    def test_add_invalid_channel(self):
+        runner = CliRunner()
+        result = runner.invoke(main, [
+            "subscribe", "add",
+            "--name", "t", "--symbols", "600519",
+            "--channel", "sms", "--time", "08:30",
+        ])
+        assert result.exit_code != 0
+
+    def test_list_prints_table(self, mocker, tmp_path):
+        mock_store = mocker.patch("push.store.PushStore")
+        from push.models import Subscription
+        mock_store.return_value.list.return_value = [
+            Subscription(id=1, name="自选池", symbols=["600519"],
+                         channel="email", time="08:30")]
+        runner = CliRunner()
+        result = runner.invoke(main, ["subscribe", "list"])
+        assert result.exit_code == 0
+        assert "自选池" in result.output
+
+    def test_remove(self, mocker, tmp_path):
+        mock_store = mocker.patch("push.store.PushStore")
+        mock_store.return_value.delete.return_value = True
+        runner = CliRunner()
+        result = runner.invoke(main, ["subscribe", "remove", "--id", "3"])
+        assert result.exit_code == 0
+        mock_store.return_value.delete.assert_called_once_with(3)
+
+    def test_run_triggers_executor(self, mocker, tmp_path):
+        mock_store = mocker.patch("push.store.PushStore")
+        mocker.patch("api.bootstrap.build_agent_core")  # 避免真实构建 AgentCore
+        from push.models import Subscription
+        sub = Subscription(id=1, name="自选池", symbols=["600519"],
+                           channel="email", time="08:30")
+        mock_store.return_value.get.return_value = sub
+        mock_executor = mocker.patch("push.executor.PushExecutor")
+        mock_executor.return_value.run_subscription.return_value = {
+            "total": 1, "ok": 1, "failures": []}
+        runner = CliRunner()
+        result = runner.invoke(main, ["subscribe", "run", "--id", "1"])
+        assert result.exit_code == 0
+        mock_executor.return_value.run_subscription.assert_called_once_with(sub)
+        assert "1/1" in result.output
