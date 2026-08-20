@@ -57,11 +57,6 @@ class _Config:
 
 
 class TestPushExecutor:
-    def _executor(self, mocker, store):
-        mocker.patch("push.executor.get_backend", return_value=_Backend())
-        mocker.patch("push.executor.resolve_name", return_value="平安银行")
-        return PushExecutor(_Core(), store, _Config())
-
     def test_stock_email_sends_full(self, mocker, tmp_path):
         from push.store import PushStore
         store = PushStore(tmp_path / "push.db")
