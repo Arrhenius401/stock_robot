@@ -401,13 +401,15 @@ def create_app(core=None, sessions=None, push=None):
         return store
 
     def _parse_subscription(body: dict):
-        # 返回类型不标注 Subscription（模型已模块级导入），校验失败统一转 422
+        # 返回类型不标注 Subscription（模型已模块级导入），校验失败统一转 422；
+        # enabled 走全量替换语义（PUT 缺省视为启用，create 缺省默认 True）
         try:
             return Subscription(
                 name=str(body.get("name", "")).strip(),
                 symbols=list(body.get("symbols") or []),
                 channel=cast(Channel, str(body.get("channel", ""))),
                 time=str(body.get("time", "")),
+                enabled=bool(body.get("enabled", True)),
             )
         except ValidationError as e:
             raise HTTPException(status_code=422, detail=str(e.errors())) from e

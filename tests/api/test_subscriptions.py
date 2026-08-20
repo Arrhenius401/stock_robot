@@ -106,6 +106,25 @@ class TestSubscriptionsAPI:
         assert got["symbols"] == [{"symbol": "000001", "kind": "auto",
                                    "index_style": None}]
 
+    def test_update_toggles_enabled(self, tmp_path):
+        app, _ = _make_app(tmp_path)
+        client = TestClient(app)
+        sub_id = client.post("/api/v1/subscriptions", json={
+            "name": "a", "symbols": ["600519"], "channel": "email", "time": "08:00",
+        }).json()["id"]
+        resp = client.put(f"/api/v1/subscriptions/{sub_id}", json={
+            "name": "a", "symbols": ["600519"], "channel": "email",
+            "time": "08:00", "enabled": False,
+        })
+        assert resp.status_code == 200
+        assert resp.json()["enabled"] is False
+        assert client.get(f"/api/v1/subscriptions/{sub_id}").json()["enabled"] is False
+        # 全量替换语义：PUT 缺省 enabled 视为启用
+        resp = client.put(f"/api/v1/subscriptions/{sub_id}", json={
+            "name": "a", "symbols": ["600519"], "channel": "email", "time": "08:00",
+        })
+        assert resp.json()["enabled"] is True
+
     def test_delete_and_reload(self, tmp_path):
         app, push = _make_app(tmp_path)
         client = TestClient(app)
