@@ -35,22 +35,33 @@ src/push/
 ## 数据模型
 
 ```python
+class SubscriptionSymbol(BaseModel):
+    symbol: str
+    kind: Literal["stock", "index", "auto"] = "auto"
+    index_style: Literal["broad", "sector", "overseas"] | None = None
+
 class Subscription(BaseModel):
     id: int
-    name: str                    # 订阅名
-    symbols: list[str]           # 标的列表（股票代码或指数代码）
+    name: str                          # 订阅名
+    symbols: list[SubscriptionSymbol]  # 标的列表，每个标的可显式指定类型
     channel: Literal["email", "wecom"]
-    time: str                    # "HH:MM" 每日推送时间
+    time: str                          # "HH:MM" 每日推送时间
     enabled: bool
     created_at: datetime
 ```
+
+**标的类型语义**（解决 000001 上证指数 vs 平安银行的代码歧义）：
+
+- `kind="stock"`：强制走股票 `Pipeline.run()`，代码须通过 `validate_symbol`，否则该标的报错
+- `kind="index"`：强制走 `IndexPipeline.run([target])`，代码须通过 `validate_index_symbol`；`index_style` 显式指定，未指定时按"映射表命中→entry.index_style；海外大写→overseas；否则 broad"推断
+- `kind="auto"`（默认）：沿用自动判定——海外大写→index、IndexMapping 命中→index、否则股票
+
+**API 兼容格式**：`symbols` 请求数组项可为字符串（等价 `{"symbol": s, "kind": "auto"}`）或 dict。CLI/Web UI 暴露订阅级"类型"选择器（auto/stock/index，指数时选 style），作为所有标的的默认值；API 支持 per-symbol 覆盖，满足混合订阅。
 
 SQLite 存储（独立文件，如 `push.db`，与 cache.db/sessions.db 同目录）：
 
 - `subscriptions` 表：字段同模型，symbols 存 JSON 文本
 - `push_runs` 表：订阅执行记录（subscription_id、执行时间、总标的数、成功数、失败详情列表），供 Web UI 查看历史
-
-标的类型自动判定：执行时查 index_mapping（指数 CSV）——命中走 `IndexPipeline.run([target])`（默认 broad style），否则走股票 `Pipeline.run()`。用户无需手动标类型。
 
 ## 配置
 
