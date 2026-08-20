@@ -270,3 +270,26 @@ button { font-family: inherit; }
                border: 1px solid var(--border); border-radius: 8px; padding: 6px 14px;
                font-size: 12px; cursor: pointer; }
 .btn-refresh:hover { color: var(--text); border-color: #3a4152; }
+
+/* ---- 订阅推送视图 ---- */
+.subs-form { margin: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.subs-form-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.subs-form-row input, .subs-form-row select {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text); padding: 6px 10px; font-size: 12px; outline: none;
+}
+.subs-form-row input:focus, .subs-form-row select:focus { border-color: var(--accent); }
+.subs-form-row button { background: var(--accent); color: #fff; border: none; border-radius: 6px; padding: 6px 14px; font-size: 12px; cursor: pointer; }
+.subs-form-row button:hover { background: #d93a3f; }
+.subs-error { color: var(--accent); font-size: 12px; min-height: 16px; }
+#subsList { margin: 0 14px 14px; display: flex; flex-direction: column; gap: 10px; }
+.sub-card { margin: 0; padding: 12px 14px; }
+.sub-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.sub-name { color: var(--text); font-size: 13px; font-weight: 650; }
+.sub-symbols { color: var(--text-3); font-size: 12px; line-height: 1.6; margin-bottom: 8px; }
+.sub-actions { display: flex; gap: 8px; }
+.btn-sm { background: var(--panel-2); color: var(--text-3); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; font-size: 11px; cursor: pointer; }
+.btn-sm:hover { color: var(--text); border-color: #3a4152; }
+.btn-sm.danger { color: var(--accent); }
+.btn-sm.danger:hover { border-color: rgba(229, 72, 77, 0.5); }
+#subsList .dim { color: var(--text-3); font-size: 12px; }

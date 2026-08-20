@@ -4,6 +4,8 @@ import { api } from "./api.js";
 
 const CHANNEL_LABELS = { email: "邮箱（全文）", wecom: "企业微信（摘要）" };
 
+let reqSeq = 0;  // 请求令牌：快速连续操作时丢弃迟到响应
+
 const content = () => document.getElementById("subsList");
 const errorBox = () => document.getElementById("subsError");
 
@@ -22,6 +24,7 @@ function clearError() {
 }
 
 async function loadList() {
+  const seq = ++reqSeq;
   const box = content();
   box.innerHTML = "";
   box.appendChild(el("div", "panel-title", "订阅列表"));
@@ -29,9 +32,11 @@ async function loadList() {
   try {
     data = await api.listSubscriptions();
   } catch (err) {
+    if (seq !== reqSeq) return;  // 已有更新请求，迟到错误不覆盖新视图
     box.appendChild(el("div", "subs-error", `加载失败: ${err.message}`));
     return;
   }
+  if (seq !== reqSeq) return;  // 已有更新请求，迟到响应不覆盖新视图
   const subs = data.subscriptions || [];
   if (!subs.length) {
     box.appendChild(el("div", "dim", "暂无订阅，先在上方创建"));
@@ -49,8 +54,11 @@ function subCard(sub) {
   head.appendChild(el("span", "chip", sub.enabled ? "启用" : "停用"));
   const last = sub.last_run;
   if (last) {
+    // ran_at 可能缺失，避免渲染 "Invalid Date"/"undefined"
+    const t = new Date(last.ran_at * 1000);
+    const timeText = isNaN(t.getTime()) ? "" : t.toLocaleString();
     head.appendChild(el("span", "chip",
-        `上次执行 ${new Date(last.ran_at * 1000).toLocaleString()} · ${last.ok}/${last.total} 成功`));
+        `上次执行 ${timeText ? `${timeText} · ` : ""}${last.ok}/${last.total} 成功`));
   }
   card.appendChild(head);
   // symbols 为 SubscriptionSymbol dict 列表：{symbol, kind, index_style}
@@ -61,11 +69,15 @@ function subCard(sub) {
   const toggleBtn = el("button", "btn-sm", sub.enabled ? "停用" : "启用");
   toggleBtn.addEventListener("click", async () => {
     clearError();
-    await api.updateSubscription(sub.id, {
-      name: sub.name, symbols: sub.symbols,
-      channel: sub.channel, time: sub.time, enabled: !sub.enabled,
-    });
-    loadList();
+    try {
+      await api.updateSubscription(sub.id, {
+        name: sub.name, symbols: sub.symbols,
+        channel: sub.channel, time: sub.time, enabled: !sub.enabled,
+      });
+      loadList();
+    } catch (err) {
+      showError(err.message);
+    }
   });
   const runBtn = el("button", "btn-sm", "立即推送");
   runBtn.addEventListener("click", async () => {
@@ -81,8 +93,12 @@ function subCard(sub) {
   delBtn.addEventListener("click", async () => {
     clearError();
     if (!confirm(`确认删除订阅「${sub.name}」？`)) return;
-    await api.deleteSubscription(sub.id);
-    loadList();
+    try {
+      await api.deleteSubscription(sub.id);
+      loadList();
+    } catch (err) {
+      showError(err.message);
+    }
   });
   actions.appendChild(toggleBtn);
   actions.appendChild(runBtn);
