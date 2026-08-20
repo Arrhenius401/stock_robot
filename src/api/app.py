@@ -2,17 +2,21 @@
 import asyncio
 import json
 import logging
+import threading
 from datetime import datetime
+from typing import cast
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import ValidationError
 
 from agent.chat import ChatResponder
 from agent.executor import Executor
 from agent.graph import DEFAULT_CHECKPOINT_DIR
 from agent.memory import TaskStatus
 from agent.planner import Planner
+from push.models import Channel, Subscription
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +68,21 @@ def _build_signal_payload(final_score: float) -> dict:
             "action": action.action, "position": action.position}
 
 
-def create_app(core=None, sessions=None):
+def create_app(core=None, sessions=None, push=None):
+    # 推送模块：仅当 core 注入且未显式传 push 时自动构建（测试注入桩时跳过）
+    push_store = None
+    push_executor = None
+    if push is None and core is not None:
+        from push.executor import PushExecutor
+        from push.scheduler import PushScheduler
+        from push.store import PushStore
+        from utils.config import Config
+        config = Config()
+        push_store = PushStore(config.config_dir / "push.db")
+        push_executor = PushExecutor(core, push_store, config)
+        push = PushScheduler(push_executor, push_store, config)
+        push.start()
+
     app = FastAPI(title="Stock Robot API", version="0.1.0",
                   description="AI 驱动的股票分析研报助手 HTTP API")
 
@@ -371,6 +389,110 @@ def create_app(core=None, sessions=None):
         if not sessions.clear(session_id):
             raise HTTPException(status_code=404, detail=f"会话不存在: {session_id}")
         return JSONResponse({"status": "ok"})
+
+    # ---- 订阅推送管理 ----
+
+    def _require_push():
+        # store 优先取注入对象的公开属性（测试桩），否则取自动构建的闭包变量
+        # （PushScheduler 的 _store 为私有属性不外露）
+        store = getattr(push, "store", None) or push_store
+        if store is None:
+            raise HTTPException(status_code=503, detail="推送模块未初始化")
+        return store
+
+    def _parse_subscription(body: dict):
+        # 返回类型不标注 Subscription（模型已模块级导入），校验失败统一转 422
+        try:
+            return Subscription(
+                name=str(body.get("name", "")).strip(),
+                symbols=list(body.get("symbols") or []),
+                channel=cast(Channel, str(body.get("channel", ""))),
+                time=str(body.get("time", "")),
+            )
+        except ValidationError as e:
+            raise HTTPException(status_code=422, detail=str(e.errors())) from e
+
+    def _check_symbol_limit(sub: Subscription):
+        from utils.config import Config
+        limit = int(Config().get("push.max_symbols_per_subscription", 20))
+        if len(sub.symbols) > limit:
+            raise HTTPException(
+                status_code=422,
+                detail=f"标的数量 {len(sub.symbols)} 超过上限 {limit}")
+
+    @app.get("/api/v1/subscriptions")
+    async def list_subscriptions():
+        store = _require_push()
+        items = []
+        for sub in store.list():
+            item = sub.model_dump(mode="json")
+            item["last_run"] = store.last_run(sub.id) if sub.id else None
+            items.append(item)
+        return JSONResponse({"subscriptions": items})
+
+    @app.post("/api/v1/subscriptions")
+    async def create_subscription(request: Request):
+        store = _require_push()
+        body = await request.json()
+        sub = _parse_subscription(body)
+        _check_symbol_limit(sub)
+        sub.created_at = datetime.now().astimezone().isoformat()
+        sub_id = store.create(sub)
+        if push is not None:
+            push.reload()
+        # 先展开 model_dump（id 为 None），再覆盖真实 id
+        return JSONResponse({**sub.model_dump(mode="json"), "id": sub_id})
+
+    @app.get("/api/v1/subscriptions/{subscription_id}")
+    async def get_subscription(subscription_id: int):
+        store = _require_push()
+        sub = store.get(subscription_id)
+        if sub is None:
+            raise HTTPException(status_code=404,
+                                detail=f"订阅不存在: {subscription_id}")
+        item = sub.model_dump(mode="json")
+        item["last_run"] = store.last_run(subscription_id)
+        return JSONResponse(item)
+
+    @app.put("/api/v1/subscriptions/{subscription_id}")
+    async def update_subscription(subscription_id: int, request: Request):
+        store = _require_push()
+        if store.get(subscription_id) is None:
+            raise HTTPException(status_code=404,
+                                detail=f"订阅不存在: {subscription_id}")
+        body = await request.json()
+        sub = _parse_subscription(body)
+        _check_symbol_limit(sub)
+        sub.id = subscription_id
+        store.update(sub)
+        if push is not None:
+            push.reload()
+        return JSONResponse(sub.model_dump(mode="json"))
+
+    @app.delete("/api/v1/subscriptions/{subscription_id}")
+    async def delete_subscription(subscription_id: int):
+        store = _require_push()
+        if not store.delete(subscription_id):
+            raise HTTPException(status_code=404,
+                                detail=f"订阅不存在: {subscription_id}")
+        if push is not None:
+            push.reload()
+        return JSONResponse({"status": "ok"})
+
+    @app.post("/api/v1/subscriptions/{subscription_id}/run")
+    async def run_subscription(subscription_id: int):
+        store = _require_push()
+        sub = store.get(subscription_id)
+        if sub is None:
+            raise HTTPException(status_code=404,
+                                detail=f"订阅不存在: {subscription_id}")
+        executor = getattr(push, "executor", None) or push_executor
+        if executor is None:
+            raise HTTPException(status_code=503, detail="推送执行器未初始化")
+        # 后台线程触发推送，避免长耗时阻塞 HTTP 请求
+        threading.Thread(target=executor.run_subscription, args=(sub,),
+                         daemon=True).start()
+        return JSONResponse({"status": "triggered"})
 
     # 挂载 Web UI 静态文件（必须放在所有 API 路由之后，"/" 挂载会兜底捕获其余路径，
     # 按注册顺序匹配，API 路由优先）
