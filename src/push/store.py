@@ -49,7 +49,7 @@ class PushStore:
             cur = conn.execute(
                 "INSERT INTO subscriptions (name, symbols, channel, time, enabled, created_at)"
                 " VALUES (?,?,?,?,?,?)",
-                (sub.name, json.dumps(sub.symbols, ensure_ascii=False), sub.channel,
+                (sub.name, _symbols_to_json(sub.symbols), sub.channel,
                  sub.time, int(sub.enabled), sub.created_at),
             )
             return int(cur.lastrowid or 0)
@@ -73,7 +73,7 @@ class PushStore:
             cur = conn.execute(
                 "UPDATE subscriptions SET name=?, symbols=?, channel=?, time=?, enabled=?"
                 " WHERE id=?",
-                (sub.name, json.dumps(sub.symbols, ensure_ascii=False), sub.channel,
+                (sub.name, _symbols_to_json(sub.symbols), sub.channel,
                  sub.time, int(sub.enabled), sub.id),
             )
             return cur.rowcount > 0
@@ -116,6 +116,15 @@ class PushStore:
     @staticmethod
     def _row_to_sub(row) -> Subscription:
         return Subscription(
-            id=row[0], name=row[1], symbols=json.loads(row[2]),
+            id=row[0], name=row[1], symbols=_symbols_from_json(row[2]),
             channel=row[3], time=row[4], enabled=bool(row[5]), created_at=row[6],
         )
+
+
+def _symbols_to_json(symbols: list) -> str:
+    return json.dumps([s.model_dump() for s in symbols], ensure_ascii=False)
+
+
+def _symbols_from_json(raw: str) -> list:
+    from push.models import SubscriptionSymbol
+    return [SubscriptionSymbol(**item) for item in json.loads(raw)]

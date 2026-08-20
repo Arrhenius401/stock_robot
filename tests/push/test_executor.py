@@ -127,3 +127,64 @@ class TestPushExecutor:
         assert run is not None
         assert run["total"] == 2
         assert run["ok"] == 1
+
+    def test_explicit_stock_000001(self, mocker, tmp_path):
+        """显式 kind=stock 解决 000001 歧义：走股票管道而非指数"""
+        from push.models import SubscriptionSymbol
+        from push.store import PushStore
+        store = PushStore(tmp_path / "push.db")
+        sub_id = store.create(Subscription(
+            name="t",
+            symbols=[SubscriptionSymbol(symbol="000001", kind="stock")],
+            channel="wecom", time="08:00"))
+        backend = _Backend()
+        mocker.patch("push.executor.get_backend", return_value=backend)
+        mocker.patch("push.executor.resolve_name", return_value="平安银行")
+        executor = PushExecutor(_Core(), store, _Config())
+        sub = store.get(sub_id)
+        assert sub is not None
+        result = executor.run_subscription(sub)
+        assert result["ok"] == 1
+        assert "操作信号" in backend.calls[0]["content"]  # 走股票摘要
+        assert "指数报告" not in backend.calls[0]["title"]
+
+    def test_explicit_index_000001(self, mocker, tmp_path):
+        """显式 kind=index 时 000001 走指数管道（上证指数）"""
+        from push.models import SubscriptionSymbol
+        from push.store import PushStore
+        store = PushStore(tmp_path / "push.db")
+        sub_id = store.create(Subscription(
+            name="t",
+            symbols=[SubscriptionSymbol(symbol="000001", kind="index",
+                                        index_style="broad")],
+            channel="wecom", time="08:00"))
+        backend = _Backend()
+        mocker.patch("push.executor.get_backend", return_value=backend)
+        mocker.patch("push.executor.resolve_name", return_value="平安银行")
+        executor = PushExecutor(_Core(), store, _Config())
+        sub = store.get(sub_id)
+        assert sub is not None
+        result = executor.run_subscription(sub)
+        assert result["ok"] == 1
+        assert "上证指数" in backend.calls[0]["content"]
+
+    def test_invalid_explicit_kind_fails_isolated(self, mocker, tmp_path):
+        """显式 kind 校验失败：该标的失败但不影响其他"""
+        from push.models import SubscriptionSymbol
+        from push.store import PushStore
+        store = PushStore(tmp_path / "push.db")
+        sub_id = store.create(Subscription(
+            name="t",
+            symbols=[SubscriptionSymbol(symbol="600519", kind="stock"),
+                     SubscriptionSymbol(symbol="ABC123", kind="index")],
+            channel="wecom", time="08:00"))
+        backend = _Backend()
+        mocker.patch("push.executor.get_backend", return_value=backend)
+        mocker.patch("push.executor.resolve_name", return_value="平安银行")
+        executor = PushExecutor(_Core(), store, _Config())
+        sub = store.get(sub_id)
+        assert sub is not None
+        result = executor.run_subscription(sub)
+        assert result["ok"] == 1
+        assert len(result["failures"]) == 1
+        assert "ABC123" in result["failures"][0]

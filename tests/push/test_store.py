@@ -2,9 +2,10 @@ from push.models import Subscription
 from push.store import PushStore
 
 
-def _sub(**kw):
-    base = dict(name="自选池", symbols=["600519", "000300"],
-                channel="email", time="08:00", created_at="2026-08-20T08:00:00+08:00")
+def _sub(**kw: object):
+    base: dict = dict(name="自选池", symbols=["600519", "000300"],
+                      channel="email", time="08:00",
+                      created_at="2026-08-20T08:00:00+08:00")
     base.update(kw)
     return Subscription(**base)
 
@@ -16,8 +17,18 @@ class TestPushStore:
         got = store.get(sub_id)
         assert got is not None
         assert got.name == "自选池"
-        assert got.symbols == ["600519", "000300"]
+        assert [s.symbol for s in got.symbols] == ["600519", "000300"]
         assert got.channel == "email"
+
+    def test_create_and_get_roundtrip_kind(self, tmp_path):
+        from push.models import SubscriptionSymbol
+        store = PushStore(tmp_path / "push.db")
+        sub_id = store.create(_sub(symbols=[
+            SubscriptionSymbol(symbol="000001", kind="index", index_style="broad")]))
+        got = store.get(sub_id)
+        assert got is not None
+        assert got.symbols[0].kind == "index"
+        assert got.symbols[0].index_style == "broad"
 
     def test_list_returns_all(self, tmp_path):
         store = PushStore(tmp_path / "push.db")
@@ -26,15 +37,19 @@ class TestPushStore:
         assert [s.name for s in store.list()] == ["a", "b"]
 
     def test_update(self, tmp_path):
+        from push.models import SubscriptionSymbol
         store = PushStore(tmp_path / "push.db")
         sub_id = store.create(_sub())
         sub = store.get(sub_id)
+        assert sub is not None
         sub.enabled = False
-        sub.symbols = ["000001"]
+        sub.symbols = [SubscriptionSymbol(symbol="000001", kind="stock")]
         assert store.update(sub) is True
         got = store.get(sub_id)
+        assert got is not None
         assert got.enabled is False
-        assert got.symbols == ["000001"]
+        assert got.symbols[0].symbol == "000001"
+        assert got.symbols[0].kind == "stock"
 
     def test_update_missing_returns_false(self, tmp_path):
         store = PushStore(tmp_path / "push.db")

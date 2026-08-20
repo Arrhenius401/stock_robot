@@ -1,6 +1,6 @@
 """推送内容构建 — 股票/指数的微信摘要与邮箱全文"""
-from report.signal import SIGNAL_LABELS, derive_signal
 from report.scoring import compute_price_info, compute_score_summary
+from report.signal import SIGNAL_LABELS, derive_signal
 
 
 def build_stock_summary(symbol: str, name: str, results, ctx,
