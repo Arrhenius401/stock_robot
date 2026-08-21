@@ -137,6 +137,8 @@ export async function sendMessage(text) {
     sendBtn.disabled = true;
     // 计划状态随本次发送闭包持有，中途切换会话也不会串扰其他会话的计划卡
     let myPlan = null;
+    // 自主循环当前工具卡片：tool_call 打开"调用中"，tool_result 更新内容
+    let myToolCard = null;
 
     const agentBox = appendBubble("agent", el("div", "content"));
     const thinking = el("div", "thinking", "正在分析…");
@@ -158,6 +160,21 @@ export async function sendMessage(text) {
         thinking.remove();
         myPlan = planCard(e);
         agentBox.appendChild(myPlan.card);
+      },
+      thinking: (e) => {
+        // 模型推理片段追加到占位元素（后端已节流，仅非空片段）
+        thinking.textContent += e.content || "";
+      },
+      tool_call: (e) => {
+        if (store.currentSessionId !== streamSid) return;
+        myToolCard = toolResultCard({ tool: e.tool, content: "调用中…" });
+        agentBox.appendChild(myToolCard);
+      },
+      tool_result: (e) => {
+        if (store.currentSessionId !== streamSid || !myToolCard) return;
+        const body = myToolCard.querySelector(".tooltext");
+        body.innerHTML = renderMarkdown(String(e.content || ""));
+        myToolCard = null;
       },
       progress: (e) => {
         // 会话已切换时跳过：气泡已脱离视图，且避免驱动新会话的计划卡。
@@ -198,10 +215,15 @@ export async function sendMessage(text) {
         card.appendChild(el("div", "error-msg", e.message || "处理请求时出错"));
         agentBox.appendChild(card);
       },
-      // 无 Agent 模式后端发 text 事件，必须渲染否则占位永久停留
       text: (e) => {
         thinking.remove();
         agentBox.appendChild(mdDiv(e.content));
+        // agent 模式最终回答写入会话缓存并触发侧边栏刷新
+        if (streamSid) {
+          (store.sessionMessages[streamSid] = store.sessionMessages[streamSid] || [])
+            .push({ role: "assistant", content: e.content || "" });
+        }
+        bus.dispatchEvent(new Event("chat-done"));
       },
       // done 事件清理占位（无 Agent 模式或异常路径兜底）
       done: () => {

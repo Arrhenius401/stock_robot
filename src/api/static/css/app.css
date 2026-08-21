@@ -145,6 +145,8 @@ button { font-family: inherit; }
 .tool-row .chip { margin-bottom: 0; flex-shrink: 0; }
 .tool-desc { color: var(--text-3); font-size: 11.5px; }
 .thinking { color: var(--text-4); font-size: 12.5px; animation: pulse 1.5s infinite; }
+/* 自主循环推理片段：与占位共用 .thinking，追加内容后常驻显示 */
+.thinking { font-style: italic; }
 
 /* 错误与中断 */
 .error-card { border: 1px solid rgba(229,72,77,.4); background: rgba(229,72,77,.08);
