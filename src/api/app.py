@@ -33,6 +33,7 @@ def _structured_tool_results(plan, memory) -> list[dict]:
     配对前提：Executor 只在步骤成功时写 role=="tool" 消息，且本轮消息
     必然位于 memory 消息列表尾部（无其他写入者），故取最后 done_count 条
     tool 消息按序配对——对 max_messages 截断免疫。
+    agent 降级路径先截断 react 孤立消息再走 Executor，该前提仍然成立。
     """
     done_count = sum(1 for s in plan.steps
                      if s.tool_name and s.status == TaskStatus.DONE)
@@ -170,6 +171,7 @@ def create_app(core=None, sessions=None, push=None):
                 react = ReActExecutor(registry=core.registry, memory=memory,
                                       model=core.model, session_id=sid,
                                       persist_dir=str(DEFAULT_CHECKPOINT_DIR))
+                msg_snapshot = len(memory.messages)
                 try:
                     outcome = await react.run(message)
                     tool_results = [{
@@ -186,6 +188,8 @@ def create_app(core=None, sessions=None, push=None):
                     })
                 except Exception as e:  # noqa: BLE001 — agent 失败降级 plan 单步
                     logger.warning("agent 模式失败，降级 plan 单步: %s", e)
+                    # 截断 react 中途写入的孤立 tool 消息，避免污染下一轮上下文
+                    del memory.messages[msg_snapshot:]
                     response, plan_payload, tool_results = await _agent_fallback(
                         executor, memory, message)
                     return JSONResponse({
@@ -200,7 +204,7 @@ def create_app(core=None, sessions=None, push=None):
             tool_results = _structured_tool_results(plan, memory)
             return JSONResponse({
                 "response": f"目标: {plan.goal}\n完成: {done}/{total} 步骤",
-                "plan": {"goal": plan.goal, "steps": [
+                "plan": {"goal": plan.goal, "mode": "plan", "steps": [
                     {"id": s.id, "description": s.description, "status": s.status.value}
                     for s in plan.steps
                 ]},
@@ -261,6 +265,7 @@ def create_app(core=None, sessions=None, push=None):
                             registry=agent_core.registry, memory=memory,
                             model=agent_core.model,
                             session_id=sid, persist_dir=str(DEFAULT_CHECKPOINT_DIR))
+                        msg_snapshot = len(memory.messages)
                         try:
                             outcome = await react.run(message,
                                                       on_event=queue.put_nowait)
@@ -268,6 +273,8 @@ def create_app(core=None, sessions=None, push=None):
                                              "content": outcome.final_reply})
                         except Exception as e:  # noqa: BLE001 — agent 失败降级 plan 单步
                             logger.warning("agent 模式失败，降级 plan 单步: %s", e)
+                            # 截断 react 中途写入的孤立 tool 消息，避免污染下一轮上下文
+                            del memory.messages[msg_snapshot:]
                             summary, _, tool_results = await _agent_fallback(
                                 executor, memory, message)
                             await queue.put({"type": "result",
@@ -276,6 +283,7 @@ def create_app(core=None, sessions=None, push=None):
                         await queue.put({"type": "done"})
                         return
                     await queue.put({"type": "plan", "goal": plan.goal,
+                                     "mode": "plan",
                                      "steps": [s.description for s in plan.steps],
                                      "session_id": sid})
                     plan = await executor.execute(plan, on_progress=on_progress)

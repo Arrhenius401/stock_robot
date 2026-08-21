@@ -511,6 +511,9 @@ class TestStreamEndpoint:
         text = body.decode()
         assert '"type": "result"' in text
         assert '"type": "done"' in text
+        assert '"type": "error"' not in text
+        # 降级后无工具匹配（"对比茅台和宁德时代" 与 echo 描述无关键词交集）→ 0/1 步完成
+        assert "完成: 0/1 步骤" in text
 
 
 class TestAnalyzeEndpoint:
