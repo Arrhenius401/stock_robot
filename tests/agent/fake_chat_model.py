@@ -9,9 +9,10 @@ class FakeAIMessage:
 
 
 class FakeChatModel:
-    """bind_tools 返回自身；ainvoke 返回固定 tool_calls 或文本回复"""
+    """bind_tools 返回自身；ainvoke 从 responses 序列弹出下一条，耗尽后返回固定 content/tool_calls"""
 
-    def __init__(self, tool_calls=None, content: Any = "测试回复"):
+    def __init__(self, responses=None, tool_calls=None, content: Any = "测试回复"):
+        self._responses = list(responses or [])
         self._tool_calls = tool_calls or []
         self._content = content
         self.bound_tools = None
@@ -23,6 +24,8 @@ class FakeChatModel:
 
     async def ainvoke(self, messages, **kwargs):
         self.calls.append(messages)
+        if self._responses:
+            return self._responses.pop(0)
         return FakeAIMessage(content=self._content, tool_calls=self._tool_calls)
 
 
