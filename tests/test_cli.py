@@ -76,6 +76,29 @@ def test_api_command_help():
     assert "启动 Web API 服务" in result.output
 
 
+def test_api_bind_resolution_uses_config_defaults(tmp_path):
+    """未传 host/port 时读配置 api.host/api.port（默认 127.0.0.1:25618）"""
+    from stock_robot.cli import _resolve_api_bind
+    from utils.config import Config
+
+    cfg = Config(config_dir=tmp_path)
+    assert _resolve_api_bind(None, None, cfg) == ("127.0.0.1", 25618)
+    assert _resolve_api_bind("0.0.0.0", None, cfg) == ("0.0.0.0", 25618)
+    assert _resolve_api_bind(None, 9000, cfg) == ("127.0.0.1", 9000)
+
+
+def test_api_bind_resolution_uses_configured_values(tmp_path):
+    """配置自定义 api.port 后未传参时生效"""
+    from stock_robot.cli import _resolve_api_bind
+    from utils.config import Config
+
+    cfg = Config(config_dir=tmp_path)
+    cfg.set("api.port", 9000)
+    cfg.set("api.host", "0.0.0.0")
+    assert _resolve_api_bind(None, None, cfg) == ("0.0.0.0", 9000)
+    assert _resolve_api_bind(None, 8000, cfg) == ("0.0.0.0", 8000)  # CLI 优先
+
+
 def test_register_llm_keyless_config_registers_nothing(tmp_path):
     """无 api_key 的默认配置下 _register_llm 不应崩溃、不应注册后端"""
     from core.registry import Registry
@@ -86,3 +109,88 @@ def test_register_llm_keyless_config_registers_nothing(tmp_path):
     reg = Registry()
     _register_llm(reg, config)  # 不应抛异常
     assert reg.get_llm_backend(config.get("llm.provider", "openai")) is None
+
+
+class TestSubscribe:
+    def test_add_creates_subscription(self, mocker, tmp_path):
+        mock_store = mocker.patch("push.store.PushStore")
+        instance = mock_store.return_value
+        instance.create.return_value = 7
+        runner = CliRunner()
+        result = runner.invoke(main, [
+            "subscribe", "add",
+            "--name", "自选池",
+            "--symbols", "600519,000300",
+            "--channel", "email",
+            "--time", "08:30",
+        ])
+        assert result.exit_code == 0
+        created = instance.create.call_args.args[0]
+        assert created.name == "自选池"
+        assert [s.symbol for s in created.symbols] == ["600519", "000300"]
+        assert created.channel == "email"
+
+    def test_add_explicit_kind(self, mocker, tmp_path):
+        mock_store = mocker.patch("push.store.PushStore")
+        instance = mock_store.return_value
+        instance.create.return_value = 8
+        runner = CliRunner()
+        result = runner.invoke(main, [
+            "subscribe", "add",
+            "--name", "指数池",
+            "--symbols", "000001",
+            "--kind", "index",
+            "--index-style", "broad",
+            "--channel", "email",
+            "--time", "08:30",
+        ])
+        assert result.exit_code == 0
+        created = instance.create.call_args.args[0]
+        assert created.symbols[0].kind == "index"
+        assert created.symbols[0].index_style == "broad"
+
+    def test_add_invalid_channel(self):
+        runner = CliRunner()
+        result = runner.invoke(main, [
+            "subscribe", "add",
+            "--name", "t", "--symbols", "600519",
+            "--channel", "sms", "--time", "08:30",
+        ])
+        assert result.exit_code != 0
+
+    def test_list_prints_table(self, mocker, tmp_path):
+        mock_store = mocker.patch("push.store.PushStore")
+        from push.models import Subscription, SubscriptionSymbol
+        mock_store.return_value.list.return_value = [
+            Subscription(id=1, name="自选池",
+                         symbols=[SubscriptionSymbol(symbol="600519")],
+                         channel="email", time="08:30")]
+        runner = CliRunner()
+        result = runner.invoke(main, ["subscribe", "list"])
+        assert result.exit_code == 0
+        assert "自选池" in result.output
+
+    def test_remove(self, mocker, tmp_path):
+        mock_store = mocker.patch("push.store.PushStore")
+        mock_store.return_value.delete.return_value = True
+        runner = CliRunner()
+        result = runner.invoke(main, ["subscribe", "remove", "--id", "3"])
+        assert result.exit_code == 0
+        mock_store.return_value.delete.assert_called_once_with(3)
+
+    def test_run_triggers_executor(self, mocker, tmp_path):
+        mock_store = mocker.patch("push.store.PushStore")
+        mocker.patch("api.bootstrap.build_agent_core")  # 避免真实构建 AgentCore
+        from push.models import Subscription, SubscriptionSymbol
+        sub = Subscription(id=1, name="自选池",
+                           symbols=[SubscriptionSymbol(symbol="600519")],
+                           channel="email", time="08:30")
+        mock_store.return_value.get.return_value = sub
+        mock_executor = mocker.patch("push.executor.PushExecutor")
+        mock_executor.return_value.run_subscription.return_value = {
+            "total": 1, "ok": 1, "failures": []}
+        runner = CliRunner()
+        result = runner.invoke(main, ["subscribe", "run", "--id", "1"])
+        assert result.exit_code == 0
+        mock_executor.return_value.run_subscription.assert_called_once_with(sub)
+        assert "1/1" in result.output

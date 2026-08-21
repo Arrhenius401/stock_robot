@@ -24,6 +24,38 @@ DEFAULT_CONFIG = {
         },
         "disclaimer_accepted": False,
     },
+    "api": {
+        "host": "127.0.0.1",
+        "port": 25618,
+    },
+    "push": {
+        "enabled": True,
+        "max_symbols_per_subscription": 20,
+        "email": {
+            "smtp_host": "smtp.qq.com",
+            "smtp_port": 465,
+            "smtp_user": "",
+            "smtp_password": "",
+            "to_addr": "",
+        },
+        "wecom": {
+            "corp_id": "",
+            "agent_id": "",
+            "secret": "",
+            "to_user": "@all",
+        },
+    },
+    "signal": {
+        "thresholds": {
+            "attack": 7,
+            "watch": 4,
+        },
+        "actions": {
+            "attack": {"action": "可考虑建仓/加仓", "position": "60%-80%"},
+            "watch": {"action": "持有观察，等待明确方向", "position": "30%-50%"},
+            "defend": {"action": "减仓或回避", "position": "0%-20%"},
+        },
+    },
 }
 
 

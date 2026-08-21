@@ -8,6 +8,7 @@ from agent.tools import ToolProtocol, ToolRegistry, ToolResult
 from api.app import _structured_tool_results, create_app
 from api.bootstrap import AgentCore
 from api.sessions import SessionManager, SessionStore
+from tests.agent.fake_chat_model import FakeChatModel
 
 
 class FakeLLM:
@@ -108,6 +109,79 @@ def make_core():
     return AgentCore(registry=registry, pipeline=cast(Any, FakePipeline()),
                      index_pipeline=cast(Any, FakeIndexPipeline()),
                      llm=cast(Any, FakeLLM()))
+
+
+class TestAnalyzeSignal:
+    def test_analyze_response_contains_signal(self, mocker):
+        """/api/v1/analyze 响应含结构化 signal 字段（FakePipeline 得分为 8 → 进攻）"""
+        from fastapi.testclient import TestClient
+
+        from api.app import create_app
+
+        mocker.patch("utils.symbols.resolve_name", return_value="平安银行")
+        app = create_app(core=make_core(), sessions=None)
+        client = TestClient(app)
+        resp = client.post("/api/v1/analyze", json={"symbol": "000001"})
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["signal"] == {
+            "level": "attack",
+            "label": "进攻",
+            "action": "可考虑建仓/加仓",
+            "position": "60%-80%",
+        }
+
+
+class ChatModeLLM:
+    """返回 mode=chat 计划的 LLM"""
+
+    def generate(self, prompt, system=None, **kwargs):
+        return json.dumps({
+            "goal": "闲聊",
+            "complexity": "simple",
+            "mode": "chat",
+            "steps": [],
+        }, ensure_ascii=False)
+
+
+def make_chat_core():
+    from typing import Any, cast
+    registry = ToolRegistry()
+    registry.register(EchoTool())
+    return AgentCore(registry=registry, pipeline=cast(Any, FakePipeline()),
+                     index_pipeline=cast(Any, FakeIndexPipeline()),
+                     llm=cast(Any, ChatModeLLM()),
+                     model=FakeChatModel(content="你好呀！有什么可以帮你？"))
+
+
+class AgentModeLLM:
+    """返回 mode=agent 计划的 LLM"""
+
+    def generate(self, prompt, system=None, **kwargs):
+        return json.dumps({
+            "goal": "对比分析",
+            "complexity": "complex",
+            "mode": "agent",
+            "steps": [],
+        }, ensure_ascii=False)
+
+
+def make_agent_core():
+    """注册 EchoTool + AgentModeLLM + 序列响应的 FakeChatModel"""
+    from typing import Any, cast
+
+    from langchain_core.messages import AIMessage
+
+    registry = ToolRegistry()
+    registry.register(EchoTool())
+    model = FakeChatModel(responses=[
+        AIMessage(content="", tool_calls=[
+            {"name": "echo", "args": {"text": "对比"}, "id": "call_1"}]),
+        AIMessage(content="对比结论", tool_calls=[]),
+    ])
+    return AgentCore(registry=registry, pipeline=cast(Any, FakePipeline()),
+                     index_pipeline=cast(Any, FakeIndexPipeline()),
+                     llm=cast(Any, AgentModeLLM()), model=model)
 
 
 class BrokenRegistry(ToolRegistry):
@@ -222,6 +296,49 @@ class TestChatEndpoint:
         assert resp.status_code == 500
         assert "处理请求时出错" in resp.json()["response"]
 
+    @pytest.mark.asyncio
+    async def test_chat_chat_mode_returns_direct_reply(self, tmp_path):
+        sessions = SessionManager(SessionStore(tmp_path / "s.db"))
+        app_chat = create_app(core=make_chat_core(), sessions=sessions)
+        async with AsyncClient(transport=ASGITransport(app=app_chat),
+                               base_url="http://test") as c:
+            resp = await c.post("/api/v1/chat", json={"message": "你好"})
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["response"] == "你好呀！有什么可以帮你？"
+        assert body["plan"]["mode"] == "chat"
+        assert body["plan"]["steps"] == []
+        assert body["tool_results"] == []
+        # 回复写入会话消息
+        msgs = sessions.get_messages(body["session_id"])
+        assert msgs is not None
+        assert any(m["role"] == "assistant"
+                   and "你好呀" in m["content"] for m in msgs)
+
+    @pytest.mark.asyncio
+    async def test_chat_agent_mode_returns_final_reply(self, tmp_path):
+        sessions = SessionManager(SessionStore(tmp_path / "s_agent.db"))
+        app_agent = create_app(core=make_agent_core(), sessions=sessions)
+        async with AsyncClient(transport=ASGITransport(app=app_agent),
+                               base_url="http://test") as c:
+            resp = await c.post("/api/v1/chat",
+                                json={"message": "对比茅台和宁德时代"})
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["plan"]["mode"] == "agent"
+        assert body["response"] == "对比结论"
+        tools = body["tool_results"]
+        assert len(tools) == 1
+        assert tools[0]["tool"] == "echo"
+        assert tools[0]["status"] == "done"
+        # 最终回答写入会话消息
+        msgs = sessions.get_messages(body["session_id"])
+        assert msgs is not None
+        assert any(m["role"] == "assistant"
+                   and m["content"] == "对比结论" for m in msgs)
+
 
 class TestStructuredToolResults:
     def _make_plan(self, step_count, max_messages=None):
@@ -333,6 +450,70 @@ class TestStreamEndpoint:
                 body += line
         assert '"type": "error"' in body
         assert '"type": "done"' in body
+
+    @pytest.mark.asyncio
+    async def test_stream_chat_mode_emits_text(self, tmp_path):
+        sessions = SessionManager(SessionStore(tmp_path / "s2.db"))
+        app_chat = create_app(core=make_chat_core(), sessions=sessions)
+        transport = ASGITransport(app=app_chat)
+        async with (
+            AsyncClient(transport=transport, base_url="http://test") as c,
+            c.stream("POST", "/api/v1/chat/stream",
+                     json={"message": "你好"}) as resp,
+        ):
+            body = b""
+            async for chunk in resp.aiter_bytes():
+                body += chunk
+
+        text = body.decode()
+        assert '"type": "text"' in text
+        assert "你好呀" in text
+
+    @pytest.mark.asyncio
+    async def test_stream_agent_mode_emits_tool_events(self, tmp_path):
+        sessions = SessionManager(SessionStore(tmp_path / "s_agent2.db"))
+        app_agent = create_app(core=make_agent_core(), sessions=sessions)
+        transport = ASGITransport(app=app_agent)
+        async with (
+            AsyncClient(transport=transport, base_url="http://test") as c,
+            c.stream("POST", "/api/v1/chat/stream",
+                     json={"message": "对比茅台和宁德时代"}) as resp,
+        ):
+            body = b""
+            async for chunk in resp.aiter_bytes():
+                body += chunk
+
+        text = body.decode()
+        assert '"type": "tool_call"' in text
+        assert '"type": "tool_result"' in text
+        assert '"type": "text"' in text
+        assert "对比结论" in text
+        assert '"type": "done"' in text
+
+    @pytest.mark.asyncio
+    async def test_stream_agent_mode_without_model_falls_back(self, tmp_path):
+        """agent 模式但 model 为 None：降级 plan 单步并正常完成"""
+
+        sessions = SessionManager(SessionStore(tmp_path / "s_agent3.db"))
+        core = make_agent_core()
+        core.model = None
+        app_fallback = create_app(core=core, sessions=sessions)
+        transport = ASGITransport(app=app_fallback)
+        async with (
+            AsyncClient(transport=transport, base_url="http://test") as c,
+            c.stream("POST", "/api/v1/chat/stream",
+                     json={"message": "对比茅台和宁德时代"}) as resp,
+        ):
+            body = b""
+            async for chunk in resp.aiter_bytes():
+                body += chunk
+
+        text = body.decode()
+        assert '"type": "result"' in text
+        assert '"type": "done"' in text
+        assert '"type": "error"' not in text
+        # 降级后无工具匹配（"对比茅台和宁德时代" 与 echo 描述无关键词交集）→ 0/1 步完成
+        assert "完成: 0/1 步骤" in text
 
 
 class TestAnalyzeEndpoint:

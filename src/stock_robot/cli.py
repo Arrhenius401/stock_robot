@@ -15,6 +15,8 @@ from rich.table import Table
 console = Console()
 logger = logging.getLogger(__name__)
 
+from utils.config import Config
+
 
 def _get_registry():
     """构建默认注册表"""
@@ -179,8 +181,10 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
             logger.debug("大盘快照获取失败，跳过")
 
     from report.scoring import build_report
+    from report.signal import load_signal_config
     report = build_report(symbol, name, results, commentary, ctx,
-                          no_llm=no_llm, market_env=market_env)
+                          no_llm=no_llm, market_env=market_env,
+                          signal_cfg=load_signal_config(config))
 
     saved_path = ReportFormatter.save(report, symbol)
     console.print(ReportFormatter.to_rich_markdown(report))
@@ -420,21 +424,28 @@ def cache_status():
     console.print(table)
 
 
+def _resolve_api_bind(host: str | None, port: int | None, config: Config) -> tuple[str, int]:
+    """解析 API 监听地址：CLI 显式参数 > 配置文件 > 默认值"""
+    resolved_host = host or config.get("api.host", "127.0.0.1")
+    resolved_port = port if port is not None else config.get("api.port", 25618)
+    return resolved_host, resolved_port
+
+
 @main.command()
-@click.option("--host", default="127.0.0.1", help="监听地址")
-@click.option("--port", default=8000, type=int, help="监听端口")
+@click.option("--host", default=None, help="监听地址（默认读配置 api.host，缺省 127.0.0.1）")
+@click.option("--port", default=None, type=int, help="监听端口（默认读配置 api.port，缺省 25618）")
 def api(host, port):
     """启动 Web API 服务（含 Web UI）"""
     from api.app import create_app
     from api.bootstrap import build_agent_core
-    from utils.config import Config
 
     config = Config()
+    bind_host, bind_port = _resolve_api_bind(host, port, config)
     core = build_agent_core(config)
     app = create_app(core=core)
-    logger.info("Stock Robot API 启动于 http://%s:%d", host, port)
+    logger.info("Stock Robot API 启动于 http://%s:%d", bind_host, bind_port)
     import uvicorn
-    uvicorn.run(app, host=host, port=port)
+    uvicorn.run(app, host=bind_host, port=bind_port)
 
 
 @main.command()
@@ -442,7 +453,9 @@ def api(host, port):
 @click.option("--verbose", "-v", is_flag=True, help="显示计划和工具调用细节")
 def chat(ask, verbose):
     """进入 AI Agent 对话模式，支持复杂投研任务的自主拆解和分析"""
+    from agent.chat import ChatResponder
     from agent.executor import Executor
+    from agent.graph import DEFAULT_CHECKPOINT_DIR
     from agent.memory import Memory
     from agent.planner import Planner
     from api.bootstrap import build_agent_core
@@ -455,18 +468,34 @@ def chat(ask, verbose):
 
     memory = Memory()
     planner = Planner(llm=core.llm, registry=core.registry, memory=memory)
-    executor = Executor(registry=core.registry, memory=memory)
+    executor = Executor(registry=core.registry, memory=memory, model=core.model,
+                        persist_dir=str(DEFAULT_CHECKPOINT_DIR))
+    chat_responder = ChatResponder(model=core.model)
 
     if ask:
-        _run_agent_query(ask, planner, executor, memory, renderer)
+        _run_agent_query(ask, planner, executor, memory, renderer, chat_responder)
         return
 
-    _run_interactive_chat(planner, executor, memory, renderer)
+    _run_interactive_chat(planner, executor, memory, renderer, chat_responder)
 
 
-def _run_agent_query(query, planner, executor, memory, renderer):
+def _run_agent_query(query, planner, executor, memory, renderer, chat_responder):
     """单次 Agent 查询"""
     plan = planner.plan(query)
+    if plan.mode == "agent":
+        # CLI 暂不接入自主循环：映射为单步 plan（与 planner 降级路径一致）
+        from agent.memory import Plan, TaskStep
+
+        plan = Plan(goal=plan.goal,
+                    steps=[TaskStep(id="step-1", description=plan.goal)])
+    if plan.mode == "chat":
+        import asyncio
+        # 与 API 路径对称：先写 user 再回复，保证 memory 有完整 user/assistant 轮次
+        memory.add_message("user", query)
+        reply = asyncio.run(chat_responder.reply(query, memory))
+        memory.add_message("assistant", reply)
+        console.print(reply)
+        return
     console.print(renderer.render_plan(plan))
 
     import asyncio
@@ -475,7 +504,7 @@ def _run_agent_query(query, planner, executor, memory, renderer):
     console.print(renderer.render_summary(result))
 
 
-def _run_interactive_chat(planner, executor, memory, renderer):
+def _run_interactive_chat(planner, executor, memory, renderer, chat_responder):
     """交互式对话循环"""
     console.print("[bold]Stock Robot Agent[/bold] — AI 驱动的投资研究助手")
     console.print("输入你的投研问题，或输入 /exit 退出。输入 /help 查看可用指令。\n")
@@ -498,6 +527,21 @@ def _run_interactive_chat(planner, executor, memory, renderer):
             continue
 
         plan = planner.plan(user_input)
+        if plan.mode == "agent":
+            # CLI 暂不接入自主循环：映射为单步 plan（与 planner 降级路径一致）
+            from agent.memory import Plan, TaskStep
+
+            plan = Plan(goal=plan.goal,
+                        steps=[TaskStep(id="step-1", description=plan.goal)])
+        if plan.mode == "chat":
+            import asyncio
+            # 与 API 路径对称：先写 user 再回复，保证 memory 有完整 user/assistant 轮次
+            memory.add_message("user", user_input)
+            reply = asyncio.run(chat_responder.reply(user_input, memory))
+            memory.add_message("assistant", reply)
+            console.print(reply)
+            continue
+
         console.print(renderer.render_plan(plan))
 
         import asyncio
@@ -718,6 +762,141 @@ def rag_stats():
     table.add_row("[bold]合计[/bold]", f"[bold]{total}[/bold]", "")
     console.print(table)
     console.print(f"\n[dim]Embedding 模型: {embedding_name}[/dim]")
+
+
+@main.group()
+def subscribe():
+    """管理每日定时推送订阅（邮件/企业微信）"""
+
+
+@subscribe.command("add")
+@click.option("--name", required=True, help="订阅名称")
+@click.option("--symbols", required=True, help="标的代码，逗号/空格分隔")
+@click.option("--channel", type=click.Choice(["email", "wecom"]), required=True,
+              help="推送渠道")
+@click.option("--time", "push_time", required=True, help="每日推送时间 HH:MM")
+@click.option("--kind", type=click.Choice(["auto", "stock", "index"]),
+              default="auto", help="标的类型（默认 auto 自动判定）")
+@click.option("--index-style", type=click.Choice(["broad", "sector", "overseas"]),
+              default=None, help="指数风格（kind=index 时使用）")
+def subscribe_add(name, symbols, channel, push_time, kind, index_style):
+    """创建订阅"""
+    import re
+    from datetime import datetime
+    from typing import Any
+
+    from push.models import Subscription
+    from push.store import PushStore
+    from utils.config import Config
+
+    config = Config()
+    store = PushStore(config.config_dir / "push.db")
+    # 订阅级类型选项作为所有标的的默认值（API 支持 per-symbol 覆盖）；
+    # pydantic before-validator 接受 dict 简写，标注 list[Any] 规避静态类型误报
+    raw_symbols: list[Any] = [
+        {"symbol": s, "kind": kind, "index_style": index_style}
+        for s in re.split(r"[,，\s]+", symbols) if s
+    ]
+    sub = Subscription(
+        name=name,
+        symbols=raw_symbols,
+        channel=channel,
+        time=push_time,
+        created_at=datetime.now().astimezone().isoformat(),
+    )
+    sub_id = store.create(sub)
+    console.print(f"[green]已创建订阅 #{sub_id}: {name}（{channel} {push_time}）[/green]")
+
+
+@subscribe.command("list")
+def subscribe_list():
+    """列出全部订阅"""
+    from push.store import PushStore
+    from utils.config import Config
+
+    store = PushStore(Config().config_dir / "push.db")
+    table = Table(title="推送订阅")
+    table.add_column("ID", style="cyan")
+    table.add_column("名称", style="white")
+    table.add_column("标的", style="yellow")
+    table.add_column("渠道", style="green")
+    table.add_column("时间", style="magenta")
+    table.add_column("状态", style="green")
+    for sub in store.list():
+        last = store.last_run(sub.id) if sub.id else None
+        status = "启用" if sub.enabled else "停用"
+        if last:
+            status += f"（上次 {last['ok']}/{last['total']} 成功）"
+        table.add_row(str(sub.id), sub.name,
+                      "、".join(s.symbol for s in sub.symbols),
+                      sub.channel, sub.time, status)
+    console.print(table)
+
+
+@subscribe.command("remove")
+@click.option("--id", "sub_id", type=int, required=True, help="订阅 ID")
+def subscribe_remove(sub_id):
+    """删除订阅"""
+    from push.store import PushStore
+    from utils.config import Config
+
+    store = PushStore(Config().config_dir / "push.db")
+    if store.delete(sub_id):
+        console.print(f"[green]已删除订阅 #{sub_id}[/green]")
+    else:
+        console.print(f"[red]订阅 #{sub_id} 不存在[/red]")
+
+
+@subscribe.command("enable")
+@click.option("--id", "sub_id", type=int, required=True, help="订阅 ID")
+def subscribe_enable(sub_id):
+    """启用订阅"""
+    _set_enabled(sub_id, True)
+
+
+@subscribe.command("disable")
+@click.option("--id", "sub_id", type=int, required=True, help="订阅 ID")
+def subscribe_disable(sub_id):
+    """停用订阅"""
+    _set_enabled(sub_id, False)
+
+
+def _set_enabled(sub_id: int, enabled: bool):
+    from push.store import PushStore
+    from utils.config import Config
+
+    store = PushStore(Config().config_dir / "push.db")
+    sub = store.get(sub_id)
+    if sub is None:
+        console.print(f"[red]订阅 #{sub_id} 不存在[/red]")
+        return
+    sub.enabled = enabled
+    store.update(sub)
+    console.print(f"[green]订阅 #{sub_id} 已{'启用' if enabled else '停用'}[/green]")
+
+
+@subscribe.command("run")
+@click.option("--id", "sub_id", type=int, required=True, help="订阅 ID")
+def subscribe_run(sub_id):
+    """手动触发一次推送（同步执行，耗时取决于标的数）"""
+    from push.executor import PushExecutor
+    from push.store import PushStore
+    from utils.config import Config
+
+    config = Config()
+    store = PushStore(config.config_dir / "push.db")
+    sub = store.get(sub_id)
+    if sub is None:
+        console.print(f"[red]订阅 #{sub_id} 不存在[/red]")
+        return
+    from api.bootstrap import build_agent_core
+    core = build_agent_core(config)
+    executor = PushExecutor(core, store, config)
+    with console.status("正在生成报告并推送..."):
+        result = executor.run_subscription(sub)
+    console.print(f"[green]推送完成: {result['ok']}/{result['total']} 成功[/green]")
+    for failure in result["failures"]:
+        console.print(f"[yellow]失败: {failure}[/yellow]")
 
 
 if __name__ == "__main__":

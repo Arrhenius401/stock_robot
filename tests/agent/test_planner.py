@@ -4,7 +4,7 @@ import json
 import pytest
 
 from agent.memory import Memory
-from agent.planner import SIMPLE_QUERY_PREFIXES, Planner
+from agent.planner import CHAT_PHRASES, SIMPLE_QUERY_PREFIXES, Planner
 from agent.tools import ToolRegistry
 
 
@@ -42,6 +42,24 @@ def make_single_step_response():
         "steps": [
             {"id": "step-1", "description": "查询贵州茅台最新行情"},
         ],
+    }, ensure_ascii=False)
+
+
+def make_chat_response():
+    return json.dumps({
+        "goal": "闲聊",
+        "complexity": "simple",
+        "mode": "chat",
+        "steps": [],
+    }, ensure_ascii=False)
+
+
+def make_agent_response():
+    return json.dumps({
+        "goal": "对比分析",
+        "complexity": "complex",
+        "mode": "agent",
+        "steps": [],
     }, ensure_ascii=False)
 
 
@@ -85,6 +103,7 @@ class TestPlanner:
         assert plan.goal == "找3只低估值新能源龙头股"
         assert len(plan.steps) == 3
         assert plan.steps[1].depends_on == ["step-1"]
+        assert plan.mode == "plan"
 
     def test_plan_complex_query_injects_tool_list_in_system_prompt(self, registry, memory):
         class FakeAnalyzeTool:
@@ -142,3 +161,72 @@ class TestPlanner:
         plan = planner.plan("茅台")
 
         assert len(plan.steps) == 1
+
+
+class TestChatDetection:
+    @pytest.fixture
+    def registry(self):
+        return ToolRegistry()
+
+    @pytest.fixture
+    def memory(self):
+        return Memory()
+
+    def test_chat_phrases_defined(self):
+        assert isinstance(CHAT_PHRASES, set)
+        assert len(CHAT_PHRASES) > 0
+
+    def test_pure_politeness_is_chat(self):
+        planner = Planner(llm=None, registry=None)
+        assert planner._is_chat_message("谢谢") is True
+        assert planner._is_chat_message("谢谢你") is True
+        assert planner._is_chat_message("你好") is True
+        assert planner._is_chat_message("你是谁") is True
+        assert planner._is_chat_message("谢谢，辛苦了") is True
+
+    def test_thanks_followed_by_task_is_not_chat(self):
+        planner = Planner(llm=None, registry=None)
+        assert planner._is_chat_message("谢谢，帮我分析600519") is False
+
+    def test_company_name_query_is_not_chat(self):
+        planner = Planner(llm=None, registry=None)
+        assert planner._is_chat_message("贵州茅台怎么样") is False
+        assert planner._is_chat_message("沪深300走势如何") is False
+
+    def test_long_message_is_not_chat(self):
+        planner = Planner(llm=None, registry=None)
+        assert planner._is_chat_message("谢谢你的帮助，我接下来想了解新能源行业的整体情况") is False
+
+    def test_plan_chat_message_returns_chat_plan(self, registry, memory):
+        planner = Planner(llm=None, registry=registry, memory=memory)
+        plan = planner.plan("谢谢")
+
+        assert plan.mode == "chat"
+        assert plan.steps == []
+
+    def test_plan_llm_chat_mode_returns_chat_plan(self, registry, memory):
+        llm = FakeLLM(fixed_response=make_chat_response())
+        planner = Planner(llm=llm, registry=registry, memory=memory)
+
+        plan = planner.plan("随便聊聊")
+
+        assert plan.mode == "chat"
+        assert plan.steps == []
+
+    def test_plan_llm_plan_mode_returns_plan(self, registry, memory):
+        llm = FakeLLM(fixed_response=make_multi_step_response())
+        planner = Planner(llm=llm, registry=registry, memory=memory)
+
+        plan = planner.plan("分析新能源板块")
+
+        assert plan.mode == "plan"
+        assert len(plan.steps) == 3
+
+    def test_plan_llm_agent_mode_returns_agent_plan(self, registry, memory):
+        llm = FakeLLM(fixed_response=make_agent_response())
+        planner = Planner(llm=llm, registry=registry, memory=memory)
+
+        plan = planner.plan("对比茅台和宁德时代")
+
+        assert plan.mode == "agent"
+        assert plan.steps == []

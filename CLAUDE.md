@@ -29,21 +29,31 @@ chore(项目): 初始化项目脚手架
 
 ### 检查工具
 
-- **Ruff**（VS Code 扩展 + `ruff check .` CLI）：项目级配置在 `pyproject.toml` 的 `[tool.ruff]`，规则集与扩展默认一致，勿在 `lint.select` 中随意添加规则组（会引入大量新告警）
+- **Ruff**：项目级配置在 `pyproject.toml` 的 `[tool.ruff]`，规则集与扩展默认一致，勿在 `lint.select` 中随意添加规则组（会引入大量新告警）
 - **Pylance**（basic 模式）：项目级配置在 `pyproject.toml` 的 `[tool.pyright]`；CLI 验证用 `pyright`（与 Pylance 同引擎）
-- **pytest**：必须用 `.venv/Scripts/python -m pytest` 运行（`python` 在 PATH 上可能指向 Anaconda 等环境，缺少 pytest-asyncio 会导致 async 测试误报失败）
+- **pytest**：必须用 `.venv/Scripts/python -m pytest` 运行
 
 ### 检查时机（重要）
 
 - 全量检查耗时约 4 分钟（ruff 数秒 + pyright ~1 分钟 + pytest ~3 分钟），**默认不要在每次任务中自动运行**
-- 日常编码依赖 IDE 的 Ruff/Pylance 实时诊断（红色/黄色波浪线），无需手动跑检查
 - 仅在以下情况运行全量检查：
   1. 用户明确要求（如"检查一下"、"验证一下"、"提交前检查"）
   2. 修改了 src/ 核心逻辑且用户要求确认无回归
-- 日常任务需快速验证时，优先单文件检查：
-  - `ruff check <文件>`（秒级）
-  - `pyright <文件>`（秒级）
-  - `.venv/Scripts/python -m pytest <测试文件> -q`（秒级）
+- 日常编码依赖 IDE 实时诊断；**修复循环中不要反复跑全量 pyright**，优先秒级单文件检查：
+  - `pyright <文件>` 或 `pyright <文件1> <文件2>`（单文件约 2 秒，只检查改动波及的文件）
+  - `ruff check <文件>`
+  - `.venv/Scripts/python -m pytest <测试文件> -q`
+- pyright/ruff 输出量大时先聚合（`--outputjson | python 汇总为 行号+规则+摘要`），避免原始输出灌入上下文
+- 涉及类型系统边界行为（Protocol/ClassVar 结构匹配、`cast` 到 Literal、`# pyright: ignore` 规则码）先用 10 行临时探针 + `pyright <探针>` 验证再大规模应用
+- `mcp__ide__getDiagnostics` 依赖 IDE 连接，时有时无，**不可作为复查依赖**
+
+### 环境事实（勿重复探测）
+
+- `python`/`pip` 裸命令指向 Anaconda（`D:\Private File\Anaconda`）——**所有 Python 命令显式用 `.venv/Scripts/python`**；Anaconda 缺 pytest-asyncio，用它跑 async 测试会误报失败
+- `pyright` 在 `C:\Users\25618\AppData\Roaming\Python\Python312\Scripts\pyright`，直接命令可用；`.venv` 中未安装
+- `ruff` 不在 PATH，用 VS Code 扩展 bundled 二进制（**版本号会随扩展升级变化，必须用通配符**）：
+  `~/.vscode/extensions/charliermarsh.ruff-*/bundled/libs/bin/ruff.exe`
+- 环境探测合并为一条命令（`which python ruff pyright`），不要逐个探测
 
 ### 异常处理
 
@@ -88,6 +98,17 @@ ruff check .                # 0 错误
 pyright                     # 0 错误
 .venv/Scripts/python -m pytest -q   # 全绿
 ```
+
+### 子代理执行（Subagent-Driven，控制 token 消耗）
+
+执行实现计划时按任务分级处理（2026-08-18 实测优化，总耗可省约 30%）：
+
+- **S 级**（新框架集成/跨文件/API 风险）：实现 + 完整双审查 + 复审——质量底线，不砍
+- **A 级**（新模块 + 测试，边界清晰）：实现 + **合并单审查**（一个代理同时做 spec + quality）
+- **B 级**（测试桩/环境设置/单行修复）：**主会话直做，零派发**
+- 小修复（<50 行且严格按审查建议执行）：主会话 `git diff` + 相关测试核对，不派复审代理
+- 派发提示词只贴接口签名 + 关键不变量 + 测试断言要点，完整代码让子代理读计划文件
+- 写计划前先探针框架 API，把 API 事实直接写进计划，避免计划返工
 
 ## 技术栈
 

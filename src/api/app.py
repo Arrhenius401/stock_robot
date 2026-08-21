@@ -2,15 +2,22 @@
 import asyncio
 import json
 import logging
+import threading
 from datetime import datetime
+from typing import cast
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import ValidationError
 
+from agent.chat import ChatResponder
 from agent.executor import Executor
+from agent.graph import DEFAULT_CHECKPOINT_DIR
 from agent.memory import TaskStatus
 from agent.planner import Planner
+from agent.react import ReActExecutor
+from push.models import Channel, Subscription
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +33,7 @@ def _structured_tool_results(plan, memory) -> list[dict]:
     配对前提：Executor 只在步骤成功时写 role=="tool" 消息，且本轮消息
     必然位于 memory 消息列表尾部（无其他写入者），故取最后 done_count 条
     tool 消息按序配对——对 max_messages 截断免疫。
+    agent 降级路径先截断 react 孤立消息再走 Executor，该前提仍然成立。
     """
     done_count = sum(1 for s in plan.steps
                      if s.tool_name and s.status == TaskStatus.DONE)
@@ -50,7 +58,49 @@ def _structured_tool_results(plan, memory) -> list[dict]:
     return results
 
 
-def create_app(core=None, sessions=None):
+async def _agent_fallback(executor, memory, goal: str) -> tuple[str, dict, list[dict]]:
+    """agent 模式降级：以 plan 单步执行目标，返回与 plan 模式一致的响应结构"""
+    from agent.memory import Plan, TaskStep
+
+    plan = Plan(goal=goal, steps=[TaskStep(id="step-1", description=goal)])
+    plan = await executor.execute(plan)
+    done = sum(1 for s in plan.steps if s.status == TaskStatus.DONE)
+    return (
+        f"目标: {goal}\n完成: {done}/1 步骤",
+        {"goal": goal, "mode": "plan", "steps": [
+            {"id": s.id, "description": s.description, "status": s.status.value}
+            for s in plan.steps]},
+        _structured_tool_results(plan, memory),
+    )
+
+
+def _build_signal_payload(final_score: float) -> dict:
+    """从配置加载信号映射并构造 API 信号字段（配置损坏时抛 ValueError 由边界兜底）"""
+    from report.signal import SIGNAL_LABELS, derive_signal, load_signal_config
+    from utils.config import Config
+
+    cfg = load_signal_config(Config())
+    level = derive_signal(final_score, cfg.thresholds)
+    action = cfg.actions[level]
+    return {"level": level, "label": SIGNAL_LABELS[level],
+            "action": action.action, "position": action.position}
+
+
+def create_app(core=None, sessions=None, push=None):
+    # 推送模块：仅当 core 注入且未显式传 push 时自动构建（测试注入桩时跳过）
+    push_store = None
+    push_executor = None
+    if push is None and core is not None:
+        from push.executor import PushExecutor
+        from push.scheduler import PushScheduler
+        from push.store import PushStore
+        from utils.config import Config
+        config = Config()
+        push_store = PushStore(config.config_dir / "push.db")
+        push_executor = PushExecutor(core, push_store, config)
+        push = PushScheduler(push_executor, push_store, config)
+        push.start()
+
     app = FastAPI(title="Stock Robot API", version="0.1.0",
                   description="AI 驱动的股票分析研报助手 HTTP API")
 
@@ -63,14 +113,18 @@ def create_app(core=None, sessions=None):
         sessions = SessionManager(SessionStore(Config().config_dir / "sessions.db"))
 
     def _build_agent(session_memory):
-        """按会话现建轻量 Planner/Executor（两者无状态，构造廉价）"""
+        """按会话现建轻量 Planner/Executor/ChatResponder（无状态，构造廉价）"""
         # 调用方（chat/run_agent）已校验 core 注入，复制到局部变量并断言收窄类型
         agent_core = core
         assert agent_core is not None
         planner = Planner(llm=agent_core.llm, registry=agent_core.registry,
                           memory=session_memory)
-        executor = Executor(registry=agent_core.registry, memory=session_memory)
-        return planner, executor
+        executor = Executor(registry=agent_core.registry, memory=session_memory,
+                            model=agent_core.model,
+                            session_id=session_memory.session_id or "",
+                            persist_dir=str(DEFAULT_CHECKPOINT_DIR))
+        chat_responder = ChatResponder(model=agent_core.model)
+        return planner, executor, chat_responder
 
     def _extract_session_id(body: dict, request: Request):
         return body.get("session_id") or request.headers.get("X-Session-Id")
@@ -100,15 +154,58 @@ def create_app(core=None, sessions=None):
         try:
             sid, memory = sessions.get_or_create(session_id, message)
             memory.add_message("user", message)
-            planner, executor = _build_agent(memory)
+            planner, executor, chat_responder = _build_agent(memory)
             plan = await asyncio.to_thread(planner.plan, message)
+            if plan.mode == "chat":
+                # 闲聊：ChatResponder 普通会话回复，跳过执行器并写入会话消息
+                reply = await chat_responder.reply(message, memory)
+                memory.add_message("assistant", reply)
+                return JSONResponse({
+                    "response": reply,
+                    "plan": {"goal": plan.goal, "mode": "chat", "steps": []},
+                    "tool_results": [],
+                    "session_id": sid,
+                })
+            if plan.mode == "agent":
+                # agent 模式：自主循环执行；无模型或异常降级 plan 单步
+                react = ReActExecutor(registry=core.registry, memory=memory,
+                                      model=core.model, session_id=sid,
+                                      persist_dir=str(DEFAULT_CHECKPOINT_DIR))
+                msg_snapshot = len(memory.messages)
+                try:
+                    outcome = await react.run(message)
+                    tool_results = [{
+                        "tool": tc["tool"],
+                        "symbol": tc["args"].get("symbol"),
+                        "status": "done" if tc["status"] == "success" else "error",
+                        "content": tc.get("summary", ""),
+                    } for tc in outcome.tool_calls]
+                    return JSONResponse({
+                        "response": outcome.final_reply,
+                        "plan": {"goal": plan.goal, "mode": "agent", "steps": []},
+                        "tool_results": tool_results,
+                        "session_id": sid,
+                    })
+                except Exception as e:  # noqa: BLE001 — agent 失败降级 plan 单步
+                    logger.warning("agent 模式失败，降级 plan 单步: %s", e)
+                    # 截断 react 中途写入的孤立 tool 消息，避免污染下一轮上下文
+                    # （add_message 超限时会重绑定列表对象，须用重绑定而非 del 切片）
+                    memory.messages = memory.messages[:msg_snapshot]
+                    response, plan_payload, tool_results = await _agent_fallback(
+                        executor, memory, message)
+                    return JSONResponse({
+                        "response": response,
+                        "plan": plan_payload,
+                        "tool_results": tool_results,
+                        "session_id": sid,
+                    })
             plan = await executor.execute(plan)
             done = sum(1 for s in plan.steps if s.status == TaskStatus.DONE)
             total = len(plan.steps)
             tool_results = _structured_tool_results(plan, memory)
             return JSONResponse({
                 "response": f"目标: {plan.goal}\n完成: {done}/{total} 步骤",
-                "plan": {"goal": plan.goal, "steps": [
+                "plan": {"goal": plan.goal, "mode": "plan", "steps": [
                     {"id": s.id, "description": s.description, "status": s.status.value}
                     for s in plan.steps
                 ]},
@@ -148,9 +245,47 @@ def create_app(core=None, sessions=None):
                     assert manager is not None
                     sid, memory = manager.get_or_create(session_id, message)
                     memory.add_message("user", message)
-                    planner, executor = _build_agent(memory)
+                    planner, executor, chat_responder = _build_agent(memory)
                     plan = await asyncio.to_thread(planner.plan, message)
+                    if plan.mode == "chat":
+                        # 闲聊：直接发 text 事件后结束，不再走执行器与 result 事件
+                        reply = await chat_responder.reply(message, memory)
+                        memory.add_message("assistant", reply)
+                        await queue.put({"type": "text", "content": reply})
+                        await queue.put({"type": "done"})
+                        return
+                    if plan.mode == "agent":
+                        # agent 模式：plan 事件空步骤（携带 session_id 供前端接管会话），
+                        # 实时 thinking/tool_call/tool_result 事件，最终 text 事件收尾
+                        await queue.put({"type": "plan", "goal": plan.goal,
+                                         "steps": [], "session_id": sid})
+                        # 事件流入口已校验 core 注入，复制到局部变量并断言收窄类型
+                        agent_core = core
+                        assert agent_core is not None
+                        react = ReActExecutor(
+                            registry=agent_core.registry, memory=memory,
+                            model=agent_core.model,
+                            session_id=sid, persist_dir=str(DEFAULT_CHECKPOINT_DIR))
+                        msg_snapshot = len(memory.messages)
+                        try:
+                            outcome = await react.run(message,
+                                                      on_event=queue.put_nowait)
+                            await queue.put({"type": "text",
+                                             "content": outcome.final_reply})
+                        except Exception as e:  # noqa: BLE001 — agent 失败降级 plan 单步
+                            logger.warning("agent 模式失败，降级 plan 单步: %s", e)
+                            # 截断 react 中途写入的孤立 tool 消息，避免污染下一轮上下文
+                            # （add_message 超限时会重绑定列表对象，须用重绑定而非 del 切片）
+                            memory.messages = memory.messages[:msg_snapshot]
+                            summary, _, tool_results = await _agent_fallback(
+                                executor, memory, message)
+                            await queue.put({"type": "result",
+                                             "summary": summary,
+                                             "tool_results": tool_results})
+                        await queue.put({"type": "done"})
+                        return
                     await queue.put({"type": "plan", "goal": plan.goal,
+                                     "mode": "plan",
                                      "steps": [s.description for s in plan.steps],
                                      "session_id": sid})
                     plan = await executor.execute(plan, on_progress=on_progress)
@@ -226,6 +361,7 @@ def create_app(core=None, sessions=None):
                 "score_rows": summary.score_rows,
                 "dimensions": dimensions,
                 "commentary": commentary.get("bulk", ""),
+                "signal": _build_signal_payload(summary.final_score),
                 "generated_at": datetime.now().astimezone().isoformat(),
             }
             return JSONResponse(_json_safe(payload))
@@ -335,6 +471,112 @@ def create_app(core=None, sessions=None):
         if not sessions.clear(session_id):
             raise HTTPException(status_code=404, detail=f"会话不存在: {session_id}")
         return JSONResponse({"status": "ok"})
+
+    # ---- 订阅推送管理 ----
+
+    def _require_push():
+        # store 优先取注入对象的公开属性（测试桩），否则取自动构建的闭包变量
+        # （PushScheduler 的 _store 为私有属性不外露）
+        store = getattr(push, "store", None) or push_store
+        if store is None:
+            raise HTTPException(status_code=503, detail="推送模块未初始化")
+        return store
+
+    def _parse_subscription(body: dict):
+        # 返回类型不标注 Subscription（模型已模块级导入），校验失败统一转 422；
+        # enabled 走全量替换语义（PUT 缺省视为启用，create 缺省默认 True）
+        try:
+            return Subscription(
+                name=str(body.get("name", "")).strip(),
+                symbols=list(body.get("symbols") or []),
+                channel=cast(Channel, str(body.get("channel", ""))),
+                time=str(body.get("time", "")),
+                enabled=bool(body.get("enabled", True)),
+            )
+        except ValidationError as e:
+            raise HTTPException(status_code=422, detail=str(e.errors())) from e
+
+    def _check_symbol_limit(sub: Subscription):
+        from utils.config import Config
+        limit = int(Config().get("push.max_symbols_per_subscription", 20))
+        if len(sub.symbols) > limit:
+            raise HTTPException(
+                status_code=422,
+                detail=f"标的数量 {len(sub.symbols)} 超过上限 {limit}")
+
+    @app.get("/api/v1/subscriptions")
+    async def list_subscriptions():
+        store = _require_push()
+        items = []
+        for sub in store.list():
+            item = sub.model_dump(mode="json")
+            item["last_run"] = store.last_run(sub.id) if sub.id else None
+            items.append(item)
+        return JSONResponse({"subscriptions": items})
+
+    @app.post("/api/v1/subscriptions")
+    async def create_subscription(request: Request):
+        store = _require_push()
+        body = await request.json()
+        sub = _parse_subscription(body)
+        _check_symbol_limit(sub)
+        sub.created_at = datetime.now().astimezone().isoformat()
+        sub_id = store.create(sub)
+        if push is not None:
+            push.reload()
+        # 先展开 model_dump（id 为 None），再覆盖真实 id
+        return JSONResponse({**sub.model_dump(mode="json"), "id": sub_id})
+
+    @app.get("/api/v1/subscriptions/{subscription_id}")
+    async def get_subscription(subscription_id: int):
+        store = _require_push()
+        sub = store.get(subscription_id)
+        if sub is None:
+            raise HTTPException(status_code=404,
+                                detail=f"订阅不存在: {subscription_id}")
+        item = sub.model_dump(mode="json")
+        item["last_run"] = store.last_run(subscription_id)
+        return JSONResponse(item)
+
+    @app.put("/api/v1/subscriptions/{subscription_id}")
+    async def update_subscription(subscription_id: int, request: Request):
+        store = _require_push()
+        if store.get(subscription_id) is None:
+            raise HTTPException(status_code=404,
+                                detail=f"订阅不存在: {subscription_id}")
+        body = await request.json()
+        sub = _parse_subscription(body)
+        _check_symbol_limit(sub)
+        sub.id = subscription_id
+        store.update(sub)
+        if push is not None:
+            push.reload()
+        return JSONResponse(sub.model_dump(mode="json"))
+
+    @app.delete("/api/v1/subscriptions/{subscription_id}")
+    async def delete_subscription(subscription_id: int):
+        store = _require_push()
+        if not store.delete(subscription_id):
+            raise HTTPException(status_code=404,
+                                detail=f"订阅不存在: {subscription_id}")
+        if push is not None:
+            push.reload()
+        return JSONResponse({"status": "ok"})
+
+    @app.post("/api/v1/subscriptions/{subscription_id}/run")
+    async def run_subscription(subscription_id: int):
+        store = _require_push()
+        sub = store.get(subscription_id)
+        if sub is None:
+            raise HTTPException(status_code=404,
+                                detail=f"订阅不存在: {subscription_id}")
+        executor = getattr(push, "executor", None) or push_executor
+        if executor is None:
+            raise HTTPException(status_code=503, detail="推送执行器未初始化")
+        # 后台线程触发推送，避免长耗时阻塞 HTTP 请求
+        threading.Thread(target=executor.run_subscription, args=(sub,),
+                         daemon=True).start()
+        return JSONResponse({"status": "triggered"})
 
     # 挂载 Web UI 静态文件（必须放在所有 API 路由之后，"/" 挂载会兜底捕获其余路径，
     # 按注册顺序匹配，API 路由优先）

@@ -94,4 +94,19 @@ export const api = {
   listTools() {
     return request("/api/v1/tools");
   },
+  listSubscriptions() {
+    return request("/api/v1/subscriptions");
+  },
+  createSubscription(body) {
+    return request("/api/v1/subscriptions", { method: "POST", body: JSON.stringify(body) });
+  },
+  updateSubscription(id, body) {
+    return request(`/api/v1/subscriptions/${id}`, { method: "PUT", body: JSON.stringify(body) });
+  },
+  deleteSubscription(id) {
+    return request(`/api/v1/subscriptions/${id}`, { method: "DELETE" });
+  },
+  triggerSubscription(id) {
+    return request(`/api/v1/subscriptions/${id}/run`, { method: "POST" });
+  },
 };

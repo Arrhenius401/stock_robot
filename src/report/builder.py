@@ -104,7 +104,8 @@ class ReportBuilder:
               score_rows: list[dict] | None = None,
               base_score: float = 0, risk_deduction: float = 0,
               final_score: float = 0, risk_flags: list[str] | None = None,
-              market_env: dict | None = None) -> str:
+              market_env: dict | None = None,
+              signal: dict | None = None) -> str:
         results_map = {r.dimension: r for r in results}
         template = self._env.get_template("report_v2.jinja2")
         return template.render(
@@ -124,4 +125,5 @@ class ReportBuilder:
             risk_deduction=risk_deduction,
             final_score=final_score,
             risk_flags=risk_flags or [],
+            signal=signal,
         )

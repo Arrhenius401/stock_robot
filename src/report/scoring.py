@@ -2,6 +2,7 @@
 from dataclasses import dataclass, field
 
 from data.schemas import AnalysisContext, AnalysisResult
+from report.signal import SIGNAL_LABELS, SignalConfig, derive_signal
 
 DIM_WEIGHTS = {"financial": 0.30, "technical": 0.20,
                "valuation": 0.25, "industry": 0.25}
@@ -81,13 +82,21 @@ def compute_price_info(ctx: AnalysisContext) -> dict:
 
 def build_report(symbol: str, name: str, results: list[AnalysisResult],
                  commentary: dict[str, str], ctx: AnalysisContext,
-                 no_llm: bool = False, market_env: dict | None = None) -> str:
+                 no_llm: bool = False, market_env: dict | None = None,
+                 signal_cfg: SignalConfig | None = None) -> str:
     """组装完整报告文本（ReportBuilder 渲染）"""
     from report.builder import ReportBuilder
 
     summary = compute_score_summary(results)
     price_info = compute_price_info(ctx)
     industry = ctx.industry_data.industry if ctx.industry_data else "未知"
+
+    signal = None
+    if signal_cfg is not None:
+        level = derive_signal(summary.final_score, signal_cfg.thresholds)
+        action = signal_cfg.actions[level]
+        signal = {"level": level, "label": SIGNAL_LABELS[level],
+                  "action": action.action, "position": action.position}
 
     builder = ReportBuilder()
     return builder.build(
@@ -106,4 +115,5 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
         final_score=summary.final_score,
         risk_flags=summary.risk_flags,
         market_env=market_env,
+        signal=signal,
     )
