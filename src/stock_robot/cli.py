@@ -482,6 +482,12 @@ def chat(ask, verbose):
 def _run_agent_query(query, planner, executor, memory, renderer, chat_responder):
     """单次 Agent 查询"""
     plan = planner.plan(query)
+    if plan.mode == "agent":
+        # CLI 暂不接入自主循环：映射为单步 plan（与 planner 降级路径一致）
+        from agent.memory import Plan, TaskStep
+
+        plan = Plan(goal=plan.goal,
+                    steps=[TaskStep(id="step-1", description=plan.goal)])
     if plan.mode == "chat":
         import asyncio
         # 与 API 路径对称：先写 user 再回复，保证 memory 有完整 user/assistant 轮次
@@ -521,6 +527,12 @@ def _run_interactive_chat(planner, executor, memory, renderer, chat_responder):
             continue
 
         plan = planner.plan(user_input)
+        if plan.mode == "agent":
+            # CLI 暂不接入自主循环：映射为单步 plan（与 planner 降级路径一致）
+            from agent.memory import Plan, TaskStep
+
+            plan = Plan(goal=plan.goal,
+                        steps=[TaskStep(id="step-1", description=plan.goal)])
         if plan.mode == "chat":
             import asyncio
             # 与 API 路径对称：先写 user 再回复，保证 memory 有完整 user/assistant 轮次

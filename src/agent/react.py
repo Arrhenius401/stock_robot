@@ -115,7 +115,10 @@ class ReActExecutor:
             _role_to_message(m["role"], m["content"])
             for m in self._memory.get_context_window(n=_HISTORY_WINDOW)
         ]
-        history.append(HumanMessage(content=user_input))
+        # app.py 入口已把用户消息写入 memory；重复注入会让模型上下文重复
+        if not (history and isinstance(history[-1], HumanMessage)
+                and history[-1].content == user_input):
+            history.append(HumanMessage(content=user_input))
 
         lc_tools = [_as_lc_tool(t) for t in self._registry.list_all()]
         checkpointer = create_checkpointer(self._persist_dir)
@@ -135,12 +138,15 @@ class ReActExecutor:
         }
 
         tool_calls: list[dict] = []
-        pending_tool: dict | None = None
+        # run_id → {tool, args}：单条消息多 tool_call 时 LangGraph 并行执行，
+        # on_tool_start/on_tool_end 交错，必须按 run_id 配对防串名
+        pending_tools: dict[str, dict] = {}
         final_reply = ""
         try:
             async for event in agent.astream_events(
                     {"messages": history}, config=config, version="v2"):
                 etype = event.get("event")
+                run_id = str(event.get("run_id", ""))
                 if etype == "on_chat_model_stream":
                     chunk = event.get("data", {}).get("chunk")
                     content = getattr(chunk, "content", "") if chunk else ""
@@ -151,27 +157,29 @@ class ReActExecutor:
                     data = event.get("data", {})
                     args = data.get("input", {})
                     # langgraph 1.x 事件中工具名在顶层 name 字段（data 仅含 input/output）
-                    pending_tool = {"tool": event.get("name", "tool"), "args": args}
+                    pending_tools[run_id] = {
+                        "tool": event.get("name", "tool"), "args": args}
                     if on_event:
-                        on_event({"type": "tool_call", "tool": pending_tool["tool"],
+                        on_event({"type": "tool_call", "run_id": run_id,
+                                  "tool": pending_tools[run_id]["tool"],
                                   "args": args})
                 elif etype == "on_tool_end":
                     data = event.get("data", {})
                     # langgraph 1.x 的 output 为 ToolMessage，取其 content 再判状态
                     raw_output = data.get("output", "") or ""
                     output = str(getattr(raw_output, "content", raw_output))
-                    name = pending_tool["tool"] if pending_tool else event.get("name", "tool")
+                    entry = pending_tools.pop(run_id, None)
+                    name = entry["tool"] if entry else event.get("name", "tool")
                     status = "error" if output.startswith("错误:") else "success"
                     summary = output[:_SUMMARY_LIMIT]
-                    if pending_tool is not None:
-                        tool_calls.append({"tool": name, "args": pending_tool["args"],
-                                           "status": status, "summary": summary})
+                    tool_calls.append({"tool": name,
+                                       "args": entry["args"] if entry else {},
+                                       "status": status, "summary": summary})
                     self._memory.add_message(
                         "tool", f"[{name}] {status}: {summary}")
                     if on_event:
-                        on_event({"type": "tool_result", "tool": name,
-                                  "content": summary})
-                    pending_tool = None
+                        on_event({"type": "tool_result", "run_id": run_id,
+                                  "tool": name, "content": summary})
             # 必须在关闭 checkpointer 之前读取终态（SQLite 连接关闭后无法查询）
             state = await agent.aget_state(config)
             for msg in reversed(state.values.get("messages", [])):

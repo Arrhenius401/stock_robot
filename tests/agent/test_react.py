@@ -171,6 +171,32 @@ async def test_run_tool_exception_is_error():
 
 
 @pytest.mark.asyncio
+async def test_run_parallel_tool_calls_paired_by_run_id():
+    """单条消息多 tool_call 并行执行：事件按 run_id 配对，统计与 memory 不串名"""
+    model = make_model([
+        AIMessage(content="", tool_calls=[
+            {"name": "echo", "args": {"text": "a"}, "id": "call_8"},
+            {"name": "fail_tool", "args": {}, "id": "call_9"},
+        ]),
+        AIMessage(content="并行完成", tool_calls=[]),
+    ])
+    events = []
+    executor = ReActExecutor(registry=make_registry(), memory=Memory(),
+                             model=model, session_id="test-8")
+
+    outcome = await executor.run("并行执行", on_event=events.append)
+
+    by_name = {tc["tool"]: tc for tc in outcome.tool_calls}
+    assert set(by_name) == {"echo", "fail_tool"}
+    assert by_name["echo"]["status"] == "success"
+    assert by_name["fail_tool"]["status"] == "error"
+    # 每个 tool_call 事件都有同 run_id 的 tool_result 事件，且工具名一致
+    calls = {e["run_id"]: e["tool"] for e in events if e["type"] == "tool_call"}
+    results = {e["run_id"]: e["tool"] for e in events if e["type"] == "tool_result"}
+    assert calls == results
+
+
+@pytest.mark.asyncio
 async def test_run_model_none_raises():
     executor = ReActExecutor(registry=make_registry(), memory=Memory(),
                              model=None, session_id="test-6")

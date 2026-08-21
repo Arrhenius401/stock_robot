@@ -189,7 +189,8 @@ def create_app(core=None, sessions=None, push=None):
                 except Exception as e:  # noqa: BLE001 — agent 失败降级 plan 单步
                     logger.warning("agent 模式失败，降级 plan 单步: %s", e)
                     # 截断 react 中途写入的孤立 tool 消息，避免污染下一轮上下文
-                    del memory.messages[msg_snapshot:]
+                    # （add_message 超限时会重绑定列表对象，须用重绑定而非 del 切片）
+                    memory.messages = memory.messages[:msg_snapshot]
                     response, plan_payload, tool_results = await _agent_fallback(
                         executor, memory, message)
                     return JSONResponse({
@@ -274,7 +275,8 @@ def create_app(core=None, sessions=None, push=None):
                         except Exception as e:  # noqa: BLE001 — agent 失败降级 plan 单步
                             logger.warning("agent 模式失败，降级 plan 单步: %s", e)
                             # 截断 react 中途写入的孤立 tool 消息，避免污染下一轮上下文
-                            del memory.messages[msg_snapshot:]
+                            # （add_message 超限时会重绑定列表对象，须用重绑定而非 del 切片）
+                            memory.messages = memory.messages[:msg_snapshot]
                             summary, _, tool_results = await _agent_fallback(
                                 executor, memory, message)
                             await queue.put({"type": "result",
