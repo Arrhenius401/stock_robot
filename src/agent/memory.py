@@ -29,7 +29,7 @@ class Plan:
     goal: str                          # 原始用户意图
     steps: list[TaskStep]
     context_summary: str = ""          # 从 Memory 提取的相关历史摘要
-    mode: Literal["task", "chat"] = "task"   # task=拆计划执行；chat=普通会话
+    mode: Literal["plan", "agent", "chat"] = "plan"  # plan=拆计划执行；agent=自主循环；chat=普通会话
 
     def get_pending_steps(self) -> list[TaskStep]:
         """返回当前可执行的步骤（依赖已满足且状态为 pending）"""

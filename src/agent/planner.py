@@ -33,10 +33,10 @@ PLANNER_SYSTEM_PROMPT = """你是一个股票投研任务规划器。你的职�
 2. 每步只描述"做什么"，不指定"用哪个工具"（工具选择由执行器负责）
 3. 标注步骤间的依赖关系
 4. 复杂问题步骤数不超过5步，简单问题1步
-5. mode 判断：涉及任何证券标的（股票代码、公司名如贵州茅台/宁德时代、指数名如
-   上证指数/沪深300/中证500、行业、宏观政策、数据查询）或可拆解为多步的投研请求
-   → task；仅当与投资研究完全无关（问候、道谢、闲聊、非金融话题）→ chat。
-   chat 模式 steps 必须为空数组。
+5. mode 判断：结构化分析（明确指定股票代码/指数，如"分析一下 600519"）→ plan；
+   探索式/对比/开放问题（如"茅台和宁德时代哪个更值得关注""新能源板块最近有什么机会"）
+   → agent；仅当与投资研究完全无关（问候、道谢、闲聊、非金融话题）→ chat。
+   plan 模式 steps 为执行步骤；agent 与 chat 模式 steps 必须为空数组。
 
 ## 可用能力概览
 {capabilities}
@@ -47,7 +47,7 @@ PLANNER_SYSTEM_PROMPT = """你是一个股票投研任务规划器。你的职�
 {{
   "goal": "用户目标的简洁概括",
   "complexity": "simple|complex",
-  "mode": "task|chat",
+  "mode": "plan|agent|chat",
   "steps": [
     {{"id": "step-1", "description": "步骤描述"}},
     {{"id": "step-2", "description": "步骤描述", "depends_on": ["step-1"]}}
@@ -162,10 +162,13 @@ class Planner:
         except json.JSONDecodeError:
             return self._fallback_plan(fallback_goal, "")
 
-        mode = data.get("mode", "task")
+        mode = data.get("mode", "plan")
         if mode == "chat":
             return Plan(goal=data.get("goal", fallback_goal), steps=[],
                         mode="chat")
+        if mode == "agent":
+            return Plan(goal=data.get("goal", fallback_goal), steps=[],
+                        mode="agent")
 
         steps = []
         for s in data.get("steps", []):

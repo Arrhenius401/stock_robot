@@ -108,7 +108,7 @@ class TestPlan:
 
     def test_plan_default_mode_is_task(self):
         plan = Plan(goal="测试", steps=[])
-        assert plan.mode == "task"
+        assert plan.mode == "plan"
 
     def test_plan_chat_mode(self):
         plan = Plan(goal="你好", steps=[], mode="chat")

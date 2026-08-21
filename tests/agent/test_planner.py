@@ -54,6 +54,15 @@ def make_chat_response():
     }, ensure_ascii=False)
 
 
+def make_agent_response():
+    return json.dumps({
+        "goal": "对比分析",
+        "complexity": "complex",
+        "mode": "agent",
+        "steps": [],
+    }, ensure_ascii=False)
+
+
 class TestPlanner:
     @pytest.fixture
     def registry(self):
@@ -94,6 +103,7 @@ class TestPlanner:
         assert plan.goal == "找3只低估值新能源龙头股"
         assert len(plan.steps) == 3
         assert plan.steps[1].depends_on == ["step-1"]
+        assert plan.mode == "plan"
 
     def test_plan_complex_query_injects_tool_list_in_system_prompt(self, registry, memory):
         class FakeAnalyzeTool:
@@ -203,11 +213,20 @@ class TestChatDetection:
         assert plan.mode == "chat"
         assert plan.steps == []
 
-    def test_plan_llm_task_mode_returns_task_plan(self, registry, memory):
+    def test_plan_llm_plan_mode_returns_plan(self, registry, memory):
         llm = FakeLLM(fixed_response=make_multi_step_response())
         planner = Planner(llm=llm, registry=registry, memory=memory)
 
         plan = planner.plan("分析新能源板块")
 
-        assert plan.mode == "task"
+        assert plan.mode == "plan"
         assert len(plan.steps) == 3
+
+    def test_plan_llm_agent_mode_returns_agent_plan(self, registry, memory):
+        llm = FakeLLM(fixed_response=make_agent_response())
+        planner = Planner(llm=llm, registry=registry, memory=memory)
+
+        plan = planner.plan("对比茅台和宁德时代")
+
+        assert plan.mode == "agent"
+        assert plan.steps == []
