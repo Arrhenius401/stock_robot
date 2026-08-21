@@ -157,7 +157,9 @@ export async function sendMessage(text) {
             store.currentSessionId = e.session_id;
           }
         }
-        thinking.remove();
+        // agent 模式 plan 事件步骤为空，占位保留供 thinking 片段追加；
+        // 仅 plan 模式（有步骤）移除占位
+        if ((e.steps || []).length) thinking.remove();
         myPlan = planCard(e);
         agentBox.appendChild(myPlan.card);
       },
