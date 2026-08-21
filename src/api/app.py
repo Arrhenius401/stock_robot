@@ -16,6 +16,7 @@ from agent.executor import Executor
 from agent.graph import DEFAULT_CHECKPOINT_DIR
 from agent.memory import TaskStatus
 from agent.planner import Planner
+from agent.react import ReActExecutor
 from push.models import Channel, Subscription
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,22 @@ def _structured_tool_results(plan, memory) -> list[dict]:
             "content": content,
         })
     return results
+
+
+async def _agent_fallback(executor, memory, goal: str) -> tuple[str, dict, list[dict]]:
+    """agent 模式降级：以 plan 单步执行目标，返回与 plan 模式一致的响应结构"""
+    from agent.memory import Plan, TaskStep
+
+    plan = Plan(goal=goal, steps=[TaskStep(id="step-1", description=goal)])
+    plan = await executor.execute(plan)
+    done = sum(1 for s in plan.steps if s.status == TaskStatus.DONE)
+    return (
+        f"目标: {goal}\n完成: {done}/1 步骤",
+        {"goal": goal, "mode": "plan", "steps": [
+            {"id": s.id, "description": s.description, "status": s.status.value}
+            for s in plan.steps]},
+        _structured_tool_results(plan, memory),
+    )
 
 
 def _build_signal_payload(final_score: float) -> dict:
@@ -148,6 +165,35 @@ def create_app(core=None, sessions=None, push=None):
                     "tool_results": [],
                     "session_id": sid,
                 })
+            if plan.mode == "agent":
+                # agent 模式：自主循环执行；无模型或异常降级 plan 单步
+                react = ReActExecutor(registry=core.registry, memory=memory,
+                                      model=core.model, session_id=sid,
+                                      persist_dir=str(DEFAULT_CHECKPOINT_DIR))
+                try:
+                    outcome = await react.run(message)
+                    tool_results = [{
+                        "tool": tc["tool"],
+                        "symbol": tc["args"].get("symbol"),
+                        "status": "done" if tc["status"] == "success" else "error",
+                        "content": tc.get("summary", ""),
+                    } for tc in outcome.tool_calls]
+                    return JSONResponse({
+                        "response": outcome.final_reply,
+                        "plan": {"goal": plan.goal, "mode": "agent", "steps": []},
+                        "tool_results": tool_results,
+                        "session_id": sid,
+                    })
+                except Exception as e:  # noqa: BLE001 — agent 失败降级 plan 单步
+                    logger.warning("agent 模式失败，降级 plan 单步: %s", e)
+                    response, plan_payload, tool_results = await _agent_fallback(
+                        executor, memory, message)
+                    return JSONResponse({
+                        "response": response,
+                        "plan": plan_payload,
+                        "tool_results": tool_results,
+                        "session_id": sid,
+                    })
             plan = await executor.execute(plan)
             done = sum(1 for s in plan.steps if s.status == TaskStatus.DONE)
             total = len(plan.steps)
@@ -201,6 +247,32 @@ def create_app(core=None, sessions=None, push=None):
                         reply = await chat_responder.reply(message, memory)
                         memory.add_message("assistant", reply)
                         await queue.put({"type": "text", "content": reply})
+                        await queue.put({"type": "done"})
+                        return
+                    if plan.mode == "agent":
+                        # agent 模式：plan 事件空步骤（携带 session_id 供前端接管会话），
+                        # 实时 thinking/tool_call/tool_result 事件，最终 text 事件收尾
+                        await queue.put({"type": "plan", "goal": plan.goal,
+                                         "steps": [], "session_id": sid})
+                        # 事件流入口已校验 core 注入，复制到局部变量并断言收窄类型
+                        agent_core = core
+                        assert agent_core is not None
+                        react = ReActExecutor(
+                            registry=agent_core.registry, memory=memory,
+                            model=agent_core.model,
+                            session_id=sid, persist_dir=str(DEFAULT_CHECKPOINT_DIR))
+                        try:
+                            outcome = await react.run(message,
+                                                      on_event=queue.put_nowait)
+                            await queue.put({"type": "text",
+                                             "content": outcome.final_reply})
+                        except Exception as e:  # noqa: BLE001 — agent 失败降级 plan 单步
+                            logger.warning("agent 模式失败，降级 plan 单步: %s", e)
+                            summary, _, tool_results = await _agent_fallback(
+                                executor, memory, message)
+                            await queue.put({"type": "result",
+                                             "summary": summary,
+                                             "tool_results": tool_results})
                         await queue.put({"type": "done"})
                         return
                     await queue.put({"type": "plan", "goal": plan.goal,

@@ -154,6 +154,36 @@ def make_chat_core():
                      model=FakeChatModel(content="你好呀！有什么可以帮你？"))
 
 
+class AgentModeLLM:
+    """返回 mode=agent 计划的 LLM"""
+
+    def generate(self, prompt, system=None, **kwargs):
+        return json.dumps({
+            "goal": "对比分析",
+            "complexity": "complex",
+            "mode": "agent",
+            "steps": [],
+        }, ensure_ascii=False)
+
+
+def make_agent_core():
+    """注册 EchoTool + AgentModeLLM + 序列响应的 FakeChatModel"""
+    from typing import Any, cast
+
+    from langchain_core.messages import AIMessage
+
+    registry = ToolRegistry()
+    registry.register(EchoTool())
+    model = FakeChatModel(responses=[
+        AIMessage(content="", tool_calls=[
+            {"name": "echo", "args": {"text": "对比"}, "id": "call_1"}]),
+        AIMessage(content="对比结论", tool_calls=[]),
+    ])
+    return AgentCore(registry=registry, pipeline=cast(Any, FakePipeline()),
+                     index_pipeline=cast(Any, FakeIndexPipeline()),
+                     llm=cast(Any, AgentModeLLM()), model=model)
+
+
 class BrokenRegistry(ToolRegistry):
     """工具匹配即崩溃的注册表，模拟 Agent 执行链路故障
 
@@ -286,6 +316,29 @@ class TestChatEndpoint:
         assert any(m["role"] == "assistant"
                    and "你好呀" in m["content"] for m in msgs)
 
+    @pytest.mark.asyncio
+    async def test_chat_agent_mode_returns_final_reply(self, tmp_path):
+        sessions = SessionManager(SessionStore(tmp_path / "s_agent.db"))
+        app_agent = create_app(core=make_agent_core(), sessions=sessions)
+        async with AsyncClient(transport=ASGITransport(app=app_agent),
+                               base_url="http://test") as c:
+            resp = await c.post("/api/v1/chat",
+                                json={"message": "对比茅台和宁德时代"})
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["plan"]["mode"] == "agent"
+        assert body["response"] == "对比结论"
+        tools = body["tool_results"]
+        assert len(tools) == 1
+        assert tools[0]["tool"] == "echo"
+        assert tools[0]["status"] == "done"
+        # 最终回答写入会话消息
+        msgs = sessions.get_messages(body["session_id"])
+        assert msgs is not None
+        assert any(m["role"] == "assistant"
+                   and m["content"] == "对比结论" for m in msgs)
+
 
 class TestStructuredToolResults:
     def _make_plan(self, step_count, max_messages=None):
@@ -415,6 +468,49 @@ class TestStreamEndpoint:
         text = body.decode()
         assert '"type": "text"' in text
         assert "你好呀" in text
+
+    @pytest.mark.asyncio
+    async def test_stream_agent_mode_emits_tool_events(self, tmp_path):
+        sessions = SessionManager(SessionStore(tmp_path / "s_agent2.db"))
+        app_agent = create_app(core=make_agent_core(), sessions=sessions)
+        transport = ASGITransport(app=app_agent)
+        async with (
+            AsyncClient(transport=transport, base_url="http://test") as c,
+            c.stream("POST", "/api/v1/chat/stream",
+                     json={"message": "对比茅台和宁德时代"}) as resp,
+        ):
+            body = b""
+            async for chunk in resp.aiter_bytes():
+                body += chunk
+
+        text = body.decode()
+        assert '"type": "tool_call"' in text
+        assert '"type": "tool_result"' in text
+        assert '"type": "text"' in text
+        assert "对比结论" in text
+        assert '"type": "done"' in text
+
+    @pytest.mark.asyncio
+    async def test_stream_agent_mode_without_model_falls_back(self, tmp_path):
+        """agent 模式但 model 为 None：降级 plan 单步并正常完成"""
+
+        sessions = SessionManager(SessionStore(tmp_path / "s_agent3.db"))
+        core = make_agent_core()
+        core.model = None
+        app_fallback = create_app(core=core, sessions=sessions)
+        transport = ASGITransport(app=app_fallback)
+        async with (
+            AsyncClient(transport=transport, base_url="http://test") as c,
+            c.stream("POST", "/api/v1/chat/stream",
+                     json={"message": "对比茅台和宁德时代"}) as resp,
+        ):
+            body = b""
+            async for chunk in resp.aiter_bytes():
+                body += chunk
+
+        text = body.decode()
+        assert '"type": "result"' in text
+        assert '"type": "done"' in text
 
 
 class TestAnalyzeEndpoint:
