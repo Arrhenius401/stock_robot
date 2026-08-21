@@ -5,6 +5,7 @@
 """
 import json
 import logging
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -16,12 +17,15 @@ from langgraph.errors import GraphRecursionError  # noqa: F401  # 重新导出�
 from langgraph.prebuilt import create_react_agent
 
 from agent.memory import Memory
-from agent.tools import ToolRegistry
+from agent.tools import ToolProtocol, ToolRegistry
 
 logger = logging.getLogger(__name__)
 
 _JSON_TYPE_MAP = {"string": str, "integer": int, "number": float,
                   "boolean": bool, "array": list}
+
+_HISTORY_WINDOW = 10
+_SUMMARY_LIMIT = 500
 
 EventCallback = Callable[[dict], None]
 
@@ -50,7 +54,7 @@ def _schema_to_model(name: str, parameters: dict) -> type[Any]:
     return create_model(name, __base__=BaseModel, **fields)
 
 
-def _as_lc_tool(t) -> Any:
+def _as_lc_tool(t: ToolProtocol) -> Any:
     """ToolProtocol → LangChain tool
 
     过滤 None 参数：schema 里 optional 字段默认 None，直接传入会让
@@ -59,11 +63,20 @@ def _as_lc_tool(t) -> Any:
     name_or_callable），统一用 StructuredTool.from_function 显式构造。
     """
     async def _run(**kwargs):
-        result = await t.execute(
-            **{k: v for k, v in kwargs.items() if v is not None})
+        try:
+            result = await t.execute(
+                **{k: v for k, v in kwargs.items() if v is not None})
+        except Exception as e:  # noqa: BLE001 — 工具异常隔离，转为错误文本回注模型
+            logger.error("工具 %s 执行异常: %s", t.name, e)
+            return f"错误: {e}"
         if result.status == "error":
             return f"错误: {result.error}"
-        return json.dumps(result.data, ensure_ascii=False, default=str)
+        try:
+            return json.dumps(result.data, ensure_ascii=False, default=str)
+        except (TypeError, ValueError) as e:
+            # 序列化失败（如循环引用），同样回注错误而非误判 success
+            logger.warning("工具 %s 结果序列化失败: %s", t.name, e)
+            return f"错误: 结果序列化失败: {e}"
 
     return StructuredTool.from_function(
         coroutine=_run, name=t.name, description=t.description,
@@ -83,13 +96,13 @@ class ReActExecutor:
 
     def __init__(self, registry: ToolRegistry, memory: Memory, model=None,
                  session_id: str = "", persist_dir: str | None = None,
-                 max_iterations: int = 25):
+                 recursion_limit: int = 50):
         self._registry = registry
         self._memory = memory
         self._model = model
         self._session_id = session_id
         self._persist_dir = persist_dir
-        self._max_iterations = max_iterations
+        self._recursion_limit = recursion_limit
 
     async def run(self, user_input: str,
                   on_event: EventCallback | None = None) -> AgentOutcome:
@@ -100,16 +113,25 @@ class ReActExecutor:
 
         history: list[BaseMessage] = [
             _role_to_message(m["role"], m["content"])
-            for m in self._memory.get_context_window(n=10)
+            for m in self._memory.get_context_window(n=_HISTORY_WINDOW)
         ]
         history.append(HumanMessage(content=user_input))
 
         lc_tools = [_as_lc_tool(t) for t in self._registry.list_all()]
         checkpointer = create_checkpointer(self._persist_dir)
-        agent = create_react_agent(self._model, lc_tools, checkpointer=checkpointer)
+        try:
+            agent = create_react_agent(self._model, lc_tools,
+                                       checkpointer=checkpointer)
+        except Exception:  # 构造失败须关闭已建连接后重抛
+            conn = getattr(checkpointer, "conn", None)
+            if conn is not None:
+                await conn.close()
+            raise
+        # 每次 run 均从头注入完整历史，checkpointer 仅作流式状态载体，无恢复用途；
+        # thread_id 必须唯一，否则空 session 共享线程且消息跨轮累积
         config: RunnableConfig = {
-            "configurable": {"thread_id": self._session_id or "react"},
-            "recursion_limit": self._max_iterations,
+            "configurable": {"thread_id": f"{self._session_id or 'react'}-{uuid.uuid4().hex[:8]}"},
+            "recursion_limit": self._recursion_limit,
         }
 
         tool_calls: list[dict] = []
@@ -140,7 +162,7 @@ class ReActExecutor:
                     output = str(getattr(raw_output, "content", raw_output))
                     name = pending_tool["tool"] if pending_tool else event.get("name", "tool")
                     status = "error" if output.startswith("错误:") else "success"
-                    summary = output[:500]
+                    summary = output[:_SUMMARY_LIMIT]
                     if pending_tool is not None:
                         tool_calls.append({"tool": name, "args": pending_tool["args"],
                                            "status": status, "summary": summary})

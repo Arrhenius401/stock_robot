@@ -33,10 +33,22 @@ class FailingTool:
         return ToolResult(status="error", error="数据源不可用")
 
 
+class RaisingTool:
+    name = "raise_tool"
+    description = "执行时抛异常的工具"
+    parameters = {"type": "object", "properties": {}}
+    tags = ["test"]
+    source = "pipeline"
+
+    async def execute(self, **kwargs):
+        raise RuntimeError("内部崩溃")
+
+
 def make_registry():
     registry = ToolRegistry()
     registry.register(EchoTool())
     registry.register(FailingTool())
+    registry.register(RaisingTool())
     return registry
 
 
@@ -135,10 +147,27 @@ async def test_run_recursion_limit_raises():
         for i in range(10)
     ])
     executor = ReActExecutor(registry=make_registry(), memory=Memory(),
-                             model=model, session_id="test-5", max_iterations=3)
+                             model=model, session_id="test-5", recursion_limit=3)
 
     with pytest.raises(GraphRecursionError):
         await executor.run("循环")
+
+
+@pytest.mark.asyncio
+async def test_run_tool_exception_is_error():
+    """工具抛真异常：隔离为错误文本回注，状态记为 error 而非误判 success"""
+    model = make_model([
+        AIMessage(content="", tool_calls=[
+            {"name": "raise_tool", "args": {}, "id": "call_7"}]),
+        AIMessage(content="已处理", tool_calls=[]),
+    ])
+    executor = ReActExecutor(registry=make_registry(), memory=Memory(),
+                             model=model, session_id="test-7")
+
+    outcome = await executor.run("触发崩溃")
+
+    assert outcome.tool_calls[0]["status"] == "error"
+    assert "内部崩溃" in outcome.tool_calls[0]["summary"]
 
 
 @pytest.mark.asyncio
