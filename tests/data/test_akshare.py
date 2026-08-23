@@ -183,44 +183,25 @@ def test_fetch_price_computes_change_pct_without_column(mocker):
     assert results[-1].change_pct == pytest.approx(5.0)  # (10.5-10.0)/10.0*100
 
 
-def test_fetch_valuation_falls_back_to_old_endpoint(mocker):
-    """新端点失败时回退旧端点"""
-    mocker.patch(
-        "akshare.stock_individual_spot_xq",
-        side_effect=RemoteDisconnected("boom"),
-    )
-    mocker.patch(
-        "akshare.stock_zh_a_spot_em",
-        return_value=pd.DataFrame([
-            {"代码": "000001", "市盈率-动态": 7.5, "市净率": 0.85},
-            {"代码": "600036", "市盈率-动态": 6.2, "市净率": 0.72},
-        ]),
-    )
-    mocker.patch("utils.retry.time.sleep")
-
-    adapter = AkShareAdapter()
-    results = adapter.fetch("000001", data_type="valuation")
-    assert len(results) == 1
-    assert results[0].pe_ttm == 7.5
-    assert results[0].pb == 0.85
+def test_fetch_valuation_from_tencent_quote(mocker):
+    """估值优先腾讯快照（在线，已验证稳定）"""
+    import requests
+    # 构造腾讯快照返回：88 个 ~ 分隔字段，[3]=现价 [39]=PE(TTM) [46]=PB
+    fields = ["0.00"] * 88
+    fields[3], fields[39], fields[46] = "11.41", "5.09", "0.47"
+    text = 'v_sz000001="' + "~".join(fields) + '"'
+    mocker.patch("requests.get", return_value=type("R", (), {"text": text})())
+    from data.akshare import AkShareAdapter
+    results = AkShareAdapter()._fetch_valuation("000001")
+    assert results[0].pe_ttm == 5.09
+    assert results[0].pb == 0.47
 
 
-def test_fetch_valuation_uses_new_endpoint_first(mocker):
-    """新端点成功时使用新端点数据"""
-    mocker.patch(
-        "akshare.stock_individual_spot_xq",
-        return_value=pd.DataFrame({
-            "item": ["市盈率(动)", "市净率"],
-            "value": [7.5, 0.85],
-        }),
-    )
-    mocker.patch("utils.retry.time.sleep")
-
-    adapter = AkShareAdapter()
-    results = adapter.fetch("000001", data_type="valuation")
-    assert len(results) == 1
-    assert results[0].pe_ttm == 7.5
-    assert results[0].pb == 0.85
+def test_fetch_valuation_quote_fail_returns_empty(mocker):
+    """快照失败时返回空列表（不再缓存退化数据）"""
+    mocker.patch("requests.get", side_effect=ConnectionError("mock"))
+    from data.akshare import AkShareAdapter
+    assert AkShareAdapter()._fetch_valuation("000001") == []
 
 
 def test_fetch_industry_uses_eastmoney_info(mocker):

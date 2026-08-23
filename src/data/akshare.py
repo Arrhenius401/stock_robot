@@ -108,11 +108,6 @@ def _ak_daily(symbol, start_date, end_date, adjust):
 
 
 @retry_on_network_error()
-def _ak_spot_em():
-    return ak.stock_zh_a_spot_em()
-
-
-@retry_on_network_error()
 def _ak_individual_info_em(symbol):
     """单只股票基本信息接口（轻量，含行业字段）"""
     return ak.stock_individual_info_em(symbol=symbol)
@@ -125,7 +120,11 @@ def _ak_news(symbol):
 
 @retry_on_network_error()
 def _ak_individual_spot_xq(symbol):
-    """单只股票行情接口（雪球，轻量，替代全市场扫描）"""
+    """单只股票行情接口（雪球，轻量，替代全市场扫描）
+
+    注：估值采集已迁移至腾讯快照，本函数仅为 industry_enricher 的
+    _fetch_peer_valuation 保留（同行补查，Task 7 迁移后删除）。
+    """
     # 雪球 symbol 格式: SH600000 / SZ000001
     if symbol.startswith("6"):
         xq_symbol = f"SH{symbol}"
@@ -486,32 +485,25 @@ class AkShareAdapter(DataSource):
         return results
 
     def _fetch_valuation(self, symbol: str, **kwargs) -> list[ValuationData]:
-        pe_ttm, pb = None, None
+        """估值：腾讯实时快照（含 PE/PB，独立口径）。失败返回空列表。"""
+        import requests as _req
 
-        # 优先：单只股票轻量接口（雪球）
+        tx_symbol = f"sh{symbol}" if symbol.startswith("6") else f"sz{symbol}"
         try:
-            df: Any = _ak_individual_spot_xq(symbol)
-            if "item" in df.columns and "value" in df.columns:
-                pe_row = df[df["item"] == "市盈率(动)"]
-                pb_row = df[df["item"] == "市净率"]
-                if not pe_row.empty:
-                    pe_ttm = parse_cn_number(pe_row["value"].iloc[0])
-                if not pb_row.empty:
-                    pb = parse_cn_number(pb_row["value"].iloc[0])
-        except Exception:
-            logger.debug("雪球估值接口失败，回退全市场接口")
+            resp = _req.get(f"https://qt.gtimg.cn/q={tx_symbol}", timeout=10)
+            fields = resp.text.split("~")
+            # 字段: [3]=现价, [39]=PE(TTM), [46]=PB；字段数不足视为上游结构变化
+            if len(fields) < 47:
+                logger.warning(f"腾讯快照字段数异常: {len(fields)}")
+                return []
+            pe = float(fields[39]) if fields[39] else None
+            pb = float(fields[46]) if fields[46] else None
+        except Exception:  # noqa: BLE001 — 第三方网络边界，兜底降级
+            logger.debug("腾讯快照获取失败，估值数据缺失")
+            return []
 
-        # 回退：旧全市场接口
-        if pe_ttm is None and pb is None:
-            try:
-                df: Any = _ak_spot_em()
-                row = df[df["代码"] == symbol]
-                pe_ttm = parse_cn_number(row["市盈率-动态"].iloc[0]) if not row.empty and row["市盈率-动态"].iloc[0] != "-" else None
-                pb = parse_cn_number(row["市净率"].iloc[0]) if not row.empty and row["市净率"].iloc[0] != "-" else None
-            except Exception:
-                logger.debug("全市场估值接口失败，估值字段为空")
-
-        return [ValuationData(symbol=symbol, date=datetime.now().astimezone().date(), pe_ttm=pe_ttm, pb=pb, ps_ttm=None)]
+        return [ValuationData(symbol=symbol, date=datetime.now().astimezone().date(),
+                              pe_ttm=pe, pb=pb, ps_ttm=None)]
 
     def _fetch_industry(self, symbol: str, **kwargs) -> list[IndustryData]:
         from data.schemas import PeerBasicInfo
