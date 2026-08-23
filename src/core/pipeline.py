@@ -6,6 +6,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from core.circuit_breaker import CircuitBreaker
 from core.registry import Registry
 from data.cache import CacheManager
 from data.schemas import AnalysisContext, AnalysisResult, AnalysisTarget
@@ -80,6 +81,9 @@ class Pipeline:
         cache_db = self._config.config_dir / "cache.db"
         self._cache = CacheManager(db_path=cache_db)
 
+        # 内存断路器：per (symbol, data_type) 失败计数，源头故障时跳过请求
+        self._breaker = CircuitBreaker()
+
         # 新增：行业分类器 + 配置加载器
         from analysis.config_loader import ConfigLoader
         from data.industry_classifier import IndustryClassifier
@@ -97,9 +101,13 @@ class Pipeline:
         def fetch_one(data_type: str, stagger_index: int):
             # 递增错峰：第 n 个线程延迟 n*0.15s，减轻上游瞬时压力
             time.sleep(stagger_index * 0.15)
+            if self._breaker.is_open(symbol, data_type):
+                logger.warning(f"断路器打开: {symbol}/{data_type}，跳过源头请求")
+                return data_type, None
             if not refresh_cache:
                 cached = self._get_cached(symbol, data_type)
                 if cached is not None:
+                    self._breaker.record_success(symbol, data_type)
                     return data_type, cached
 
             sources = self._registry.get_data_sources(market, data_type)
@@ -109,11 +117,13 @@ class Pipeline:
                         result = source.fetch(symbol, data_type=data_type)
                         if result:
                             self._set_cache(symbol, data_type, result)
+                            self._breaker.record_success(symbol, data_type)
                             return data_type, result
                     except Exception as e:  # noqa: BLE001 — 多数据源逐个尝试，单源失败降级
                         logger.warning(f"数据源 {source.__class__.__name__} 获取 {data_type} 失败: {e}")
                     if attempt == 0:
                         time.sleep(1)  # 重试前等待 1 秒
+            self._breaker.record_failure(symbol, data_type)
             return data_type, None
 
         stagger_counter = 0
