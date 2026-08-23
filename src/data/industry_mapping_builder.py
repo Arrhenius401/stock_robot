@@ -7,6 +7,7 @@ import logging
 import re
 import time
 from pathlib import Path
+from typing import Any
 
 import requests
 import yaml
@@ -127,3 +128,36 @@ def fetch_taxonomy(refresh: bool = False) -> tuple[dict[str, str], dict[str, tup
     result = (level2_map, level3_map)
     _TAXONOMY_CACHE = result
     return result
+
+
+def _parse_composition_table(html: str) -> list[dict[str, Any]]:
+    """解析成分股表 → [{symbol, name, level2, pe_ttm, pb, market_cap}]
+
+    按列位置取值（列名被 JSON-LD 注入污染，不可依赖）。跳过表头行与 ST/退市股。
+    level2 为该股票在表中标注的申万2级（可能与遍历容器不一致，由调用方交叉校验）。
+    """
+    results: list[dict[str, Any]] = []
+    for row in re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.DOTALL):
+        cells = re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.DOTALL)
+        if len(cells) < 13:
+            continue
+        plain = [re.sub(r"<[^>]+>", "", c).strip() for c in cells]
+        code_m = re.search(r"\d{6}", plain[1])
+        name = plain[2]
+        if not code_m or not name or any(tag in name for tag in ("ST", "退市", "PT")):
+            continue
+        results.append({
+            "symbol": code_m.group(0),
+            "name": name,
+            "level2": plain[4] or None,
+            "pe_ttm": _to_float(plain[8]),
+            "pb": _to_float(plain[9]),
+            "market_cap": _to_float(plain[12]),
+        })
+    return results
+
+
+def fetch_constituents(code: str) -> list[dict[str, Any]]:
+    """拉取单个申万行业指数成分股（含 PE/PB/市值）"""
+    html = _get_with_retry(f"{COMPOSITION_URL}?industryCode={code}")
+    return _parse_composition_table(html)
