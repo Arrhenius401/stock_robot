@@ -498,7 +498,7 @@ class AkShareAdapter(DataSource):
                 return []
             pe = float(fields[39]) if fields[39] else None
             pb = float(fields[46]) if fields[46] else None
-        except Exception:  # noqa: BLE001 — 第三方网络边界，兜底降级
+        except Exception:  # 第三方网络边界，兜底降级
             logger.debug("腾讯快照获取失败，估值数据缺失")
             return []
 

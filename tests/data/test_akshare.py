@@ -185,7 +185,6 @@ def test_fetch_price_computes_change_pct_without_column(mocker):
 
 def test_fetch_valuation_from_tencent_quote(mocker):
     """估值优先腾讯快照（在线，已验证稳定）"""
-    import requests
     # 构造腾讯快照返回：88 个 ~ 分隔字段，[3]=现价 [39]=PE(TTM) [46]=PB
     fields = ["0.00"] * 88
     fields[3], fields[39], fields[46] = "11.41", "5.09", "0.47"
