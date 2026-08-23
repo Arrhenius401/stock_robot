@@ -194,3 +194,44 @@ class TestSubscribe:
         assert result.exit_code == 0
         mock_executor.return_value.run_subscription.assert_called_once_with(sub)
         assert "1/1" in result.output
+
+
+class TestIndustryMappingCommand:
+    def test_update_symbol(self, mocker):
+        from click.testing import CliRunner
+
+        from stock_robot.cli import main
+
+        mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
+        mocker.patch("data.industry_mapping_builder.update_symbol",
+                     return_value={"symbol": "600097", "sw_level1": "农林牧渔",
+                                   "sw_level2": "渔业", "style_category": "必选消费",
+                                   "action": "updated"})
+        result = CliRunner().invoke(main, ["industry-mapping", "600097"])
+        assert result.exit_code == 0
+        assert "600097" in result.output
+        assert "农林牧渔" in result.output
+
+    def test_rebuild_all(self, mocker):
+        from click.testing import CliRunner
+
+        from stock_robot.cli import main
+
+        mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
+        mocker.patch("data.industry_mapping_builder.rebuild_all",
+                     return_value={"total_industries": 335, "failed_industries": [],
+                                   "stock_count": 5534, "coverage_pct": 98.2})
+        result = CliRunner().invoke(main, ["industry-mapping"])
+        assert result.exit_code == 0
+        assert "5534" in result.output
+        assert "98.2%" in result.output
+
+    def test_invalid_symbol(self, mocker):
+        from click.testing import CliRunner
+
+        from stock_robot.cli import main
+
+        mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
+        result = CliRunner().invoke(main, ["industry-mapping", "abc"])
+        assert result.exit_code == 1
+        assert "无效" in result.output

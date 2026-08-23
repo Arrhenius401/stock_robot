@@ -371,6 +371,77 @@ def index(symbols, style, output, compare_only):
             console.print(f"[yellow]警告: {err}[/yellow]")
 
 
+@main.command("industry-mapping")
+@click.argument("symbol", required=False)
+@click.option("--verbose", "-v", is_flag=True, help="显示抓取明细")
+def industry_mapping(symbol, verbose):
+    """重建/更新行业映射表。
+
+    无参数 → 全量重建（遍历 335 个申万三级行业，约 8-10 分钟）；
+    带股票代码 → 单只秒级更新。
+    """
+    from data.industry_mapping_builder import (
+        IndustryMappingError,
+        rebuild_all,
+        update_symbol,
+    )
+    from utils.config import Config
+    from utils.symbols import normalize_symbol, validate_symbol
+
+    config = Config()
+    if not _check_disclaimer(config):
+        return
+
+    try:
+        if symbol:
+            if not validate_symbol(symbol):
+                console.print(f"[red]无效的股票代码: {symbol}[/red]")
+                sys.exit(1)
+            symbol = normalize_symbol(symbol)
+            result = update_symbol(symbol)
+            console.print(
+                f"[green]✓ {result['symbol']} → {result['sw_level1']}"
+                f"/{result['sw_level2']}（{result['style_category']}）"
+                f"[/green] [dim]({'更新' if result['action'] == 'updated' else '新增'})[/dim]"
+            )
+        else:
+            from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
+
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("{task.completed}/{task.total}"),
+                console=console,
+                transient=True,
+            ) as progress:
+                task_id = progress.add_task("正在重建行业映射表", total=335)
+
+                def on_progress(current, total, label):
+                    progress.update(task_id, completed=current, total=total,
+                                    description=f"[{current}/{total}] {label}")
+
+                result = rebuild_all(on_progress=on_progress)
+                progress.update(task_id, visible=False)
+
+            coverage = result["coverage_pct"]
+            color = "green" if coverage >= 95 else "red"
+            console.print(
+                f"[{color}]✓ 行业映射表重建完成：{result['stock_count']} 只股票，"
+                f"覆盖率 {coverage}%[/{color}]"
+            )
+            if result["failed_industries"]:
+                console.print(
+                    f"[yellow]⚠ 失败行业 {len(result['failed_industries'])} 个: "
+                    f"{', '.join(result['failed_industries'])}[/yellow]"
+                )
+            if verbose:
+                console.print(f"[dim]遍历行业 {result['total_industries']} 个[/dim]")
+    except IndustryMappingError as e:
+        console.print(f"[red]✗ 行业映射操作失败: {e}[/red]")
+        sys.exit(1)
+
+
 @main.group()
 def config():
     """管理配置"""
