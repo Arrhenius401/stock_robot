@@ -24,7 +24,7 @@
   </div>
   <div class="conn-status" id="connStatus" hidden>⚠ 无法连接服务</div>
 </header>
-<div class="layout">
+<div class="layout" id="appLayout">
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-top">
       <button class="new-session" id="newSessionBtn"><span class="plus">＋</span><span class="txt"> 新建会话</span></button>
@@ -98,6 +98,15 @@
       <div id="subsList"></div>
     </div>
   </main>
+  <aside id="reportDrawer" aria-label="完整研报" aria-hidden="true" hidden>
+    <div class="report-drawer-toolbar">
+      <button id="reportDrawerRefresh">刷新</button>
+      <button id="reportDrawerClose" aria-label="关闭完整研报">关闭</button>
+    </div>
+    <div id="reportDrawerError" role="status" hidden></div>
+    <nav id="reportDrawerNav" aria-label="研报章节"></nav>
+    <div id="reportDrawerContent"></div>
+  </aside>
 </div>
 <script type="module" src="/js/app.js"></script>
 </body>

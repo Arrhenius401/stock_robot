@@ -2,6 +2,7 @@
 import { bus, switchView } from "./state.js";
 import { initChat } from "./chat.js";
 import { initReportView } from "./report.js";
+import { initReportDrawer } from "./report-drawer.js";
 import { initIndexView } from "./indexview.js";
 import { initSessions, initSessionStartup } from "./sessions.js";
 import { initSubscriptions } from "./subscriptions.js";
@@ -16,6 +17,7 @@ function init() {
   bus.addEventListener("conn-up", () => { connStatus.hidden = true; });
   initChat();
   initReportView();
+  initReportDrawer();
   initIndexView();
   initSessions();
   initSubscriptions();

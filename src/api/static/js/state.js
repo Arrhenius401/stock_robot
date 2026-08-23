@@ -4,6 +4,9 @@ export const store = {
   currentView: "chat",
   reportCache: {},        // symbol -> analyze 报告 JSON
   sessionMessages: {},    // sid -> [{role, content}]
+  sessionArtifacts: {},   // sid -> [artifact]
+  currentArtifact: null,
+  reportDrawerOpen: false,
 };
 
 export const bus = new EventTarget();
