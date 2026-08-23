@@ -6,6 +6,7 @@ from data.industry_mapping_builder import (
     _get_with_retry,
     fetch_constituents,
     fetch_taxonomy,
+    rebuild_all,
 )
 
 # 真实页面结构精简 fixture（一级无 parent，二级/三级带 parent span）
@@ -143,3 +144,84 @@ class TestFetchConstituents:
         mocker.patch("data.industry_mapping_builder._get_with_retry",
                      return_value="<table></table>")
         assert fetch_constituents("801015.SI") == []
+
+
+LEVEL2_MAP = {"种植业": "农林牧渔", "渔业": "农林牧渔", "银行": "银行"}
+LEVEL3_MAP = {"850111.SI": ("种子", "种植业"), "850121.SI": ("海洋捕捞", "渔业")}
+STOCK_A = {"symbol": "000998", "name": "隆平高科", "level2": "种植业",
+           "pe_ttm": 88.5, "pb": 6.2, "market_cap": 310.4}
+STOCK_B = {"symbol": "600097", "name": "开创国际", "level2": None,
+           "pe_ttm": 25.6, "pb": 1.8, "market_cap": 46.2}
+
+
+# 模拟现网旧表（2 只占位股），作为覆盖率分母
+OLD_CSV = (
+    "symbol,sw_level1,sw_level2,style_category\n"
+    "000001,综合,,高端制造\n"
+    "600036,综合,,高端制造\n"
+)
+
+
+class TestRebuildAll:
+    def test_rebuild_writes_csv(self, mocker, tmp_path):
+        old_csv = tmp_path / "industry_mapping.csv"
+        old_csv.write_text(OLD_CSV, encoding="utf-8")
+        mocker.patch("data.industry_mapping_builder._get_with_retry")
+        mocker.patch("data.industry_mapping_builder.fetch_taxonomy",
+                     return_value=(LEVEL2_MAP, LEVEL3_MAP))
+        mocker.patch("data.industry_mapping_builder.fetch_constituents",
+                     side_effect=[[STOCK_A], [STOCK_B]])
+        # 行内 level2 缺失时用容器 parent 兜底
+        mocker.patch("data.industry_mapping_builder._csv_path",
+                     return_value=old_csv)
+        mocker.patch("data.industry_mapping_builder.time.sleep")
+
+        result = rebuild_all(delay=0.0)
+        assert result["stock_count"] == 2
+        assert result["failed_industries"] == []
+        assert result["coverage_pct"] == 100.0
+
+        import csv as _csv
+        with open(old_csv, encoding="utf-8") as f:
+            rows = list(_csv.DictReader(f))
+        assert len(rows) == 2
+        by_symbol = {r["symbol"]: r for r in rows}
+        assert by_symbol["000998"]["sw_level1"] == "农林牧渔"
+        assert by_symbol["000998"]["sw_level2"] == "种植业"
+        assert by_symbol["000998"]["style_category"] == "必选消费"
+        # level2 缺失 → 容器 parent（渔业）兜底
+        assert by_symbol["600097"]["sw_level1"] == "农林牧渔"
+        assert by_symbol["600097"]["sw_level2"] == "渔业"
+        # 临时文件已清理
+        assert not (tmp_path / "industry_mapping.csv.tmp").exists()
+
+    def test_rebuild_skips_failed_industry(self, mocker, tmp_path):
+        old_csv = tmp_path / "industry_mapping.csv"
+        old_csv.write_text(OLD_CSV, encoding="utf-8")
+        mocker.patch("data.industry_mapping_builder.fetch_taxonomy",
+                     return_value=(LEVEL2_MAP, LEVEL3_MAP))
+        mocker.patch("data.industry_mapping_builder.fetch_constituents",
+                     side_effect=IndustryMappingError("网络失败"))
+        mocker.patch("data.industry_mapping_builder._csv_path",
+                     return_value=old_csv)
+        mocker.patch("data.industry_mapping_builder.time.sleep")
+
+        result = rebuild_all(delay=0.0)
+        assert result["failed_industries"] == ["850111.SI", "850121.SI"]
+        assert result["stock_count"] == 0
+        assert result["coverage_pct"] == 0.0
+
+    def test_progress_callback(self, mocker, tmp_path):
+        seen = []
+        old_csv = tmp_path / "industry_mapping.csv"
+        old_csv.write_text(OLD_CSV, encoding="utf-8")
+        mocker.patch("data.industry_mapping_builder.fetch_taxonomy",
+                     return_value=(LEVEL2_MAP, LEVEL3_MAP))
+        mocker.patch("data.industry_mapping_builder.fetch_constituents",
+                     side_effect=[[STOCK_A], [STOCK_B]])
+        mocker.patch("data.industry_mapping_builder._csv_path",
+                     return_value=old_csv)
+        mocker.patch("data.industry_mapping_builder.time.sleep")
+
+        rebuild_all(delay=0.0, on_progress=lambda i, t, n: seen.append((i, t, n)))
+        assert seen == [(1, 2, "种子"), (2, 2, "海洋捕捞")]

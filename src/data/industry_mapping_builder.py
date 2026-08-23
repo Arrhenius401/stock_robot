@@ -3,7 +3,9 @@
 数据源为乐咕乐股（legulegu.com）申万 2021 版行业分类，口径与
 src/analysis/config/申万_大类_映射.yaml 的申万一级命名对齐。
 """
+import csv
 import logging
+import os
 import re
 import time
 from pathlib import Path
@@ -161,3 +163,71 @@ def fetch_constituents(code: str) -> list[dict[str, Any]]:
     """拉取单个申万行业指数成分股（含 PE/PB/市值）"""
     html = _get_with_retry(f"{COMPOSITION_URL}?industryCode={code}")
     return _parse_composition_table(html)
+
+
+def _write_csv(rows: list[dict]) -> None:
+    """原子写 CSV：先写临时文件再 rename，中途失败不损坏现有表"""
+    path = _csv_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".csv.tmp")
+    with open(tmp, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=MAPPING_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+    os.replace(tmp, path)
+
+
+def rebuild_all(delay: float = DEFAULT_DELAY,
+                on_progress=None) -> dict:
+    """全量重建行业映射表，返回统计 {total_industries, failed_industries,
+    stock_count, coverage_pct}。覆盖率分母取旧 CSV 行数（全 A 股近似）。"""
+    level2_map, level3_map = fetch_taxonomy(refresh=True)
+    style_map = _load_style_mapping()
+
+    stock_rows: dict[str, dict] = {}
+    failed: list[str] = []
+    total = len(level3_map)
+    for i, (code, (name, container_level2)) in enumerate(level3_map.items(), 1):
+        try:
+            stocks = fetch_constituents(code)
+        except IndustryMappingError as e:
+            logger.warning("行业 %s(%s) 抓取失败: %s", name, code, e)
+            failed.append(code)
+        else:
+            for s in stocks:
+                # 行内"申万2级"列优先，缺失用容器 parent 兜底；一级随之推导
+                row_level2 = s.get("level2") or container_level2
+                row_level1 = level2_map.get(row_level2, "综合")
+                if s["symbol"] not in stock_rows:
+                    stock_rows[s["symbol"]] = {
+                        "symbol": s["symbol"],
+                        "sw_level1": row_level1,
+                        "sw_level2": row_level2,
+                        "style_category": style_map.get(row_level1, "高端制造"),
+                    }
+        if on_progress:
+            on_progress(i, total, name)
+        if delay:
+            time.sleep(delay)
+
+    # 覆盖率分母 = 旧 CSV 行数（全 A 股近似），须在 _write_csv 覆盖前读取
+    known_total: int | None = None
+    old_path = _csv_path()
+    if old_path.exists():
+        with open(old_path, encoding="utf-8") as f:
+            known_total = sum(1 for _ in f) - 1
+
+    rows = list(stock_rows.values())
+    _write_csv(rows)
+
+    denominator = known_total or len(rows)
+    coverage_pct = round(len(rows) / denominator * 100, 1) if denominator else 100.0
+
+    logger.info("行业映射表重建完成: %d 只股票, 覆盖率 %.1f%%, 失败行业 %d",
+                len(rows), coverage_pct, len(failed))
+    return {
+        "total_industries": total,
+        "failed_industries": failed,
+        "stock_count": len(rows),
+        "coverage_pct": coverage_pct,
+    }
