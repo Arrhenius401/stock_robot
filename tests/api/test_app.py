@@ -664,6 +664,74 @@ class TestStreamEndpoint:
         assert events[-1]["type"] == "done"
 
     @pytest.mark.asyncio
+    async def test_stream_title_metadata_read_failure_still_returns_result(
+            self, tmp_path, monkeypatch):
+        sessions = SessionManager(SessionStore(tmp_path / "title_read_failure.db"))
+        sid, memory = sessions.get_or_create(None, "已有会话")
+        memory.add_message("user", "已有消息")
+        list_sessions = sessions.list_sessions
+        read_count = 0
+
+        def fail_second_read():
+            nonlocal read_count
+            read_count += 1
+            if read_count == 2:
+                raise OSError("标题元数据不可读")
+            return list_sessions()
+
+        monkeypatch.setattr(sessions, "list_sessions", fail_second_read)
+        app_plan = create_app(core=make_core(), sessions=sessions, push=False)
+        async with (
+            AsyncClient(transport=ASGITransport(app=app_plan),
+                        base_url="http://test") as c,
+            c.stream("POST", "/api/v1/chat/stream", json={
+                "message": "echo 测试", "session_id": sid,
+            }) as resp,
+        ):
+            events = parse_sse_events((await resp.aread()).decode())
+
+        title_events = [event for event in events
+                        if event["type"] == "session_title"]
+        assert len(title_events) == 1
+        assert title_events[0]["session_id"]
+        assert title_events[0]["title"] == "echo 测试"
+        assert any(event["type"] == "result" for event in events)
+        assert events[-1]["type"] == "done"
+        assert not any(event["type"] == "error" for event in events)
+
+    @pytest.mark.asyncio
+    async def test_stream_local_title_write_failure_still_returns_result(
+            self, tmp_path, monkeypatch):
+        sessions = SessionManager(SessionStore(tmp_path / "title_write_failure.db"))
+        sid, _ = sessions.get_or_create(None)
+
+        def fail_title_update(*args, **kwargs):
+            raise OSError("标题元数据不可写")
+
+        monkeypatch.setattr(sessions, "maybe_update_title", fail_title_update)
+        app_chat = create_app(
+            core=make_titled_chat_core(TitleAwareModel(title="不应出现的润色标题")),
+            sessions=sessions,
+            push=False,
+        )
+        async with (
+            AsyncClient(transport=ASGITransport(app=app_chat),
+                        base_url="http://test") as c,
+            c.stream("POST", "/api/v1/chat/stream", json={
+                "message": "你好", "session_id": sid,
+            }) as resp,
+        ):
+            events = parse_sse_events((await resp.aread()).decode())
+
+        title_events = [event for event in events
+                        if event["type"] == "session_title"]
+        assert title_events == [{
+            "type": "session_title", "session_id": sid, "title": "你好"}]
+        assert any(event["type"] == "text" for event in events)
+        assert events[-1]["type"] == "done"
+        assert not any(event["type"] == "error" for event in events)
+
+    @pytest.mark.asyncio
     async def test_stream_emits_error_event_on_failure(self, tmp_path):
         store = SessionStore(tmp_path / "sessions_err2.db")
         sessions = SessionManager(store, facts_path=tmp_path / "facts_err2.json")

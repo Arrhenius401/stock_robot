@@ -380,23 +380,32 @@ def create_app(core=None, sessions=None, push=None):
                     # 事件流入口已校验 sessions 注入，复制到局部变量并断言收窄类型
                     manager = sessions
                     assert manager is not None
-                    previous_meta = _session_metadata(manager, session_id)
-                    is_first_turn = (
-                        previous_meta is None
-                        or previous_meta.get("message_count", 0) == 0
-                    )
                     sid, memory = manager.get_or_create(session_id, message)
-                    if (is_first_turn and previous_meta is not None
-                            and previous_meta.get("title_source") != "manual"):
-                        manager.maybe_update_title(
-                            sid, derive_session_title(message), source="local")
-                    current_meta = _session_metadata(manager, sid) or {}
-                    local_title = str(
-                        current_meta.get("title") or derive_session_title(message))
-                    should_refine_title = (
-                        is_first_turn
-                        and current_meta.get("title_source") != "manual"
-                    )
+                    local_title = derive_session_title(message)
+                    is_first_turn = True
+                    should_refine_title = False
+                    try:
+                        previous_meta = _session_metadata(manager, session_id)
+                        is_first_turn = (
+                            previous_meta is None
+                            or previous_meta.get("message_count", 0) == 0
+                        )
+                        if (is_first_turn and previous_meta is not None
+                                and previous_meta.get("title_source") != "manual"):
+                            manager.maybe_update_title(
+                                sid, local_title, source="local")
+                        current_meta = _session_metadata(manager, sid) or {}
+                        local_title = str(current_meta.get("title") or local_title)
+                        should_refine_title = (
+                            is_first_turn
+                            and current_meta.get("title_source") != "manual"
+                        )
+                    except Exception as exc:  # noqa: BLE001 — 标题元数据失败不影响聊天
+                        local_title = derive_session_title(message)
+                        is_first_turn = True
+                        should_refine_title = False
+                        logger.warning(
+                            "会话标题初始化失败，会话 %s 保留本地标题: %s", sid, exc)
                     if is_first_turn:
                         await queue.put({
                             "type": "session_title",
