@@ -248,3 +248,21 @@ def test_fetch_industry_uses_new_endpoint_first(mocker):
     results = adapter.fetch("000001", data_type="industry")
     assert len(results) == 1
     assert results[0].industry == "银行"
+
+
+def test_fetch_financial_fills_basic_eps(mocker):
+    """采集层应填充 basic_eps，供总股本财报反推使用"""
+    import pandas as pd
+    fin_df = pd.DataFrame({
+        "报告期": ["2026-06-30", "2026-03-31"],
+        "营业总收入": [70000000000, 38000000000],
+        "净利润": [25000000000, 13000000000],
+        "基本每股收益": [1.32, 0.68],
+    })
+    mocker.patch("akshare.stock_financial_abstract_ths", return_value=fin_df)
+    mocker.patch("akshare.stock_financial_debt_ths", return_value=pd.DataFrame({
+        "报告期": [], "*所有者权益（或股东权益）合计": [], "*资产合计": [],
+    }))
+    from data.akshare import AkShareAdapter
+    results = AkShareAdapter()._fetch_financial("000001")
+    assert results[0].basic_eps == 1.32

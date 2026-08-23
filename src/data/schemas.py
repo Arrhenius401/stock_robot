@@ -127,6 +127,7 @@ class FinancialData(BaseModel):
     operating_cash_flow: float | None = None
     roe: float | None = None
     gross_margin: float | None = None
+    basic_eps: float | None = None  # 基本每股收益，用于总股本反推
 
 
 class PriceData(BaseModel):

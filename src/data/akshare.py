@@ -429,6 +429,7 @@ class AkShareAdapter(DataSource):
                     operating_cash_flow=ocf,
                     roe=roe,
                     gross_margin=net_margin,
+                    basic_eps=basic_eps,
                 ))
             except (ValueError, IndexError, TypeError) as e:
                 logger.warning(f"跳过异常财务数据行 {idx}: {e}")
