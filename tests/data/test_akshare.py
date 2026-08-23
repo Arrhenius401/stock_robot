@@ -229,6 +229,7 @@ def test_fetch_industry_uses_eastmoney_info(mocker):
     info_df = pd.DataFrame({"item": ["行业", "总股本"], "value": ["银行", "194.05亿"]})
     mocker.patch("data.akshare._ak_individual_info_em", return_value=info_df)
     mocker.patch("data.akshare._fetch_sw_peers", return_value=[])
+    mocker.patch("data.akshare._ak_board_industry_cons_em", return_value=pd.DataFrame())
     from data.akshare import AkShareAdapter
     results = AkShareAdapter()._fetch_industry("000001")
     assert results[0].industry == "银行"
@@ -241,6 +242,7 @@ def test_fetch_industry_falls_back_to_local_mapping(mocker):
     fake = type("Fake", (), {"lookup": lambda self, s: type("R", (), {"sw_level1": "银行"})()})()
     mocker.patch("data.industry_classifier.IndustryClassifier", return_value=fake)
     mocker.patch("data.akshare._fetch_sw_peers", return_value=[])
+    mocker.patch("data.akshare._ak_board_industry_cons_em", return_value=pd.DataFrame())
     from data.akshare import AkShareAdapter
     results = AkShareAdapter()._fetch_industry("000001")
     assert results[0].industry == "银行"
