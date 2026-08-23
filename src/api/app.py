@@ -1,4 +1,5 @@
 """FastAPI HTTP API — REST + SSE 流式接口"""
+import ast
 import asyncio
 import json
 import logging
@@ -17,9 +18,11 @@ from agent.graph import DEFAULT_CHECKPOINT_DIR
 from agent.memory import TaskStatus
 from agent.planner import Planner
 from agent.react import ReActExecutor
+from api.session_titles import SessionTitleRefiner, derive_session_title
 from push.models import Channel, Subscription
 
 logger = logging.getLogger(__name__)
+_TITLE_REFINE_TIMEOUT_SECONDS = 0.25
 
 
 def _json_safe(payload) -> dict:
@@ -56,6 +59,137 @@ def _structured_tool_results(plan, memory) -> list[dict]:
             "content": content,
         })
     return results
+
+
+def _extract_stock_report(tool_results: list[dict]) -> tuple[str, dict] | None:
+    """从成功的 analyze_stock 工具结果提取并规范化结构化报告。"""
+    prefix = "[analyze_stock] success:"
+    for result in tool_results:
+        if result.get("tool") != "analyze_stock":
+            continue
+        if result.get("status") not in ("done", "success"):
+            continue
+        content = result.get("content")
+        report: dict | None = content if isinstance(content, dict) else None
+        if isinstance(content, str) and content.startswith(prefix):
+            try:
+                parsed = ast.literal_eval(content.removeprefix(prefix).strip())
+            except (SyntaxError, ValueError):
+                continue
+            if isinstance(parsed, dict):
+                report = parsed
+        if report is None:
+            continue
+
+        symbol = report.get("symbol") or report.get("code")
+        if not isinstance(symbol, str) or not symbol.strip():
+            continue
+        comments = report.get("comments")
+        commentary = report.get("commentary", "")
+        if not isinstance(commentary, str):
+            commentary = ""
+        if not commentary and isinstance(comments, list):
+            commentary = "\n\n".join(
+                str(comment) for comment in comments if comment is not None)
+        payload = {
+            "symbol": symbol.strip(),
+            "name": report.get("name", ""),
+            "overview": report.get("overview")
+            if isinstance(report.get("overview"), dict) else {},
+            "score": report.get("score")
+            if isinstance(report.get("score"), dict) else {},
+            "score_rows": report.get("score_rows")
+            if isinstance(report.get("score_rows"), list) else [],
+            "dimensions": report.get("dimensions")
+            if isinstance(report.get("dimensions"), dict) else {},
+            "commentary": commentary,
+            "generated_at": report.get("generated_at"),
+        }
+        return payload["symbol"], payload
+    return None
+
+
+def _persist_artifact_if_present(
+        manager, session_id: str, tool_results: list[dict]) -> dict | None:
+    """保存工具结果中的报告；存储故障时返回仅存在于本轮事件中的成果。"""
+    extracted = _extract_stock_report(tool_results)
+    if extracted is None:
+        return None
+    symbol, payload = extracted
+    try:
+        artifact = manager.save_artifact(
+            session_id,
+            kind="stock_report",
+            symbol=symbol,
+            payload=payload,
+        )
+        return {"artifact": artifact, "persisted": True}
+    except Exception as exc:  # noqa: BLE001 — 持久化边界失败不能中断聊天
+        logger.error("报告成果持久化失败，会话 %s: %s", session_id, exc)
+        now = datetime.now().astimezone().timestamp()
+        return {
+            "artifact": {
+                "artifact_id": None,
+                "session_id": session_id,
+                "message_id": None,
+                "kind": "stock_report",
+                "symbol": symbol,
+                "payload": _json_safe(payload),
+                "created_at": now,
+                "updated_at": now,
+            },
+            "persisted": False,
+        }
+
+
+def _session_metadata(manager, session_id: str | None) -> dict | None:
+    """读取单个会话的标题元数据。"""
+    if not session_id:
+        return None
+    return next(
+        (item for item in manager.list_sessions()
+         if item.get("session_id") == session_id),
+        None,
+    )
+
+
+async def _refine_session_title(
+        manager, session_id: str, message: str, fallback: str, model,
+        queue: asyncio.Queue) -> None:
+    """润色并持久化首轮自动标题，仅在标题真实变化时发送事件。"""
+    title = await SessionTitleRefiner(model).refine(message, fallback)
+    if title == fallback:
+        return
+    if manager.maybe_update_title(session_id, title, source="llm"):
+        await queue.put({
+            "type": "session_title",
+            "session_id": session_id,
+            "title": title,
+        })
+
+
+async def _finish_title_refinement(
+        manager, session_id: str, message: str, fallback: str, model,
+        queue: asyncio.Queue) -> None:
+    """在请求生命周期内等待短时标题润色并完整回收任务。"""
+    task = asyncio.create_task(_refine_session_title(
+        manager, session_id, message, fallback, model, queue))
+    try:
+        done, _ = await asyncio.wait(
+            {task}, timeout=_TITLE_REFINE_TIMEOUT_SECONDS)
+        if not done:
+            logger.warning("会话标题润色超时，会话 %s 保留本地标题", session_id)
+            return
+        await task
+    except Exception as exc:  # noqa: BLE001 — 标题失败不能中断聊天
+        logger.warning("会话标题润色任务失败，会话 %s: %s", session_id, exc)
+    finally:
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                logger.debug("已取消并回收会话 %s 的标题润色任务", session_id)
 
 
 async def _agent_fallback(executor, memory, goal: str) -> tuple[str, dict, list[dict]]:
@@ -180,6 +314,7 @@ def create_app(core=None, sessions=None, push=None):
                         "status": "done" if tc["status"] == "success" else "error",
                         "content": tc.get("summary", ""),
                     } for tc in outcome.tool_calls]
+                    _persist_artifact_if_present(sessions, sid, tool_results)
                     return JSONResponse({
                         "response": outcome.final_reply,
                         "plan": {"goal": plan.goal, "mode": "agent", "steps": []},
@@ -193,6 +328,7 @@ def create_app(core=None, sessions=None, push=None):
                     memory.messages = memory.messages[:msg_snapshot]
                     response, plan_payload, tool_results = await _agent_fallback(
                         executor, memory, message)
+                    _persist_artifact_if_present(sessions, sid, tool_results)
                     return JSONResponse({
                         "response": response,
                         "plan": plan_payload,
@@ -203,6 +339,7 @@ def create_app(core=None, sessions=None, push=None):
             done = sum(1 for s in plan.steps if s.status == TaskStatus.DONE)
             total = len(plan.steps)
             tool_results = _structured_tool_results(plan, memory)
+            _persist_artifact_if_present(sessions, sid, tool_results)
             return JSONResponse({
                 "response": f"目标: {plan.goal}\n完成: {done}/{total} 步骤",
                 "plan": {"goal": plan.goal, "mode": "plan", "steps": [
@@ -243,7 +380,40 @@ def create_app(core=None, sessions=None, push=None):
                     # 事件流入口已校验 sessions 注入，复制到局部变量并断言收窄类型
                     manager = sessions
                     assert manager is not None
+                    previous_meta = _session_metadata(manager, session_id)
+                    is_first_turn = (
+                        previous_meta is None
+                        or previous_meta.get("message_count", 0) == 0
+                    )
                     sid, memory = manager.get_or_create(session_id, message)
+                    if (is_first_turn and previous_meta is not None
+                            and previous_meta.get("title_source") != "manual"):
+                        manager.maybe_update_title(
+                            sid, derive_session_title(message), source="local")
+                    current_meta = _session_metadata(manager, sid) or {}
+                    local_title = str(
+                        current_meta.get("title") or derive_session_title(message))
+                    should_refine_title = (
+                        is_first_turn
+                        and current_meta.get("title_source") != "manual"
+                    )
+                    if is_first_turn:
+                        await queue.put({
+                            "type": "session_title",
+                            "session_id": sid,
+                            "title": local_title,
+                        })
+
+                    async def finish_title() -> None:
+                        if not should_refine_title:
+                            return
+                        agent_core = core
+                        assert agent_core is not None
+                        await _finish_title_refinement(
+                            manager, sid, message, local_title,
+                            agent_core.model, queue,
+                        )
+
                     memory.add_message("user", message)
                     planner, executor, chat_responder = _build_agent(memory)
                     plan = await asyncio.to_thread(planner.plan, message)
@@ -252,6 +422,7 @@ def create_app(core=None, sessions=None, push=None):
                         reply = await chat_responder.reply(message, memory)
                         memory.add_message("assistant", reply)
                         await queue.put({"type": "text", "content": reply})
+                        await finish_title()
                         await queue.put({"type": "done"})
                         return
                     if plan.mode == "agent":
@@ -270,8 +441,19 @@ def create_app(core=None, sessions=None, push=None):
                         try:
                             outcome = await react.run(message,
                                                       on_event=queue.put_nowait)
+                            tool_results = [{
+                                "tool": tc["tool"],
+                                "symbol": tc["args"].get("symbol"),
+                                "status": "done"
+                                if tc["status"] == "success" else "error",
+                                "content": tc.get("summary", ""),
+                            } for tc in outcome.tool_calls]
                             await queue.put({"type": "text",
                                              "content": outcome.final_reply})
+                            artifact_event = _persist_artifact_if_present(
+                                manager, sid, tool_results)
+                            if artifact_event is not None:
+                                await queue.put({"type": "artifact", **artifact_event})
                         except Exception as e:  # noqa: BLE001 — agent 失败降级 plan 单步
                             logger.warning("agent 模式失败，降级 plan 单步: %s", e)
                             # 截断 react 中途写入的孤立 tool 消息，避免污染下一轮上下文
@@ -282,6 +464,11 @@ def create_app(core=None, sessions=None, push=None):
                             await queue.put({"type": "result",
                                              "summary": summary,
                                              "tool_results": tool_results})
+                            artifact_event = _persist_artifact_if_present(
+                                manager, sid, tool_results)
+                            if artifact_event is not None:
+                                await queue.put({"type": "artifact", **artifact_event})
+                        await finish_title()
                         await queue.put({"type": "done"})
                         return
                     await queue.put({"type": "plan", "goal": plan.goal,
@@ -291,9 +478,15 @@ def create_app(core=None, sessions=None, push=None):
                     plan = await executor.execute(plan, on_progress=on_progress)
                     done = sum(1 for s in plan.steps if s.status == TaskStatus.DONE)
                     total = len(plan.steps)
+                    tool_results = _structured_tool_results(plan, memory)
                     await queue.put({"type": "result",
                                      "summary": f"目标: {plan.goal}\n完成: {done}/{total} 步骤",
-                                     "tool_results": _structured_tool_results(plan, memory)})
+                                     "tool_results": tool_results})
+                    artifact_event = _persist_artifact_if_present(
+                        manager, sid, tool_results)
+                    if artifact_event is not None:
+                        await queue.put({"type": "artifact", **artifact_event})
+                    await finish_title()
                 except Exception as e:  # noqa: BLE001 — SSE 流内兜底，错误以事件返回
                     logger.error("Agent 流式对话失败: %s", e)
                     await queue.put({"type": "error", "message": str(e)})
@@ -311,6 +504,10 @@ def create_app(core=None, sessions=None, push=None):
                 # 客户端断连时取消后台任务，避免 run_agent 泄漏继续执行
                 if not task.done():
                     task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        logger.debug("客户端断连，已取消并回收流式对话任务")
 
         return StreamingResponse(event_stream(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "Connection": "keep-alive"})
@@ -475,10 +672,21 @@ def create_app(core=None, sessions=None, push=None):
     async def get_session_messages(session_id: str):
         if sessions is None:
             raise HTTPException(status_code=503, detail="会话管理未初始化")
-        messages = sessions.get_messages(session_id)
-        if messages is None:
+        detail = sessions.get_session_detail(session_id)
+        if detail is None:
             raise HTTPException(status_code=404, detail=f"会话不存在: {session_id}")
-        return JSONResponse({"messages": messages})
+        return JSONResponse(detail)
+
+    @app.get("/api/v1/sessions/{session_id}/artifacts/{artifact_id}")
+    async def get_session_artifact(session_id: str, artifact_id: str):
+        if sessions is None:
+            raise HTTPException(status_code=503, detail="会话管理未初始化")
+        if sessions.get_session_detail(session_id) is None:
+            raise HTTPException(status_code=404, detail=f"会话不存在: {session_id}")
+        artifact = sessions.get_artifact(artifact_id)
+        if artifact is None or artifact.get("session_id") != session_id:
+            raise HTTPException(status_code=404, detail=f"成果不存在: {artifact_id}")
+        return JSONResponse({"artifact": artifact})
 
     @app.post("/api/v1/sessions")
     async def create_session():
@@ -486,6 +694,25 @@ def create_app(core=None, sessions=None, push=None):
             raise HTTPException(status_code=503, detail="会话管理未初始化")
         sid, _ = sessions.get_or_create(None)
         return JSONResponse({"session_id": sid})
+
+    @app.patch("/api/v1/sessions/{session_id}")
+    async def rename_session(session_id: str, request: Request):
+        if sessions is None:
+            raise HTTPException(status_code=503, detail="会话管理未初始化")
+        body = await request.json()
+        raw_title = body.get("title")
+        if not isinstance(raw_title, str):
+            raise HTTPException(status_code=422, detail="title 必须是字符串")
+        title = raw_title.strip()
+        if not 1 <= len(title) <= 20:
+            raise HTTPException(status_code=422, detail="title 长度必须为 1–20 字")
+        if not sessions.rename(session_id, title, manual=True):
+            raise HTTPException(status_code=404, detail=f"会话不存在: {session_id}")
+        return JSONResponse({
+            "session_id": session_id,
+            "title": title,
+            "title_source": "manual",
+        })
 
     @app.delete("/api/v1/sessions/{session_id}")
     async def delete_session(session_id: str):

@@ -1,11 +1,12 @@
 """FastAPI HTTP API 端点测试（真实接线：Planner/Executor/SessionManager）"""
+import asyncio
 import json
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from agent.tools import ToolProtocol, ToolRegistry, ToolResult
-from api.app import _structured_tool_results, create_app
+from api.app import _extract_stock_report, _structured_tool_results, create_app
 from api.bootstrap import AgentCore
 from api.sessions import SessionManager, SessionStore
 from data.industry_mapping_builder import IndustryMappingError
@@ -53,7 +54,17 @@ class StockTool:
     source = "pipeline"
 
     async def execute(self, **kwargs):
-        return ToolResult(status="success", data={"symbol": kwargs.get("symbol", "")})
+        symbol = kwargs.get("symbol", "")
+        return ToolResult(status="success", data={
+            "symbol": symbol,
+            "name": "平安银行",
+            "overview": {"industry": "银行"},
+            "score": {"base": 7.2, "final": 7.0, "risk_deduction": 0.2},
+            "score_rows": [{"dimension": "财务", "score": 7.2}],
+            "dimensions": {"financial": {"summary": "财务稳健"}},
+            "comments": ["基本面稳健", "关注净息差变化"],
+            "generated_at": "2026-08-24T10:00:00+08:00",
+        })
 
 
 def make_symbol_core():
@@ -113,14 +124,15 @@ def make_core():
 
 
 class TestAnalyzeSignal:
-    def test_analyze_response_contains_signal(self, mocker):
+    def test_analyze_response_contains_signal(self, mocker, tmp_path):
         """/api/v1/analyze 响应含结构化 signal 字段（FakePipeline 得分为 8 → 进攻）"""
         from fastapi.testclient import TestClient
 
         from api.app import create_app
 
         mocker.patch("utils.symbols.resolve_name", return_value="平安银行")
-        app = create_app(core=make_core(), sessions=None)
+        sessions = SessionManager(SessionStore(tmp_path / "signal_sessions.db"))
+        app = create_app(core=make_core(), sessions=sessions, push=False)
         client = TestClient(app)
         resp = client.post("/api/v1/analyze", json={"symbol": "000001"})
         assert resp.status_code == 200
@@ -153,6 +165,40 @@ def make_chat_core():
                      index_pipeline=cast(Any, FakeIndexPipeline()),
                      llm=cast(Any, ChatModeLLM()),
                      model=FakeChatModel(content="你好呀！有什么可以帮你？"))
+
+
+class TitleAwareModel:
+    """区分正文与标题请求的模型桩，不触发任何真实网络调用。"""
+
+    def __init__(self, *, title: str = "模型润色标题", title_error: bool = False,
+                 title_delay: float = 0.0):
+        self.title = title
+        self.title_error = title_error
+        self.title_delay = title_delay
+
+    async def ainvoke(self, messages):
+        from types import SimpleNamespace
+
+        system = str(messages[0].get("content", "")) if messages else ""
+        if "投研会话标题" in system:
+            if self.title_delay:
+                await asyncio.sleep(self.title_delay)
+            if self.title_error:
+                raise RuntimeError("标题模型不可用")
+            return SimpleNamespace(content=self.title)
+        return SimpleNamespace(content="正文回复")
+
+
+def make_titled_chat_core(model: TitleAwareModel):
+    core = make_chat_core()
+    core.model = model
+    return core
+
+
+def parse_sse_events(text: str) -> list[dict]:
+    """将测试响应中的 SSE data 行解析为事件。"""
+    return [json.loads(line.removeprefix("data: "))
+            for line in text.splitlines() if line.startswith("data: ")]
 
 
 class AgentModeLLM:
@@ -211,7 +257,14 @@ def make_broken_core():
 def app(tmp_path):
     store = SessionStore(tmp_path / "sessions.db")
     sessions = SessionManager(store, facts_path=tmp_path / "facts.json")
-    return create_app(core=make_core(), sessions=sessions)
+    return create_app(core=make_core(), sessions=sessions, push=False)
+
+
+@pytest.fixture(autouse=True)
+def local_checkpoint_dir(tmp_path, monkeypatch):
+    """测试图检查点固定写入临时目录，避免访问用户目录。"""
+    monkeypatch.setattr("api.app.DEFAULT_CHECKPOINT_DIR",
+                        tmp_path / "langgraph_checkpoints.sqlite")
 
 
 @pytest.fixture
@@ -259,7 +312,7 @@ class TestChatEndpoint:
     async def test_chat_tool_results_include_symbol(self, tmp_path):
         store = SessionStore(tmp_path / "sessions_sym.db")
         sessions = SessionManager(store, facts_path=tmp_path / "facts_sym.json")
-        app_sym = create_app(core=make_symbol_core(), sessions=sessions)
+        app_sym = create_app(core=make_symbol_core(), sessions=sessions, push=False)
         transport = ASGITransport(app=app_sym)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             resp = await c.post("/api/v1/chat",
@@ -289,7 +342,7 @@ class TestChatEndpoint:
     async def test_chat_returns_500_on_agent_failure(self, tmp_path):
         store = SessionStore(tmp_path / "sessions_err.db")
         sessions = SessionManager(store, facts_path=tmp_path / "facts_err.json")
-        app_err = create_app(core=make_broken_core(), sessions=sessions)
+        app_err = create_app(core=make_broken_core(), sessions=sessions, push=False)
         transport = ASGITransport(app=app_err)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             resp = await c.post("/api/v1/chat",
@@ -300,7 +353,7 @@ class TestChatEndpoint:
     @pytest.mark.asyncio
     async def test_chat_chat_mode_returns_direct_reply(self, tmp_path):
         sessions = SessionManager(SessionStore(tmp_path / "s.db"))
-        app_chat = create_app(core=make_chat_core(), sessions=sessions)
+        app_chat = create_app(core=make_chat_core(), sessions=sessions, push=False)
         async with AsyncClient(transport=ASGITransport(app=app_chat),
                                base_url="http://test") as c:
             resp = await c.post("/api/v1/chat", json={"message": "你好"})
@@ -320,7 +373,7 @@ class TestChatEndpoint:
     @pytest.mark.asyncio
     async def test_chat_agent_mode_returns_final_reply(self, tmp_path):
         sessions = SessionManager(SessionStore(tmp_path / "s_agent.db"))
-        app_agent = create_app(core=make_agent_core(), sessions=sessions)
+        app_agent = create_app(core=make_agent_core(), sessions=sessions, push=False)
         async with AsyncClient(transport=ASGITransport(app=app_agent),
                                base_url="http://test") as c:
             resp = await c.post("/api/v1/chat",
@@ -404,6 +457,41 @@ class TestStructuredToolResults:
         assert results[1]["content"] == "[echo] success: 唯一消息"
 
 
+class TestStockReportExtraction:
+    def test_extracts_successful_executor_repr(self):
+        """Executor 的 Python repr 应安全解析并规范化为股票报告。"""
+        tool_results = [{
+            "tool": "analyze_stock",
+            "status": "done",
+            "content": (
+                "[analyze_stock] success: {'code': '000001', 'name': '平安银行', "
+                "'overview': {'industry': '银行'}, 'comments': ['第一段', '第二段'], "
+                "'generated_at': '2026-08-24T10:00:00+08:00'}"
+            ),
+        }]
+
+        extracted = _extract_stock_report(tool_results)
+
+        assert extracted == ("000001", {
+            "symbol": "000001",
+            "name": "平安银行",
+            "overview": {"industry": "银行"},
+            "score": {},
+            "score_rows": [],
+            "dimensions": {},
+            "commentary": "第一段\n\n第二段",
+            "generated_at": "2026-08-24T10:00:00+08:00",
+        })
+
+    def test_ignores_unstructured_react_summary(self):
+        """ReAct 自然语言摘要不能被误当作报告成果。"""
+        assert _extract_stock_report([{
+            "tool": "analyze_stock",
+            "status": "done",
+            "content": "平安银行综合评分较高，建议关注。",
+        }]) is None
+
+
 class TestStreamEndpoint:
     @pytest.mark.asyncio
     async def test_stream_returns_sse(self, client):
@@ -424,6 +512,20 @@ class TestStreamEndpoint:
         assert '"type": "done"' in body
 
     @pytest.mark.asyncio
+    async def test_stream_emits_local_session_title_after_start(self, client):
+        async with client.stream("POST", "/api/v1/chat/stream",
+                                 json={"message": "echo 测试"}) as resp:
+            text = (await resp.aread()).decode()
+
+        events = parse_sse_events(text)
+        local_title = next(event for event in events
+                           if event["type"] == "session_title")
+        assert local_title["session_id"]
+        assert local_title["title"] == "echo 测试"
+        assert [event["type"] for event in events].index("session_title") \
+            < [event["type"] for event in events].index("plan")
+
+    @pytest.mark.asyncio
     async def test_stream_result_includes_tool_results(self, client):
         async with client.stream("POST", "/api/v1/chat/stream",
                                  json={"message": "echo 测试"}) as resp:
@@ -436,10 +538,136 @@ class TestStreamEndpoint:
         assert '"tool": "echo"' in body
 
     @pytest.mark.asyncio
+    async def test_stream_persists_stock_report_before_done(self, tmp_path):
+        sessions = SessionManager(SessionStore(tmp_path / "stock_report.db"))
+        app_stock = create_app(core=make_symbol_core(), sessions=sessions, push=False)
+        async with (
+            AsyncClient(transport=ASGITransport(app=app_stock),
+                        base_url="http://test") as c,
+            c.stream("POST", "/api/v1/chat/stream", json={
+                "message": "分析 000001 的估值",
+            }) as resp,
+        ):
+            events = parse_sse_events((await resp.aread()).decode())
+            plan_event = next(event for event in events
+                              if event["type"] == "plan")
+            history = await c.get(
+                f"/api/v1/sessions/{plan_event['session_id']}/messages")
+
+        artifact_event = next(event for event in events
+                              if event["type"] == "artifact")
+        assert artifact_event["persisted"] is True
+        assert artifact_event["artifact"]["payload"]["symbol"] == "000001"
+        assert artifact_event["artifact"]["payload"]["commentary"] == \
+            "基本面稳健\n\n关注净息差变化"
+        assert [event["type"] for event in events].index("artifact") \
+            < [event["type"] for event in events].index("done")
+        assert history.status_code == 200
+        assert history.json()["artifacts"] == [artifact_event["artifact"]]
+
+    @pytest.mark.asyncio
+    async def test_stream_emits_unpersisted_artifact_when_store_fails(
+            self, tmp_path, monkeypatch):
+        sessions = SessionManager(SessionStore(tmp_path / "broken_artifact.db"))
+
+        def fail_save(*args, **kwargs):
+            raise OSError("磁盘不可写")
+
+        monkeypatch.setattr(sessions, "save_artifact", fail_save)
+        app_stock = create_app(core=make_symbol_core(), sessions=sessions, push=False)
+        async with (
+            AsyncClient(transport=ASGITransport(app=app_stock),
+                        base_url="http://test") as c,
+            c.stream("POST", "/api/v1/chat/stream", json={
+                "message": "分析 000001 的估值",
+            }) as resp,
+        ):
+            events = parse_sse_events((await resp.aread()).decode())
+
+        artifact_event = next(event for event in events
+                              if event["type"] == "artifact")
+        assert artifact_event["persisted"] is False
+        assert artifact_event["artifact"]["payload"]["symbol"] == "000001"
+        assert events[-1]["type"] == "done"
+
+    @pytest.mark.asyncio
+    async def test_stream_emits_refined_title_after_text(self, tmp_path):
+        sessions = SessionManager(SessionStore(tmp_path / "refined_title.db"))
+        app_chat = create_app(
+            core=make_titled_chat_core(TitleAwareModel(title="宁德时代成长展望")),
+            sessions=sessions,
+            push=False,
+        )
+        async with (
+            AsyncClient(transport=ASGITransport(app=app_chat),
+                        base_url="http://test") as c,
+            c.stream("POST", "/api/v1/chat/stream",
+                     json={"message": "你好"}) as resp,
+        ):
+            events = parse_sse_events((await resp.aread()).decode())
+
+        event_types = [event["type"] for event in events]
+        title_events = [event for event in events
+                        if event["type"] == "session_title"]
+        assert [event["title"] for event in title_events] == [
+            "你好", "宁德时代成长展望"]
+        assert event_types.index("text") < len(events) - 2
+        assert events[-2] == title_events[-1]
+        assert events[-1]["type"] == "done"
+
+    @pytest.mark.asyncio
+    async def test_stream_does_not_overwrite_manual_title(self, tmp_path):
+        sessions = SessionManager(SessionStore(tmp_path / "manual_title.db"))
+        app_chat = create_app(
+            core=make_titled_chat_core(TitleAwareModel(title="模型试图覆盖")),
+            sessions=sessions,
+            push=False,
+        )
+        async with AsyncClient(transport=ASGITransport(app=app_chat),
+                               base_url="http://test") as c:
+            created = await c.post("/api/v1/sessions")
+            sid = created.json()["session_id"]
+            renamed = await c.patch(
+                f"/api/v1/sessions/{sid}", json={"title": "用户手动标题"})
+            assert renamed.status_code == 200
+            async with c.stream("POST", "/api/v1/chat/stream", json={
+                "message": "你好", "session_id": sid,
+            }) as resp:
+                events = parse_sse_events((await resp.aread()).decode())
+            listed = await c.get("/api/v1/sessions")
+
+        session = next(item for item in listed.json()["sessions"]
+                       if item["session_id"] == sid)
+        assert session["title"] == "用户手动标题"
+        assert session["title_source"] == "manual"
+        assert [event["title"] for event in events
+                if event["type"] == "session_title"] == ["用户手动标题"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("model", [
+        TitleAwareModel(title_error=True),
+        TitleAwareModel(title_delay=1.0),
+    ], ids=["exception", "timeout"])
+    async def test_stream_title_failure_still_finishes(self, tmp_path, model):
+        sessions = SessionManager(SessionStore(tmp_path / f"title_{id(model)}.db"))
+        app_chat = create_app(
+            core=make_titled_chat_core(model), sessions=sessions, push=False)
+        async with (
+            AsyncClient(transport=ASGITransport(app=app_chat),
+                        base_url="http://test") as c,
+            c.stream("POST", "/api/v1/chat/stream",
+                     json={"message": "你好"}) as resp,
+        ):
+            events = parse_sse_events((await resp.aread()).decode())
+
+        assert any(event["type"] == "text" for event in events)
+        assert events[-1]["type"] == "done"
+
+    @pytest.mark.asyncio
     async def test_stream_emits_error_event_on_failure(self, tmp_path):
         store = SessionStore(tmp_path / "sessions_err2.db")
         sessions = SessionManager(store, facts_path=tmp_path / "facts_err2.json")
-        app_err = create_app(core=make_broken_core(), sessions=sessions)
+        app_err = create_app(core=make_broken_core(), sessions=sessions, push=False)
         transport = ASGITransport(app=app_err)
         async with (
             AsyncClient(transport=transport, base_url="http://test") as c,
@@ -455,7 +683,7 @@ class TestStreamEndpoint:
     @pytest.mark.asyncio
     async def test_stream_chat_mode_emits_text(self, tmp_path):
         sessions = SessionManager(SessionStore(tmp_path / "s2.db"))
-        app_chat = create_app(core=make_chat_core(), sessions=sessions)
+        app_chat = create_app(core=make_chat_core(), sessions=sessions, push=False)
         transport = ASGITransport(app=app_chat)
         async with (
             AsyncClient(transport=transport, base_url="http://test") as c,
@@ -473,7 +701,7 @@ class TestStreamEndpoint:
     @pytest.mark.asyncio
     async def test_stream_agent_mode_emits_tool_events(self, tmp_path):
         sessions = SessionManager(SessionStore(tmp_path / "s_agent2.db"))
-        app_agent = create_app(core=make_agent_core(), sessions=sessions)
+        app_agent = create_app(core=make_agent_core(), sessions=sessions, push=False)
         transport = ASGITransport(app=app_agent)
         async with (
             AsyncClient(transport=transport, base_url="http://test") as c,
@@ -498,7 +726,7 @@ class TestStreamEndpoint:
         sessions = SessionManager(SessionStore(tmp_path / "s_agent3.db"))
         core = make_agent_core()
         core.model = None
-        app_fallback = create_app(core=core, sessions=sessions)
+        app_fallback = create_app(core=core, sessions=sessions, push=False)
         transport = ASGITransport(app=app_fallback)
         async with (
             AsyncClient(transport=transport, base_url="http://test") as c,
@@ -557,7 +785,7 @@ class TestAnalyzeEndpoint:
                          llm=cast(Any, FakeLLM()))
         store = SessionStore(tmp_path / "sessions_err3.db")
         sessions = SessionManager(store, facts_path=tmp_path / "facts_err3.json")
-        app_err = create_app(core=core, sessions=sessions)
+        app_err = create_app(core=core, sessions=sessions, push=False)
         transport = ASGITransport(app=app_err)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             resp = await c.post("/api/v1/analyze", json={"symbol": "000001"})
@@ -678,6 +906,38 @@ class TestSessionsEndpoints:
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
+    async def test_patch_session_title_trims_and_marks_manual(self, client):
+        created = await client.post("/api/v1/sessions")
+        sid = created.json()["session_id"]
+
+        resp = await client.patch(
+            f"/api/v1/sessions/{sid}", json={"title": "  我的观察列表  "})
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "session_id": sid,
+            "title": "我的观察列表",
+            "title_source": "manual",
+        }
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("title", ["   ", "超" * 21], ids=["empty", "overlong"])
+    async def test_patch_session_title_rejects_invalid_length(self, client, title):
+        created = await client.post("/api/v1/sessions")
+        sid = created.json()["session_id"]
+
+        resp = await client.patch(
+            f"/api/v1/sessions/{sid}", json={"title": title})
+
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_patch_unknown_session_returns_404(self, client):
+        resp = await client.patch(
+            "/api/v1/sessions/nope", json={"title": "有效标题"})
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
     async def test_get_messages_returns_history(self, client):
         r = await client.post("/api/v1/chat", json={"message": "echo 测试"})
         sid = r.json()["session_id"]
@@ -688,6 +948,48 @@ class TestSessionsEndpoints:
         assert "user" in roles
         assert "tool" in roles
         assert all("content" in m and "role" in m for m in msgs)
+        assert resp.json()["artifacts"] == []
+
+    @pytest.mark.asyncio
+    async def test_get_messages_returns_artifacts(self, tmp_path):
+        sessions = SessionManager(SessionStore(tmp_path / "history_artifacts.db"))
+        sid, _ = sessions.get_or_create(None, "分析 000001")
+        artifact = sessions.save_artifact(
+            sid, kind="stock_report", symbol="000001",
+            payload={"symbol": "000001"},
+        )
+        app_history = create_app(core=make_core(), sessions=sessions, push=False)
+
+        async with AsyncClient(transport=ASGITransport(app=app_history),
+                               base_url="http://test") as c:
+            resp = await c.get(f"/api/v1/sessions/{sid}/messages")
+
+        assert resp.status_code == 200
+        assert resp.json() == {"messages": [], "artifacts": [artifact]}
+
+    @pytest.mark.asyncio
+    async def test_get_artifact_validates_session_ownership(self, tmp_path):
+        sessions = SessionManager(SessionStore(tmp_path / "artifact_routes.db"))
+        sid, _ = sessions.get_or_create(None, "分析 000001")
+        other_sid, _ = sessions.get_or_create(None, "分析 600519")
+        artifact = sessions.save_artifact(
+            sid, kind="stock_report", symbol="000001",
+            payload={"symbol": "000001"},
+        )
+        app_routes = create_app(core=make_core(), sessions=sessions, push=False)
+        async with AsyncClient(transport=ASGITransport(app=app_routes),
+                               base_url="http://test") as c:
+            success = await c.get(
+                f"/api/v1/sessions/{sid}/artifacts/{artifact['artifact_id']}")
+            crossed = await c.get(
+                f"/api/v1/sessions/{other_sid}/artifacts/{artifact['artifact_id']}")
+            missing_session = await c.get(
+                f"/api/v1/sessions/nope/artifacts/{artifact['artifact_id']}")
+
+        assert success.status_code == 200
+        assert success.json() == {"artifact": artifact}
+        assert crossed.status_code == 404
+        assert missing_session.status_code == 404
 
     @pytest.mark.asyncio
     async def test_get_messages_unknown_session_returns_404(self, client):
@@ -733,7 +1035,7 @@ class TestNoCoreMode:
 
 
 class TestIndustryMappingEndpoint:
-    def test_update_symbol(self, mocker):
+    def test_update_symbol(self, mocker, tmp_path):
         from fastapi.testclient import TestClient
 
         from api.app import create_app
@@ -742,39 +1044,42 @@ class TestIndustryMappingEndpoint:
                      return_value={"symbol": "600097", "sw_level1": "农林牧渔",
                                    "sw_level2": "渔业", "style_category": "必选消费",
                                    "action": "updated"})
-        app = create_app(core=make_core(), sessions=None)
+        sessions = SessionManager(SessionStore(tmp_path / "mapping_sessions.db"))
+        app = create_app(core=make_core(), sessions=sessions, push=False)
         client = TestClient(app)
         resp = client.post("/api/v1/industry-mapping/update",
                            json={"symbol": "600097"})
         assert resp.status_code == 200
         assert resp.json()["sw_level1"] == "农林牧渔"
 
-    def test_update_missing_symbol(self, mocker):
+    def test_update_missing_symbol(self, mocker, tmp_path):
         from fastapi.testclient import TestClient
 
         from api.app import create_app
 
         mocker.patch("data.industry_mapping_builder.update_symbol",
                      side_effect=IndustryMappingError("个股页无行业区块，可能未分类"))
-        app = create_app(core=make_core(), sessions=None)
+        sessions = SessionManager(SessionStore(tmp_path / "missing_sessions.db"))
+        app = create_app(core=make_core(), sessions=sessions, push=False)
         client = TestClient(app)
         resp = client.post("/api/v1/industry-mapping/update",
                            json={"symbol": "600097"})
         assert resp.status_code == 404
         assert "未分类" in resp.json()["detail"]
 
-    def test_update_invalid_symbol(self, mocker):
+    def test_update_invalid_symbol(self, mocker, tmp_path):
         from fastapi.testclient import TestClient
 
         from api.app import create_app
 
-        app = create_app(core=make_core(), sessions=None)
+        sessions = SessionManager(SessionStore(tmp_path / "invalid_sessions.db"))
+        app = create_app(core=make_core(), sessions=sessions, push=False)
         client = TestClient(app)
         resp = client.post("/api/v1/industry-mapping/update",
                            json={"symbol": "abc"})
         assert resp.status_code == 422
 
-    def test_get_symbol(self, mocker):
+    def test_get_symbol(self, mocker, tmp_path):
         from fastapi.testclient import TestClient
 
         from api.app import create_app
@@ -783,7 +1088,8 @@ class TestIndustryMappingEndpoint:
                      return_value=type("C", (), {"sw_level1": "农林牧渔",
                                                  "sw_level2": "渔业",
                                                  "style_category": "必选消费"})())
-        app = create_app(core=make_core(), sessions=None)
+        sessions = SessionManager(SessionStore(tmp_path / "lookup_sessions.db"))
+        app = create_app(core=make_core(), sessions=sessions, push=False)
         client = TestClient(app)
         resp = client.get("/api/v1/industry-mapping/600097")
         assert resp.status_code == 200
