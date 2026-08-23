@@ -1,4 +1,5 @@
 """会话持久化 — SQLite 存储 sessions 与 messages"""
+import json
 import sqlite3
 import threading
 import time
@@ -23,6 +24,7 @@ class SessionStore:
     def _get_conn(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self._db_path))
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
         return conn
 
     def _init_db(self) -> None:
@@ -43,6 +45,19 @@ class SessionStore:
                     created_at REAL NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
+                CREATE TABLE IF NOT EXISTS artifacts (
+                    artifact_id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    message_id INTEGER,
+                    kind TEXT NOT NULL,
+                    symbol TEXT,
+                    payload_json TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_artifacts_session
+                    ON artifacts(session_id, created_at);
             """)
             columns = {row[1] for row in conn.execute("PRAGMA table_info(sessions)")}
             if "title_source" not in columns:
@@ -117,12 +132,92 @@ class SessionStore:
 
     def clear_messages(self, session_id: str) -> None:
         with self._lock, self._get_conn() as conn:
+            conn.execute("DELETE FROM artifacts WHERE session_id=?", (session_id,))
             conn.execute("DELETE FROM messages WHERE session_id=?", (session_id,))
 
     def delete_session(self, session_id: str) -> None:
         with self._lock, self._get_conn() as conn:
+            conn.execute("DELETE FROM artifacts WHERE session_id=?", (session_id,))
             conn.execute("DELETE FROM messages WHERE session_id=?", (session_id,))
             conn.execute("DELETE FROM sessions WHERE session_id=?", (session_id,))
+
+    @staticmethod
+    def _artifact_from_row(
+        row: tuple[str, str, int | None, str, str | None, str, float, float]
+    ) -> dict:
+        return {
+            "artifact_id": row[0],
+            "session_id": row[1],
+            "message_id": row[2],
+            "kind": row[3],
+            "symbol": row[4],
+            "payload": json.loads(row[5]),
+            "created_at": row[6],
+            "updated_at": row[7],
+        }
+
+    def save_artifact(
+        self,
+        session_id: str,
+        *,
+        kind: str,
+        symbol: str | None,
+        payload: dict,
+        message_id: int | None = None,
+    ) -> dict:
+        """保存结构化报告成果，并返回其完整记录。"""
+        artifact_id = uuid.uuid4().hex
+        now = time.time()
+        artifact = {
+            "artifact_id": artifact_id,
+            "session_id": session_id,
+            "message_id": message_id,
+            "kind": kind,
+            "symbol": symbol,
+            "payload": payload,
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self._lock, self._get_conn() as conn:
+            conn.execute(
+                """INSERT INTO artifacts
+                   (artifact_id, session_id, message_id, kind, symbol, payload_json,
+                    created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    artifact_id,
+                    session_id,
+                    message_id,
+                    kind,
+                    symbol,
+                    json.dumps(payload, ensure_ascii=False, default=str),
+                    now,
+                    now,
+                ),
+            )
+        return artifact
+
+    def list_artifacts(self, session_id: str) -> list[dict]:
+        """按创建顺序获取指定会话的所有成果。"""
+        with self._lock, self._get_conn() as conn:
+            rows = conn.execute(
+                """SELECT artifact_id, session_id, message_id, kind, symbol, payload_json,
+                          created_at, updated_at
+                   FROM artifacts WHERE session_id=? ORDER BY created_at, rowid""",
+                (session_id,),
+            ).fetchall()
+        return [self._artifact_from_row(row) for row in rows]
+
+    def get_artifact(self, artifact_id: str) -> dict | None:
+        """按 ID 读取单个成果；不存在时返回 None。"""
+        with self._lock, self._get_conn() as conn:
+            row = conn.execute(
+                """SELECT artifact_id, session_id, message_id, kind, symbol, payload_json,
+                          created_at, updated_at
+                   FROM artifacts WHERE artifact_id=?""",
+                (artifact_id,),
+            ).fetchone()
+        return self._artifact_from_row(row) if row is not None else None
 
 
 class SessionManager:
@@ -171,6 +266,40 @@ class SessionManager:
         if not self._store.session_exists(session_id):
             return None
         return self._store.get_messages(session_id)
+
+    def save_artifact(
+        self,
+        session_id: str,
+        *,
+        kind: str,
+        symbol: str | None,
+        payload: dict,
+        message_id: int | None = None,
+    ) -> dict:
+        """线程安全地保存结构化报告成果。"""
+        with self._lock:
+            return self._store.save_artifact(
+                session_id,
+                kind=kind,
+                symbol=symbol,
+                payload=payload,
+                message_id=message_id,
+            )
+
+    def get_artifact(self, artifact_id: str) -> dict | None:
+        """线程安全地读取单个结构化报告成果。"""
+        with self._lock:
+            return self._store.get_artifact(artifact_id)
+
+    def get_session_detail(self, session_id: str) -> dict | None:
+        """返回会话消息与成果；会话不存在时返回 None。"""
+        with self._lock:
+            if not self._store.session_exists(session_id):
+                return None
+            return {
+                "messages": self._store.get_messages(session_id),
+                "artifacts": self._store.list_artifacts(session_id),
+            }
 
     def clear(self, session_id: str) -> bool:
         with self._lock:

@@ -2,6 +2,7 @@
 import sqlite3
 import threading
 import time
+from datetime import date
 
 import pytest
 
@@ -76,6 +77,47 @@ class TestSessionStore:
         assert not store.session_exists("s1")
         assert store.list_sessions() == []
 
+    def test_artifact_round_trip_and_clear_or_delete_removes_it(self, store):
+        """成果写入后可读取，并会随会话清空或删除一并移除。"""
+        store.create_session("s1", "t")
+        artifact = store.save_artifact(
+            "s1",
+            kind="stock_report",
+            symbol="000001",
+            payload={"symbol": "000001", "score": {"final": 7.2}},
+        )
+
+        assert artifact["session_id"] == "s1"
+        assert artifact["message_id"] is None
+        assert artifact["kind"] == "stock_report"
+        assert artifact["symbol"] == "000001"
+        assert artifact["payload"] == {"symbol": "000001", "score": {"final": 7.2}}
+        assert isinstance(artifact["created_at"], float)
+        assert artifact["updated_at"] == artifact["created_at"]
+        assert store.list_artifacts("s1") == [artifact]
+        assert store.get_artifact(artifact["artifact_id"]) == artifact
+
+        store.clear_messages("s1")
+        assert store.list_artifacts("s1") == []
+
+        deleted_artifact = store.save_artifact(
+            "s1", kind="stock_report", symbol="000001", payload={}
+        )
+        store.delete_session("s1")
+        assert store.get_artifact(deleted_artifact["artifact_id"]) is None
+
+    def test_artifact_id_is_unique_and_payload_uses_default_string_conversion(self, store):
+        """成果 ID 不重复，日期等非 JSON 原生值按字符串存储。"""
+        store.create_session("s1", "t")
+        first = store.save_artifact(
+            "s1", kind="stock_report", symbol=None, payload={"date": date(2026, 8, 23)}
+        )
+        second = store.save_artifact("s1", kind="stock_report", symbol=None, payload={})
+
+        assert first["artifact_id"] != second["artifact_id"]
+        assert store.get_artifact(first["artifact_id"])["payload"] == {"date": "2026-08-23"}
+        assert store.get_artifact("missing") is None
+
 
 class TestSessionManager:
     def test_get_or_create_new_session(self, store, facts_path):
@@ -147,6 +189,25 @@ class TestSessionManager:
         session = store.list_sessions()[0]
         assert session["title"] == "银行跟踪"
         assert session["title_source"] == "manual"
+
+    def test_get_session_detail_includes_messages_and_artifacts(self, store, facts_path):
+        """详情读取统一返回会话持久化消息和结构化成果。"""
+        mgr = SessionManager(store, facts_path=facts_path)
+        sid, memory = mgr.get_or_create(None, "分析平安银行")
+        memory.add_message("user", "继续分析")
+        artifact = mgr.save_artifact(
+            sid,
+            kind="stock_report",
+            symbol="000001",
+            payload={"symbol": "000001", "score": {"final": 7.2}},
+        )
+
+        assert mgr.get_session_detail("missing") is None
+        assert mgr.get_session_detail(sid) == {
+            "messages": [{"role": "user", "content": "继续分析"}],
+            "artifacts": [artifact],
+        }
+        assert mgr.get_artifact(artifact["artifact_id"]) == artifact
 
     def test_concurrent_get_or_create_same_session(self, store, facts_path):
         mgr = SessionManager(store, facts_path=facts_path)
