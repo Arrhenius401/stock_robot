@@ -230,7 +230,7 @@ class TestSentimentEnricher:
 
 
 class TestValuationAnchoring:
-    def test_anchor_shares_from_measured_pe(self):
+    def test_anchor_shares_from_measured_pe(self, mocker):
         """实测 PE 存在时反推总股本锚点，历史序列用锚点重算"""
         prices = make_price_series(200, close=10.0)
         financials = make_financial_data(4)
@@ -238,6 +238,9 @@ class TestValuationAnchoring:
         for f in financials:
             f.net_profit = 10e8
             f.total_equity = 200e8
+        # 锚定路径只做离线估算偏差告警，不应触发 get_total_shares 网络链
+        get_total_shares = mocker.patch(
+            "data.enrichers.valuation_enricher.get_total_shares")
         ctx = AnalysisContext(symbol="000001", name="测试",
                               price_data=prices, financial_data=financials)
         ctx.valuation_data = ValuationData(
@@ -253,6 +256,8 @@ class TestValuationAnchoring:
         assert ctx.enriched_valuation.pe_percentile is not None
         # 实测锚定 → 标记为已校验
         assert ctx.enriched_valuation.validated is True
+        # 锚定路径不调用网络三级链
+        get_total_shares.assert_not_called()
 
     def test_no_measured_pe_uses_chain_shares(self, mocker):
         """无实测 PE 时用 get_total_shares 链估算，标记未经校验"""

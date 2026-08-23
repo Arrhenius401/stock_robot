@@ -15,6 +15,18 @@ from data.schemas import (
 logger = logging.getLogger(__name__)
 
 
+def _estimate_shares_offline(financials: list | None) -> float | None:
+    """离线估算总股本：最新一期 net_profit / basic_eps（纯内存，不触发网络）"""
+    sorted_fin = sorted(financials or [], key=lambda x: x.fiscal_quarter)
+    if not sorted_fin:
+        return None
+    latest = sorted_fin[-1]
+    if latest.net_profit is not None and latest.net_profit > 0 \
+            and latest.basic_eps is not None and latest.basic_eps > 0:
+        return latest.net_profit / latest.basic_eps
+    return None
+
+
 class ValuationEnricher(DataEnricher):
     def enrich(self, ctx: AnalysisContext) -> AnalysisContext:
         prices = ctx.price_data or []
@@ -70,8 +82,8 @@ class ValuationEnricher(DataEnricher):
             )
             return ctx
 
-        # 获取总股本（实测锚定优先）
-        total_shares = self._get_total_shares(ctx)
+        # 获取总股本（实测锚定优先，TTM 口径复用去累积逻辑）
+        total_shares = self._get_total_shares(ctx, ttm_profit)
 
         # 逐日推导估值
         sorted_prices = sorted(prices, key=lambda x: x.trade_date)
@@ -143,7 +155,11 @@ class ValuationEnricher(DataEnricher):
             pe_median=median(pe_values) if pe_values else None,
             pe_high=max(pe_values) if pe_values else None,
             pe_low=min(pe_values) if pe_values else None,
-            validated=ctx.valuation_data is not None and ctx.valuation_data.pe_ttm is not None,
+            validated=(
+                ctx.valuation_data is not None
+                and ctx.valuation_data.pe_ttm is not None
+                and ctx.valuation_data.pe_ttm > 0
+            ),
         )
 
         ctx.sufficiency.valuation = DimensionSufficiency(
@@ -151,7 +167,7 @@ class ValuationEnricher(DataEnricher):
         )
         return ctx
 
-    def _get_total_shares(self, ctx: AnalysisContext) -> float | None:
+    def _get_total_shares(self, ctx: AnalysisContext, ttm_profit: float) -> float | None:
         """总股本：实测 PE 反推锚点优先，其次三级链"""
         # 实测锚定：估值数据来自腾讯快照（独立口径），锚定计算只用内存数据
         measured_pe = ctx.valuation_data.pe_ttm if ctx.valuation_data else None
@@ -160,9 +176,10 @@ class ValuationEnricher(DataEnricher):
             if sorted_prices:
                 latest_close = sorted_prices[-1].close
                 if latest_close > 0:
-                    anchor = measured_pe * self._ttm_profit(ctx) / latest_close
+                    anchor = measured_pe * ttm_profit / latest_close
                     if anchor > 0:
-                        estimated = get_total_shares(ctx.symbol, ctx.financial_data)
+                        # 偏差告警仅用离线估算，锚定路径不触发网络请求
+                        estimated = _estimate_shares_offline(ctx.financial_data)
                         if estimated and abs(estimated - anchor) / anchor > 0.15:
                             logger.warning(
                                 f"{ctx.symbol} 总股本估算偏差 >15%: 估算 {estimated:.2e} vs 锚定 {anchor:.2e}"
@@ -170,8 +187,3 @@ class ValuationEnricher(DataEnricher):
                         return anchor
         # 无实测 PE（快照失败）：三级链估算
         return get_total_shares(ctx.symbol, ctx.financial_data)
-
-    def _ttm_profit(self, ctx: AnalysisContext) -> float:
-        """近 4 期净利润之和（TTM 口径）"""
-        sorted_fin = sorted(ctx.financial_data or [], key=lambda x: x.fiscal_quarter)
-        return sum(f.net_profit for f in sorted_fin[-4:] if f.net_profit is not None)
