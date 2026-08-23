@@ -168,13 +168,14 @@ class SessionStore:
         """保存结构化报告成果，并返回其完整记录。"""
         artifact_id = uuid.uuid4().hex
         now = time.time()
+        payload_json = json.dumps(payload, ensure_ascii=False, default=str)
         artifact = {
             "artifact_id": artifact_id,
             "session_id": session_id,
             "message_id": message_id,
             "kind": kind,
             "symbol": symbol,
-            "payload": payload,
+            "payload": json.loads(payload_json),
             "created_at": now,
             "updated_at": now,
         }
@@ -190,7 +191,7 @@ class SessionStore:
                     message_id,
                     kind,
                     symbol,
-                    json.dumps(payload, ensure_ascii=False, default=str),
+                    payload_json,
                     now,
                     now,
                 ),

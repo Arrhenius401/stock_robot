@@ -115,6 +115,7 @@ class TestSessionStore:
         second = store.save_artifact("s1", kind="stock_report", symbol=None, payload={})
 
         assert first["artifact_id"] != second["artifact_id"]
+        assert first["payload"] == {"date": "2026-08-23"}
         assert store.get_artifact(first["artifact_id"])["payload"] == {"date": "2026-08-23"}
         assert store.get_artifact("missing") is None
 
