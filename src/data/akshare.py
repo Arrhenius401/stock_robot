@@ -242,6 +242,27 @@ def _fetch_sw_peers(industry_name: str) -> list[dict[str, Any]]:
     return peers
 
 
+def _parse_debt_new(bs_df: Any) -> dict[str, tuple[float | None, float | None]]:
+    """解析 THS 新长表资产负债表 → {报告期: (equity, assets)}"""
+    balance_map: dict[str, tuple[float | None, float | None]] = {}
+    per_date: dict[str, dict[str, float | None]] = {}
+    for _, row in bs_df.iterrows():
+        period = str(row.get("report_date", ""))
+        try:
+            period_date = datetime.strptime(period, "%Y-%m-%d").astimezone().date().isoformat()
+        except ValueError:
+            continue
+        name = str(row.get("metric_name", ""))
+        if name in ("assets_total", "holder_equity_total", "debt_and_equity_total"):
+            per_date.setdefault(period_date, {})[name] = parse_cn_number(row.get("value"))
+    for period_date, vals in per_date.items():
+        assets = vals.get("assets_total")
+        if assets is None:
+            assets = vals.get("debt_and_equity_total")
+        balance_map[period_date] = (vals.get("holder_equity_total"), assets)
+    return balance_map
+
+
 class AkShareAdapter(DataSource):
     """AkShare 数据源适配器 — 支持 A 股全部数据类型"""
 
@@ -369,7 +390,11 @@ class AkShareAdapter(DataSource):
                     assets = parse_cn_number(row.get("资产合计"))
                 balance_map[period_date] = (equity, assets)
         except Exception:
-            logger.debug("资产负债表数据获取失败，将使用利润表数据")
+            logger.debug("旧版资产负债表接口失败，尝试新版长表接口")
+            try:
+                balance_map = _parse_debt_new(ak.stock_financial_debt_new_ths(symbol=symbol))
+            except Exception:
+                logger.debug("资产负债表数据获取失败，将使用利润表数据")
 
         results = []
         periods = df.get("报告期", [])
