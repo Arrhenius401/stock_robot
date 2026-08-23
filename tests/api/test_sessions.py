@@ -1,4 +1,5 @@
 """会话管理单元测试"""
+import sqlite3
 import threading
 import time
 
@@ -26,7 +27,38 @@ class TestSessionStore:
         assert len(sessions) == 1
         assert sessions[0]["session_id"] == "s1"
         assert sessions[0]["title"] == "标题一"
+        assert sessions[0]["title_source"] == "legacy"
         assert sessions[0]["message_count"] == 1
+
+    def test_initialization_migrates_legacy_database_title_source(self, tmp_path):
+        """旧会话库升级后应保留数据并补齐 legacy 来源。"""
+        db_path = tmp_path / "legacy.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE sessions (session_id TEXT PRIMARY KEY, title TEXT NOT NULL, "
+                "created_at REAL NOT NULL, updated_at REAL NOT NULL)"
+            )
+            conn.execute(
+                "INSERT INTO sessions VALUES ('legacy-1', '历史会话', 1.0, 2.0)"
+            )
+        store = SessionStore(db_path)
+        assert store.list_sessions() == [{
+            "session_id": "legacy-1",
+            "title": "历史会话",
+            "title_source": "legacy",
+            "created_at": 1.0,
+            "updated_at": 2.0,
+            "message_count": 0,
+        }]
+
+    def test_automatic_title_update_preserves_manual_title(self, store):
+        """手动标题不得被仅允许自动来源的更新覆盖。"""
+        store.create_session("s1", "初始标题", source="local")
+        assert store.update_title("s1", "我的标题", "manual")
+        assert store.update_title("s1", "LLM 标题", "llm", only_if_automatic=True) is False
+        session = store.list_sessions()[0]
+        assert session["title"] == "我的标题"
+        assert session["title_source"] == "manual"
 
     def test_get_messages_ordered(self, store):
         store.create_session("s1", "t")
@@ -52,7 +84,8 @@ class TestSessionManager:
         assert sid
         assert memory.session_id == sid
         assert store.session_exists(sid)
-        assert store.list_sessions()[0]["title"] == "帮我分析平安银行"
+        assert store.list_sessions()[0]["title"] == "平安银行分析"
+        assert store.list_sessions()[0]["title_source"] == "local"
 
     def test_get_or_create_returns_existing_memory(self, store, facts_path):
         mgr = SessionManager(store, facts_path=facts_path)
@@ -89,12 +122,31 @@ class TestSessionManager:
         assert mgr.delete(sid) is False
         assert mgr.get_memory(sid) is None
 
-    def test_title_truncated_to_20_chars(self, store, facts_path):
+    def test_title_uses_safe_fallback_for_unknown_request(self, store, facts_path):
         mgr = SessionManager(store, facts_path=facts_path)
-        sid, _ = mgr.get_or_create(None, "x" * 30)
+        sid, _ = mgr.get_or_create(None, "请分析一下" + "x" * 30)
         sessions = store.list_sessions()
         assert sessions[0]["session_id"] == sid
         assert sessions[0]["title"] == "x" * 20
+
+    def test_empty_first_message_uses_default_title(self, store, facts_path):
+        """空首条消息创建默认会话，并标记默认来源。"""
+        mgr = SessionManager(store, facts_path=facts_path)
+        sid, _ = mgr.get_or_create(None, "")
+        session = store.list_sessions()[0]
+        assert session["session_id"] == sid
+        assert session["title"] == "新会话"
+        assert session["title_source"] == "default"
+
+    def test_manager_rename_and_maybe_update_title(self, store, facts_path):
+        """管理器手动改名后，自动标题更新应受到保护。"""
+        mgr = SessionManager(store, facts_path=facts_path)
+        sid, _ = mgr.get_or_create(None, "分析平安银行")
+        assert mgr.rename(sid, "银行跟踪")
+        assert mgr.maybe_update_title(sid, "LLM 标题", "llm") is False
+        session = store.list_sessions()[0]
+        assert session["title"] == "银行跟踪"
+        assert session["title_source"] == "manual"
 
     def test_concurrent_get_or_create_same_session(self, store, facts_path):
         mgr = SessionManager(store, facts_path=facts_path)
