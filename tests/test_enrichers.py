@@ -340,3 +340,47 @@ class TestTTMCumulative:
         assert ctx.enriched_valuation is not None
         # PE = 股本×价格 ÷ 正确 TTM(230 亿) = 184e8×10/230e8 = 8.0
         assert ctx.enriched_valuation.daily_points[0].pe == pytest.approx(8.0)
+
+    def test_flat_data_not_treated_as_cumulative(self):
+        """同年期值相等（单季/平坦数据）不得误入跨年累计对齐分支"""
+        from data.enrichers.valuation_enricher import _compute_ttm
+        financials = [
+            FinancialData(symbol="000001", fiscal_quarter=date(2025, 6, 30),
+                          revenue=100e8, net_profit=10e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2025, 9, 30),
+                          revenue=100e8, net_profit=10e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2025, 12, 31),
+                          revenue=100e8, net_profit=10e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2026, 3, 31),
+                          revenue=100e8, net_profit=10e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2026, 6, 30),
+                          revenue=100e8, net_profit=10e8),
+        ]
+        ttm_profit, ttm_revenue = _compute_ttm(financials)
+        # 单季求和：最近 4 期之和 = 40 亿（误入对齐分支会得 10 亿）
+        assert ttm_profit == pytest.approx(40e8)
+        assert ttm_revenue == pytest.approx(400e8)
+
+    def test_negative_aligned_ttm_returns_none(self):
+        """跨年对齐 TTM 非正时返回 None（财务异常交由调用方判 INSUFFICIENT）"""
+        from data.enrichers.valuation_enricher import _compute_ttm
+        financials = [
+            FinancialData(symbol="000001", fiscal_quarter=date(2025, 6, 30),
+                          revenue=300e8, net_profit=100e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2025, 9, 30),
+                          revenue=450e8, net_profit=150e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2025, 12, 31),
+                          revenue=600e8, net_profit=50e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2026, 3, 31),
+                          revenue=180e8, net_profit=60e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2026, 6, 30),
+                          revenue=390e8, net_profit=130e8),
+        ]
+        # 对齐 TTM = 130 + 50 − 100 = 80 亿（正，正常路径）
+        ttm_profit, _ = _compute_ttm(financials)
+        assert ttm_profit == pytest.approx(80e8)
+        # 最新期净利骤降 → 对齐 TTM = 40 + 50 − 100 = −10 亿（非正 → None）
+        financials[2].net_profit = 50e8
+        financials[-1].net_profit = 40e8
+        ttm_profit, _ = _compute_ttm(financials)
+        assert ttm_profit is None

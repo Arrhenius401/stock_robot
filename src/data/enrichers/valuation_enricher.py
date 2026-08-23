@@ -1,4 +1,5 @@
 """估值充实器 — 行情+财报推导日频 PE/PB/PS 序列"""
+import itertools
 import logging
 from statistics import median
 
@@ -27,12 +28,20 @@ def _estimate_shares_offline(financials: list | None) -> float | None:
     return None
 
 
+def _is_cumulative_yoy(sorted_fin: list) -> bool:
+    """同年内相邻期营收严格递增（累计 YTD 特征），排除单季/平坦数据"""
+    latest_year = sorted_fin[-1].fiscal_quarter.year
+    same_year = [f for f in sorted_fin if f.fiscal_quarter.year == latest_year]
+    vals = [f.revenue for f in same_year if f.revenue is not None]
+    return len(vals) >= 2 and all(b > a for a, b in itertools.pairwise(vals))
+
+
 def _compute_ttm(financials: list) -> tuple[float | None, float | None]:
     """累计 YTD / 单季自适应的 TTM 净利润与营收
 
     A 股财报为累计 YTD。跨年序列 [Q3'25(9月), Q4'25(12月), Q1'26(3月), Q2'26(6月)]
     中 Q1 累计 < 上年 Q4 累计，4 期严格递增判据会误判为单季导致 TTM 放大近 4 倍。
-    有去年同期对齐（≥5 期且同期月份匹配）时：
+    有去年同期对齐（≥5 期、同期月份匹配、同年累计特征）时：
         TTM = 最新累计 + 去年全年 − 去年同期累计
     否则：4 期严格递增 → 去累积求和；单季数据 → 最近 4 期直接求和。
     """
@@ -49,10 +58,11 @@ def _compute_ttm(financials: list) -> tuple[float | None, float | None]:
         return (profits[0] + (profits[1] - profits[0]) + (profits[2] - profits[1]) + (profits[3] - profits[2]),
                 revs[0] + (revs[1] - revs[0]) + (revs[2] - revs[1]) + (revs[3] - revs[2]))
 
-    # 跨年累计对齐：最新期与去年同期（往前 4 期）月份匹配且有去年 Q4
+    # 跨年累计对齐：最新期与去年同期（往前 4 期）月份匹配、同年累计特征、有去年 Q4
     latest = sorted_fin[-1]
     same_q_prev = sorted_fin[-5] if len(sorted_fin) >= 5 else None
-    if same_q_prev is not None and latest.fiscal_quarter.month == same_q_prev.fiscal_quarter.month:
+    if (same_q_prev is not None and latest.fiscal_quarter.month == same_q_prev.fiscal_quarter.month
+            and _is_cumulative_yoy(sorted_fin)):
         prev_year_q4 = next(
             (f for f in sorted_fin
              if f.fiscal_quarter.year == latest.fiscal_quarter.year - 1
@@ -67,6 +77,7 @@ def _compute_ttm(financials: list) -> tuple[float | None, float | None]:
             ttm_revenue = latest.revenue + prev_year_q4.revenue - same_q_prev.revenue
             if ttm_profit > 0:
                 return ttm_profit, ttm_revenue
+            return None, None  # 对齐 TTM 非正：财务异常，交由调用方判 INSUFFICIENT
 
     # 单季数据：最近 4 期求和
     return (sum(f.net_profit for f in recent_4 if f.net_profit is not None),
@@ -105,7 +116,7 @@ class ValuationEnricher(DataEnricher):
             )
             return ctx
 
-        ttm_equity = sorted(financials, key=lambda x: x.fiscal_quarter)[-1].total_equity  # 最近一期净资产
+        ttm_equity = max(financials, key=lambda x: x.fiscal_quarter).total_equity  # 最近一期净资产
 
         if ttm_profit <= 0 or ttm_equity is None or ttm_equity <= 0:
             ctx.sufficiency.valuation = DimensionSufficiency(
