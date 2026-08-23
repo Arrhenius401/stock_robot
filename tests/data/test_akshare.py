@@ -223,38 +223,26 @@ def test_fetch_valuation_uses_new_endpoint_first(mocker):
     assert results[0].pb == 0.85
 
 
-def test_fetch_industry_falls_back_to_old_endpoint(mocker):
-    """新端点失败时回退旧端点"""
-    mocker.patch(
-        "akshare.stock_individual_info_em",
-        side_effect=RemoteDisconnected("boom"),
-    )
-    mocker.patch(
-        "akshare.stock_board_industry_name_em",
-        return_value=pd.DataFrame({"板块名称": ["银行", "保险", "证券"]}),
-    )
-    mocker.patch("utils.retry.time.sleep")
-
-    adapter = AkShareAdapter()
-    results = adapter.fetch("000001", data_type="industry")
-    assert len(results) == 1
-    assert results[0].industry in ("银行", "保险", "证券")
+def test_fetch_industry_uses_eastmoney_info(mocker):
+    """行业判定优先东财轻量接口"""
+    import pandas as pd
+    info_df = pd.DataFrame({"item": ["行业", "总股本"], "value": ["银行", "194.05亿"]})
+    mocker.patch("data.akshare._ak_individual_info_em", return_value=info_df)
+    mocker.patch("data.akshare._fetch_sw_peers", return_value=[])
+    from data.akshare import AkShareAdapter
+    results = AkShareAdapter()._fetch_industry("000001")
+    assert results[0].industry == "银行"
 
 
-def test_fetch_industry_uses_new_endpoint_first(mocker):
-    """雪球端点返回含行业字段时正确提取"""
-    mocker.patch(
-        "akshare.stock_individual_basic_info_xq",
-        return_value=pd.DataFrame({
-            "item": ["affiliate_industry", "classi_name"],
-            "value": [{"ind_code": "BK0055", "ind_name": "银行"}, "金融"],
-        }),
-    )
-    mocker.patch("utils.retry.time.sleep")
-
-    adapter = AkShareAdapter()
-    results = adapter.fetch("000001", data_type="industry")
-    assert len(results) == 1
+def test_fetch_industry_falls_back_to_local_mapping(mocker):
+    """东财失败 → 本地映射表"""
+    mocker.patch("data.akshare._ak_individual_info_em",
+                 side_effect=ConnectionError("mock"))
+    fake = type("Fake", (), {"lookup": lambda self, s: type("R", (), {"sw_level1": "银行"})()})()
+    mocker.patch("data.industry_classifier.IndustryClassifier", return_value=fake)
+    mocker.patch("data.akshare._fetch_sw_peers", return_value=[])
+    from data.akshare import AkShareAdapter
+    results = AkShareAdapter()._fetch_industry("000001")
     assert results[0].industry == "银行"
 
 

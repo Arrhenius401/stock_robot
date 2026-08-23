@@ -25,9 +25,6 @@ from utils.retry import retry_on_network_error
 
 logger = logging.getLogger(__name__)
 
-# 单次分析生命周期内复用 stock_individual_info_em 结果
-_info_cache: dict[str, dict] = {}
-
 # 海外指数代码 → 全球指数接口所需的中文名称
 _OVERSEAS_NAME_MAP = {
     "HSI": "恒生指数",
@@ -36,30 +33,6 @@ _OVERSEAS_NAME_MAP = {
     "IXIC": "纳斯达克综合",
     "DJI": "道琼斯工业平均",
 }
-
-
-def clear_info_cache():
-    """清空个股信息缓存（测试用）"""
-    _info_cache.clear()
-
-
-def get_individual_info(symbol: str) -> dict:
-    """获取个股基本信息（带内存缓存），返回 {item: value} 字典"""
-    if symbol not in _info_cache:
-        try:
-            if symbol.startswith("6"):
-                xq_symbol = f"SH{symbol}"
-            else:
-                xq_symbol = f"SZ{symbol}"
-            df: Any = ak.stock_individual_basic_info_xq(symbol=xq_symbol)
-            if "item" in df.columns and "value" in df.columns:
-                _info_cache[symbol] = dict(zip(df["item"], df["value"]))
-            else:
-                _info_cache[symbol] = {}
-        except Exception:
-            logger.debug(f"获取个股基本信息失败: {symbol}")
-            _info_cache[symbol] = {}
-    return _info_cache[symbol]
 
 
 def get_total_shares(symbol: str, financials: list | None = None) -> float | None:
@@ -98,6 +71,27 @@ def get_total_shares(symbol: str, financials: list | None = None) -> float | Non
     return None
 
 
+def _get_industry_name(symbol: str) -> str:
+    """行业名两级链：东财轻量接口 → 本地映射表（离线兜底）"""
+    try:
+        df: Any = _ak_individual_info_em(symbol)
+        if df is not None and "item" in df.columns and "value" in df.columns:
+            info = dict(zip(df["item"], df["value"]))
+            ind = str(info.get("行业", "") or "").strip()
+            if ind and ind != "未知":
+                return ind
+    except Exception:
+        logger.debug("东财行业信息获取失败，切换本地映射表")
+    try:
+        from data.industry_classifier import IndustryClassifier
+        cls = IndustryClassifier().lookup(symbol)
+        if cls.sw_level1 and cls.sw_level1 not in ("综合", "未知"):
+            return cls.sw_level1
+    except Exception:
+        logger.debug("本地行业映射表不可用")
+    return ""
+
+
 @retry_on_network_error()
 def _ak_hist(**kwargs):
     return ak.stock_zh_a_hist(**kwargs)
@@ -116,11 +110,6 @@ def _ak_daily(symbol, start_date, end_date, adjust):
 @retry_on_network_error()
 def _ak_spot_em():
     return ak.stock_zh_a_spot_em()
-
-
-@retry_on_network_error()
-def _ak_industry_name():
-    return ak.stock_board_industry_name_em()
 
 
 @retry_on_network_error()
@@ -527,37 +516,15 @@ class AkShareAdapter(DataSource):
     def _fetch_industry(self, symbol: str, **kwargs) -> list[IndustryData]:
         from data.schemas import PeerBasicInfo
 
-        industry = ""
+        # 行业名两级链：东财轻量接口 → 本地映射表（离线兜底）
+        industry = _get_industry_name(symbol)
         sector = ""
         top_peers = []
-
-        # 获取行业分类（带缓存，后续充实层可复用）
-        info = get_individual_info(symbol)
-        # 雪球源：affiliate_industry 为 {"ind_code": "BK0055", "ind_name": "银行"} 格式
-        aff_ind = info.get("affiliate_industry", "")
-        if isinstance(aff_ind, dict):
-            industry = str(aff_ind.get("ind_name", ""))
-        else:
-            industry = str(aff_ind) if aff_ind else ""
-        sector = str(info.get("classi_name", "") or info.get("板块", "") or info.get("所属部门", ""))
-
-        # 回退：新端点失败时尝试旧行业名称端点
-        if not industry or industry == "未知":
-            try:
-                name_df: Any = _ak_industry_name()
-                if "板块名称" in name_df.columns:
-                    names = name_df["板块名称"].tolist()
-                    if names:
-                        industry = str(names[0])
-            except Exception:
-                logger.debug("行业名称接口失败，使用空行业名")
-
-        # 通过申万行业分类获取同行成分股（优先；东方财富端点不稳定）
         all_peer_symbols: list[str] = []
         target_mcap: float | None = None
         target_rank: int | None = None
 
-        if industry and industry != "未知":
+        if industry:
             sw_peers = _fetch_sw_peers(industry)
             if sw_peers:
                 # 过滤无效市值，按市值排序

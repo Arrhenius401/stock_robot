@@ -87,3 +87,42 @@ class TestGetTotalShares:
         mocker.patch("data.akshare._ak_daily",
                      side_effect=ConnectionError("mock"))
         assert get_total_shares("000001") is None
+
+
+class TestGetIndustryName:
+    def test_eastmoney_first(self, mocker):
+        """在线源优先：东财行业可用时返回"""
+        from data.akshare import _get_industry_name
+        info_df = pd.DataFrame({"item": ["行业", "总股本"], "value": ["银行", "194.05亿"]})
+        mocker.patch("data.akshare._ak_individual_info_em", return_value=info_df)
+        assert _get_industry_name("000001") == "银行"
+
+    def _patch_mapping(self, mocker, sw_level1: str):
+        """patch 本地映射表 lookup 返回值"""
+        fake = type("Fake", (), {
+            "lookup": lambda self, s: type("R", (), {"sw_level1": sw_level1})()})()
+        mocker.patch("data.industry_classifier.IndustryClassifier", return_value=fake)
+
+    def test_falls_to_local_mapping(self, mocker):
+        """东财失败 → 本地映射表（非占位值时生效）"""
+        from data.akshare import _get_industry_name
+        mocker.patch("data.akshare._ak_individual_info_em",
+                     side_effect=ConnectionError("mock"))
+        self._patch_mapping(mocker, "银行")
+        assert _get_industry_name("000001") == "银行"
+
+    def test_placeholder_mapping_returns_empty(self, mocker):
+        """本地表占位值'综合'不得作为行业名使用"""
+        from data.akshare import _get_industry_name
+        mocker.patch("data.akshare._ak_individual_info_em",
+                     side_effect=ConnectionError("mock"))
+        self._patch_mapping(mocker, "综合")
+        assert _get_industry_name("000001") == ""
+
+    def test_all_fail_returns_empty(self, mocker):
+        from data.akshare import _get_industry_name
+        mocker.patch("data.akshare._ak_individual_info_em",
+                     side_effect=ConnectionError("mock"))
+        mocker.patch("data.industry_classifier.IndustryClassifier",
+                     side_effect=FileNotFoundError("mock"))
+        assert _get_industry_name("000001") == ""
