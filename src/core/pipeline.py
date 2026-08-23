@@ -101,14 +101,15 @@ class Pipeline:
         def fetch_one(data_type: str, stagger_index: int):
             # 递增错峰：第 n 个线程延迟 n*0.15s，减轻上游瞬时压力
             time.sleep(stagger_index * 0.15)
-            if self._breaker.is_open(symbol, data_type):
-                logger.warning(f"断路器打开: {symbol}/{data_type}，跳过源头请求")
-                return data_type, None
+            # 本地缓存读取不触达上游，优先于断路器——断路器打开期间缓存健康数据仍可用
             if not refresh_cache:
                 cached = self._get_cached(symbol, data_type)
                 if cached is not None:
                     self._breaker.record_success(symbol, data_type)
                     return data_type, cached
+            if self._breaker.is_open(symbol, data_type):
+                logger.warning(f"断路器打开: {symbol}/{data_type}，跳过源头请求")
+                return data_type, None
 
             sources = self._registry.get_data_sources(market, data_type)
             for source in sources:

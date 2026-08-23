@@ -15,7 +15,8 @@ class CircuitBreaker:
         if until is None:
             return False
         if time.time() >= until:
-            del self._opened_until[key]
+            # pop 而非 del：并发线程同时过期时，第二个 pop 拿到 None 也不抛 KeyError
+            self._opened_until.pop(key, None)
             self._fails[key] = 0
             return False
         return True

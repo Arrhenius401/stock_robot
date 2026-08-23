@@ -238,6 +238,26 @@ class TestCacheHealth:
         pipe._set_cache("000001", "financial", [fin])
         assert pipe._get_cached("000001", "financial") is None
 
+    def test_cache_served_when_breaker_open(self, tmp_path, mocker):
+        """断路器打开时，collect 仍从本地缓存返回健康数据"""
+        from data.schemas import IndustryData
+        pipe = self._make_pipeline(tmp_path, mocker)
+        # 先写入健康缓存
+        ind = IndustryData(symbol="000001", industry="银行", sector="金融",
+                           peers=["600000"], top_peers=[])
+        pipe._set_cache("000001", "industry", [ind])
+        assert pipe._get_cached("000001", "industry") is not None
+        # 手动打开断路器
+        for _ in range(3):
+            pipe._breaker.record_failure("000001", "industry")
+        assert pipe._breaker.is_open("000001", "industry")
+        # 断路器打开期间 collect：应命中缓存返回，而非被断路器屏蔽为 None
+        ctx = pipe.collect("000001", "平安银行", data_types=["industry"])
+        assert ctx.industry_data is not None
+        assert ctx.industry_data.industry == "银行"
+        # 缓存命中走 record_success，断路器被重置
+        assert not pipe._breaker.is_open("000001", "industry")
+
 
 class TestPipelineIndustryIntegration:
     """验证管道已正确集成行业分类和配置驱动打分"""
