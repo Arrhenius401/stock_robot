@@ -76,3 +76,23 @@ def test_pipeline_collect_healthy_cache_and_breaker(tmp_path, mocker):
     assert bad._calls["industry"] == 6  # 3 次 collect × 每次 2 次尝试
     pipe2.collect("000001", "平安银行")
     assert bad._calls["industry"] == 6  # 断路器打开，不再请求源头
+
+
+def test_degenerate_result_counts_as_failure(tmp_path, mocker):
+    """退化结果（industry=未知）不落缓存且计为失败，连续 3 次触发断路器"""
+    mocker.patch("core.pipeline.time.sleep")
+
+    bad_industry = IndustryData(symbol="000001", industry="未知", sector="", peers=[], top_peers=[])
+    source = FakeSource({"industry": [bad_industry]}, fail_first=0)
+    reg = Registry()
+    reg.register_data_source(source)
+    pipe = Pipeline(registry=reg, config=Config(config_dir=tmp_path / "cfg3"),
+                    llm_enabled=False)
+
+    # 退化结果仍返回给分析（维度判数据不足），但断路器计数
+    for _ in range(3):
+        ctx = pipe.collect("000001", "平安银行")
+        assert ctx.industry_data is not None
+    assert pipe._breaker.is_open("000001", "industry") is True
+    # 退化数据未落缓存（_get_cached 返回 None）
+    assert pipe._get_cached("000001", "industry") is None

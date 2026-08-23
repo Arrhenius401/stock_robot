@@ -117,8 +117,13 @@ class Pipeline:
                     try:
                         result = source.fetch(symbol, data_type=data_type)
                         if result:
-                            self._set_cache(symbol, data_type, result)
-                            self._breaker.record_success(symbol, data_type)
+                            if self._is_healthy(data_type, result):
+                                self._set_cache(symbol, data_type, result)
+                                self._breaker.record_success(symbol, data_type)
+                            else:
+                                # 退化结果：不落库（_set_cache 门控双保险），计失败促断路器
+                                self._set_cache(symbol, data_type, result)
+                                self._breaker.record_failure(symbol, data_type)
                             return data_type, result
                     except Exception as e:  # noqa: BLE001 — 多数据源逐个尝试，单源失败降级
                         logger.warning(f"数据源 {source.__class__.__name__} 获取 {data_type} 失败: {e}")
