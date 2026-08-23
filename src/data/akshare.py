@@ -62,6 +62,41 @@ def get_individual_info(symbol: str) -> dict:
     return _info_cache[symbol]
 
 
+def get_total_shares(symbol: str, financials: list | None = None) -> float | None:
+    """总股本三级链：东财轻量接口 → 腾讯流通股本 → 财报反推（离线兜底）
+
+    财报反推口径：累计净利润 ÷ 累计基本每股收益，禁止单季/累计混用。
+    """
+    # 1. 东财轻量接口（在线优先）
+    try:
+        df: Any = _ak_individual_info_em(symbol)
+        if df is not None and "item" in df.columns and "value" in df.columns:
+            info = dict(zip(df["item"], df["value"]))
+            shares = parse_cn_number(str(info.get("总股本", "")))
+            if shares is not None and shares > 0:
+                return shares
+    except Exception:
+        logger.debug("东财总股本获取失败，切换腾讯源")
+    # 2. 腾讯流通股本（在线）
+    try:
+        end = datetime.now().astimezone().date().strftime("%Y%m%d")
+        start = (datetime.now().astimezone().date() - timedelta(days=10)).strftime("%Y%m%d")
+        df: Any = _ak_daily(symbol=symbol, start_date=start, end_date=end, adjust="")
+        if df is not None and "outstanding_share" in df.columns and len(df) > 0:
+            last = df["outstanding_share"].iloc[-1]
+            if last is not None and str(last) not in ("nan", "None") and float(last) > 0:
+                return float(last)
+    except Exception:
+        logger.debug("腾讯流通股本获取失败，切换财报反推")
+    # 3. 财报反推（离线兜底）
+    if financials:
+        fin = sorted(financials, key=lambda x: x.fiscal_quarter)
+        latest = fin[-1]
+        if latest.net_profit and latest.basic_eps and latest.basic_eps > 0:
+            return latest.net_profit / latest.basic_eps
+    return None
+
+
 @retry_on_network_error()
 def _ak_hist(**kwargs):
     return ak.stock_zh_a_hist(**kwargs)
