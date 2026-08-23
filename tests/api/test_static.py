@@ -193,7 +193,9 @@ class TestStaticUI:
     def test_report_renderer_handles_variants_and_unsafe_text(self, tmp_path):
         renderer_url = json.dumps(_module_url("src/api/static/js/report-renderer.js"))
         script = _DOM_STUB + r"""
-const { renderStockReport, renderReportSummary } = await import(__RENDERER_URL__);
+const {
+  normalizeArtifactReport, renderStockReport, renderReportSummary,
+} = await import(__RENDERER_URL__);
 
 const report = {
   code: "000001",
@@ -266,9 +268,18 @@ const openButton = byClass(summary, "report-summary-open")[0];
 if (!openButton || (openButton.listeners.click || []).length !== 0) {
   throw new Error("摘要卡按钮不得内置业务监听器");
 }
-const partialSummary = renderReportSummary({
-  artifact_id: "artifact-2", symbol: "600000", payload: { name: "浦发银行" },
-});
+const partialArtifact = {
+  artifact_id: "artifact-2",
+  symbol: "600000",
+  generated_at: "2026-08-24T10:00:00+08:00",
+  payload: { symbol: null, code: undefined, name: "浦发银行" },
+};
+const normalized = normalizeArtifactReport(partialArtifact);
+if (normalized.symbol !== "600000" || normalized.name !== "浦发银行"
+    || normalized.generated_at !== "2026-08-24T10:00:00+08:00") {
+  throw new Error("payload 的 null/undefined 不得覆盖成果外层有效报告字段");
+}
+const partialSummary = renderReportSummary(partialArtifact);
 if (!partialSummary.textContent.includes("600000")) {
   throw new Error("payload 缺少代码时应兼容成果外层 symbol");
 }
@@ -341,16 +352,20 @@ if ((closeButton.listeners.click || []).length !== 1
 }
 
 const payloadB = {
-  symbol: "000002", name: "B 报告", commentary: "B 结论",
+  symbol: null, name: "B 报告", commentary: "B 结论",
   dimensions: { financial: { risk_flags: [] } },
 };
-await openReportDrawer({ artifact_id: "b", session_id: "s1", payload: payloadB }, trigger);
+const artifactB = {
+  artifact_id: "b", session_id: "s1", symbol: "000002", payload: payloadB,
+};
+await openReportDrawer(artifactB, trigger);
 if (drawer.hidden || drawer.getAttribute("aria-hidden") !== "false"
     || !layout.classList.contains("drawer-open") || !store.reportDrawerOpen) {
   throw new Error("抽屉未正确展开");
 }
-if (!content.textContent.includes("B 报告") || nav.children.length === 0) {
-  throw new Error("抽屉未渲染报告或动态章节导航");
+if (!content.textContent.includes("B 报告") || !content.textContent.includes("000002")
+    || nav.children.length === 0) {
+  throw new Error("抽屉未使用共享归一化报告或动态章节导航");
 }
 await nav.children[0].click();
 const firstSection = content.children[0].querySelectorAll("section[id]")[0];
@@ -367,7 +382,7 @@ if (!drawer.hidden || drawer.getAttribute("aria-hidden") !== "true"
 let resolveA;
 api.getArtifact = () => new Promise((resolve) => { resolveA = resolve; });
 const pendingA = openReportDrawer({ artifact_id: "a", session_id: "s1", symbol: "000001" });
-await openReportDrawer({ artifact_id: "b", session_id: "s1", payload: payloadB });
+await openReportDrawer(artifactB);
 resolveA({ artifact: {
   artifact_id: "a", session_id: "s1",
   payload: { symbol: "000001", name: "迟到的 A 报告" },
@@ -399,7 +414,7 @@ if (store.currentArtifact?.payload?.name === "关闭后迟到刷新") {
   throw new Error("关闭后的迟到刷新更新了当前成果");
 }
 
-await openReportDrawer({ artifact_id: "b", session_id: "s1", payload: payloadB }, trigger);
+await openReportDrawer(artifactB, trigger);
 await document.dispatch("keydown", { key: "Escape", preventDefault() {} });
 if (!drawer.hidden || document.activeElement !== trigger) throw new Error("Escape 未关闭抽屉");
 """.replace("__DRAWER_URL__", drawer_url)

@@ -14,6 +14,15 @@ function record(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
+export function normalizeArtifactReport(artifact) {
+  const item = record(artifact);
+  const payload = record(item.payload);
+  const presentPayload = Object.fromEntries(
+    Object.entries(payload).filter(([, value]) => value !== null && value !== undefined),
+  );
+  return { ...item, ...presentPayload };
+}
+
 function readable(value, fallback = "暂无数据") {
   if (value === null || value === undefined || value === "") return fallback;
   if (typeof value === "object") {
@@ -266,8 +275,7 @@ function artifactTime(artifact, report) {
 
 export function renderReportSummary(artifact) {
   const item = record(artifact);
-  const payload = record(item.payload);
-  const report = Object.keys(payload).length ? { ...item, ...payload } : item;
+  const report = normalizeArtifactReport(item);
   const card = el("article", "report-summary-card");
   card.dataset.artifactId = readable(item.artifact_id ?? item.id, "");
 

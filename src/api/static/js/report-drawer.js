@@ -1,7 +1,7 @@
 // 完整研报右侧抽屉：管理焦点、局部错误与请求竞态。
 import { api } from "./api.js";
 import { el } from "./components.js";
-import { renderStockReport } from "./report-renderer.js";
+import { normalizeArtifactReport, renderStockReport } from "./report-renderer.js";
 import { store } from "./state.js";
 
 let initialized = false;
@@ -55,7 +55,7 @@ function buildNavigation(article) {
 }
 
 function renderDrawerContent(artifact) {
-  const article = renderStockReport(artifact.payload || {});
+  const article = renderStockReport(normalizeArtifactReport(artifact));
   content().replaceChildren(article);
   buildNavigation(article);
 }
