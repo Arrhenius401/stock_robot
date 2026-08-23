@@ -231,3 +231,47 @@ def rebuild_all(delay: float = DEFAULT_DELAY,
         "stock_count": len(rows),
         "coverage_pct": coverage_pct,
     }
+
+
+def _parse_stock_industry(html: str) -> tuple[str, str]:
+    """解析个股页行业区块 → (一级名, 二级名)；无区块或层级不全抛 IndustryMappingError"""
+    m = re.search(r'<span class="industry">(.*?)</span>', html, re.DOTALL)
+    if not m:
+        raise IndustryMappingError("个股页无行业区块，可能未分类")
+    levels: dict[int, str] = {}
+    for link in re.findall(r'<a class="industry-name"[^>]*>(.*?)</a>', m.group(1)):
+        mm = re.match(r"^(I{1,3})(.+)$", link.strip())
+        if mm:
+            levels[len(mm.group(1))] = mm.group(2).strip()
+    if 1 not in levels or 2 not in levels:
+        raise IndustryMappingError("个股页行业区块不完整，缺一级/二级行业")
+    return levels[1], levels[2]
+
+
+def update_symbol(symbol: str) -> dict:
+    """单只更新行业分类（个股页秒级反查），返回 {symbol, sw_level1, sw_level2,
+    style_category, action}。symbol 不在表中则追加。"""
+    html = _get_with_retry(STOCK_URL.format(symbol=symbol))
+    level1, level2 = _parse_stock_industry(html)
+    style_map = _load_style_mapping()
+    style = style_map.get(level1, "高端制造")
+
+    path = _csv_path()
+    rows: list[dict] = []
+    updated = False
+    if path.exists():
+        with open(path, "r", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                if row["symbol"] == symbol:
+                    row["sw_level1"], row["sw_level2"], row["style_category"] = level1, level2, style
+                    updated = True
+                rows.append(row)
+    if not updated:
+        rows.append({"symbol": symbol, "sw_level1": level1,
+                     "sw_level2": level2, "style_category": style})
+    _write_csv(rows)
+
+    logger.info("行业映射单只更新 %s: %s/%s (%s)", symbol, level1, level2,
+                "更新" if updated else "新增")
+    return {"symbol": symbol, "sw_level1": level1, "sw_level2": level2,
+            "style_category": style, "action": "updated" if updated else "inserted"}

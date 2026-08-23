@@ -7,6 +7,7 @@ from data.industry_mapping_builder import (
     fetch_constituents,
     fetch_taxonomy,
     rebuild_all,
+    update_symbol,
 )
 
 # 真实页面结构精简 fixture（一级无 parent，二级/三级带 parent span）
@@ -225,3 +226,73 @@ class TestRebuildAll:
 
         rebuild_all(delay=0.0, on_progress=lambda i, t, n: seen.append((i, t, n)))
         assert seen == [(1, 2, "种子"), (2, 2, "海洋捕捞")]
+
+
+# 真实个股页行业区块结构（I/II/III 前缀标记层级）
+STOCK_PAGE_HTML = """
+<div class="lg-stock-info-basic-title clearfix">
+  <span class="industry">
+    <a class="industry-name" href="/stockdata/sw-industry-2021?industryCode=801010.SI" >I农林牧渔</a>
+    <i class="fa fa-angle-right arrow" aria-hidden="true"></i>
+    <a class="industry-name" href="/stockdata/sw-industry-2021?industryCode=801015.SI" >II渔业</a>
+    <i class="fa fa-angle-right arrow" aria-hidden="true"></i>
+    <a class="industry-name" href="/stockdata/sw-industry-2021?industryCode=850121.SI" >III海洋捕捞</a>
+  </span>
+</div>
+"""
+
+
+class TestUpdateSymbol:
+    def test_update_existing_row(self, mocker, tmp_path):
+        old_csv = tmp_path / "industry_mapping.csv"
+        old_csv.write_text(
+            "symbol,sw_level1,sw_level2,style_category\n"
+            "600097,综合,,高端制造\n"
+            "000001,银行,,大金融\n",
+            encoding="utf-8",
+        )
+        mocker.patch("data.industry_mapping_builder._get_with_retry",
+                     return_value=STOCK_PAGE_HTML)
+        mocker.patch("data.industry_mapping_builder._csv_path",
+                     return_value=old_csv)
+
+        result = update_symbol("600097")
+        assert result["action"] == "updated"
+        assert result["sw_level1"] == "农林牧渔"
+        assert result["sw_level2"] == "渔业"
+        assert result["style_category"] == "必选消费"
+
+        import csv as _csv
+        with open(old_csv, encoding="utf-8") as f:
+            rows = {r["symbol"]: r for r in _csv.DictReader(f)}
+        assert rows["600097"]["sw_level1"] == "农林牧渔"
+        assert rows["600097"]["sw_level2"] == "渔业"
+        assert rows["000001"]["sw_level1"] == "银行"  # 其他行不受影响
+        assert not (tmp_path / "industry_mapping.csv.tmp").exists()
+
+    def test_insert_new_row(self, mocker, tmp_path):
+        old_csv = tmp_path / "industry_mapping.csv"
+        old_csv.write_text("symbol,sw_level1,sw_level2,style_category\n000001,银行,,大金融\n",
+                           encoding="utf-8")
+        mocker.patch("data.industry_mapping_builder._get_with_retry",
+                     return_value=STOCK_PAGE_HTML)
+        mocker.patch("data.industry_mapping_builder._csv_path",
+                     return_value=old_csv)
+
+        result = update_symbol("600097")
+        assert result["action"] == "inserted"
+        import csv as _csv
+        with open(old_csv, encoding="utf-8") as f:
+            rows = list(_csv.DictReader(f))
+        assert len(rows) == 2
+
+    def test_no_industry_block_raises(self, mocker, tmp_path):
+        old_csv = tmp_path / "industry_mapping.csv"
+        old_csv.write_text("symbol,sw_level1,sw_level2,style_category\n",
+                           encoding="utf-8")
+        mocker.patch("data.industry_mapping_builder._get_with_retry",
+                     return_value="<html>未上市新股无行业区块</html>")
+        mocker.patch("data.industry_mapping_builder._csv_path",
+                     return_value=old_csv)
+        with pytest.raises(IndustryMappingError):
+            update_symbol("600097")
