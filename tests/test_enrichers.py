@@ -1,6 +1,8 @@
 """充实器单元测试"""
 from datetime import date, datetime, timedelta
 
+import pytest
+
 from data.enrichers.financial_enricher import FinancialEnricher
 from data.enrichers.industry_enricher import IndustryEnricher
 from data.enrichers.price_enricher import PriceEnricher
@@ -278,3 +280,63 @@ class TestValuationAnchoring:
         assert ctx.enriched_valuation.daily_points[0].pe == 8.0
         # 未经校验标记（enriched_valuation 增加字段 validated: bool = False）
         assert ctx.enriched_valuation.validated is False
+
+
+class TestTTMCumulative:
+    def test_cross_year_cumulative_uses_aligned_ttm(self, mocker):
+        """跨年累计财务（银行型 Q1 < 上年 Q4 破坏单调性）：
+        TTM = 最新累计 + 去年全年 − 去年同期累计，而非 4 期直接求和"""
+        prices = make_price_series(200, close=10.0)
+        # 累计 YTD 财务：Q2'25(6m) Q3'25(9m) Q4'25(12m) Q1'26(3m) Q2'26(6m)
+        financials = [
+            FinancialData(symbol="000001", fiscal_quarter=date(2025, 6, 30),
+                          revenue=300e8, net_profit=100e8, total_equity=280e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2025, 9, 30),
+                          revenue=450e8, net_profit=150e8, total_equity=290e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2025, 12, 31),
+                          revenue=600e8, net_profit=200e8, total_equity=300e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2026, 3, 31),
+                          revenue=180e8, net_profit=60e8, total_equity=310e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2026, 6, 30),
+                          revenue=390e8, net_profit=130e8, total_equity=320e8),
+        ]
+        ctx = AnalysisContext(symbol="000001", name="测试",
+                              price_data=prices, financial_data=financials)
+        ctx.valuation_data = ValuationData(
+            symbol="000001", date=datetime.now().astimezone().date(),
+            pe_ttm=8.0, pb=None, ps_ttm=None)
+        mocker.patch("data.enrichers.valuation_enricher.get_total_shares")
+        ctx = PriceEnricher().enrich(ctx)
+        ctx = FinancialEnricher().enrich(ctx)
+        ctx = ValuationEnricher().enrich(ctx)
+        assert ctx.enriched_valuation is not None
+        # 正确 TTM = 130 + 200 − 100 = 230 亿 → 锚定股本 = 8.0×230e8/10.0 = 184 亿股
+        # PB = 股本×现价 ÷ 最新净资产(320e8)；错误 TTM(求和 540 亿) 会给 432 亿股
+        assert ctx.enriched_valuation.daily_points[0].pb == pytest.approx(184e8 * 10.0 / 320e8)
+
+    def test_cross_year_ttm_without_anchor_uses_chain(self, mocker):
+        """跨年累计且无实测 PE：三级链股本直接驱动序列，TTM 口径同样正确"""
+        prices = make_price_series(200, close=10.0)
+        financials = [
+            FinancialData(symbol="000001", fiscal_quarter=date(2025, 6, 30),
+                          revenue=300e8, net_profit=100e8, total_equity=280e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2025, 9, 30),
+                          revenue=450e8, net_profit=150e8, total_equity=290e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2025, 12, 31),
+                          revenue=600e8, net_profit=200e8, total_equity=300e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2026, 3, 31),
+                          revenue=180e8, net_profit=60e8, total_equity=310e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2026, 6, 30),
+                          revenue=390e8, net_profit=130e8, total_equity=320e8),
+        ]
+        ctx = AnalysisContext(symbol="000001", name="测试",
+                              price_data=prices, financial_data=financials)
+        # 无 valuation_data（快照失败）→ 三级链估算股本 184 亿股
+        mocker.patch("data.enrichers.valuation_enricher.get_total_shares",
+                     return_value=184e8)
+        ctx = PriceEnricher().enrich(ctx)
+        ctx = FinancialEnricher().enrich(ctx)
+        ctx = ValuationEnricher().enrich(ctx)
+        assert ctx.enriched_valuation is not None
+        # PE = 股本×价格 ÷ 正确 TTM(230 亿) = 184e8×10/230e8 = 8.0
+        assert ctx.enriched_valuation.daily_points[0].pe == pytest.approx(8.0)
