@@ -75,6 +75,7 @@ class TestFetchTaxonomy:
 
     def test_retry_then_fail(self, mocker):
         """重试 3 次后仍失败 → IndustryMappingError"""
+        mocker.patch("data.industry_mapping_builder.time.sleep")
         from requests import RequestException
 
         mocker.patch("data.industry_mapping_builder.requests.get",

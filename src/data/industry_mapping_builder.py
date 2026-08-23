@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 OVERVIEW_URL = "https://legulegu.com/stockdata/sw-industry-overview/"
 COMPOSITION_URL = "https://legulegu.com/stockdata/index-composition"
 STOCK_URL = "https://legulegu.com/s/{symbol}"
-DEFAULT_DELAY = 0.3
+DEFAULT_DELAY = 1.5  # 限流实测：0.3s 连续 335 请求触发 429/504 封禁
 
 _HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -67,7 +67,7 @@ def _get_with_retry(url: str, retries: int = 3) -> str:
         except (requests.RequestException, OSError) as e:
             if attempt == retries - 1:
                 raise IndustryMappingError(f"请求失败: {url}: {e}") from e
-            time.sleep(0.5 * (2 ** attempt))
+            time.sleep(2 ** (attempt + 1))  # 2s/4s 退避，缓解站点限流
     raise IndustryMappingError(f"请求失败: {url}")
 
 
