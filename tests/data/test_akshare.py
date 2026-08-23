@@ -57,7 +57,8 @@ def test_fetch_financial_parses_chinese_units(mocker):
             "每股经营现金流": ["1.2", "-0.35"],
         })
     mocker.patch("akshare.stock_financial_abstract_ths", side_effect=_mock)
-    # mock 资产负债表端点（空表），避免测试依赖网络与真实资产数据
+    # mock 资产负债表两端点（空表），避免测试依赖网络与真实资产数据
+    mocker.patch("akshare.stock_financial_debt_new_ths", return_value=pd.DataFrame())
     mocker.patch("akshare.stock_financial_debt_ths", return_value=pd.DataFrame({
         "报告期": [], "*所有者权益（或股东权益）合计": [], "*资产合计": [],
     }))
@@ -85,7 +86,8 @@ def test_fetch_financial_unparseable_becomes_none(mocker):
             "每股经营现金流": ["1.5"],
         })
     mocker.patch("akshare.stock_financial_abstract_ths", side_effect=_mock)
-    # mock 资产负债表端点（空表），避免测试依赖网络与真实资产数据
+    # mock 资产负债表两端点（空表），避免测试依赖网络与真实资产数据
+    mocker.patch("akshare.stock_financial_debt_new_ths", return_value=pd.DataFrame())
     mocker.patch("akshare.stock_financial_debt_ths", return_value=pd.DataFrame({
         "报告期": [], "*所有者权益（或股东权益）合计": [], "*资产合计": [],
     }))
@@ -238,6 +240,8 @@ def test_fetch_financial_fills_basic_eps(mocker):
         "基本每股收益": [1.32, 0.68],
     })
     mocker.patch("akshare.stock_financial_abstract_ths", return_value=fin_df)
+    # mock 资产负债表两端点（新表优先），避免测试依赖网络
+    mocker.patch("akshare.stock_financial_debt_new_ths", return_value=pd.DataFrame())
     mocker.patch("akshare.stock_financial_debt_ths", return_value=pd.DataFrame({
         "报告期": [], "*所有者权益（或股东权益）合计": [], "*资产合计": [],
     }))
@@ -261,8 +265,15 @@ def test_parse_debt_new_long_table(mocker):
     })
     result = _parse_debt_new(long_df)
     # 浮点表示误差（如 5482.14*1e8=548214000000.00006）用 approx 比较
-    assert result["2026-06-30"] == pytest.approx((548214000000.0, 6030000000000.0))
-    assert result["2026-03-31"] == pytest.approx((544083000000.0, 6030000000000.0))
+    equity, assets, common = result["2026-06-30"]
+    assert equity == pytest.approx(548214000000.0)
+    assert assets == pytest.approx(6030000000000.0)
+    # 无 other_equity_tools/preferred_stock 行 → common 等于 equity
+    assert common == pytest.approx(548214000000.0)
+    equity2, assets2, common2 = result["2026-03-31"]
+    assert equity2 == pytest.approx(544083000000.0)
+    assert assets2 == pytest.approx(6030000000000.0)
+    assert common2 == pytest.approx(544083000000.0)
 
     # 旧表失败时自动回退新表
     mocker.patch("akshare.stock_financial_debt_ths",
@@ -276,6 +287,72 @@ def test_parse_debt_new_long_table(mocker):
     results = AkShareAdapter()._fetch_financial("000001")
     assert results[0].total_assets == pytest.approx(6030000000000.0)
     assert results[0].total_equity == pytest.approx(548214000000.0)
+
+
+def test_parse_debt_new_extracts_common_equity():
+    """长表解析出普通股东权益（所有者权益 − 其他权益工具 − 优先股），PB 口径对齐市场惯例"""
+    import pandas as pd
+    from data.akshare import _parse_debt_new
+
+    long_df = pd.DataFrame({
+        "report_date": ["2026-06-30"] * 5,
+        "metric_name": ["assets_total", "holder_equity_total", "other_equity_tools",
+                        "preferred_stock", "total_debt"],
+        "value": ["6.03万亿", "5482.14亿", "800亿", "", "5.48万亿"],
+    })
+    result = _parse_debt_new(long_df)
+    equity, assets, common = result["2026-06-30"]
+    assert equity == pytest.approx(548214000000.0)
+    assert assets == pytest.approx(6030000000000.0)
+    # 普通股东权益 = 5482.14 − 800（其他权益工具）− 0（无优先股）
+    assert common == pytest.approx(548214000000.0 - 800e8)
+
+
+def test_fetch_financial_prefers_new_debt_table(mocker):
+    """资产负债表链改为新表优先：新表含其他权益工具，common_equity 可解析"""
+    import pandas as pd
+    from data.akshare import AkShareAdapter
+
+    long_df = pd.DataFrame({
+        "report_date": ["2026-06-30"] * 3,
+        "metric_name": ["assets_total", "holder_equity_total", "other_equity_tools"],
+        "value": ["6.03万亿", "5482.14亿", "800亿"],
+    })
+    # 新表可用时优先（即使旧表也可用），common_equity 被填充
+    mocker.patch("akshare.stock_financial_debt_ths", return_value=pd.DataFrame({
+        "报告期": ["2026-06-30"], "*所有者权益（或股东权益）合计": ["5482.14亿"],
+        "*资产合计": ["6.03万亿"],
+    }))
+    mocker.patch("akshare.stock_financial_debt_new_ths", return_value=long_df)
+    fin_df = pd.DataFrame({
+        "报告期": ["2026-06-30"], "营业总收入": [70000000000],
+        "净利润": [25000000000], "基本每股收益": [1.32],
+    })
+    mocker.patch("akshare.stock_financial_abstract_ths", return_value=fin_df)
+    results = AkShareAdapter()._fetch_financial("000001")
+    assert results[0].total_equity == pytest.approx(548214000000.0)
+    assert results[0].common_equity == pytest.approx(548214000000.0 - 800e8)
+
+
+def test_fetch_financial_new_table_fail_falls_back_old(mocker):
+    """新表失败时回退旧表，common_equity 留空（PB 回退 total_equity）"""
+    import pandas as pd
+    from data.akshare import AkShareAdapter
+
+    mocker.patch("akshare.stock_financial_debt_new_ths",
+                 side_effect=ConnectionError("mock: 新表失败"))
+    mocker.patch("akshare.stock_financial_debt_ths", return_value=pd.DataFrame({
+        "报告期": ["2026-06-30"], "*所有者权益（或股东权益）合计": ["5482.14亿"],
+        "*资产合计": ["6.03万亿"],
+    }))
+    fin_df = pd.DataFrame({
+        "报告期": ["2026-06-30"], "营业总收入": [70000000000],
+        "净利润": [25000000000], "基本每股收益": [1.32],
+    })
+    mocker.patch("akshare.stock_financial_abstract_ths", return_value=fin_df)
+    results = AkShareAdapter()._fetch_financial("000001")
+    assert results[0].total_equity == pytest.approx(548214000000.0)
+    assert results[0].common_equity is None
 
 
 def test_fetch_news_uses_individual_notice(mocker):

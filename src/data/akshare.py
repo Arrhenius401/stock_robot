@@ -251,9 +251,13 @@ def _fetch_sw_peers(industry_name: str) -> list[dict[str, Any]]:
     return peers
 
 
-def _parse_debt_new(bs_df: Any) -> dict[str, tuple[float | None, float | None]]:
-    """解析 THS 新长表资产负债表 → {报告期: (equity, assets)}"""
-    balance_map: dict[str, tuple[float | None, float | None]] = {}
+def _parse_debt_new(bs_df: Any) -> dict[str, tuple[float | None, float | None, float | None]]:
+    """解析 THS 新长表资产负债表 → {报告期: (equity, assets, common_equity)}
+
+    common_equity 为普通股东权益（所有者权益 − 其他权益工具 − 优先股），
+    PB 口径与市场惯例（腾讯/东财）一致；相关指标缺失时等于 equity。
+    """
+    balance_map: dict[str, tuple[float | None, float | None, float | None]] = {}
     per_date: dict[str, dict[str, float | None]] = {}
     for _, row in bs_df.iterrows():
         period = str(row.get("report_date", ""))
@@ -262,13 +266,18 @@ def _parse_debt_new(bs_df: Any) -> dict[str, tuple[float | None, float | None]]:
         except ValueError:
             continue
         name = str(row.get("metric_name", ""))
-        if name in ("assets_total", "holder_equity_total", "debt_and_equity_total"):
+        if name in ("assets_total", "holder_equity_total", "debt_and_equity_total",
+                    "other_equity_tools", "preferred_stock"):
             per_date.setdefault(period_date, {})[name] = parse_cn_number(row.get("value"))
     for period_date, vals in per_date.items():
         assets = vals.get("assets_total")
         if assets is None:
             assets = vals.get("debt_and_equity_total")
-        balance_map[period_date] = (vals.get("holder_equity_total"), assets)
+        equity = vals.get("holder_equity_total")
+        common = equity
+        if equity is not None:
+            common = equity - (vals.get("other_equity_tools") or 0.0) - (vals.get("preferred_stock") or 0.0)
+        balance_map[period_date] = (equity, assets, common)
     return balance_map
 
 
@@ -381,27 +390,29 @@ class AkShareAdapter(DataSource):
         df: Any = ak.stock_financial_abstract_ths(symbol=symbol)
 
         # 从资产负债表端点补充 total_equity / total_assets（同花顺源，非东方财富）
-        balance_map: dict[str, tuple[float | None, float | None]] = {}
+        # 新版长表优先（含其他权益工具 → 普通股东权益 common_equity，PB 口径对齐市场惯例）
+        balance_map: dict[str, tuple[float | None, float | None, float | None]] = {}
         try:
-            bs_df: Any = ak.stock_financial_debt_ths(symbol=symbol)
-            for _, row in bs_df.iterrows():
-                period_str = str(row.get("报告期", ""))
-                try:
-                    period_date = datetime.strptime(period_str, "%Y-%m-%d").astimezone().date().isoformat()
-                except ValueError:
-                    continue
-                equity = parse_cn_number(row.get("*所有者权益（或股东权益）合计"))
-                assets = parse_cn_number(row.get("*资产合计"))
-                # 若简化版字段为空，尝试 "所有者权益（或股东权益）合计"（无星号版本）
-                if equity is None:
-                    equity = parse_cn_number(row.get("所有者权益（或股东权益）合计"))
-                if assets is None:
-                    assets = parse_cn_number(row.get("资产合计"))
-                balance_map[period_date] = (equity, assets)
+            balance_map = _parse_debt_new(ak.stock_financial_debt_new_ths(symbol=symbol))
         except Exception:
-            logger.debug("旧版资产负债表接口失败，尝试新版长表接口")
+            logger.debug("新版长表资产负债表接口失败，尝试旧版接口")
             try:
-                balance_map = _parse_debt_new(ak.stock_financial_debt_new_ths(symbol=symbol))
+                bs_df: Any = ak.stock_financial_debt_ths(symbol=symbol)
+                for _, row in bs_df.iterrows():
+                    period_str = str(row.get("报告期", ""))
+                    try:
+                        period_date = datetime.strptime(period_str, "%Y-%m-%d").astimezone().date().isoformat()
+                    except ValueError:
+                        continue
+                    equity = parse_cn_number(row.get("*所有者权益（或股东权益）合计"))
+                    assets = parse_cn_number(row.get("*资产合计"))
+                    # 若简化版字段为空，尝试 "所有者权益（或股东权益）合计"（无星号版本）
+                    if equity is None:
+                        equity = parse_cn_number(row.get("所有者权益（或股东权益）合计"))
+                    if assets is None:
+                        assets = parse_cn_number(row.get("资产合计"))
+                    # 旧表无法解析其他权益工具，common_equity 留空（PB 回退 total_equity）
+                    balance_map[period_date] = (equity, assets, None)
             except Exception:
                 logger.debug("资产负债表数据获取失败，将使用利润表数据")
 
@@ -448,9 +459,10 @@ class AkShareAdapter(DataSource):
                 elif ocf_per_share is not None:
                     ocf = ocf_per_share  # 降级：无法反推总股本时保留 per-share 值
 
-                # 从资产负债表映射中获取净资产和总资产
+                # 从资产负债表映射中获取净资产、普通股东权益和总资产
                 date_key = fiscal_date.isoformat()
-                total_equity, total_assets = balance_map.get(date_key, (None, None))
+                total_equity, total_assets, common_equity = balance_map.get(
+                    date_key, (None, None, None))
 
                 results.append(FinancialData(
                     symbol=symbol,
@@ -460,6 +472,7 @@ class AkShareAdapter(DataSource):
                     deducted_net_profit=deducted,
                     total_assets=total_assets,
                     total_equity=total_equity,
+                    common_equity=common_equity,
                     operating_cash_flow=ocf,
                     roe=roe,
                     gross_margin=net_margin,

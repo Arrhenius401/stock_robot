@@ -361,6 +361,47 @@ class TestTTMCumulative:
         assert ttm_profit == pytest.approx(40e8)
         assert ttm_revenue == pytest.approx(400e8)
 
+    def test_pb_uses_common_equity_when_available(self, mocker):
+        """PB 序列分母优先普通股东权益（剔除永续债），对齐腾讯实测口径"""
+        prices = make_price_series(200, close=10.0)
+        financials = make_financial_data(4)
+        for f in financials:
+            f.net_profit = 10e8
+            f.total_equity = 5482.14e8
+            f.common_equity = 4682.14e8
+        ctx = AnalysisContext(symbol="000001", name="测试",
+                              price_data=prices, financial_data=financials)
+        ctx.valuation_data = ValuationData(
+            symbol="000001", date=datetime.now().astimezone().date(),
+            pe_ttm=8.0, pb=None, ps_ttm=None)
+        mocker.patch("data.enrichers.valuation_enricher.get_total_shares")
+        ctx = PriceEnricher().enrich(ctx)
+        ctx = FinancialEnricher().enrich(ctx)
+        ctx = ValuationEnricher().enrich(ctx)
+        assert ctx.enriched_valuation is not None
+        # 锚定股本 = 8.0×40亿/10.0 = 32 亿股；PB = 32亿×10 ÷ 4682.14亿（common）
+        assert ctx.enriched_valuation.daily_points[0].pb == pytest.approx(32e8 * 10.0 / 4682.14e8)
+
+    def test_pb_falls_back_total_equity_without_common(self, mocker):
+        """无 common_equity（旧表回退路径）时 PB 分母用 total_equity"""
+        prices = make_price_series(200, close=10.0)
+        financials = make_financial_data(4)
+        for f in financials:
+            f.net_profit = 10e8
+            f.total_equity = 5482.14e8
+            f.common_equity = None
+        ctx = AnalysisContext(symbol="000001", name="测试",
+                              price_data=prices, financial_data=financials)
+        ctx.valuation_data = ValuationData(
+            symbol="000001", date=datetime.now().astimezone().date(),
+            pe_ttm=8.0, pb=None, ps_ttm=None)
+        mocker.patch("data.enrichers.valuation_enricher.get_total_shares")
+        ctx = PriceEnricher().enrich(ctx)
+        ctx = FinancialEnricher().enrich(ctx)
+        ctx = ValuationEnricher().enrich(ctx)
+        assert ctx.enriched_valuation is not None
+        assert ctx.enriched_valuation.daily_points[0].pb == pytest.approx(32e8 * 10.0 / 5482.14e8)
+
     def test_negative_aligned_ttm_returns_none(self):
         """跨年对齐 TTM 非正时返回 None（财务异常交由调用方判 INSUFFICIENT）"""
         from data.enrichers.valuation_enricher import _compute_ttm

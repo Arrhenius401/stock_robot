@@ -116,7 +116,9 @@ class ValuationEnricher(DataEnricher):
             )
             return ctx
 
-        ttm_equity = max(financials, key=lambda x: x.fiscal_quarter).total_equity  # 最近一期净资产
+        # 最近一期净资产：PB 分母优先普通股东权益（剔除永续债，对齐腾讯实测口径）
+        latest_fin = max(financials, key=lambda x: x.fiscal_quarter)
+        ttm_equity = latest_fin.common_equity or latest_fin.total_equity
 
         if ttm_profit <= 0 or ttm_equity is None or ttm_equity <= 0:
             ctx.sufficiency.valuation = DimensionSufficiency(

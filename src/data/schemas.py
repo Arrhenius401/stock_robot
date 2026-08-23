@@ -125,6 +125,7 @@ class FinancialData(BaseModel):
     deducted_net_profit: float | None = None  # 扣非净利润
     total_assets: float | None = None
     total_equity: float | None = None
+    common_equity: float | None = None  # 普通股东权益（剔除永续债/优先股），PB 口径对齐市场惯例
     operating_cash_flow: float | None = None
     roe: float | None = None
     gross_margin: float | None = None
