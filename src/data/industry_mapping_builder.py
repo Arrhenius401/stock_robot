@@ -275,3 +275,34 @@ def update_symbol(symbol: str) -> dict:
                 "更新" if updated else "新增")
     return {"symbol": symbol, "sw_level1": level1, "sw_level2": level2,
             "style_category": style, "action": "updated" if updated else "inserted"}
+
+
+def backfill_symbol(symbol: str, industry: str) -> bool:
+    """在线回填：把采集层观测到的行业名写入映射表占位行
+
+    仅覆盖"综合"/空占位行或追加不存在行（新股）；已有申万分类的行不动，
+    防止东财口径污染 legulegu 官方口径。返回是否发生更新。
+    """
+    if not industry or industry == "未知":
+        return False
+    style_map = _load_style_mapping()
+    style = style_map.get(industry, "高端制造")
+
+    path = _csv_path()
+    rows: list[dict] = []
+    updated = False
+    if path.exists():
+        with open(path, "r", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                if row["symbol"] == symbol and row["sw_level1"] in ("", "综合"):
+                    row["sw_level1"], row["style_category"] = industry, style
+                    updated = True
+                rows.append(row)
+    if not updated and not any(r["symbol"] == symbol for r in rows):
+        rows.append({"symbol": symbol, "sw_level1": industry,
+                     "sw_level2": "", "style_category": style})
+        updated = True
+    if updated:
+        _write_csv(rows)
+        logger.info("行业映射在线回填 %s → %s", symbol, industry)
+    return updated

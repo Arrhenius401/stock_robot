@@ -161,6 +161,12 @@ class Pipeline:
                 self._config_loader.config_dir / "申万_大类_映射.yaml"
             )
             ctx.style_category = mapping.get(real_industry, "高端制造")
+            # 在线回填：把观测沉淀到映射表占位行（失败不影响分析）
+            try:
+                from data.industry_mapping_builder import backfill_symbol
+                backfill_symbol(symbol, real_industry)
+            except Exception:  # noqa: BLE001 — 回填失败不阻断分析流程
+                logger.debug("行业映射在线回填失败 %s", symbol)
 
         return ctx
 

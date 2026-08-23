@@ -96,3 +96,30 @@ def test_degenerate_result_counts_as_failure(tmp_path, mocker):
     assert pipe._breaker.is_open("000001", "industry") is True
     # 退化数据未落缓存（_get_cached 返回 None）
     assert pipe._get_cached("000001", "industry") is None
+
+
+def test_pipeline_backfills_placeholder_industry(tmp_path, mocker):
+    """占位行业 + 采集层真实行业 → 在线回填映射表；非占位不触发"""
+    from data.industry_classifier import IndustryClassification
+
+    mocker.patch("core.pipeline.time.sleep")
+    # 分类器返回占位"综合"（模拟重建前映射表状态）
+    fake_cls = mocker.patch("data.industry_classifier.IndustryClassifier").return_value
+    fake_cls.lookup.return_value = IndustryClassification(
+        symbol="000001", sw_level1="综合", sw_level2="", style_category="高端制造")
+    # backfill 模块 mock 掉，避免真实写 data/industry_mapping.csv
+    backfill = mocker.patch("data.industry_mapping_builder.backfill_symbol",
+                            return_value=True)
+
+    ind = IndustryData(symbol="000001", industry="银行", sector="金融",
+                       peers=[], top_peers=[])
+    source = FakeSource({"industry": [ind], "price": [], "financial": [],
+                         "valuation": [], "news": []})
+    reg = Registry()
+    reg.register_data_source(source)
+    pipe = Pipeline(registry=reg, config=Config(config_dir=tmp_path), llm_enabled=False)
+
+    ctx = pipe.collect("000001", "平安银行")
+    assert ctx.sw_industry == "银行"
+    assert ctx.style_category == "大金融"
+    backfill.assert_called_once_with("000001", "银行")
