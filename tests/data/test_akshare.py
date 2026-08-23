@@ -292,6 +292,7 @@ def test_parse_debt_new_long_table(mocker):
 def test_parse_debt_new_extracts_common_equity():
     """长表解析出普通股东权益（所有者权益 − 其他权益工具 − 优先股），PB 口径对齐市场惯例"""
     import pandas as pd
+
     from data.akshare import _parse_debt_new
 
     long_df = pd.DataFrame({
@@ -311,6 +312,7 @@ def test_parse_debt_new_extracts_common_equity():
 def test_fetch_financial_prefers_new_debt_table(mocker):
     """资产负债表链改为新表优先：新表含其他权益工具，common_equity 可解析"""
     import pandas as pd
+
     from data.akshare import AkShareAdapter
 
     long_df = pd.DataFrame({
@@ -337,6 +339,7 @@ def test_fetch_financial_prefers_new_debt_table(mocker):
 def test_fetch_financial_new_table_fail_falls_back_old(mocker):
     """新表失败时回退旧表，common_equity 留空（PB 回退 total_equity）"""
     import pandas as pd
+
     from data.akshare import AkShareAdapter
 
     mocker.patch("akshare.stock_financial_debt_new_ths",
@@ -395,3 +398,34 @@ def test_fetch_news_notice_fail_keeps_news(mocker):
     results = AkShareAdapter()._fetch_news("000001")
     raw = results[0]._raw_sentiment
     assert {item.source for item in raw.items} == {"news"}
+
+
+class TestFetchSwPeers:
+    def test_returns_peers(self, mocker):
+        from data.akshare import _fetch_sw_peers
+
+        mocker.patch("data.industry_mapping_builder.fetch_taxonomy",
+                     return_value=(
+                         {"种植业": "农林牧渔"},
+                         {"850111.SI": ("种子", "种植业"),
+                          "850121.SI": ("海洋捕捞", "渔业")},
+                     ))
+        mocker.patch("data.industry_mapping_builder.fetch_constituents",
+                     return_value=[
+                         {"symbol": "000998", "name": "隆平高科", "level2": "种植业",
+                          "pe_ttm": 88.5, "pb": 6.2, "market_cap": 310.4},
+                         {"symbol": "600097", "name": "开创国际", "level2": "渔业",
+                          "pe_ttm": None, "pb": None, "market_cap": None},
+                     ])
+        peers = _fetch_sw_peers("种植业")
+        assert len(peers) == 1  # 无市值的开创国际被过滤
+        assert peers[0]["symbol"] == "000998"
+        assert peers[0]["market_cap"] == pytest.approx(310.4e8)  # 亿元 → 元
+        assert peers[0]["pe_ttm"] == 88.5
+
+    def test_no_match_returns_empty(self, mocker):
+        from data.akshare import _fetch_sw_peers
+
+        mocker.patch("data.industry_mapping_builder.fetch_taxonomy",
+                     return_value=({"种植业": "农林牧渔"}, {}))
+        assert _fetch_sw_peers("量子计算") == []

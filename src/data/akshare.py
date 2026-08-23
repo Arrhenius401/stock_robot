@@ -143,111 +143,44 @@ def _fetch_sw_peers(industry_name: str) -> list[dict[str, Any]]:
     """通过申万行业分类获取同行股票（含 PE/PB/市值，来源 legulegu.com）
     返回 list[dict]，每个 dict 包含: symbol, name, market_cap, pe_ttm, pb
     """
-    from io import StringIO as _StringIO
+    from data.industry_mapping_builder import fetch_constituents, fetch_taxonomy
 
-    import pandas as _pd
-    import requests as _req
-    from bs4 import BeautifulSoup as _BeautifulSoup
-
-    # 第一步：获取申万三级行业代码列表（带浏览器请求头，绕过 Cloudflare）
-    sw_codes_map: dict[str, list[str]] = {}  # broad_name -> [SW codes]
+    # 第一步：申万行业树（新版页面解析，旧版 id="level3Items" 结构已移除）
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml",
-            "Accept-Language": "zh-CN,zh;q=0.9",
-            "Referer": "https://legulegu.com/",
-        }
-        url = "https://legulegu.com/stockdata/sw-industry-overview"
-        resp = _req.get(url, headers=headers, timeout=15)
-        soup = _BeautifulSoup(resp.text, "html.parser")
-        level3 = soup.find("div", id="level3Items")
-        if level3:
-            code_items = level3.find_all("div", class_="lg-industries-item-chinese-title")
-            name_items = level3.find_all("div", class_="lg-industries-item-number")
-            codes = [item.get_text().strip() for item in code_items]
-            for code, name_item in zip(codes, name_items):
-                full_text = name_item.get_text()
-                parent_name = ""
-                # 提取上级行业名称（格式: "行业名(成分数)" 或 "行业名（成分数）"）
-                span = name_item.find("span")
-                if span:
-                    parent_name = span.get_text().strip(" ()（）")
-                    # 去掉最后的 ( ) 中内容
-                    if "(" in parent_name:
-                        parent_name = parent_name.rsplit("(", 1)[0].strip()
-                    if "（" in parent_name:
-                        parent_name = parent_name.rsplit("（", 1)[0].strip()
-                # 尝试从上级行业名匹配；也尝试从行业名称匹配
-                # 行业名称格式: 行业名Ⅲ(成分数)，取行业名部分
-                industry_detail = full_text.split("(")[0].split("（")[0].strip()
-                # 去掉 Ⅲ、Ⅱ、Ⅰ 后缀
-                broad = industry_detail.rstrip("ⅢⅡⅠ")
-                if broad not in sw_codes_map:
-                    sw_codes_map[broad] = []
-                sw_codes_map[broad].append(code)
-    except Exception:
-        logger.warning("无法获取申万行业列表，将使用回退方案")
+        _, level3_map = fetch_taxonomy()
+    except Exception as e:
+        logger.warning("无法获取申万行业列表: %s", e)
+        return []
 
-    # 在映射表中模糊匹配
+    # 三级行业名/二级名模糊匹配（level3_map 含名称与归属）
     matched_codes = []
-    for broad, codes in sw_codes_map.items():
-        if industry_name in broad or broad in industry_name:
-            matched_codes.extend(codes)
-
-    # 去重
+    for code, (name, parent) in level3_map.items():
+        if industry_name in name or industry_name in parent or name in industry_name:
+            matched_codes.append(code)
     matched_codes = list(set(matched_codes))
 
     if not matched_codes:
-        logger.info(f"未找到与 '{industry_name}' 匹配的申万行业")
+        logger.info("未找到与 '%s' 匹配的申万行业", industry_name)
         return []
 
-    # 第二步：从 legulegu.com 直接抓取成分股数据
+    # 第二步：成分股（含 PE/PB/市值，市值单位亿元 → 元）
     peers: list[dict[str, Any]] = []
     for sw_code in matched_codes:
         try:
-            url = f"https://legulegu.com/stockdata/index-composition?industryCode={sw_code}"
-            resp = _req.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-            dfs = _pd.read_html(_StringIO(resp.text))
-            if not dfs:
-                continue
-            df = dfs[0]
-
-            # 清理列名（去掉网站注入的 JSON-LD schema.org 标记）
-            clean_cols = {}
-            for col in df.columns:
-                col_str = str(col)
-                if "  " in col_str:
-                    clean_cols[col] = col_str.split("  ")[0].strip()
-            df.rename(columns=clean_cols, inplace=True)
-
-            for _, row in df.iterrows():
-                try:
-                    code = str(row.get("股票代码", ""))
-                    name = str(row.get("股票简称", ""))
-                    if not code or any(tag in name for tag in ("ST", "退市", "PT")):
-                        continue
-                    # 股票代码格式: 601398.SH → 去掉后缀
-                    if "." in code:
-                        code = code.split(".")[0]
-
-                    mcap_raw: Any = row.get("市值（亿元）")
-                    pe_raw: Any = row.get("市盈率ttm")
-                    pb_raw: Any = row.get("市净率")
-
-                    peers.append({
-                        "symbol": code,
-                        "name": name,
-                        "market_cap": float(mcap_raw) * 1e8 if mcap_raw is not None and str(mcap_raw) not in ("nan", "") else None,
-                        "pe_ttm": float(pe_raw) if pe_raw is not None and str(pe_raw) not in ("nan", "") else None,
-                        "pb": float(pb_raw) if pb_raw is not None and str(pb_raw) not in ("nan", "") else None,
-                    })
-                except (ValueError, TypeError):
-                    continue
-        except Exception:
-            logger.warning(f"获取申万行业成分股失败: {sw_code}")
+            stocks = fetch_constituents(sw_code)
+        except Exception as e:
+            logger.warning("获取申万行业成分股失败 %s: %s", sw_code, e)
             continue
-
+        for s in stocks:
+            if s["market_cap"] is None:
+                continue
+            peers.append({
+                "symbol": s["symbol"],
+                "name": s["name"],
+                "market_cap": s["market_cap"] * 1e8,
+                "pe_ttm": s["pe_ttm"],
+                "pb": s["pb"],
+            })
     return peers
 
 
