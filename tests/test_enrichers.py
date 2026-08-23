@@ -126,7 +126,8 @@ def make_price_series(n: int, close: float = 10.0) -> list[PriceData]:
 class TestValuationEnricher:
     def test_insufficient_when_price_partial(self):
         """行情数据不足 60 条时，估值标记为 insufficient"""
-        prices = make_price_series(30)
+        # 29 条：价格维度仍为 partial（20-59），但有效估值点数 29 < 30 → 估值 insufficient
+        prices = make_price_series(29)
         financials = make_financial_data(4)
         ctx = AnalysisContext(symbol="000001", name="测试",
                               price_data=prices, financial_data=financials)
@@ -226,3 +227,49 @@ class TestSentimentEnricher:
         ctx = PriceEnricher().enrich(ctx)
         ctx = SentimentEnricher().enrich(ctx)
         assert ctx.sufficiency.sentiment.level == SufficiencyLevel.INSUFFICIENT
+
+
+class TestValuationAnchoring:
+    def test_anchor_shares_from_measured_pe(self):
+        """实测 PE 存在时反推总股本锚点，历史序列用锚点重算"""
+        prices = make_price_series(200, close=10.0)
+        financials = make_financial_data(4)
+        # 使 TTM 净利润 = 40 亿：最近4期各 10 亿（make_financial_data 结构见文件头部）
+        for f in financials:
+            f.net_profit = 10e8
+            f.total_equity = 200e8
+        ctx = AnalysisContext(symbol="000001", name="测试",
+                              price_data=prices, financial_data=financials)
+        ctx.valuation_data = ValuationData(
+            symbol="000001", date=datetime.now().astimezone().date(),
+            pe_ttm=8.0, pb=1.6, ps_ttm=None)
+        ctx = PriceEnricher().enrich(ctx)
+        ctx = FinancialEnricher().enrich(ctx)
+        ctx = ValuationEnricher().enrich(ctx)
+        # 锚点：shares = 8.0 * 40亿 / 10.0 = 32 亿股
+        # 序列首点 PE = 32亿 * 10.0 / 40亿 = 8.0
+        assert ctx.enriched_valuation is not None
+        assert ctx.enriched_valuation.daily_points[0].pe == 8.0
+        assert ctx.enriched_valuation.pe_percentile is not None
+        # 实测锚定 → 标记为已校验
+        assert ctx.enriched_valuation.validated is True
+
+    def test_no_measured_pe_uses_chain_shares(self, mocker):
+        """无实测 PE 时用 get_total_shares 链估算，标记未经校验"""
+        prices = make_price_series(200, close=10.0)
+        financials = make_financial_data(4)
+        for f in financials:
+            f.net_profit = 10e8
+            f.total_equity = 200e8
+        ctx = AnalysisContext(symbol="000001", name="测试",
+                              price_data=prices, financial_data=financials)
+        # valuation_data 为空（快照失败）
+        mocker.patch("data.enrichers.valuation_enricher.get_total_shares",
+                     return_value=32e8)
+        ctx = PriceEnricher().enrich(ctx)
+        ctx = FinancialEnricher().enrich(ctx)
+        ctx = ValuationEnricher().enrich(ctx)
+        assert ctx.enriched_valuation is not None
+        assert ctx.enriched_valuation.daily_points[0].pe == 8.0
+        # 未经校验标记（enriched_valuation 增加字段 validated: bool = False）
+        assert ctx.enriched_valuation.validated is False

@@ -2,6 +2,7 @@
 import logging
 from statistics import median
 
+from data.akshare import get_total_shares
 from data.enricher import DataEnricher
 from data.schemas import (
     AnalysisContext,
@@ -69,7 +70,7 @@ class ValuationEnricher(DataEnricher):
             )
             return ctx
 
-        # 获取总股本
+        # 获取总股本（实测锚定优先）
         total_shares = self._get_total_shares(ctx)
 
         # 逐日推导估值
@@ -142,6 +143,7 @@ class ValuationEnricher(DataEnricher):
             pe_median=median(pe_values) if pe_values else None,
             pe_high=max(pe_values) if pe_values else None,
             pe_low=min(pe_values) if pe_values else None,
+            validated=ctx.valuation_data is not None and ctx.valuation_data.pe_ttm is not None,
         )
 
         ctx.sufficiency.valuation = DimensionSufficiency(
@@ -150,26 +152,26 @@ class ValuationEnricher(DataEnricher):
         return ctx
 
     def _get_total_shares(self, ctx: AnalysisContext) -> float | None:
-        """获取总股本"""
-        try:
-            from data.akshare import get_individual_info
-            from utils.numbers import parse_cn_number
-            info = get_individual_info(ctx.symbol)
-            # 雪球源: reg_asset, 东方财富源: 总股本
-            for key in ("reg_asset", "总股本"):
-                val = info.get(key)
-                if val is not None:
-                    return parse_cn_number(str(val))
-        except Exception:  # noqa: BLE001 — 总股本获取失败回退财报反推
-            logger.debug("总股本获取失败，回退财报反推")
-        # 回退：从最近一期财报反推
-        financials = sorted(ctx.financial_data or [], key=lambda x: x.fiscal_quarter)
-        if financials:
-            latest = financials[-1]
-            if latest.total_equity and latest.total_equity > 0 and ctx.valuation_data and ctx.valuation_data.pb and ctx.valuation_data.pb > 0:
-                sorted_prices = sorted(ctx.price_data or [], key=lambda x: x.trade_date)
-                if sorted_prices:
-                    avg_price = sum(p.close for p in sorted_prices[-20:]) / min(20, len(sorted_prices))
-                    if avg_price > 0:
-                        return latest.total_equity * ctx.valuation_data.pb / avg_price
-        return None
+        """总股本：实测 PE 反推锚点优先，其次三级链"""
+        # 实测锚定：估值数据来自腾讯快照（独立口径），锚定计算只用内存数据
+        measured_pe = ctx.valuation_data.pe_ttm if ctx.valuation_data else None
+        if measured_pe is not None and measured_pe > 0:
+            sorted_prices = sorted(ctx.price_data or [], key=lambda x: x.trade_date)
+            if sorted_prices:
+                latest_close = sorted_prices[-1].close
+                if latest_close > 0:
+                    anchor = measured_pe * self._ttm_profit(ctx) / latest_close
+                    if anchor > 0:
+                        estimated = get_total_shares(ctx.symbol, ctx.financial_data)
+                        if estimated and abs(estimated - anchor) / anchor > 0.15:
+                            logger.warning(
+                                f"{ctx.symbol} 总股本估算偏差 >15%: 估算 {estimated:.2e} vs 锚定 {anchor:.2e}"
+                            )
+                        return anchor
+        # 无实测 PE（快照失败）：三级链估算
+        return get_total_shares(ctx.symbol, ctx.financial_data)
+
+    def _ttm_profit(self, ctx: AnalysisContext) -> float:
+        """近 4 期净利润之和（TTM 口径）"""
+        sorted_fin = sorted(ctx.financial_data or [], key=lambda x: x.fiscal_quarter)
+        return sum(f.net_profit for f in sorted_fin[-4:] if f.net_profit is not None)

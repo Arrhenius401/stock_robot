@@ -119,21 +119,6 @@ def _ak_news(symbol):
 
 
 @retry_on_network_error()
-def _ak_individual_spot_xq(symbol):
-    """单只股票行情接口（雪球，轻量，替代全市场扫描）
-
-    注：估值采集已迁移至腾讯快照，本函数仅为 industry_enricher 的
-    _fetch_peer_valuation 保留（同行补查，Task 7 迁移后删除）。
-    """
-    # 雪球 symbol 格式: SH600000 / SZ000001
-    if symbol.startswith("6"):
-        xq_symbol = f"SH{symbol}"
-    else:
-        xq_symbol = f"SZ{symbol}"
-    return ak.stock_individual_spot_xq(symbol=xq_symbol)
-
-
-@retry_on_network_error()
 def _ak_board_industry_cons_em(symbol):
     """行业板块成分股接口（带重试）"""
     return ak.stock_board_industry_cons_em(symbol=symbol)

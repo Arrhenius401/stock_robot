@@ -54,6 +54,7 @@ class EnrichedValuation(BaseModel):
     pe_median: float | None = None
     pe_high: float | None = None
     pe_low: float | None = None
+    validated: bool = False  # 是否经实测 PE 锚定校验
 
 
 class PeerComparison(BaseModel):
