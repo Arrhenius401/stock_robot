@@ -623,42 +623,20 @@ class AkShareAdapter(DataSource):
         except Exception as e:
             logger.warning(f"新闻数据获取失败: {e}")
 
-        # 拉取公告（stock_notice_report 的 symbol 参数是报告类型而非股票代码）
+        # 拉取公告（个股接口，直接按代码过滤，替代全市场拉取再过滤）
         try:
-            today_str = today.strftime("%Y%m%d")
-            announce_df: Any = ak.stock_notice_report(symbol="全部", date=today_str)
-            if announce_df is not None and not announce_df.empty:
-                cols = list(announce_df.columns)
-                # 探测列名映射
-                title_col = None
-                code_col = None
-                date_col = None
-                for c in cols:
-                    c_str = str(c)
-                    if "标题" in c_str or "title" in c_str.lower():
-                        title_col = c
-                    elif "代码" in c_str or "code" in c_str.lower() or "symbol" in c_str.lower():
-                        code_col = c
-                    elif "日期" in c_str or "date" in c_str.lower():
-                        date_col = c
-                if title_col is None:
-                    title_col = cols[0]
-
-                for _, row in announce_df.head(30).iterrows():
-                    # 按股票代码过滤
-                    if code_col:
-                        cell_code = str(row.get(code_col, ""))
-                        if symbol not in cell_code:
-                            continue
-
-                    title = str(row.get(title_col, ""))
+            notice_df: Any = ak.stock_individual_notice_report(security=symbol)
+            if notice_df is not None and not notice_df.empty:
+                for _, row in notice_df.head(20).iterrows():
+                    title = str(row.get("公告标题", "") or row.get("标题", ""))
                     if not title or title in seen_titles:
                         continue
                     seen_titles.add(title)
                     pub_date = today
-                    if date_col:
+                    raw_date = row.get("公告日期", "") or row.get("日期", "")
+                    if raw_date:
                         try:
-                            pub_date = datetime.strptime(str(row[date_col])[:10], "%Y-%m-%d").astimezone().date()
+                            pub_date = datetime.strptime(str(raw_date)[:10], "%Y-%m-%d").astimezone().date()
                         except (ValueError, TypeError):
                             logger.debug("公告日期解析失败，使用今天日期")
                     if pub_date >= start_date:

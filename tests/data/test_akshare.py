@@ -276,3 +276,45 @@ def test_parse_debt_new_long_table(mocker):
     results = AkShareAdapter()._fetch_financial("000001")
     assert results[0].total_assets == pytest.approx(6030000000000.0)
     assert results[0].total_equity == pytest.approx(548214000000.0)
+
+
+def test_fetch_news_uses_individual_notice(mocker):
+    """公告使用个股接口，失败时仅新闻不报错"""
+    import pandas as pd
+
+    news_df = pd.DataFrame({
+        "关键词": ["000001"], "新闻标题": ["测试新闻"], "新闻内容": ["内容"],
+        "发布时间": ["2026-08-23 10:00:00"],
+    })
+    notice_df = pd.DataFrame({
+        "代码": ["000001"], "名称": ["平安银行"],
+        "公告标题": ["平安银行:关于职工董事任职资格核准的公告"],
+        "公告类型": ["高管人员任职变动"], "公告日期": ["2026-08-22"],
+    })
+    mocker.patch("data.akshare._ak_news", return_value=news_df)
+    mocker.patch("akshare.stock_individual_notice_report", return_value=notice_df)
+    from data.akshare import AkShareAdapter
+
+    results = AkShareAdapter()._fetch_news("000001")
+    raw = results[0]._raw_sentiment
+    sources = {item.source for item in raw.items}
+    assert "news" in sources and "announcement" in sources
+    assert any("职工董事" in item.title for item in raw.items)
+
+
+def test_fetch_news_notice_fail_keeps_news(mocker):
+    """公告接口失败时仅新闻，不抛异常"""
+    import pandas as pd
+
+    news_df = pd.DataFrame({
+        "关键词": ["000001"], "新闻标题": ["测试新闻"], "新闻内容": ["内容"],
+        "发布时间": ["2026-08-23 10:00:00"],
+    })
+    mocker.patch("data.akshare._ak_news", return_value=news_df)
+    mocker.patch("akshare.stock_individual_notice_report",
+                 side_effect=ConnectionError("mock"))
+    from data.akshare import AkShareAdapter
+
+    results = AkShareAdapter()._fetch_news("000001")
+    raw = results[0]._raw_sentiment
+    assert {item.source for item in raw.items} == {"news"}
