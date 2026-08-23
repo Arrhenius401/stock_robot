@@ -49,7 +49,7 @@ class TestGetTotalShares:
         assert get_total_shares("000001", financials) == pytest.approx(25695999999.999996 / 1.324)
 
     def test_reject_single_quarter_eps(self, mocker):
-        """财报反推必须用累计口径：net_profit 为累计时 basic_eps 也须为累计"""
+        """财报反推取最新期累计口径：net_profit 与 basic_eps 同期间相除"""
         from data.akshare import get_total_shares
         from data.schemas import FinancialData
         mocker.patch("data.akshare._ak_individual_info_em",
@@ -61,9 +61,23 @@ class TestGetTotalShares:
             fiscal_quarter=datetime.now().astimezone().date(),
             net_profit=13000000000, basic_eps=0.67,
         )]
-        # 单季净利润 130 亿对累计 EPS 0.67 会算出 194 亿股量级——数值约 19403000000
         result = get_total_shares("000001", financials)
-        assert result is not None and result > 1e9  # 合理性：总股本在亿股量级
+        assert result == pytest.approx(13000000000 / 0.67)
+
+    def test_basic_eps_invalid_returns_none(self, mocker):
+        """basic_eps 非正或缺失时财报反推不可用"""
+        from data.akshare import get_total_shares
+        from data.schemas import FinancialData
+        mocker.patch("data.akshare._ak_individual_info_em",
+                     side_effect=ConnectionError("mock"))
+        mocker.patch("data.akshare._ak_daily",
+                     side_effect=ConnectionError("mock"))
+        financials = [FinancialData(
+            symbol="000001",
+            fiscal_quarter=datetime.now().astimezone().date(),
+            net_profit=13000000000, basic_eps=-1,
+        )]
+        assert get_total_shares("000001", financials) is None
 
     def test_all_sources_fail_returns_none(self, mocker):
         """全链失败返回 None"""

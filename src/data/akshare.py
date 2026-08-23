@@ -92,7 +92,8 @@ def get_total_shares(symbol: str, financials: list | None = None) -> float | Non
     if financials:
         fin = sorted(financials, key=lambda x: x.fiscal_quarter)
         latest = fin[-1]
-        if latest.net_profit and latest.basic_eps and latest.basic_eps > 0:
+        # >0 判断统一口径，避免 NaN 真值通过
+        if latest.net_profit is not None and latest.basic_eps is not None and latest.net_profit > 0 and latest.basic_eps > 0:
             return latest.net_profit / latest.basic_eps
     return None
 
