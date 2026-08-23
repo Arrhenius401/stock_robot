@@ -200,6 +200,45 @@ class TestGenerateCommentary:
         assert len(llm.calls) == 1
 
 
+class TestCacheHealth:
+    """缓存健康校验：退化结果不写持久缓存"""
+
+    def _make_pipeline(self, tmp_path, mocker):
+        """构建隔离缓存管道的 Pipeline（缓存 DB 落在 tmp_path）"""
+        from core.pipeline import Pipeline
+        from core.registry import Registry
+        from utils.config import Config
+
+        reg = Registry()
+        cfg = Config(config_dir=tmp_path)
+        return Pipeline(registry=reg, config=cfg, llm_enabled=False)
+
+    def test_industry_unknown_not_cached(self, tmp_path, mocker):
+        """行业未知的结果不写持久缓存"""
+        from data.schemas import IndustryData
+        pipe = self._make_pipeline(tmp_path, mocker)
+        ind = IndustryData(symbol="000001", industry="未知", sector="", peers=[], top_peers=[])
+        pipe._set_cache("000001", "industry", [ind])
+        assert pipe._get_cached("000001", "industry") is None
+
+    def test_healthy_data_is_cached(self, tmp_path, mocker):
+        """健康数据正常缓存"""
+        from data.schemas import IndustryData
+        pipe = self._make_pipeline(tmp_path, mocker)
+        ind = IndustryData(symbol="000001", industry="银行", sector="金融", peers=["600000"], top_peers=[])
+        pipe._set_cache("000001", "industry", [ind])
+        cached = pipe._get_cached("000001", "industry")
+        assert cached is not None and cached[0].industry == "银行"
+
+    def test_financial_all_equity_missing_not_cached(self, tmp_path, mocker):
+        """财务 equity 全缺失不写缓存"""
+        from data.schemas import FinancialData
+        pipe = self._make_pipeline(tmp_path, mocker)
+        fin = FinancialData(symbol="000001", fiscal_quarter=date(2026, 6, 30))
+        pipe._set_cache("000001", "financial", [fin])
+        assert pipe._get_cached("000001", "financial") is None
+
+
 class TestPipelineIndustryIntegration:
     """验证管道已正确集成行业分类和配置驱动打分"""
 

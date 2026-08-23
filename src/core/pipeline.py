@@ -328,7 +328,29 @@ class Pipeline:
         except Exception:  # noqa: BLE001 — 缓存损坏视为未命中
             return None
 
+    def _is_healthy(self, data_type: str, data: list) -> bool:
+        """健康判据：退化结果（空/未知/全缺失）不写持久缓存"""
+        if not data:
+            return False
+        if data_type == "industry":
+            ind = data[0]
+            if getattr(ind, "industry", "") in ("", "未知"):
+                return False
+        elif data_type == "financial":
+            if all(f.total_equity is None and f.total_assets is None for f in data):
+                return False
+        elif data_type == "price":
+            if len(data) < 60:
+                return False
+        elif data_type == "valuation":
+            if all(v.pe_ttm is None and v.pb is None for v in data):
+                return False
+        return True
+
     def _set_cache(self, symbol: str, data_type: str, data: list):
+        if not self._is_healthy(data_type, data):
+            logger.info(f"缓存 {data_type}/{symbol} 数据退化，跳过持久化")
+            return
         date_key = "latest"
         try:
             dicts = []
