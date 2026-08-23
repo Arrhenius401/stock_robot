@@ -434,6 +434,37 @@ def create_app(core=None, sessions=None, push=None):
             logger.error("指数分析失败: %s", e)
             return JSONResponse({"symbol": symbols[0], "error": str(e)}, status_code=500)
 
+    @app.post("/api/v1/industry-mapping/update")
+    async def industry_mapping_update(request: Request):
+        body = await request.json()
+        symbol = str(body.get("symbol", "")).strip()
+        if not symbol:
+            raise HTTPException(status_code=422, detail="symbol 不能为空")
+
+        from data.industry_mapping_builder import IndustryMappingError, update_symbol
+        from utils.symbols import normalize_symbol, validate_symbol
+        if not validate_symbol(symbol):
+            raise HTTPException(status_code=422, detail=f"无效的股票代码: {symbol}")
+        symbol = normalize_symbol(symbol)
+
+        try:
+            result = await asyncio.to_thread(update_symbol, symbol)
+            return JSONResponse(_json_safe(result))
+        except IndustryMappingError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from e
+
+    @app.get("/api/v1/industry-mapping/{symbol}")
+    async def industry_mapping_get(symbol: str):
+        from data.industry_classifier import IndustryClassifier
+
+        classification = await asyncio.to_thread(IndustryClassifier().lookup, symbol)
+        return JSONResponse({
+            "symbol": symbol,
+            "sw_level1": classification.sw_level1,
+            "sw_level2": classification.sw_level2,
+            "style_category": classification.style_category,
+        })
+
     @app.get("/api/v1/sessions")
     async def list_sessions():
         if sessions is None:

@@ -8,6 +8,7 @@ from agent.tools import ToolProtocol, ToolRegistry, ToolResult
 from api.app import _structured_tool_results, create_app
 from api.bootstrap import AgentCore
 from api.sessions import SessionManager, SessionStore
+from data.industry_mapping_builder import IndustryMappingError
 from tests.agent.fake_chat_model import FakeChatModel
 
 
@@ -729,3 +730,61 @@ class TestNoCoreMode:
     async def test_messages_returns_503(self, empty_client):
         resp = await empty_client.get("/api/v1/sessions/any/messages")
         assert resp.status_code == 503
+
+
+class TestIndustryMappingEndpoint:
+    def test_update_symbol(self, mocker):
+        from fastapi.testclient import TestClient
+
+        from api.app import create_app
+
+        mocker.patch("data.industry_mapping_builder.update_symbol",
+                     return_value={"symbol": "600097", "sw_level1": "农林牧渔",
+                                   "sw_level2": "渔业", "style_category": "必选消费",
+                                   "action": "updated"})
+        app = create_app(core=make_core(), sessions=None)
+        client = TestClient(app)
+        resp = client.post("/api/v1/industry-mapping/update",
+                           json={"symbol": "600097"})
+        assert resp.status_code == 200
+        assert resp.json()["sw_level1"] == "农林牧渔"
+
+    def test_update_missing_symbol(self, mocker):
+        from fastapi.testclient import TestClient
+
+        from api.app import create_app
+
+        mocker.patch("data.industry_mapping_builder.update_symbol",
+                     side_effect=IndustryMappingError("个股页无行业区块，可能未分类"))
+        app = create_app(core=make_core(), sessions=None)
+        client = TestClient(app)
+        resp = client.post("/api/v1/industry-mapping/update",
+                           json={"symbol": "600097"})
+        assert resp.status_code == 404
+        assert "未分类" in resp.json()["detail"]
+
+    def test_update_invalid_symbol(self, mocker):
+        from fastapi.testclient import TestClient
+
+        from api.app import create_app
+
+        app = create_app(core=make_core(), sessions=None)
+        client = TestClient(app)
+        resp = client.post("/api/v1/industry-mapping/update",
+                           json={"symbol": "abc"})
+        assert resp.status_code == 422
+
+    def test_get_symbol(self, mocker):
+        from fastapi.testclient import TestClient
+
+        from api.app import create_app
+
+        mocker.patch("data.industry_classifier.IndustryClassifier.lookup",
+                     return_value=type("C", (), {"sw_level1": "农林牧渔",
+                                                 "sw_level2": "渔业",
+                                                 "style_category": "必选消费"})())
+        app = create_app(core=make_core(), sessions=None)
+        client = TestClient(app)
+        resp = client.get("/api/v1/industry-mapping/600097")
+        assert resp.status_code == 200
+        assert resp.json()["sw_level1"] == "农林牧渔"
