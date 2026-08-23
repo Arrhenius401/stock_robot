@@ -1,4 +1,5 @@
 .superpowers/
+.worktrees/
 .codegraph/
 .claude/
 __pycache__/
