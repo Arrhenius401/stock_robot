@@ -140,6 +140,26 @@ class TestMemory:
         assert m.messages[0] == {"role": "user", "content": "测试问题"}
         assert m.messages[1] == {"role": "assistant", "content": "测试回答"}
 
+    def test_add_message_preserves_store_message_id(self, tmp_path):
+        """持久化层返回的消息 ID 应进入 Memory 并返回给实时事件调用方。"""
+        class MessageStore:
+            def append_message(self, session_id, role, content):
+                assert (session_id, role, content) == ("s1", "tool", "工具结果")
+                return 37
+
+        memory = Memory(
+            facts_path=tmp_path / "facts.json",
+            session_id="s1",
+            message_store=MessageStore(),
+        )
+
+        message_id = memory.add_message("tool", "工具结果")
+
+        assert message_id == 37
+        assert memory.messages == [{
+            "role": "tool", "content": "工具结果", "message_id": 37,
+        }]
+
     def test_add_plan_appends_to_history(self):
         m = Memory()
         plan = Plan(goal="test", steps=[], context_summary="")

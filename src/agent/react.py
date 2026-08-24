@@ -172,14 +172,17 @@ class ReActExecutor:
                     name = entry["tool"] if entry else event.get("name", "tool")
                     status = "error" if output.startswith("错误:") else "success"
                     summary = output[:_SUMMARY_LIMIT]
+                    message_id = self._memory.add_message(
+                        "tool", f"[{name}] {status}: {summary}")
                     tool_calls.append({"tool": name,
                                        "args": entry["args"] if entry else {},
-                                       "status": status, "summary": summary})
-                    self._memory.add_message(
-                        "tool", f"[{name}] {status}: {summary}")
+                                       "status": status, "summary": summary,
+                                       "raw_output": output,
+                                       "message_id": message_id})
                     if on_event:
                         on_event({"type": "tool_result", "run_id": run_id,
-                                  "tool": name, "content": summary})
+                                  "tool": name, "content": summary,
+                                  "message_id": message_id})
             # 必须在关闭 checkpointer 之前读取终态（SQLite 连接关闭后无法查询）
             state = await agent.aget_state(config)
             for msg in reversed(state.values.get("messages", [])):

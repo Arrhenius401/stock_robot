@@ -1,6 +1,8 @@
 """会话管理单元测试"""
+import sqlite3
 import threading
 import time
+from datetime import date
 
 import pytest
 
@@ -26,13 +28,49 @@ class TestSessionStore:
         assert len(sessions) == 1
         assert sessions[0]["session_id"] == "s1"
         assert sessions[0]["title"] == "标题一"
+        assert sessions[0]["title_source"] == "legacy"
         assert sessions[0]["message_count"] == 1
+
+    def test_initialization_migrates_legacy_database_title_source(self, tmp_path):
+        """旧会话库升级后应保留数据并补齐 legacy 来源。"""
+        db_path = tmp_path / "legacy.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE sessions (session_id TEXT PRIMARY KEY, title TEXT NOT NULL, "
+                "created_at REAL NOT NULL, updated_at REAL NOT NULL)"
+            )
+            conn.execute(
+                "INSERT INTO sessions VALUES ('legacy-1', '历史会话', 1.0, 2.0)"
+            )
+        store = SessionStore(db_path)
+        assert store.list_sessions() == [{
+            "session_id": "legacy-1",
+            "title": "历史会话",
+            "title_source": "legacy",
+            "created_at": 1.0,
+            "updated_at": 2.0,
+            "message_count": 0,
+        }]
+
+    def test_automatic_title_update_preserves_manual_title(self, store):
+        """手动标题不得被仅允许自动来源的更新覆盖。"""
+        store.create_session("s1", "初始标题", source="local")
+        assert store.update_title("s1", "我的标题", "manual")
+        assert store.update_title("s1", "LLM 标题", "llm", only_if_automatic=True) is False
+        session = store.list_sessions()[0]
+        assert session["title"] == "我的标题"
+        assert session["title_source"] == "manual"
 
     def test_get_messages_ordered(self, store):
         store.create_session("s1", "t")
-        store.append_message("s1", "user", "第一条")
-        store.append_message("s1", "tool", "第二条")
+        first_id = store.append_message("s1", "user", "第一条")
+        second_id = store.append_message("s1", "tool", "第二条")
         msgs = store.get_messages("s1")
+        assert isinstance(first_id, int) and second_id == first_id + 1
+        assert msgs == [
+            {"message_id": first_id, "role": "user", "content": "第一条"},
+            {"message_id": second_id, "role": "tool", "content": "第二条"},
+        ]
         assert [m["content"] for m in msgs] == ["第一条", "第二条"]
 
     def test_clear_and_delete(self, store):
@@ -44,6 +82,48 @@ class TestSessionStore:
         assert not store.session_exists("s1")
         assert store.list_sessions() == []
 
+    def test_artifact_round_trip_and_clear_or_delete_removes_it(self, store):
+        """成果写入后可读取，并会随会话清空或删除一并移除。"""
+        store.create_session("s1", "t")
+        artifact = store.save_artifact(
+            "s1",
+            kind="stock_report",
+            symbol="000001",
+            payload={"symbol": "000001", "score": {"final": 7.2}},
+        )
+
+        assert artifact["session_id"] == "s1"
+        assert artifact["message_id"] is None
+        assert artifact["kind"] == "stock_report"
+        assert artifact["symbol"] == "000001"
+        assert artifact["payload"] == {"symbol": "000001", "score": {"final": 7.2}}
+        assert isinstance(artifact["created_at"], float)
+        assert artifact["updated_at"] == artifact["created_at"]
+        assert store.list_artifacts("s1") == [artifact]
+        assert store.get_artifact(artifact["artifact_id"]) == artifact
+
+        store.clear_messages("s1")
+        assert store.list_artifacts("s1") == []
+
+        deleted_artifact = store.save_artifact(
+            "s1", kind="stock_report", symbol="000001", payload={}
+        )
+        store.delete_session("s1")
+        assert store.get_artifact(deleted_artifact["artifact_id"]) is None
+
+    def test_artifact_id_is_unique_and_payload_uses_default_string_conversion(self, store):
+        """成果 ID 不重复，日期等非 JSON 原生值按字符串存储。"""
+        store.create_session("s1", "t")
+        first = store.save_artifact(
+            "s1", kind="stock_report", symbol=None, payload={"date": date(2026, 8, 23)}
+        )
+        second = store.save_artifact("s1", kind="stock_report", symbol=None, payload={})
+
+        assert first["artifact_id"] != second["artifact_id"]
+        assert first["payload"] == {"date": "2026-08-23"}
+        assert store.get_artifact(first["artifact_id"])["payload"] == {"date": "2026-08-23"}
+        assert store.get_artifact("missing") is None
+
 
 class TestSessionManager:
     def test_get_or_create_new_session(self, store, facts_path):
@@ -52,7 +132,8 @@ class TestSessionManager:
         assert sid
         assert memory.session_id == sid
         assert store.session_exists(sid)
-        assert store.list_sessions()[0]["title"] == "帮我分析平安银行"
+        assert store.list_sessions()[0]["title"] == "平安银行分析"
+        assert store.list_sessions()[0]["title_source"] == "local"
 
     def test_get_or_create_returns_existing_memory(self, store, facts_path):
         mgr = SessionManager(store, facts_path=facts_path)
@@ -82,6 +163,42 @@ class TestSessionManager:
         assert m1.facts == {"pref": "成长股"}
         assert store.get_messages(sid) == []
 
+    def test_clear_invalidates_inflight_memory_writes(self, store, facts_path):
+        """clear 后旧执行持有的 Memory 不得把迟到消息写回 SQLite。"""
+        mgr = SessionManager(store, facts_path=facts_path)
+        sid, old_memory = mgr.get_or_create(None, "分析平安银行")
+        old_memory.add_message("user", "清空前")
+
+        assert mgr.clear(sid)
+        old_memory.add_message("tool", "清空后迟到工具结果")
+        old_memory.add_message("assistant", "清空后迟到回答")
+        _, new_memory = mgr.get_or_create(sid)
+
+        assert store.get_messages(sid) == []
+        assert old_memory.messages == []
+        assert new_memory is not old_memory
+
+    def test_clear_rejects_artifact_from_invalidated_memory(self, store, facts_path):
+        """旧 Memory 已取得消息 ID 后，clear 必须原子拒绝其迟到成果。"""
+        mgr = SessionManager(store, facts_path=facts_path)
+        sid, old_memory = mgr.get_or_create(None, "分析平安银行")
+        message_id = old_memory.add_message(
+            "tool", "[analyze_stock] success: {'symbol': '000001'}")
+
+        assert isinstance(message_id, int)
+        assert mgr.clear(sid)
+        with pytest.raises(RuntimeError, match="旧会话执行"):
+            mgr.save_artifact(
+                sid,
+                kind="stock_report",
+                symbol="000001",
+                payload={"symbol": "000001"},
+                message_id=message_id,
+                memory=old_memory,
+            )
+
+        assert mgr.get_session_detail(sid) == {"messages": [], "artifacts": []}
+
     def test_delete_session(self, store, facts_path):
         mgr = SessionManager(store, facts_path=facts_path)
         sid, _ = mgr.get_or_create(None, "你好")
@@ -89,12 +206,84 @@ class TestSessionManager:
         assert mgr.delete(sid) is False
         assert mgr.get_memory(sid) is None
 
-    def test_title_truncated_to_20_chars(self, store, facts_path):
+    def test_delete_invalidates_inflight_memory_without_orphans(self, store, facts_path):
+        """delete 后旧执行的迟到消息不得形成无 session 的孤儿记录。"""
         mgr = SessionManager(store, facts_path=facts_path)
-        sid, _ = mgr.get_or_create(None, "x" * 30)
+        sid, old_memory = mgr.get_or_create(None, "分析平安银行")
+
+        assert mgr.delete(sid)
+        old_memory.add_message("tool", "删除后迟到工具结果")
+        old_memory.add_message("assistant", "删除后迟到回答")
+
+        assert store.get_messages(sid) == []
+        assert old_memory.messages == []
+
+    def test_delete_rejects_artifact_from_invalidated_memory(self, store, facts_path):
+        """delete 后旧 Memory 不能通过管理器保存成果。"""
+        mgr = SessionManager(store, facts_path=facts_path)
+        sid, old_memory = mgr.get_or_create(None, "分析平安银行")
+
+        assert mgr.delete(sid)
+        with pytest.raises(RuntimeError, match="旧会话执行"):
+            mgr.save_artifact(
+                sid,
+                kind="stock_report",
+                symbol="000001",
+                payload={"symbol": "000001"},
+                memory=old_memory,
+            )
+        assert store.get_messages(sid) == []
+        assert store.list_artifacts(sid) == []
+
+    def test_title_uses_safe_fallback_for_unknown_request(self, store, facts_path):
+        mgr = SessionManager(store, facts_path=facts_path)
+        sid, _ = mgr.get_or_create(None, "请分析一下" + "x" * 30)
         sessions = store.list_sessions()
         assert sessions[0]["session_id"] == sid
         assert sessions[0]["title"] == "x" * 20
+
+    def test_empty_first_message_uses_default_title(self, store, facts_path):
+        """空首条消息创建默认会话，并标记默认来源。"""
+        mgr = SessionManager(store, facts_path=facts_path)
+        sid, _ = mgr.get_or_create(None, "")
+        session = store.list_sessions()[0]
+        assert session["session_id"] == sid
+        assert session["title"] == "新会话"
+        assert session["title_source"] == "default"
+
+    def test_manager_rename_and_maybe_update_title(self, store, facts_path):
+        """管理器手动改名后，自动标题更新应受到保护。"""
+        mgr = SessionManager(store, facts_path=facts_path)
+        sid, _ = mgr.get_or_create(None, "分析平安银行")
+        assert mgr.rename(sid, "银行跟踪")
+        assert mgr.maybe_update_title(sid, "LLM 标题", "llm") is False
+        session = store.list_sessions()[0]
+        assert session["title"] == "银行跟踪"
+        assert session["title_source"] == "manual"
+
+    def test_get_session_detail_includes_messages_and_artifacts(self, store, facts_path):
+        """详情读取统一返回会话持久化消息和结构化成果。"""
+        mgr = SessionManager(store, facts_path=facts_path)
+        sid, memory = mgr.get_or_create(None, "分析平安银行")
+        memory.add_message("user", "继续分析")
+        artifact = mgr.save_artifact(
+            sid,
+            kind="stock_report",
+            symbol="000001",
+            payload={"symbol": "000001", "score": {"final": 7.2}},
+        )
+
+        assert mgr.get_session_detail("missing") is None
+        message_id = memory.messages[0]["message_id"]
+        assert mgr.get_session_detail(sid) == {
+            "messages": [{
+                "message_id": message_id,
+                "role": "user",
+                "content": "继续分析",
+            }],
+            "artifacts": [artifact],
+        }
+        assert mgr.get_artifact(artifact["artifact_id"]) == artifact
 
     def test_concurrent_get_or_create_same_session(self, store, facts_path):
         mgr = SessionManager(store, facts_path=facts_path)

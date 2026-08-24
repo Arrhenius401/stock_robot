@@ -85,11 +85,19 @@ export const api = {
   deleteSession(id) {
     return request(`/api/v1/sessions/${id}`, { method: "DELETE" });
   },
+  renameSession(id, title) {
+    return request(`/api/v1/sessions/${id}`, {
+      method: "PATCH", body: JSON.stringify({ title }),
+    });
+  },
   clearSession(id) {
     return request(`/api/v1/sessions/${id}/clear`, { method: "POST" });
   },
   getMessages(id) {
     return request(`/api/v1/sessions/${id}/messages`);
+  },
+  getArtifact(sessionId, artifactId) {
+    return request(`/api/v1/sessions/${sessionId}/artifacts/${artifactId}`);
   },
   listTools() {
     return request("/api/v1/tools");

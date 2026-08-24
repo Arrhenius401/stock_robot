@@ -4,9 +4,54 @@ export const store = {
   currentView: "chat",
   reportCache: {},        // symbol -> analyze 报告 JSON
   sessionMessages: {},    // sid -> [{role, content}]
+  sessionArtifacts: {},   // sid -> [artifact]
+  sessionDetails: {},     // sid -> 会话标题、更新时间等列表元数据
+  sessionRuns: {},        // sid -> 尚未结束的流式运行状态
+  sessionRunEpochs: {},   // sid -> clear/delete 后递增，令旧 SSE 运行失效
+  sessionDetailGenerations: {},
+  sessionDetailStale: {}, // sid -> run 完成后需重新读取带 message_id 的服务端详情
+  sessionTombstones: {},
+  sessionListRevision: 0,
+  currentArtifact: null,
+  reportDrawerOpen: false,
 };
 
 export const bus = new EventTarget();
+
+export function markSessionListMutation() {
+  store.sessionListRevision += 1;
+  return store.sessionListRevision;
+}
+
+export function sessionDetailGeneration(sessionId) {
+  return store.sessionDetailGenerations[sessionId] || 0;
+}
+
+export function invalidateSessionDetail(sessionId, deleted = false) {
+  store.sessionDetailGenerations[sessionId] = sessionDetailGeneration(sessionId) + 1;
+  if (deleted) store.sessionTombstones[sessionId] = true;
+  return store.sessionDetailGenerations[sessionId];
+}
+
+export function markSessionDetailStale(sessionId) {
+  invalidateSessionDetail(sessionId);
+  store.sessionDetailStale[sessionId] = true;
+}
+
+export function reviveSession(sessionId) {
+  delete store.sessionTombstones[sessionId];
+  delete store.sessionDetailStale[sessionId];
+  invalidateSessionDetail(sessionId);
+}
+
+export function sessionRunEpoch(sessionId) {
+  return store.sessionRunEpochs[sessionId] || 0;
+}
+
+export function invalidateSessionRuns(sessionId) {
+  store.sessionRunEpochs[sessionId] = sessionRunEpoch(sessionId) + 1;
+  return store.sessionRunEpochs[sessionId];
+}
 
 export function switchView(name) {
   if (!document.getElementById(`view-${name}`)) return;
@@ -17,4 +62,5 @@ export function switchView(name) {
   document.querySelectorAll(".nav-item").forEach((n) => {
     n.classList.toggle("on", n.dataset.view === name);
   });
+  bus.dispatchEvent(new CustomEvent("view-change", { detail: { view: name } }));
 }

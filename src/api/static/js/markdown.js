@@ -1,26 +1,51 @@
-// 轻量 markdown 渲染：标题/列表/表格/代码块/加粗/行内代码/链接（输入先整体转义）
+// 轻量安全 Markdown 渲染：原始输入先整体转义，再识别受限的块级和行内语法。
 
 function esc(s) {
   return String(s)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+function isSafeLink(url) {
+  return /^(https?:\/\/|mailto:)/i.test(url) && !/["'`*<>]/.test(url);
+}
+
 function inline(s) {
   return s
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, text, url) => {
-      // 仅放行 http(s)/mailto 且不含引号/格式化字符/标签——
-      // javascript: 协议、属性注入与行内标记（已转 <code>/<strong>）污染 href 的防护
-      const safe = /^(https?:\/\/|mailto:)/i.test(url) && !/["'`*<>]/.test(url);
-      return safe
-        ? `<a href="${url}" target="_blank" rel="noopener">${text}</a>`
-        : text;
-    });
+    .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>")
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (match, label, url) => (
+      isSafeLink(url)
+        ? `<a href="${url}" target="_blank" rel="noopener">${label}</a>`
+        : label
+    ));
+}
+
+function isUnorderedList(line) {
+  return /^\s*[-*]\s+/.test(line);
+}
+
+function isOrderedList(line) {
+  return /^\s*\d+\.\s+/.test(line);
+}
+
+function isQuote(line) {
+  return /^\s*&gt;\s?/.test(line);
+}
+
+function isBlockStart(line) {
+  return /^(#{1,4})\s/.test(line)
+    || isUnorderedList(line)
+    || isOrderedList(line)
+    || isQuote(line)
+    || line.trim().startsWith("```")
+    || /^\s*\|/.test(line)
+    || /^\s*(---+|\*\*\*+)\s*$/.test(line);
 }
 
 export function renderMarkdown(text) {
   if (!text) return "";
+
   const lines = esc(String(text)).split("\n");
   const out = [];
   let i = 0;
@@ -37,24 +62,26 @@ export function renderMarkdown(text) {
       i += 1;
       continue;
     }
+
     const tableHead = line.match(/^\s*\|(.+)\|\s*$/);
     if (tableHead && i + 1 < lines.length && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
-      const headers = tableHead[1].split("|").map((h) => h.trim());
+      const headers = tableHead[1].split("|").map((header) => header.trim());
       const rows = [];
       i += 2;
       while (i < lines.length) {
-        const m = lines[i].match(/^\s*\|(.+)\|\s*$/);
-        if (!m) break;
-        rows.push(m[1].split("|").map((c) => c.trim()));
+        const row = lines[i].match(/^\s*\|(.+)\|\s*$/);
+        if (!row) break;
+        rows.push(row[1].split("|").map((cell) => cell.trim()));
         i += 1;
       }
-      const thead = `<tr>${headers.map((h) => `<th>${inline(h)}</th>`).join("")}</tr>`;
-      const tbody = rows
-        .map((r) => `<tr>${r.map((c) => `<td>${inline(c)}</td>`).join("")}</tr>`)
+      const head = `<tr>${headers.map((header) => `<th>${inline(header)}</th>`).join("")}</tr>`;
+      const body = rows
+        .map((row) => `<tr>${row.map((cell) => `<td>${inline(cell)}</td>`).join("")}</tr>`)
         .join("");
-      out.push(`<table><thead>${thead}</thead><tbody>${tbody}</tbody></table>`);
+      out.push(`<table><thead>${head}</thead><tbody>${body}</tbody></table>`);
       continue;
     }
+
     const heading = line.match(/^(#{1,4})\s+(.*)$/);
     if (heading) {
       const level = heading[1].length;
@@ -62,35 +89,48 @@ export function renderMarkdown(text) {
       i += 1;
       continue;
     }
-    if (/^\s*[-*]\s+/.test(line)) {
+
+    if (isUnorderedList(line) || isOrderedList(line)) {
+      const ordered = isOrderedList(line);
+      const pattern = ordered ? /^\s*\d+\.\s+/ : /^\s*[-*]\s+/;
+      const tag = ordered ? "ol" : "ul";
       const items = [];
-      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
-        items.push(`<li>${inline(lines[i].replace(/^\s*[-*]\s+/, ""))}</li>`);
+      while (i < lines.length && (ordered ? isOrderedList(lines[i]) : isUnorderedList(lines[i]))) {
+        items.push(`<li>${inline(lines[i].replace(pattern, ""))}</li>`);
         i += 1;
       }
-      out.push(`<ul>${items.join("")}</ul>`);
+      out.push(`<${tag}>${items.join("")}</${tag}>`);
       continue;
     }
+
+    if (isQuote(line)) {
+      const quote = [];
+      while (i < lines.length && isQuote(lines[i])) {
+        quote.push(lines[i].replace(/^\s*&gt;\s?/, ""));
+        i += 1;
+      }
+      out.push(`<blockquote>${quote.map((item) => inline(item)).join("<br>")}</blockquote>`);
+      continue;
+    }
+
     if (/^\s*(---+|\*\*\*+)\s*$/.test(line)) {
       out.push("<hr>");
       i += 1;
       continue;
     }
+
     if (line.trim() === "") {
       i += 1;
       continue;
     }
-    const para = [line];
+
+    const paragraph = [line];
     i += 1;
-    while (i < lines.length && lines[i].trim() !== ""
-           && !/^(#{1,4})\s/.test(lines[i])
-           && !/^\s*[-*]\s+/.test(lines[i])
-           && !lines[i].trim().startsWith("```")
-           && !/^\s*\|/.test(lines[i])) {
-      para.push(lines[i]);
+    while (i < lines.length && lines[i].trim() !== "" && !isBlockStart(lines[i])) {
+      paragraph.push(lines[i]);
       i += 1;
     }
-    out.push(`<p>${inline(para.join("<br>"))}</p>`);
+    out.push(`<p>${inline(paragraph.join("<br>"))}</p>`);
   }
   return out.join("");
 }
