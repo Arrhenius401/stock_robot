@@ -3,7 +3,15 @@ import json
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, NotRequired, TypedDict
+
+
+class MemoryMessage(TypedDict):
+    """内存中的消息；持久化消息额外保留数据库 ID。"""
+
+    role: str
+    content: str
+    message_id: NotRequired[int]
 
 
 class TaskStatus(StrEnum):
@@ -69,7 +77,7 @@ class Memory:
     def __init__(self, max_messages: int = 30, facts_path: Path | None = None,
                  session_id: str | None = None, message_store=None):
         self._max_messages = max_messages
-        self.messages: list[dict[str, str]] = []
+        self.messages: list[MemoryMessage] = []
         self.plan_history: list[Plan] = []
         self.facts: dict[str, Any] = {}
         self.session_id = session_id
@@ -79,12 +87,16 @@ class Memory:
         self._facts_path = Path(facts_path)
         self._load_facts()
 
-    def add_message(self, role: str, content: str) -> None:
-        self.messages.append({"role": role, "content": content})
+    def add_message(self, role: str, content: str) -> int | None:
+        message: MemoryMessage = {"role": role, "content": content}
+        self.messages.append(message)
         if len(self.messages) > self._max_messages:
             self.messages = self.messages[-self._max_messages:]
         if self._message_store is not None and self.session_id:
-            self._message_store.append_message(self.session_id, role, content)
+            message_id = self._message_store.append_message(self.session_id, role, content)
+            message["message_id"] = message_id
+            return message_id
+        return None
 
     def add_plan(self, plan: Plan) -> None:
         self.plan_history.append(plan)
@@ -92,7 +104,7 @@ class Memory:
     def get_last_plan(self) -> Plan | None:
         return self.plan_history[-1] if self.plan_history else None
 
-    def get_context_window(self, n: int = 20) -> list[dict]:
+    def get_context_window(self, n: int = 20) -> list[MemoryMessage]:
         """返回最近 N 轮对话，供 Planner 使用"""
         return self.messages[-n:] if len(self.messages) > n else list(self.messages)
 

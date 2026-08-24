@@ -6,7 +6,12 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from agent.tools import ToolProtocol, ToolRegistry, ToolResult
-from api.app import _extract_stock_report, _structured_tool_results, create_app
+from api.app import (
+    _extract_stock_report,
+    _persist_artifact_if_present,
+    _structured_tool_results,
+    create_app,
+)
 from api.bootstrap import AgentCore
 from api.sessions import SessionManager, SessionStore
 from data.industry_mapping_builder import IndustryMappingError
@@ -421,6 +426,17 @@ class TestStructuredToolResults:
         assert [r["content"] for r in results] == [
             "[echo] success: 第一条", "[echo] success: 第二条"]
 
+    def test_pairs_tool_message_ids_in_order(self):
+        memory, plan = self._make_plan(2)
+        memory.messages.extend([
+            {"role": "tool", "content": "同代码成功", "message_id": 101},
+            {"role": "tool", "content": "同代码失败", "message_id": 102},
+        ])
+
+        results = _structured_tool_results(plan, memory)
+
+        assert [result["message_id"] for result in results] == [101, 102]
+
     def test_truncation_does_not_mispair(self):
         """Memory 截断到 max_messages 时尾部配对仍正确"""
         memory, plan = self._make_plan(2, max_messages=5)
@@ -481,7 +497,33 @@ class TestStockReportExtraction:
             "dimensions": {},
             "commentary": "第一段\n\n第二段",
             "generated_at": "2026-08-24T10:00:00+08:00",
-        })
+        }, None)
+
+    def test_persists_only_successful_report_tool_message_id(self):
+        """同代码成功/失败并存时，成果只能关联成功的具体工具消息。"""
+        class ArtifactManager:
+            def __init__(self):
+                self.kwargs = None
+
+            def save_artifact(self, session_id, **kwargs):
+                self.kwargs = {"session_id": session_id, **kwargs}
+                return {"artifact_id": "a1", **self.kwargs}
+
+        manager = ArtifactManager()
+        result = _persist_artifact_if_present(manager, "s1", [
+            {
+                "tool": "analyze_stock", "status": "done", "message_id": 101,
+                "content": "[analyze_stock] success: {'symbol': '000001'}",
+            },
+            {
+                "tool": "analyze_stock", "status": "error", "message_id": 102,
+                "content": "[analyze_stock] error: 同代码失败",
+            },
+        ])
+
+        assert result is not None
+        assert result["artifact"]["message_id"] == 101
+        assert manager.kwargs["message_id"] == 101
 
     def test_ignores_unstructured_react_summary(self):
         """ReAct 自然语言摘要不能被误当作报告成果。"""
@@ -560,6 +602,10 @@ class TestStreamEndpoint:
         assert artifact_event["artifact"]["payload"]["symbol"] == "000001"
         assert artifact_event["artifact"]["payload"]["commentary"] == \
             "基本面稳健\n\n关注净息差变化"
+        tool_messages = [message for message in history.json()["messages"]
+                         if message["role"] == "tool"]
+        assert artifact_event["artifact"]["message_id"] == \
+            tool_messages[-1]["message_id"]
         assert [event["type"] for event in events].index("artifact") \
             < [event["type"] for event in events].index("done")
         assert history.status_code == 200

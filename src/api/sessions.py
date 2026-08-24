@@ -6,7 +6,7 @@ import time
 import uuid
 from pathlib import Path
 
-from agent.memory import Memory
+from agent.memory import Memory, MemoryMessage
 from api.session_titles import derive_session_title
 
 _AUTOMATIC_TITLE_SOURCES = ("legacy", "local", "llm", "default")
@@ -95,18 +95,21 @@ class SessionStore:
             for r in rows
         ]
 
-    def get_messages(self, session_id: str) -> list[dict]:
+    def get_messages(self, session_id: str) -> list[MemoryMessage]:
         with self._get_conn() as conn:
             rows = conn.execute(
-                "SELECT role, content FROM messages WHERE session_id=? ORDER BY id",
+                "SELECT id, role, content FROM messages WHERE session_id=? ORDER BY id",
                 (session_id,),
             ).fetchall()
-        return [{"role": r[0], "content": r[1]} for r in rows]
+        return [
+            {"message_id": r[0], "role": r[1], "content": r[2]}
+            for r in rows
+        ]
 
-    def append_message(self, session_id: str, role: str, content: str) -> None:
+    def append_message(self, session_id: str, role: str, content: str) -> int:
         now = time.time()
         with self._lock, self._get_conn() as conn:
-            conn.execute(
+            cursor = conn.execute(
                 "INSERT INTO messages (session_id, role, content, created_at) VALUES (?,?,?,?)",
                 (session_id, role, content, now),
             )
@@ -114,6 +117,10 @@ class SessionStore:
                 "UPDATE sessions SET updated_at=? WHERE session_id=?",
                 (now, session_id),
             )
+        message_id = cursor.lastrowid
+        if message_id is None:
+            raise RuntimeError("SQLite 未返回新消息 ID")
+        return int(message_id)
 
     def update_title(
         self, session_id: str, title: str, source: str, only_if_automatic: bool = False
@@ -262,7 +269,7 @@ class SessionManager:
     def list_sessions(self) -> list[dict]:
         return self._store.list_sessions()
 
-    def get_messages(self, session_id: str) -> list[dict] | None:
+    def get_messages(self, session_id: str) -> list[MemoryMessage] | None:
         """按会话读回持久化消息；会话不存在返回 None"""
         if not self._store.session_exists(session_id):
             return None

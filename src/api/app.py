@@ -40,15 +40,18 @@ def _structured_tool_results(plan, memory) -> list[dict]:
     """
     done_count = sum(1 for s in plan.steps
                      if s.tool_name and s.status == TaskStatus.DONE)
-    tool_msgs = [m["content"] for m in memory.messages
+    tool_msgs = [m for m in memory.messages
                  if m["role"] == "tool"][-done_count:] if done_count else []
     results = []
     for step in plan.steps:
         if not step.tool_name:
             continue
         content = None
+        message_id = None
         if step.status == TaskStatus.DONE and tool_msgs:
-            content = tool_msgs.pop(0)
+            tool_message = tool_msgs.pop(0)
+            content = tool_message["content"]
+            message_id = tool_message.get("message_id")
         elif step.status == TaskStatus.DONE:
             # 配对不变量被破坏时（理论上不应发生），记录日志便于诊断
             logger.warning("结构化工具结果配对不完整: 步骤 %s 缺少对应 tool 消息", step.id)
@@ -57,11 +60,14 @@ def _structured_tool_results(plan, memory) -> list[dict]:
             "symbol": (step.tool_args or {}).get("symbol"),
             "status": step.status.value,
             "content": content,
+            "message_id": message_id,
         })
     return results
 
 
-def _extract_stock_report(tool_results: list[dict]) -> tuple[str, dict] | None:
+def _extract_stock_report(
+    tool_results: list[dict],
+) -> tuple[str, dict, int | None] | None:
     """从成功的 analyze_stock 工具结果提取并规范化结构化报告。"""
     prefix = "[analyze_stock] success:"
     for result in tool_results:
@@ -105,7 +111,12 @@ def _extract_stock_report(tool_results: list[dict]) -> tuple[str, dict] | None:
             "commentary": commentary,
             "generated_at": report.get("generated_at"),
         }
-        return payload["symbol"], payload
+        message_id = result.get("message_id")
+        return (
+            payload["symbol"],
+            payload,
+            message_id if isinstance(message_id, int) else None,
+        )
     return None
 
 
@@ -115,13 +126,14 @@ def _persist_artifact_if_present(
     extracted = _extract_stock_report(tool_results)
     if extracted is None:
         return None
-    symbol, payload = extracted
+    symbol, payload, message_id = extracted
     try:
         artifact = manager.save_artifact(
             session_id,
             kind="stock_report",
             symbol=symbol,
             payload=payload,
+            message_id=message_id,
         )
         return {"artifact": artifact, "persisted": True}
     except Exception as exc:  # noqa: BLE001 — 持久化边界失败不能中断聊天
@@ -131,7 +143,7 @@ def _persist_artifact_if_present(
             "artifact": {
                 "artifact_id": None,
                 "session_id": session_id,
-                "message_id": None,
+                "message_id": message_id,
                 "kind": "stock_report",
                 "symbol": symbol,
                 "payload": _json_safe(payload),
@@ -313,6 +325,7 @@ def create_app(core=None, sessions=None, push=None):
                         "symbol": tc["args"].get("symbol"),
                         "status": "done" if tc["status"] == "success" else "error",
                         "content": tc.get("summary", ""),
+                        "message_id": tc.get("message_id"),
                     } for tc in outcome.tool_calls]
                     _persist_artifact_if_present(sessions, sid, tool_results)
                     return JSONResponse({
@@ -456,6 +469,7 @@ def create_app(core=None, sessions=None, push=None):
                                 "status": "done"
                                 if tc["status"] == "success" else "error",
                                 "content": tc.get("summary", ""),
+                                "message_id": tc.get("message_id"),
                             } for tc in outcome.tool_calls]
                             await queue.put({"type": "text",
                                              "content": outcome.final_reply})

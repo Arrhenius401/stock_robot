@@ -523,8 +523,12 @@ const { store } = await import(__STATE_URL__);
 const { renderMessageHistory, handleChatInputKeydown } = await import(__CHAT_URL__);
 store.currentSessionId = "history";
 const linked = {
-  artifact_id: "linked", session_id: "history", message_id: "answer-1",
+  artifact_id: "linked", session_id: "history", message_id: "tool-1",
   symbol: "000001", payload: { symbol: "000001", name: "关联成果" },
+};
+const linkedAgain = {
+  artifact_id: "linked-again", session_id: "history", message_id: "tool-3",
+  symbol: "000001", payload: { symbol: "000001", name: "同代码第二份成果" },
 };
 const legacy = {
   artifact_id: "legacy", session_id: "history", message_id: null,
@@ -533,11 +537,12 @@ const legacy = {
 renderMessageHistory([
   { role: "user", content: "分析", id: "question-1" },
   { role: "assistant", content: "结论", id: "answer-1" },
-  { role: "tool", content: "[analyze_stock] {'symbol': '000001'}", id: "tool-1" },
-  { role: "tool", content: "[analyze_stock] {'symbol': '600036'}", id: "tool-2" },
-], [linked, legacy]);
+  { role: "tool", content: "[analyze_stock] success: 000001 成功", message_id: "tool-1" },
+  { role: "tool", content: "[analyze_stock] error: 000001 失败", message_id: "tool-2" },
+  { role: "tool", content: "[analyze_stock] success: 000001 再次成功", message_id: "tool-3" },
+], [linked, linkedAgain, legacy]);
 const cards = byClass(chatScroll, "report-summary-card");
-if (cards.length !== 2) throw new Error("历史成果卡恢复数量错误");
+if (cards.length !== 3) throw new Error("历史成果卡恢复数量错误");
 const orphanGroups = byClass(chatScroll, "artifact-history-orphans");
 if (orphanGroups.length !== 1 || !orphanGroups[0].textContent.includes("研究成果")
     || !orphanGroups[0].textContent.includes("旧成果")) {
@@ -546,7 +551,8 @@ if (orphanGroups.length !== 1 || !orphanGroups[0].textContent.includes("研究�
 const toolCards = byClass(chatScroll, "card-title")
   .filter((node) => node.textContent === "工具结果");
 const toolHtml = byClass(chatScroll, "tooltext").map((node) => node.innerHTML).join("\n");
-if (toolCards.length !== 1 || !toolHtml.includes("600036") || toolHtml.includes("000001")) {
+if (toolCards.length !== 1 || !toolHtml.includes("000001 失败")
+    || toolHtml.includes("000001 成功") || toolHtml.includes("000001 再次成功")) {
   throw new Error("报告工具 repr 未按具体成果关联去重");
 }
 
@@ -735,6 +741,14 @@ if (!store.sessionMessages.s1.some((message) => message.content === "详情加�
   throw new Error("新消息失效后，旧详情响应仍写入会话缓存");
 }
 
+let deleteHandlers;
+let resolveDeleteStream;
+api.chatStream = (_message, _sessionId, handlers) => {
+  deleteHandlers = handlers;
+  return new Promise((resolve) => { resolveDeleteStream = resolve; });
+};
+const deletedPending = sendMessage("删除前问题");
+await Promise.resolve();
 store.currentSessionId = "other";
 renderSessionList([store.sessionDetails.s1]);
 let resolveDeletedList;
@@ -753,11 +767,20 @@ menu = byClass(sessionList, "sess-menu-toggle")[0];
 await menu.click();
 const remove = byClass(sessionList, "sess-menu-action")[1];
 await remove.click();
+deleteHandlers.text({ content: "删除后迟到正文" });
+deleteHandlers.artifact({ artifact: {
+  artifact_id: "deleted-late", session_id: "s1", message_id: 200,
+  payload: { symbol: "000001", name: "删除后迟到成果" },
+}, persisted: true });
+deleteHandlers.done({});
+resolveDeleteStream();
+await deletedPending;
 resolveDeletedList({ sessions: [oldSession] });
 await listBeforeDelete;
 if (store.sessionDetails.s1 || !store.sessionTombstones.s1
+    || store.sessionMessages.s1 || store.sessionArtifacts.s1 || store.sessionRuns.s1
     || sessionList.textContent.includes("旧标题")) {
-  throw new Error("删除后的旧列表响应复活了 tombstone 会话");
+  throw new Error("删除后的旧响应或 SSE 事件复活了 tombstone 会话");
 }
 """.replace("__SESSIONS_URL__", sessions_url).replace("__CHAT_URL__", chat_url)
         script = script.replace("__API_URL__", api_url).replace("__STATE_URL__", state_url)
@@ -806,8 +829,10 @@ await Promise.resolve();
 streamHandlers.result({
   summary: "阶段结论",
   tool_results: [
-    { tool: "analyze_stock", symbol: "000001", status: "done", content: "000001 原始结果" },
-    { tool: "analyze_stock", symbol: "600036", status: "done", content: "600036 原始结果" },
+        { tool: "analyze_stock", symbol: "000001", status: "done",
+          content: "000001 原始结果", message_id: 101 },
+        { tool: "analyze_stock", symbol: "000001", status: "error",
+          content: "000001 失败结果", message_id: 102 },
   ],
 });
 await selectSession("s2");
@@ -815,6 +840,7 @@ await selectSession("s1");
 streamHandlers.text({ content: "切回后最终正文" });
 streamHandlers.artifact({ artifact: {
   artifact_id: "artifact-1", session_id: "s1", symbol: "000001",
+  message_id: 101,
   payload: { symbol: "000001", name: "平安银行", commentary: "成果结论" },
 }, persisted: true });
 const renderedHtml = descendants(chatScroll).map((node) => node.innerHTML).join("\n");
@@ -823,7 +849,7 @@ if (!renderedHtml.includes("切回后最终正文")
   throw new Error("切走再切回后，流式正文或成果仍写入脱离 DOM 的旧节点");
 }
 if (renderedHtml.includes("000001 原始结果")
-    || !renderedHtml.includes("600036 原始结果")) {
+    || !renderedHtml.includes("000001 失败结果")) {
   throw new Error("实时报告工具卡未按当前 run 与成果 symbol 精确去重");
 }
 streamHandlers.done({});
@@ -859,6 +885,88 @@ if (store.currentSessionId !== "cold-sid" || userMessages.length !== 1
     || userMessages[0].content !== "冷启动问题") {
   throw new Error("plan 前 session_title 未接管 sid，或用户消息被重复缓存");
 }
+""".replace("__CHAT_URL__", chat_url).replace("__API_URL__", api_url)
+        script = script.replace("__STATE_URL__", state_url)
+        _run_node(tmp_path, script)
+
+    def test_clear_invalidates_stream_and_manual_title_blocks_late_event(self, tmp_path):
+        chat_url = json.dumps(_module_url("src/api/static/js/chat.js"))
+        api_url = json.dumps(_module_url("src/api/static/js/api.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        script = _DOM_STUB + r"""
+const chatScroll = makeElement("chatScroll");
+makeElement("chatInput", "textarea");
+makeElement("sendBtn", "button");
+makeElement("quickTiming", "button");
+makeElement("quickTools", "button");
+const quickClear = makeElement("quickClear", "button");
+makeElement("appLayout");
+const drawer = makeElement("reportDrawer", "aside");
+drawer.hidden = true;
+drawer.setAttribute("aria-hidden", "true");
+makeElement("reportDrawerError");
+makeElement("reportDrawerNav", "nav");
+makeElement("reportDrawerContent");
+
+const { api } = await import(__API_URL__);
+const { store } = await import(__STATE_URL__);
+const { initChat, sendMessage } = await import(__CHAT_URL__);
+store.currentSessionId = "s1";
+store.sessionDetails.s1 = {
+  session_id: "s1", title: "用户手动标题", title_source: "manual", titleRevision: 4,
+};
+store.sessionMessages.s1 = [];
+store.sessionArtifacts.s1 = [];
+window.confirm = () => true;
+api.clearSession = async () => ({});
+let handlers;
+let resolveStream;
+api.chatStream = (_message, _sessionId, streamHandlers) => {
+  handlers = streamHandlers;
+  return new Promise((resolve) => { resolveStream = resolve; });
+};
+initChat();
+const pending = sendMessage("清空前问题");
+await Promise.resolve();
+handlers.session_title({ session_id: "s1", title: "迟到自动标题" });
+if (store.sessionDetails.s1.title !== "用户手动标题"
+    || store.sessionDetails.s1.title_source !== "manual") {
+  throw new Error("重载的 manual 标题被迟到 session_title 覆盖");
+}
+await quickClear.click();
+handlers.text({ content: "清空后迟到正文" });
+handlers.artifact({ artifact: {
+  artifact_id: "late", session_id: "s1", message_id: 99,
+  payload: { symbol: "000001", name: "清空后迟到成果" },
+}, persisted: true });
+handlers.done({});
+resolveStream();
+await pending;
+const html = descendants(chatScroll).map((node) => node.innerHTML).join("\n");
+if (store.sessionMessages.s1.length !== 0 || store.sessionArtifacts.s1.length !== 0
+    || store.sessionRuns.s1.length !== 0 || html.includes("清空后迟到正文")
+    || chatScroll.textContent.includes("清空后迟到成果")) {
+  throw new Error("clear 后旧 run 的迟到事件仍更新缓存或 UI");
+}
+
+store.currentSessionId = "s2";
+store.sessionMessages.s2 = [];
+store.sessionArtifacts.s2 = [];
+api.chatStream = async () => { throw new Error("断线"); };
+await sendMessage("需要重试");
+const oldRunId = store.sessionRuns.s2[0].id;
+let retryHandlers;
+let resolveRetry;
+api.chatStream = (_message, _sessionId, streamHandlers) => {
+  retryHandlers = streamHandlers;
+  return new Promise((resolve) => { resolveRetry = resolve; });
+};
+await byClass(chatScroll, "btn-retry")[0].click();
+if (store.sessionRuns.s2.length !== 1 || store.sessionRuns.s2[0].id === oldRunId) {
+  throw new Error("retry 未完成并移除旧 interrupted run，切回会出现幽灵卡");
+}
+retryHandlers.done({});
+resolveRetry();
 """.replace("__CHAT_URL__", chat_url).replace("__API_URL__", api_url)
         script = script.replace("__STATE_URL__", state_url)
         _run_node(tmp_path, script)

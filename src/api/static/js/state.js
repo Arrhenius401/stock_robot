@@ -7,6 +7,7 @@ export const store = {
   sessionArtifacts: {},   // sid -> [artifact]
   sessionDetails: {},     // sid -> 会话标题、更新时间等列表元数据
   sessionRuns: {},        // sid -> 尚未结束的流式运行状态
+  sessionRunEpochs: {},   // sid -> clear/delete 后递增，令旧 SSE 运行失效
   sessionDetailGenerations: {},
   sessionTombstones: {},
   sessionListRevision: 0,
@@ -34,6 +35,15 @@ export function invalidateSessionDetail(sessionId, deleted = false) {
 export function reviveSession(sessionId) {
   delete store.sessionTombstones[sessionId];
   invalidateSessionDetail(sessionId);
+}
+
+export function sessionRunEpoch(sessionId) {
+  return store.sessionRunEpochs[sessionId] || 0;
+}
+
+export function invalidateSessionRuns(sessionId) {
+  store.sessionRunEpochs[sessionId] = sessionRunEpoch(sessionId) + 1;
+  return store.sessionRunEpochs[sessionId];
 }
 
 export function switchView(name) {

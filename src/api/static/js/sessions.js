@@ -4,7 +4,7 @@ import {
   reviveSession, sessionDetailGeneration,
 } from "./state.js";
 import { api } from "./api.js";
-import { renderMessageHistory, clearChatScroll } from "./chat.js";
+import { renderMessageHistory, clearChatScroll, cancelSessionRuns } from "./chat.js";
 import { closeReportDrawer } from "./report-drawer.js";
 import { el } from "./components.js";
 
@@ -81,6 +81,8 @@ function beginRename(item, session) {
         ...updated,
         session_id: session.session_id,
         title,
+        title_source: updated.title_source || "manual",
+        titleRevision: Number(session.titleRevision || 0) + 1,
         updated_at: updated.updated_at ?? Date.now() / 1000,
       };
       renderCachedSessions();
@@ -115,6 +117,7 @@ async function deleteSession(session) {
     const wasCurrent = store.currentSessionId === session.session_id;
     markSessionListMutation();
     invalidateSessionDetail(session.session_id, true);
+    cancelSessionRuns(session.session_id);
     clearSessionCache(session.session_id);
     if (wasCurrent) {
       closeReportDrawer();

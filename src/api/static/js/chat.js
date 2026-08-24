@@ -1,6 +1,7 @@
 // 聊天视图：SSE 流式渲染、执行计划卡、工具结果卡、快捷按钮
 import {
   store, bus, invalidateSessionDetail, markSessionListMutation, reviveSession,
+  invalidateSessionRuns, sessionRunEpoch,
 } from "./state.js";
 import { api } from "./api.js";
 import { renderMarkdown } from "./markdown.js";
@@ -175,25 +176,33 @@ function interruptedCard(retry) {
   return card;
 }
 
-function reportTool(tool) {
-  return /(?:analy[sz]e_stock|stock_analy[sz]e|个股分析)/i.test(tool || "");
-}
-
-function reportSymbol(value) {
-  return String(value?.symbol ?? value?.payload?.symbol ?? value?.payload?.code ?? "");
-}
-
-function toolSymbol(tool) {
-  const explicit = tool?.symbol ?? tool?.args?.symbol;
-  if (explicit) return String(explicit);
-  const match = /(?:^|\D)(\d{6})(?!\d)/.exec(String(tool?.content || ""));
-  return match ? match[1] : "";
-}
-
 function toolHasArtifact(tool, artifacts) {
-  if (!reportTool(tool?.tool)) return false;
-  const symbol = toolSymbol(tool);
-  return Boolean(symbol) && artifacts.some((artifact) => reportSymbol(artifact) === symbol);
+  const id = messageId(tool);
+  return id != null && artifacts.some(
+    (artifact) => String(artifactMessageId(artifact)) === String(id),
+  );
+}
+
+function runIsValid(run) {
+  if (run.cancelled || !run.sessionId) return false;
+  return !store.sessionTombstones[run.sessionId]
+    && run.epoch === sessionRunEpoch(run.sessionId);
+}
+
+function removeRun(run) {
+  run.cancelled = true;
+  run.done = true;
+  run.mount?.remove();
+  if (run.sessionId) {
+    store.sessionRuns[run.sessionId] = (store.sessionRuns[run.sessionId] || [])
+      .filter((item) => item !== run);
+  }
+}
+
+export function cancelSessionRuns(sessionId) {
+  invalidateSessionRuns(sessionId);
+  for (const run of store.sessionRuns[sessionId] || []) removeRun(run);
+  store.sessionRuns[sessionId] = [];
 }
 
 function buildRunBubble(run) {
@@ -231,13 +240,16 @@ function buildRunBubble(run) {
     content.appendChild(card);
   }
   if (run.interrupted) {
-    content.appendChild(interruptedCard(() => sendMessage(run.message)));
+    content.appendChild(interruptedCard(() => {
+      removeRun(run);
+      sendMessage(run.message);
+    }));
   }
   return wrap;
 }
 
 function renderRun(run) {
-  if (!run.sessionId || store.currentSessionId !== run.sessionId) return;
+  if (!runIsValid(run) || store.currentSessionId !== run.sessionId) return;
   const scroll = scrollEl();
   if (run.mount && Array.from(scroll.children).includes(run.mount)) run.mount.remove();
   const bubble = buildRunBubble(run);
@@ -255,12 +267,7 @@ export function renderSessionRuns(sessionId) {
 }
 
 function isDuplicateReportTool(message, artifacts) {
-  if (!artifacts.length) return false;
-  const id = messageId(message);
-  if (id != null && artifacts.some(
-    (artifact) => String(artifactMessageId(artifact)) === String(id),
-  )) return true;
-  return toolHasArtifact(parseToolMessage(message.content), artifacts);
+  return toolHasArtifact(message, artifacts);
 }
 
 export function renderMessageHistory(messages, artifacts = []) {
@@ -288,8 +295,14 @@ export function renderMessageHistory(messages, artifacts = []) {
     if (m.role === "user") {
       appendUser(m.content);
     } else if (m.role === "tool") {
+      const id = messageId(m);
+      const matched = id == null ? [] : (linked.get(String(id)) || []);
       if (!isDuplicateReportTool(m, restoredArtifacts)) {
         appendBubble("agent", toolResultCard(parseToolMessage(m.content)));
+      }
+      for (const artifact of matched) {
+        appendReportSummary(artifact);
+        rendered.add(artifact);
       }
     } else if (m.role === "assistant") {
       appendBubble("agent", mdDiv(m.content));
@@ -335,18 +348,24 @@ export async function sendMessage(text) {
       error: "",
       interrupted: false,
       done: false,
+      cancelled: false,
+      epoch: null,
       committed: false,
       mount: null,
     };
     const attachRun = (sessionId) => {
       if (run.sessionId === sessionId) return;
+      if (store.sessionTombstones[sessionId]) return;
       run.sessionId = sessionId;
+      run.epoch = sessionRunEpoch(sessionId);
       const runs = store.sessionRuns[sessionId] || [];
       if (!runs.includes(run)) runs.push(run);
       store.sessionRuns[sessionId] = runs;
     };
     const adoptSession = (sessionId) => {
       if (!sessionId || (streamSid && streamSid !== sessionId)) return false;
+      if (store.sessionTombstones[sessionId] || run.cancelled) return false;
+      if (run.sessionId && !runIsValid(run)) return false;
       if (!streamSid) streamSid = sessionId;
       if (!userCached) {
         if (initialSessionId === null) reviveSession(sessionId);
@@ -357,6 +376,7 @@ export async function sendMessage(text) {
         userCached = true;
       }
       attachRun(sessionId);
+      if (!runIsValid(run)) return false;
       if (store.currentSessionId === initialSessionId) store.currentSessionId = sessionId;
       return true;
     };
@@ -378,10 +398,15 @@ export async function sendMessage(text) {
       session_title: (e) => {
         const sessionId = e.session_id || streamSid;
         if (!adoptSession(sessionId) || sessionId !== streamSid) return;
+        const existing = store.sessionDetails[sessionId] || {};
+        if (existing.title_source === "manual") return;
         markSessionListMutation();
         store.sessionDetails[sessionId] = {
-          ...(store.sessionDetails[sessionId] || { session_id: sessionId }),
+          ...existing,
+          session_id: sessionId,
           title: e.title || "新会话",
+          title_source: e.title_source || "llm",
+          titleRevision: Number(existing.titleRevision || 0) + 1,
           updated_at: Date.now() / 1000,
         };
         const event = new Event("session-title");
@@ -410,10 +435,12 @@ export async function sendMessage(text) {
         renderRun(run);
       },
       thinking: (e) => {
+        if (!runIsValid(run)) return;
         run.thinking += e.content || "";
         renderRun(run);
       },
       tool_call: (e) => {
+        if (!runIsValid(run)) return;
         const key = e.run_id || "default";
         run.toolCalls[key] = {
           tool: e.tool,
@@ -425,20 +452,24 @@ export async function sendMessage(text) {
         renderRun(run);
       },
       tool_result: (e) => {
+        if (!runIsValid(run)) return;
         const key = e.run_id || "default";
         run.toolCalls[key] = {
           ...(run.toolCalls[key] || { tool: e.tool || "tool" }),
           content: e.content || "",
           status: e.status || "done",
           symbol: e.symbol ?? run.toolCalls[key]?.symbol,
+          message_id: e.message_id ?? run.toolCalls[key]?.message_id,
         };
         renderRun(run);
       },
       progress: (e) => {
+        if (!runIsValid(run)) return;
         run.progress = e;
         renderRun(run);
       },
       result: (e) => {
+        if (!runIsValid(run)) return;
         run.thinking = "";
         if (e.summary) run.answers.push(e.summary);
         run.resultTools = e.tool_results || [];
@@ -446,18 +477,21 @@ export async function sendMessage(text) {
         bus.dispatchEvent(new Event("chat-done"));
       },
       error: (e) => {
+        if (!runIsValid(run)) return;
         run.thinking = "";
         run.error = e.message || "处理请求时出错";
         renderRun(run);
         bus.dispatchEvent(new Event("chat-done"));
       },
       text: (e) => {
+        if (!runIsValid(run)) return;
         run.thinking = "";
         if (e.content) run.answers.push(e.content);
         renderRun(run);
         bus.dispatchEvent(new Event("chat-done"));
       },
       done: () => {
+        if (!runIsValid(run)) return;
         run.thinking = "";
         run.done = true;
         if (streamSid && !run.committed && run.answers.length) {
@@ -476,6 +510,10 @@ export async function sendMessage(text) {
     try {
       await api.chatStream(msg, streamSid, handlers);
     } catch {
+      if (!runIsValid(run)) {
+        finish();
+        return;
+      }
       run.thinking = "";
       run.interrupted = true;
       renderRun(run);
@@ -533,7 +571,7 @@ export function initChat() {
       invalidateSessionDetail(target);
       store.sessionMessages[target] = [];  // 服务端已清空，本地缓存先同步
       store.sessionArtifacts[target] = [];
-      store.sessionRuns[target] = [];
+      cancelSessionRuns(target);
       if (store.currentSessionId !== target) return;  // 已切换，不动新会话视图
       closeReportDrawer();
       renderMessageHistory([], []);

@@ -63,9 +63,14 @@ class TestSessionStore:
 
     def test_get_messages_ordered(self, store):
         store.create_session("s1", "t")
-        store.append_message("s1", "user", "第一条")
-        store.append_message("s1", "tool", "第二条")
+        first_id = store.append_message("s1", "user", "第一条")
+        second_id = store.append_message("s1", "tool", "第二条")
         msgs = store.get_messages("s1")
+        assert isinstance(first_id, int) and second_id == first_id + 1
+        assert msgs == [
+            {"message_id": first_id, "role": "user", "content": "第一条"},
+            {"message_id": second_id, "role": "tool", "content": "第二条"},
+        ]
         assert [m["content"] for m in msgs] == ["第一条", "第二条"]
 
     def test_clear_and_delete(self, store):
@@ -204,8 +209,13 @@ class TestSessionManager:
         )
 
         assert mgr.get_session_detail("missing") is None
+        message_id = memory.messages[0]["message_id"]
         assert mgr.get_session_detail(sid) == {
-            "messages": [{"role": "user", "content": "继续分析"}],
+            "messages": [{
+                "message_id": message_id,
+                "role": "user",
+                "content": "继续分析",
+            }],
             "artifacts": [artifact],
         }
         assert mgr.get_artifact(artifact["artifact_id"]) == artifact
