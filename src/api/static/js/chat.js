@@ -4,6 +4,8 @@ import { api } from "./api.js";
 import { renderMarkdown } from "./markdown.js";
 import { el } from "./components.js";
 import { openReport } from "./report.js";
+import { openReportDrawer, closeReportDrawer } from "./report-drawer.js";
+import { renderReportSummary } from "./report-renderer.js";
 
 const scrollEl = () => document.getElementById("chatScroll");
 
@@ -27,6 +29,72 @@ function mdDiv(text) {
 
 function appendUser(text) {
   appendBubble("user", mdDiv(text));
+}
+
+const RESEARCH_SUGGESTIONS = [
+  "分析 600519 贵州茅台的基本面与估值",
+  "比较 000001 平安银行与 600036 招商银行",
+  "大盘现在适合入场吗？",
+];
+
+function renderEmptyChat() {
+  const empty = el("section", "chat-empty");
+  empty.appendChild(el("div", "chat-empty-title", "从一个常用研究问题开始"));
+  for (const prompt of RESEARCH_SUGGESTIONS) {
+    const button = el("button", "research-suggestion", prompt);
+    button.type = "button";
+    button.addEventListener("click", () => {
+      const input = document.getElementById("chatInput");
+      input.value = prompt;
+      input.focus();
+    });
+    empty.appendChild(button);
+  }
+  scrollEl().appendChild(empty);
+}
+
+function artifactMessageId(artifact) {
+  return artifact?.message_id ?? artifact?.messageId ?? null;
+}
+
+function messageId(message) {
+  return message?.message_id ?? message?.id ?? null;
+}
+
+function artifactId(artifact) {
+  return artifact?.artifact_id ?? artifact?.id ?? null;
+}
+
+function cacheArtifact(sessionId, artifact, persisted = true) {
+  if (!sessionId || !artifact) return null;
+  const cached = { ...artifact, session_id: artifact.session_id ?? sessionId, persisted };
+  const artifacts = store.sessionArtifacts[sessionId] || [];
+  const id = artifactId(cached);
+  const index = id == null ? -1 : artifacts.findIndex((item) => artifactId(item) === id);
+  if (index >= 0) artifacts[index] = cached;
+  else artifacts.push(cached);
+  store.sessionArtifacts[sessionId] = artifacts;
+  return cached;
+}
+
+function reportSummary(artifact) {
+  const card = renderReportSummary(artifact);
+  if (artifact?.persisted === false) {
+    card.appendChild(el("div", "report-summary-persist-warning",
+      "本轮报告可查看，但未保存到历史记录"));
+  }
+  const button = card.querySelector(".report-summary-open");
+  if (button) {
+    button.addEventListener("click", () => openReportDrawer(artifact, button));
+  }
+  return card;
+}
+
+function appendReportSummary(artifact, parent = null) {
+  const card = reportSummary(artifact);
+  if (parent) parent.appendChild(card);
+  else appendBubble("agent", card);
+  return card;
 }
 
 // 并发守卫：流进行中禁止再次发送（模块级，防同会话并发请求交错）
@@ -104,18 +172,51 @@ function interruptedCard(retry) {
   return card;
 }
 
-export function renderMessageHistory(messages) {
+function isDuplicateReportTool(message, artifacts) {
+  if (!artifacts.length) return false;
+  const id = messageId(message);
+  if (id != null && artifacts.some((artifact) => artifactMessageId(artifact) === id)) return true;
+  const { tool } = parseToolMessage(message.content);
+  return /(?:analy[sz]e_stock|stock_analy[sz]e|个股分析)/i.test(tool);
+}
+
+export function renderMessageHistory(messages, artifacts = []) {
   clearChatScroll();
+  const linked = new Map();
+  for (const artifact of artifacts) {
+    const id = artifactMessageId(artifact);
+    if (id == null) continue;
+    const key = String(id);
+    const values = linked.get(key) || [];
+    values.push(artifact);
+    linked.set(key, values);
+  }
+  const rendered = new Set();
   for (const m of messages) {
     if (m.role === "user") {
       appendUser(m.content);
     } else if (m.role === "tool") {
-      appendBubble("agent", toolResultCard(parseToolMessage(m.content)));
+      if (!isDuplicateReportTool(m, artifacts)) {
+        appendBubble("agent", toolResultCard(parseToolMessage(m.content)));
+      }
     } else if (m.role === "assistant") {
       appendBubble("agent", mdDiv(m.content));
+      const id = messageId(m);
+      for (const artifact of id == null ? [] : (linked.get(String(id)) || [])) {
+        appendReportSummary(artifact);
+        rendered.add(artifact);
+      }
     }
     // system 消息不展示
   }
+  const remaining = artifacts.filter((artifact) => !rendered.has(artifact));
+  if (remaining.length) {
+    const section = el("section", "artifact-history-orphans");
+    section.appendChild(el("div", "artifact-history-title", "研究成果"));
+    for (const artifact of remaining) appendReportSummary(artifact, section);
+    scrollEl().appendChild(section);
+  }
+  if (!messages.length && !artifacts.length) renderEmptyChat();
 }
 
 export async function sendMessage(text) {
@@ -146,6 +247,27 @@ export async function sendMessage(text) {
     agentBox.appendChild(thinking);
 
     const handlers = {
+      session_title: (e) => {
+        const sessionId = e.session_id || streamSid;
+        if (!sessionId || sessionId !== streamSid) return;
+        store.sessionDetails[sessionId] = {
+          ...(store.sessionDetails[sessionId] || { session_id: sessionId }),
+          title: e.title || "新会话",
+          updated_at: Date.now() / 1000,
+        };
+        const event = new Event("session-title");
+        event.sessionId = sessionId;
+        event.title = e.title || "新会话";
+        bus.dispatchEvent(event);
+      },
+      artifact: (e) => {
+        const artifact = e.artifact;
+        const sessionId = artifact?.session_id || streamSid;
+        if (!artifact || !sessionId || sessionId !== streamSid) return;
+        const cached = cacheArtifact(sessionId, artifact, e.persisted !== false);
+        if (store.currentSessionId !== streamSid || !cached) return;
+        appendReportSummary(cached, agentBox);
+      },
       plan: (e) => {
         // 无会话发送时（正常模式冷启动兜底），采纳后端新建的 session。
         // 用户消息无条件写入（缓存与 result 的 assistant 写保持对称），
@@ -276,13 +398,15 @@ async function showToolsPanel() {
 }
 
 export function initChat() {
+  if (initChat.initialized) return;
+  initChat.initialized = true;
   const input = document.getElementById("chatInput");
   const send = () => sendMessage(input.value);
   document.getElementById("sendBtn").addEventListener("click", send);
-  input.addEventListener("keydown", (e) => {
-    // isComposing：中文等 IME 组合输入的回车仅确认候选词，不应触发发送
-    if (e.key === "Enter" && !e.isComposing) send();
-  });
+  let composing = false;
+  input.addEventListener("compositionstart", () => { composing = true; });
+  input.addEventListener("compositionend", () => { composing = false; });
+  input.addEventListener("keydown", (e) => handleChatInputKeydown(e, send, composing));
   document.getElementById("quickTiming").addEventListener(
     "click", () => sendMessage("大盘现在适合入场吗？"));
   document.getElementById("quickTools").addEventListener("click", showToolsPanel);
@@ -293,11 +417,21 @@ export function initChat() {
     try {
       await api.clearSession(target);
       store.sessionMessages[target] = [];  // 服务端已清空，本地缓存先同步
+      store.sessionArtifacts[target] = [];
       if (store.currentSessionId !== target) return;  // 已切换，不动新会话视图
-      clearChatScroll();
+      closeReportDrawer();
+      renderMessageHistory([], []);
       bus.dispatchEvent(new Event("chat-done"));
     } catch (err) {
       window.alert(`清空失败: ${err.message}`);
     }
   });
+}
+
+export function handleChatInputKeydown(event, send, composing = false) {
+  if (event.key !== "Enter" || event.shiftKey) return;
+  // 某些浏览器在 IME 提交期间仅暴露 keyCode=229，三重守卫避免误发送。
+  if (composing || event.isComposing || event.keyCode === 229) return;
+  event.preventDefault();
+  send();
 }

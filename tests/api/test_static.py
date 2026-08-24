@@ -40,6 +40,8 @@ class Element {
     this._textContent = "";
     this._innerHTML = "";
     this._id = "";
+    this.value = "";
+    this.disabled = false;
   }
   set id(value) {
     this._id = String(value);
@@ -83,6 +85,15 @@ class Element {
     for (const handler of this.listeners.click || []) {
       await handler({ preventDefault() {}, stopPropagation() {} });
     }
+  }
+  async dispatch(type, event = {}) {
+    event.preventDefault ||= () => { event.defaultPrevented = true; };
+    event.stopPropagation ||= () => {};
+    for (const handler of this.listeners[type] || []) await handler(event);
+  }
+  async blur() {
+    if (this.ownerDocument.activeElement === this) this.ownerDocument.activeElement = null;
+    await this.dispatch("blur");
   }
   focus() { this.ownerDocument.activeElement = this; }
   scrollIntoView(options) { this.scrolledWith = options; }
@@ -173,6 +184,13 @@ class TestStaticUI:
         assert 'id="reportDrawerError"' in resp.text
         assert 'id="reportDrawerContent"' in resp.text
         assert 'id="reportDrawerNav"' in resp.text
+
+    @pytest.mark.asyncio
+    async def test_chat_uses_textarea_input(self, client):
+        resp = await client.get("/")
+
+        assert '<textarea id="chatInput"' in resp.text
+        assert '<input id="chatInput"' not in resp.text
 
     @pytest.mark.asyncio
     async def test_js_modules_served(self, client):
@@ -419,6 +437,234 @@ await document.dispatch("keydown", { key: "Escape", preventDefault() {} });
 if (!drawer.hidden || document.activeElement !== trigger) throw new Error("Escape 未关闭抽屉");
 """.replace("__DRAWER_URL__", drawer_url)
         script = script.replace("__API_URL__", api_url).replace("__STATE_URL__", state_url)
+        _run_node(tmp_path, script)
+
+    def test_chat_stream_artifacts_stay_in_their_session(self, tmp_path):
+        chat_url = json.dumps(_module_url("src/api/static/js/chat.js"))
+        api_url = json.dumps(_module_url("src/api/static/js/api.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        drawer_url = json.dumps(_module_url("src/api/static/js/report-drawer.js"))
+        script = _DOM_STUB + r"""
+const chatScroll = makeElement("chatScroll");
+const chatInput = makeElement("chatInput", "textarea");
+const sendButton = makeElement("sendBtn", "button");
+makeElement("appLayout");
+const drawer = makeElement("reportDrawer", "aside");
+drawer.hidden = true;
+drawer.setAttribute("aria-hidden", "true");
+makeElement("reportDrawerError");
+makeElement("reportDrawerNav", "nav");
+makeElement("reportDrawerContent");
+
+const { api } = await import(__API_URL__);
+const { store, bus } = await import(__STATE_URL__);
+const { sendMessage } = await import(__CHAT_URL__);
+const { closeReportDrawer } = await import(__DRAWER_URL__);
+store.currentSessionId = "s1";
+let titleEvents = 0;
+bus.addEventListener("session-title", () => { titleEvents += 1; });
+const firstArtifact = {
+  artifact_id: null, session_id: "s1", symbol: "000001",
+  payload: { symbol: "000001", name: "平安银行", commentary: "结论" },
+};
+api.chatStream = async (message, sessionId, handlers) => {
+  if (message !== "分析平安银行" || sessionId !== "s1") throw new Error("发送参数错误");
+  handlers.session_title({ session_id: "s1", title: "平安银行研究" });
+  handlers.artifact({ artifact: firstArtifact, persisted: false });
+  handlers.done({});
+};
+await sendMessage("分析平安银行");
+if (store.sessionDetails.s1.title !== "平安银行研究" || titleEvents !== 1) {
+  throw new Error("session_title 未更新当前会话元数据并通知列表");
+}
+if (store.sessionArtifacts.s1.length !== 1 || store.sessionArtifacts.s1[0].persisted !== false) {
+  throw new Error("artifact 未按会话缓存持久化状态");
+}
+const cards = byClass(chatScroll, "report-summary-card");
+if (cards.length !== 1 || !cards[0].textContent.includes("未保存到历史记录")) {
+  throw new Error("未持久化成果缺少非阻塞卡片提示");
+}
+const openButton = byClass(cards[0], "report-summary-open")[0];
+await openButton.click();
+if (!store.reportDrawerOpen || store.currentArtifact?.symbol !== "000001") {
+  throw new Error("报告摘要按钮未打开对应成果");
+}
+closeReportDrawer();
+if (document.activeElement !== openButton) throw new Error("抽屉焦点未归还摘要触发按钮");
+
+const cardCount = byClass(chatScroll, "report-summary-card").length;
+store.currentSessionId = "s1";
+api.chatStream = async (_message, _sessionId, handlers) => {
+  store.currentSessionId = "s2";
+  handlers.artifact({ artifact: {
+    artifact_id: "late", session_id: "s1", symbol: "600000",
+    payload: { symbol: "600000", name: "迟到报告" },
+  }, persisted: true });
+  handlers.done({});
+};
+await sendMessage("继续分析");
+if (!store.sessionArtifacts.s1.some((item) => item.artifact_id === "late")) {
+  throw new Error("切换会话后迟到成果未缓存回原会话");
+}
+if (byClass(chatScroll, "report-summary-card").length !== cardCount) {
+  throw new Error("旧会话迟到成果渲染进了新会话");
+}
+""".replace("__CHAT_URL__", chat_url).replace("__API_URL__", api_url)
+        script = script.replace("__STATE_URL__", state_url).replace("__DRAWER_URL__", drawer_url)
+        _run_node(tmp_path, script)
+
+    def test_chat_history_restores_artifacts_and_empty_suggestions(self, tmp_path):
+        chat_url = json.dumps(_module_url("src/api/static/js/chat.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        script = _DOM_STUB + r"""
+const chatScroll = makeElement("chatScroll");
+const chatInput = makeElement("chatInput", "textarea");
+const { store } = await import(__STATE_URL__);
+const { renderMessageHistory, handleChatInputKeydown } = await import(__CHAT_URL__);
+store.currentSessionId = "history";
+const linked = {
+  artifact_id: "linked", session_id: "history", message_id: "answer-1",
+  symbol: "000001", payload: { symbol: "000001", name: "关联成果" },
+};
+const legacy = {
+  artifact_id: "legacy", session_id: "history", message_id: null,
+  symbol: "600000", payload: { symbol: "600000", name: "旧成果" },
+};
+renderMessageHistory([
+  { role: "user", content: "分析", id: "question-1" },
+  { role: "assistant", content: "结论", id: "answer-1" },
+  { role: "tool", content: "[analyze_stock] {'symbol': '000001'}", id: "tool-1" },
+], [linked, legacy]);
+const cards = byClass(chatScroll, "report-summary-card");
+if (cards.length !== 2) throw new Error("历史成果卡恢复数量错误");
+const orphanGroups = byClass(chatScroll, "artifact-history-orphans");
+if (orphanGroups.length !== 1 || !orphanGroups[0].textContent.includes("研究成果")
+    || !orphanGroups[0].textContent.includes("旧成果")) {
+  throw new Error("无 message_id 的旧成果未放入结尾研究成果区");
+}
+if (byClass(chatScroll, "card-title").some((node) => node.textContent === "工具结果")) {
+  throw new Error("服务端报告工具 repr 与成果卡重复渲染");
+}
+
+renderMessageHistory([], []);
+const suggestions = byClass(chatScroll, "research-suggestion");
+if (suggestions.length !== 3) throw new Error("空会话应展示三个研究建议");
+await suggestions[0].click();
+if (!chatInput.value || byClass(chatScroll, "msg").length !== 0) {
+  throw new Error("研究建议应只填充输入框而不发送");
+}
+
+let sends = 0;
+const send = () => { sends += 1; };
+const ime = { key: "Enter", isComposing: true, preventDefault() { this.blocked = true; } };
+handleChatInputKeydown(ime, send);
+const shifted = { key: "Enter", shiftKey: true, preventDefault() { this.blocked = true; } };
+handleChatInputKeydown(shifted, send);
+const plain = { key: "Enter", preventDefault() { this.blocked = true; } };
+handleChatInputKeydown(plain, send);
+if (sends !== 1 || ime.blocked || shifted.blocked || !plain.blocked) {
+  throw new Error("IME 或 Enter/Shift+Enter 键盘行为错误");
+}
+""".replace("__CHAT_URL__", chat_url).replace("__STATE_URL__", state_url)
+        _run_node(tmp_path, script)
+
+    def test_sessions_restore_artifacts_and_support_inline_rename(self, tmp_path):
+        sessions_url = json.dumps(_module_url("src/api/static/js/sessions.js"))
+        api_url = json.dumps(_module_url("src/api/static/js/api.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        script = _DOM_STUB + r"""
+const sessionList = makeElement("sessionList");
+makeElement("chatScroll");
+makeElement("appLayout");
+const drawer = makeElement("reportDrawer", "aside");
+drawer.hidden = false;
+drawer.setAttribute("aria-hidden", "false");
+makeElement("reportDrawerError");
+makeElement("reportDrawerNav", "nav");
+makeElement("reportDrawerContent");
+
+const { api } = await import(__API_URL__);
+const { store } = await import(__STATE_URL__);
+const { renderSessionList } = await import(__SESSIONS_URL__);
+const now = Date.now() / 1000;
+const sessions = [{
+  session_id: "s1", title: "分析 600519 贵州茅台", updated_at: now - 90,
+  message_count: 2,
+}];
+api.listSessions = async () => ({ sessions });
+api.getMessages = async () => ({
+  messages: [{ role: "assistant", content: "历史结论", id: "a1" }],
+  artifacts: [{ artifact_id: "r1", session_id: "s1", message_id: "a1",
+    symbol: "600519", payload: { symbol: "600519", name: "贵州茅台" } }],
+});
+api.renameSession = async (id, title) => ({ session_id: id, title, title_source: "manual" });
+store.currentSessionId = "old";
+store.reportDrawerOpen = true;
+renderSessionList(sessions);
+const primary = byClass(sessionList, "sess-main")[0];
+if (!primary || primary.tagName !== "BUTTON" || !primary.textContent.includes("600519")
+    || !primary.textContent.includes("分钟前")) {
+  throw new Error("会话主区域、标的标签或相对时间错误");
+}
+await primary.click();
+if (store.currentSessionId !== "s1" || store.reportDrawerOpen
+    || store.sessionMessages.s1.length !== 1 || store.sessionArtifacts.s1.length !== 1
+    || byClass(document.getElementById("chatScroll"), "report-summary-card").length !== 1) {
+  throw new Error("切换会话未关闭抽屉并同时恢复消息与成果");
+}
+
+let menu = byClass(sessionList, "sess-menu-toggle")[0];
+if (!menu || menu.tagName !== "BUTTON") throw new Error("省略号菜单必须使用 button");
+await menu.click();
+let actions = byClass(sessionList, "sess-menu-action");
+if (actions.length !== 2 || actions.map((item) => item.textContent).join(",") !== "重命名,删除") {
+  throw new Error("会话菜单只能包含重命名和删除");
+}
+await actions[0].click();
+let input = byClass(sessionList, "sess-rename-input")[0];
+input.value = "茅台估值跟踪";
+await input.dispatch("keydown", { key: "Enter" });
+if (store.sessionDetails.s1.title !== "茅台估值跟踪"
+    || !sessionList.textContent.includes("茅台估值跟踪")) {
+  throw new Error("Enter 未保存内联重命名");
+}
+
+menu = byClass(sessionList, "sess-menu-toggle")[0];
+await menu.click();
+actions = byClass(sessionList, "sess-menu-action");
+await actions[0].click();
+input = byClass(sessionList, "sess-rename-input")[0];
+input.value = "不应保存";
+await input.dispatch("keydown", { key: "Escape" });
+if (!sessionList.textContent.includes("茅台估值跟踪")
+    || sessionList.textContent.includes("不应保存")) {
+  throw new Error("Escape 未取消重命名");
+}
+
+menu = byClass(sessionList, "sess-menu-toggle")[0];
+await menu.click();
+actions = byClass(sessionList, "sess-menu-action");
+await actions[0].click();
+input = byClass(sessionList, "sess-rename-input")[0];
+input.value = "失焦不保存";
+await input.blur();
+if (sessionList.textContent.includes("失焦不保存")) throw new Error("失焦未取消重命名");
+
+api.renameSession = async () => { throw new Error("重命名失败"); };
+menu = byClass(sessionList, "sess-menu-toggle")[0];
+await menu.click();
+actions = byClass(sessionList, "sess-menu-action");
+await actions[0].click();
+input = byClass(sessionList, "sess-rename-input")[0];
+input.value = "失败标题";
+await input.dispatch("keydown", { key: "Enter" });
+const renameError = byClass(sessionList, "sess-rename-error")[0];
+if (!renameError?.textContent.includes("重命名失败")
+    || input.value !== "茅台估值跟踪") {
+  throw new Error("重命名失败未局部提示并恢复旧值");
+}
+""".replace("__SESSIONS_URL__", sessions_url).replace("__API_URL__", api_url)
+        script = script.replace("__STATE_URL__", state_url)
         _run_node(tmp_path, script)
 
     @pytest.mark.asyncio

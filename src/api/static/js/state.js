@@ -5,6 +5,7 @@ export const store = {
   reportCache: {},        // symbol -> analyze 报告 JSON
   sessionMessages: {},    // sid -> [{role, content}]
   sessionArtifacts: {},   // sid -> [artifact]
+  sessionDetails: {},     // sid -> 会话标题、更新时间等列表元数据
   currentArtifact: null,
   reportDrawerOpen: false,
 };
