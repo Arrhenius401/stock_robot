@@ -26,22 +26,51 @@ function setDrawerModal(value) {
   if (drawer) drawer.setAttribute("aria-modal", String(value));
 }
 
-export function openWorkspaceModal(kind) {
-  if (!isNarrowScreen()) return false;
-  if (activeModal && activeModal !== kind) closeWorkspaceModal(activeModal);
+function focusModal(kind) {
+  const target = kind === "drawer"
+    ? document.getElementById("reportDrawerClose")
+    : document.getElementById("newSessionBtn");
+  target?.focus();
+}
+
+function activateModal(kind) {
   setInert(elementsFor(kind), true);
   if (kind === "drawer") setDrawerModal(true);
   activeModal = kind;
-  return true;
+  focusModal(kind);
 }
 
-export function closeWorkspaceModal(kind) {
-  if (activeModal !== kind) return;
+function deactivateModal(kind) {
   setInert(elementsFor(kind), false);
   if (kind === "drawer") setDrawerModal(false);
   activeModal = null;
 }
 
+function visibleModalKind() {
+  if (!isNarrowScreen()) return null;
+  const layout = document.getElementById("appLayout");
+  const drawer = document.getElementById("reportDrawer");
+  if (layout?.classList.contains("drawer-open") && !drawer?.hidden) return "drawer";
+  if (document.body?.classList.contains("workspace-nav-open")) return "navigation";
+  return null;
+}
+
+export function openWorkspaceModal(kind) {
+  if (!isNarrowScreen()) return false;
+  if (activeModal && activeModal !== kind) deactivateModal(activeModal);
+  if (activeModal !== kind) activateModal(kind);
+  return true;
+}
+
+export function closeWorkspaceModal(kind) {
+  if (activeModal !== kind) return;
+  deactivateModal(kind);
+}
+
 export function syncWorkspaceModal() {
-  if (activeModal && !isNarrowScreen()) closeWorkspaceModal(activeModal);
+  const desired = visibleModalKind();
+  if (activeModal === desired) return;
+  if (activeModal) deactivateModal(activeModal);
+  if (desired) activateModal(desired);
+  else setDrawerModal(false);
 }

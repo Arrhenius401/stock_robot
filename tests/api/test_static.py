@@ -206,8 +206,8 @@ class TestStaticUI:
         resp = await client.get("/")
 
         assert 'id="appLayout"' in resp.text
-        assert ('<aside id="reportDrawer" aria-label="完整研报" '
-                'aria-hidden="true" hidden>') in resp.text
+        assert ('<aside id="reportDrawer" role="dialog" aria-label="完整研报" '
+                'aria-modal="false" aria-hidden="true" hidden>') in resp.text
         assert 'id="reportDrawerClose"' in resp.text
         assert 'id="reportDrawerRefresh"' in resp.text
         assert 'id="reportDrawerError"' in resp.text
@@ -447,7 +447,9 @@ if (globalWrap.querySelector(".entry-error")
         """覆盖层开启后背景控件不可被 Tab 聚焦，关闭后应恢复。"""
         modal_url = json.dumps(_module_url("src/api/static/js/workspace-modal.js"))
         script = _DOM_STUB + r"""
-window.matchMedia = () => ({ matches: true });
+let narrow = true;
+window.matchMedia = () => ({ matches: narrow });
+document.body = makeElement("body", "body");
 const topbar = makeElement("topbar");
 topbar.className = "topbar";
 const topbarButton = makeElement("topbarButton", "button");
@@ -461,8 +463,13 @@ main.appendChild(mainButton);
 const drawer = makeElement("reportDrawer", "aside");
 const drawerButton = makeElement("drawerButton", "button");
 drawer.appendChild(drawerButton);
+const closeButton = makeElement("reportDrawerClose", "button");
+drawer.appendChild(closeButton);
+const newSessionButton = makeElement("newSessionBtn", "button");
+sidebar.appendChild(newSessionButton);
+const layout = makeElement("appLayout");
 
-const { openWorkspaceModal, closeWorkspaceModal } = await import(__MODAL_URL__);
+const { openWorkspaceModal, closeWorkspaceModal, syncWorkspaceModal } = await import(__MODAL_URL__);
 openWorkspaceModal("drawer");
 if (!topbar.inert || !sidebar.inert || !main.inert || drawer.inert
     || drawer.getAttribute("aria-modal") !== "true") {
@@ -487,6 +494,31 @@ if (!topbar.inert || !main.inert || sidebar.inert || !drawer.inert) {
   throw new Error("移动侧栏未仅保留自身焦点范围");
 }
 closeWorkspaceModal("navigation");
+
+layout.classList.add("drawer-open");
+narrow = false;
+syncWorkspaceModal();
+narrow = true;
+syncWorkspaceModal();
+if (!topbar.inert || !sidebar.inert || !main.inert
+    || drawer.getAttribute("aria-modal") !== "true"
+    || document.activeElement !== closeButton) {
+  throw new Error("桌面已开抽屉缩窄后未重新建立模态隔离");
+}
+narrow = false;
+syncWorkspaceModal();
+if (topbar.inert || sidebar.inert || main.inert
+    || drawer.getAttribute("aria-modal") !== "false") {
+  throw new Error("抽屉变宽后仍错误隔离桌面背景");
+}
+layout.classList.remove("drawer-open");
+document.body.classList.add("workspace-nav-open");
+narrow = true;
+syncWorkspaceModal();
+if (!topbar.inert || !main.inert || sidebar.inert || !drawer.inert
+    || document.activeElement !== newSessionButton) {
+  throw new Error("侧栏宽窄往返后未恢复焦点隔离");
+}
 """.replace("__MODAL_URL__", modal_url)
         _run_node(tmp_path, script)
 
