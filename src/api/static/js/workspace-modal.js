@@ -26,6 +26,11 @@ function setDrawerModal(value) {
   if (drawer) drawer.setAttribute("aria-modal", String(value));
 }
 
+function setNavigationExpanded(value) {
+  const toggle = document.getElementById("mobileNavToggle");
+  if (toggle) toggle.setAttribute("aria-expanded", String(value));
+}
+
 function focusModal(kind) {
   const target = kind === "drawer"
     ? document.getElementById("reportDrawerClose")
@@ -36,6 +41,7 @@ function focusModal(kind) {
 function activateModal(kind) {
   setInert(elementsFor(kind), true);
   if (kind === "drawer") setDrawerModal(true);
+  if (kind === "navigation") setNavigationExpanded(true);
   activeModal = kind;
   focusModal(kind);
 }
@@ -63,8 +69,8 @@ export function openWorkspaceModal(kind) {
 }
 
 export function closeWorkspaceModal(kind) {
-  if (activeModal !== kind) return;
-  deactivateModal(kind);
+  if (activeModal === kind) deactivateModal(kind);
+  syncWorkspaceModal();
 }
 
 export function syncWorkspaceModal() {

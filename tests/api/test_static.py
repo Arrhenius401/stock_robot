@@ -467,6 +467,7 @@ const closeButton = makeElement("reportDrawerClose", "button");
 drawer.appendChild(closeButton);
 const newSessionButton = makeElement("newSessionBtn", "button");
 sidebar.appendChild(newSessionButton);
+const navToggle = makeElement("mobileNavToggle", "button");
 const layout = makeElement("appLayout");
 
 const { openWorkspaceModal, closeWorkspaceModal, syncWorkspaceModal } = await import(__MODAL_URL__);
@@ -518,6 +519,30 @@ syncWorkspaceModal();
 if (!topbar.inert || !main.inert || sidebar.inert || !drawer.inert
     || document.activeElement !== newSessionButton) {
   throw new Error("侧栏宽窄往返后未恢复焦点隔离");
+}
+
+document.body.classList.remove("workspace-nav-open");
+closeWorkspaceModal("navigation");
+narrow = true;
+document.body.classList.add("workspace-nav-open");
+syncWorkspaceModal();
+narrow = false;
+syncWorkspaceModal();
+layout.classList.add("drawer-open");
+drawer.hidden = false;
+narrow = true;
+syncWorkspaceModal();
+layout.classList.remove("drawer-open");
+drawer.hidden = true;
+closeWorkspaceModal("drawer");
+if (!topbar.inert || !main.inert || sidebar.inert || !drawer.inert
+    || document.activeElement !== newSessionButton
+    || navToggle.getAttribute("aria-expanded") !== "true") {
+  throw new Error("关闭抽屉后未重新激活保留的移动侧栏");
+}
+mainButton.focus();
+if (document.activeElement !== newSessionButton) {
+  throw new Error("关闭抽屉后背景报告触发器重新进入焦点顺序");
 }
 """.replace("__MODAL_URL__", modal_url)
         _run_node(tmp_path, script)

@@ -112,6 +112,7 @@ export async function openReportDrawer(artifact, trigger = null) {
 function isVisibleFocusTarget(target) {
   if (!target || typeof target.focus !== "function" || target.isConnected === false) return false;
   if (target.closest?.("[hidden]")) return false;
+  if (target.closest?.("[inert]")) return false;
   const view = target.closest?.(".view");
   return !view || view.classList.contains("active");
 }
