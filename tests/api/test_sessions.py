@@ -178,6 +178,27 @@ class TestSessionManager:
         assert old_memory.messages == []
         assert new_memory is not old_memory
 
+    def test_clear_rejects_artifact_from_invalidated_memory(self, store, facts_path):
+        """旧 Memory 已取得消息 ID 后，clear 必须原子拒绝其迟到成果。"""
+        mgr = SessionManager(store, facts_path=facts_path)
+        sid, old_memory = mgr.get_or_create(None, "分析平安银行")
+        message_id = old_memory.add_message(
+            "tool", "[analyze_stock] success: {'symbol': '000001'}")
+
+        assert isinstance(message_id, int)
+        assert mgr.clear(sid)
+        with pytest.raises(RuntimeError, match="旧会话执行"):
+            mgr.save_artifact(
+                sid,
+                kind="stock_report",
+                symbol="000001",
+                payload={"symbol": "000001"},
+                message_id=message_id,
+                memory=old_memory,
+            )
+
+        assert mgr.get_session_detail(sid) == {"messages": [], "artifacts": []}
+
     def test_delete_session(self, store, facts_path):
         mgr = SessionManager(store, facts_path=facts_path)
         sid, _ = mgr.get_or_create(None, "你好")
@@ -196,6 +217,23 @@ class TestSessionManager:
 
         assert store.get_messages(sid) == []
         assert old_memory.messages == []
+
+    def test_delete_rejects_artifact_from_invalidated_memory(self, store, facts_path):
+        """delete 后旧 Memory 不能通过管理器保存成果。"""
+        mgr = SessionManager(store, facts_path=facts_path)
+        sid, old_memory = mgr.get_or_create(None, "分析平安银行")
+
+        assert mgr.delete(sid)
+        with pytest.raises(RuntimeError, match="旧会话执行"):
+            mgr.save_artifact(
+                sid,
+                kind="stock_report",
+                symbol="000001",
+                payload={"symbol": "000001"},
+                memory=old_memory,
+            )
+        assert store.get_messages(sid) == []
+        assert store.list_artifacts(sid) == []
 
     def test_title_uses_safe_fallback_for_unknown_request(self, store, facts_path):
         mgr = SessionManager(store, facts_path=facts_path)

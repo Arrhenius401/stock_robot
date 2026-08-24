@@ -283,9 +283,14 @@ class SessionManager:
         symbol: str | None,
         payload: dict,
         message_id: int | None = None,
+        memory: Memory | None = None,
     ) -> dict:
-        """线程安全地保存结构化报告成果。"""
+        """线程安全地保存成果；带 Memory 时拒绝已失效的旧执行。"""
         with self._lock:
+            if memory is not None and (
+                    self._memories.get(session_id) is not memory
+                    or not memory.active):
+                raise RuntimeError("旧会话执行已失效，拒绝保存成果")
             return self._store.save_artifact(
                 session_id,
                 kind=kind,

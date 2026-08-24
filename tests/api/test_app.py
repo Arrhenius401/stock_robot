@@ -565,7 +565,7 @@ class TestStockReportExtraction:
                 "tool": "analyze_stock", "status": "error", "message_id": 102,
                 "content": "[analyze_stock] error: 同代码失败",
             },
-        ])
+        ], memory=object())
 
         assert len(results) == 1
         assert results[0]["artifact"]["message_id"] == 101
@@ -600,7 +600,7 @@ class TestStockReportExtraction:
                 "tool": "analyze_stock", "status": "done", "message_id": 203,
                 "content": "[analyze_stock] success: {'symbol': '600036'}",
             },
-        ])
+        ], memory=object())
 
         assert [event["artifact"]["message_id"] for event in events] == [201, 202, 203]
         assert [artifact["message_id"] for artifact in manager.saved] == [201, 202, 203]
@@ -710,6 +710,58 @@ class TestStreamEndpoint:
                      if event["type"] == "artifact"]
         assert [artifact["symbol"] for artifact in artifacts] == ["000001", "600036"]
         assert len({artifact["message_id"] for artifact in artifacts}) == 2
+
+    @pytest.mark.asyncio
+    async def test_rest_and_sse_reject_artifact_after_memory_is_cleared(
+            self, tmp_path, monkeypatch):
+        """REST/SSE 共用持久化助手必须携带本轮 Memory 并拒绝 clear 后写回。"""
+        original_persist = _persist_artifacts_if_present
+        observed_message_ids = []
+
+        def clear_before_persist(manager, session_id, tool_results, *, memory):
+            detail = manager.get_session_detail(session_id)
+            tool_messages = [message for message in detail["messages"]
+                             if message["role"] == "tool"]
+            observed_message_ids.append(tool_messages[-1]["message_id"])
+            assert manager.clear(session_id)
+            return original_persist(
+                manager, session_id, tool_results, memory=memory)
+
+        monkeypatch.setattr(
+            "api.app._persist_artifacts_if_present", clear_before_persist)
+
+        rest_sessions = SessionManager(SessionStore(tmp_path / "rest_clear_race.db"))
+        rest_app = create_app(
+            core=make_symbol_core(), sessions=rest_sessions, push=False)
+        async with AsyncClient(
+                transport=ASGITransport(app=rest_app), base_url="http://test") as client:
+            response = await client.post(
+                "/api/v1/chat", json={"message": "分析 000001 的估值"})
+
+        assert response.status_code == 200
+        rest_detail = rest_sessions.get_session_detail(response.json()["session_id"])
+        assert rest_detail == {"messages": [], "artifacts": []}
+
+        sse_sessions = SessionManager(SessionStore(tmp_path / "sse_clear_race.db"))
+        sse_app = create_app(
+            core=make_symbol_core(), sessions=sse_sessions, push=False)
+        async with (
+            AsyncClient(transport=ASGITransport(app=sse_app),
+                        base_url="http://test") as client,
+            client.stream("POST", "/api/v1/chat/stream", json={
+                "message": "分析 000001 的估值",
+            }) as response,
+        ):
+            events = parse_sse_events((await response.aread()).decode())
+
+        session_id = next(event["session_id"] for event in events
+                          if event["type"] == "plan")
+        artifact_events = [event for event in events if event["type"] == "artifact"]
+        assert len(observed_message_ids) == 2
+        assert artifact_events and artifact_events[0]["persisted"] is False
+        assert sse_sessions.get_session_detail(session_id) == {
+            "messages": [], "artifacts": [],
+        }
 
     @pytest.mark.asyncio
     async def test_stream_emits_unpersisted_artifact_when_store_fails(

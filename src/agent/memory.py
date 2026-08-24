@@ -110,6 +110,12 @@ class Memory:
         with self._state_lock:
             self._active = False
 
+    @property
+    def active(self) -> bool:
+        """返回当前 Memory 是否仍允许持久化本轮执行结果。"""
+        with self._state_lock:
+            return self._active
+
     def add_plan(self, plan: Plan) -> None:
         self.plan_history.append(plan)
 
