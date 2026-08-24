@@ -1,5 +1,6 @@
 """静态 Web UI 冒烟测试 — 页面、共享研报渲染与抽屉行为。"""
 import json
+import shutil
 import subprocess
 import textwrap
 from pathlib import Path
@@ -207,6 +208,59 @@ class TestStaticUI:
 
         assert 'import { initReportDrawer } from "./report-drawer.js";' in resp.text
         assert "initReportDrawer();" in resp.text
+
+    def test_markdown_renderer_escapes_untrusted_input_and_formats_safe_blocks(self):
+        """防止块级解析放行脚本、危险链接或破坏代码块原样显示。"""
+        node = shutil.which("node")
+        if node is None:
+            pytest.skip("Node.js 不可用")
+
+        markdown_url = json.dumps(_module_url("src/api/static/js/markdown.js"))
+        script = r"""
+const { renderMarkdown } = await import(__MARKDOWN_URL__);
+const html = renderMarkdown(`# 标题
+
+1. 第一项
+2. 第二项
+
+> 风险提示
+> 关注现金流
+
+普通段落中的 *强调* 与 [安全链接](https://example.com)。
+
+<script>alert(1)</script>
+[坏链接](javascript:alert(1))
+
+\`\`\`
+**代码原样** [不应解析](https://example.com)
+\`\`\``);
+
+if (!html.includes("<h1>标题</h1>")) throw new Error("缺少标题");
+if (!html.includes("<ol><li>第一项</li><li>第二项</li></ol>")) {
+  throw new Error("缺少有序列表");
+}
+if (!html.includes("<blockquote>风险提示<br>关注现金流</blockquote>")) {
+  throw new Error("缺少连续引用");
+}
+if (!html.includes("<em>强调</em>")) throw new Error("缺少强调");
+if (!html.includes('href="https://example.com"')) throw new Error("安全链接未保留");
+if (html.includes("<script>") || !html.includes("&lt;script&gt;alert(1)&lt;/script&gt;")) {
+  throw new Error("未转义脚本");
+}
+if (html.includes("javascript:")) throw new Error("放行危险链接");
+const code = html.match(/<pre><code>([\s\S]*?)<\/code><\/pre>/)?.[1] || "";
+if (!code.includes("**代码原样** [不应解析](https://example.com)")
+    || code.includes("<strong>") || code.includes("<a ")) {
+  throw new Error("代码块不应进行行内格式化");
+}
+""".replace("__MARKDOWN_URL__", markdown_url)
+        result = subprocess.run(
+            [node, "--input-type=module", "--eval", script],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
 
     def test_report_renderer_handles_variants_and_unsafe_text(self, tmp_path):
         renderer_url = json.dumps(_module_url("src/api/static/js/report-renderer.js"))
