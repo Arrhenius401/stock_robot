@@ -60,7 +60,8 @@ export function skeleton(lines = 6) {
 }
 
 function entryContainer(input) {
-  return input?.closest(".entry")
+  return input?.closest(".entry-input-wrap")
+    || input?.closest(".entry")
     || input?.closest(".analysis-entry")
     || input?.closest(".global-stock-search");
 }
@@ -72,6 +73,9 @@ export function showEntryError(inputId, message) {
   if (!entry) return;
   clearEntryError(inputId);
   const tip = el("div", "entry-error", message);
+  tip.id = `${inputId}-error`;
+  tip.setAttribute("role", "alert");
+  input.setAttribute("aria-describedby", tip.id);
   entry.appendChild(tip);
 }
 
@@ -81,5 +85,6 @@ export function clearEntryError(inputId) {
   if (entry) {
     const old = entry.querySelector(".entry-error");
     if (old) old.remove();
+    input.removeAttribute("aria-describedby");
   }
 }

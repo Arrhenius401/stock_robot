@@ -4,6 +4,7 @@ import { initChat } from "./chat.js";
 import { initReportView, openReport } from "./report.js";
 import { initReportDrawer } from "./report-drawer.js";
 import { closeReportDrawer } from "./report-drawer.js";
+import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js";
 import { initIndexView } from "./indexview.js";
 import { initSessions, initSessionStartup } from "./sessions.js";
 import { initSubscriptions } from "./subscriptions.js";
@@ -41,6 +42,7 @@ function closeMobileNavigation(focusTarget = null) {
   const sidebar = document.getElementById("sidebar");
   const activeInSidebar = sidebar?.contains(document.activeElement);
   document.body.classList.remove("workspace-nav-open");
+  closeWorkspaceModal("navigation");
   const toggle = document.getElementById("mobileNavToggle");
   if (toggle) toggle.setAttribute("aria-expanded", "false");
   if (activeInSidebar && !focusVisible(focusTarget)) {
@@ -77,10 +79,17 @@ function initWorkspaceShell() {
     const opening = !document.body.classList.contains("workspace-nav-open");
     document.body.classList.toggle("workspace-nav-open", opening);
     toggle.setAttribute("aria-expanded", String(opening));
+    if (opening) {
+      openWorkspaceModal("navigation");
+      document.getElementById("newSessionBtn")?.focus();
+    } else {
+      closeWorkspaceModal("navigation");
+    }
     updateWorkspaceBackdrop();
   });
   backdrop?.addEventListener("click", () => resetWorkspaceOverlays());
   window.addEventListener("resize", updateWorkspaceBackdrop);
+  window.addEventListener("resize", syncWorkspaceModal);
   if (layout && typeof MutationObserver !== "undefined") {
     new MutationObserver(updateWorkspaceBackdrop).observe(layout, {
       attributes: true,

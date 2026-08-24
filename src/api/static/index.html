@@ -15,7 +15,7 @@
   <h1 class="workspace-title" id="currentViewTitle">会话研究</h1>
   <form class="global-stock-search" role="search">
     <label class="sr-only" for="globalStockSearch">全局股票搜索</label>
-    <input id="globalStockSearch" inputmode="numeric" autocomplete="off" placeholder="搜索股票代码，如 600519">
+    <div class="entry-input-wrap"><input id="globalStockSearch" inputmode="numeric" autocomplete="off" placeholder="搜索股票代码，如 600519"></div>
     <button id="globalStockSearchBtn" type="submit">分析</button>
   </form>
   <div class="conn-status" id="connStatus" role="status" hidden>⚠ 无法连接服务</div>
@@ -65,7 +65,7 @@
       <div class="analysis-entry" aria-label="个股报告查询">
         <label for="stockInput">个股分析</label>
         <div class="analysis-entry-controls">
-          <input id="stockInput" inputmode="numeric" autocomplete="off" placeholder="输入股票代码，如 600519">
+          <div class="entry-input-wrap"><input id="stockInput" inputmode="numeric" autocomplete="off" placeholder="输入股票代码，如 600519"></div>
           <button id="stockBtn" type="button">生成报告</button>
         </div>
       </div>
@@ -75,7 +75,7 @@
       <div class="analysis-entry" aria-label="指数分析查询">
         <label for="indexInput">指数分析</label>
         <div class="analysis-entry-controls">
-          <input id="indexInput" autocomplete="off" placeholder="输入指数代码，空格分隔（000300 000905）">
+          <div class="entry-input-wrap"><input id="indexInput" autocomplete="off" placeholder="输入指数代码，空格分隔（000300 000905）"></div>
           <button id="indexBtn" type="button">生成分析</button>
         </div>
       </div>

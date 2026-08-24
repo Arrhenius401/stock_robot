@@ -3,6 +3,7 @@ import { api } from "./api.js";
 import { el } from "./components.js";
 import { normalizeArtifactReport, renderStockReport } from "./report-renderer.js";
 import { store } from "./state.js";
+import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js";
 
 let initialized = false;
 let requestSequence = 0;
@@ -79,6 +80,7 @@ export async function openReportDrawer(artifact, trigger = null) {
   const panel = drawer();
   panel.hidden = false;
   panel.setAttribute("aria-hidden", "false");
+  openWorkspaceModal("drawer");
   clearError();
   document.getElementById("reportDrawerClose")?.focus();
 
@@ -122,6 +124,7 @@ export function closeReportDrawer({ restoreFocus = true } = {}) {
   const panel = drawer();
   panel.hidden = true;
   panel.setAttribute("aria-hidden", "true");
+  closeWorkspaceModal("drawer");
   clearError();
   const target = triggerElement;
   triggerElement = null;
@@ -168,4 +171,5 @@ export function initReportDrawer() {
       closeReportDrawer();
     }
   });
+  window.addEventListener("resize", syncWorkspaceModal);
 }

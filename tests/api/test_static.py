@@ -43,6 +43,7 @@ class Element {
     this._id = "";
     this.value = "";
     this.disabled = false;
+    this.inert = false;
   }
   set id(value) {
     this._id = String(value);
@@ -78,6 +79,7 @@ class Element {
     if (name === "id") this.id = value;
     else this.attributes[name] = String(value);
   }
+  removeAttribute(name) { delete this.attributes[name]; }
   getAttribute(name) { return name === "id" ? this.id : this.attributes[name] ?? null; }
   addEventListener(type, handler) {
     (this.listeners[type] = this.listeners[type] || []).push(handler);
@@ -96,7 +98,10 @@ class Element {
     if (this.ownerDocument.activeElement === this) this.ownerDocument.activeElement = null;
     await this.dispatch("blur");
   }
-  focus() { this.ownerDocument.activeElement = this; }
+  focus() {
+    if (this.closest("[inert]")) return;
+    this.ownerDocument.activeElement = this;
+  }
   contains(node) {
     if (node === this) return true;
     return this.children.some((child) => child.contains(node));
@@ -108,6 +113,7 @@ class Element {
         const value = part.trim();
         if (value.startsWith(".")) return node.classList.contains(value.slice(1));
         if (value === "[hidden]") return node.hidden;
+        if (value === "[inert]") return node.inert || node.attributes.inert !== undefined;
         return false;
       })) return node;
       node = node.parentNode;
@@ -144,10 +150,12 @@ class DocumentStub {
     return [...this.ids.values()].filter((node) => selector.startsWith(".")
       && node.classList.contains(selector.slice(1)));
   }
+  querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
 }
 
 globalThis.document = new DocumentStub();
 globalThis.window = globalThis;
+globalThis.addEventListener = () => {};
 
 function makeElement(id, tagName = "div") {
   const node = document.createElement(tagName);
@@ -229,7 +237,7 @@ class TestStaticUI:
         for path in ("/js/app.js", "/js/api.js", "/js/state.js", "/js/markdown.js",
                      "/js/chat.js", "/js/sessions.js", "/js/components.js",
                      "/js/report.js", "/js/indexview.js", "/js/report-renderer.js",
-                     "/js/report-drawer.js"):
+                     "/js/report-drawer.js", "/js/workspace-modal.js"):
             resp = await client.get(path)
             assert resp.status_code == 200, path
 
@@ -406,25 +414,80 @@ if (new Set(allSectionIds).size !== allSectionIds.length
         script = _DOM_STUB + r"""
 const globalForm = makeElement("globalForm", "form");
 globalForm.className = "global-stock-search";
+const globalWrap = makeElement("globalWrap");
+globalWrap.className = "entry-input-wrap";
 const globalInput = makeElement("globalStockSearch", "input");
-globalForm.appendChild(globalInput);
+globalWrap.appendChild(globalInput);
+globalForm.appendChild(globalWrap);
 const analysisEntry = makeElement("analysisEntry");
 analysisEntry.className = "analysis-entry";
+const analysisWrap = makeElement("analysisWrap");
+analysisWrap.className = "entry-input-wrap";
 const stockInput = makeElement("stockInput", "input");
-analysisEntry.appendChild(stockInput);
+analysisWrap.appendChild(stockInput);
+analysisEntry.appendChild(analysisWrap);
 
 const { showEntryError, clearEntryError } = await import(__COMPONENTS_URL__);
 showEntryError("globalStockSearch", "股票代码无效");
 showEntryError("stockInput", "股票代码无效");
-if (!globalForm.querySelector(".entry-error")
-    || !analysisEntry.querySelector(".entry-error")) {
+if (!globalWrap.querySelector(".entry-error")
+    || !analysisWrap.querySelector(".entry-error")
+    || globalInput.getAttribute("aria-describedby") !== "globalStockSearch-error") {
   throw new Error("迁移后的输入没有显示 422 错误");
 }
 clearEntryError("globalStockSearch");
-if (globalForm.querySelector(".entry-error")) {
+if (globalWrap.querySelector(".entry-error")
+    || globalInput.getAttribute("aria-describedby") !== null) {
   throw new Error("清理全局搜索错误后仍残留提示");
 }
 """.replace("__COMPONENTS_URL__", components_url)
+        _run_node(tmp_path, script)
+
+    def test_mobile_modal_isolates_background_focus_and_restores_it(self, tmp_path):
+        """覆盖层开启后背景控件不可被 Tab 聚焦，关闭后应恢复。"""
+        modal_url = json.dumps(_module_url("src/api/static/js/workspace-modal.js"))
+        script = _DOM_STUB + r"""
+window.matchMedia = () => ({ matches: true });
+const topbar = makeElement("topbar");
+topbar.className = "topbar";
+const topbarButton = makeElement("topbarButton", "button");
+topbar.appendChild(topbarButton);
+const sidebar = makeElement("sidebar", "aside");
+const navButton = makeElement("navButton", "button");
+sidebar.appendChild(navButton);
+const main = makeElement("workspaceMain", "main");
+const mainButton = makeElement("mainButton", "button");
+main.appendChild(mainButton);
+const drawer = makeElement("reportDrawer", "aside");
+const drawerButton = makeElement("drawerButton", "button");
+drawer.appendChild(drawerButton);
+
+const { openWorkspaceModal, closeWorkspaceModal } = await import(__MODAL_URL__);
+openWorkspaceModal("drawer");
+if (!topbar.inert || !sidebar.inert || !main.inert || drawer.inert
+    || drawer.getAttribute("aria-modal") !== "true") {
+  throw new Error("报告抽屉未隔离背景焦点");
+}
+drawerButton.focus();
+topbarButton.focus();
+if (document.activeElement !== drawerButton) {
+  throw new Error("背景控件仍能从抽屉夺取焦点");
+}
+closeWorkspaceModal("drawer");
+if (topbar.inert || sidebar.inert || main.inert
+    || drawer.getAttribute("aria-modal") !== "false") {
+  throw new Error("关闭抽屉后没有恢复背景焦点");
+}
+topbarButton.focus();
+if (document.activeElement !== topbarButton) {
+  throw new Error("关闭抽屉后背景控件不能重新聚焦");
+}
+openWorkspaceModal("navigation");
+if (!topbar.inert || !main.inert || sidebar.inert || !drawer.inert) {
+  throw new Error("移动侧栏未仅保留自身焦点范围");
+}
+closeWorkspaceModal("navigation");
+""".replace("__MODAL_URL__", modal_url)
         _run_node(tmp_path, script)
 
     def test_switch_view_announces_programmatic_view_changes(self, tmp_path):
