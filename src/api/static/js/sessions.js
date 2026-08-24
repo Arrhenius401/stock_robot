@@ -1,5 +1,8 @@
 // 侧边栏会话列表：历史恢复、内联重命名与会话级缓存隔离。
-import { store, bus, switchView } from "./state.js";
+import {
+  store, bus, switchView, invalidateSessionDetail, markSessionListMutation,
+  reviveSession, sessionDetailGeneration,
+} from "./state.js";
 import { api } from "./api.js";
 import { renderMessageHistory, clearChatScroll } from "./chat.js";
 import { closeReportDrawer } from "./report-drawer.js";
@@ -8,6 +11,7 @@ import { el } from "./components.js";
 const listEl = () => document.getElementById("sessionList");
 let initialized = false;
 let selectionSequence = 0;
+let listRequestSequence = 0;
 
 function sessionValues() {
   return Object.values(store.sessionDetails).sort(
@@ -39,6 +43,7 @@ function targetSymbols(session) {
 function clearSessionCache(sessionId) {
   delete store.sessionMessages[sessionId];
   delete store.sessionArtifacts[sessionId];
+  delete store.sessionRuns[sessionId];
   delete store.sessionDetails[sessionId];
 }
 
@@ -70,6 +75,7 @@ function beginRename(item, session) {
     error.textContent = "";
     try {
       const updated = await api.renameSession(session.session_id, title);
+      markSessionListMutation();
       store.sessionDetails[session.session_id] = {
         ...session,
         ...updated,
@@ -107,6 +113,8 @@ async function deleteSession(session) {
   try {
     await api.deleteSession(session.session_id);
     const wasCurrent = store.currentSessionId === session.session_id;
+    markSessionListMutation();
+    invalidateSessionDetail(session.session_id, true);
     clearSessionCache(session.session_id);
     if (wasCurrent) {
       closeReportDrawer();
@@ -173,8 +181,11 @@ function sessionItem(session) {
 }
 
 export function renderSessionList(sessions, updateCache = true) {
+  const visibleSessions = sessions.filter(
+    (session) => !store.sessionTombstones[session.session_id],
+  );
   if (updateCache) {
-    for (const session of sessions) {
+    for (const session of visibleSessions) {
       store.sessionDetails[session.session_id] = {
         ...(store.sessionDetails[session.session_id] || {}),
         ...session,
@@ -183,23 +194,29 @@ export function renderSessionList(sessions, updateCache = true) {
   }
   const box = listEl();
   box.innerHTML = "";
-  if (!sessions.length) {
+  if (!visibleSessions.length) {
     box.appendChild(el("div", "sessions-empty", "暂无会话，发送第一条消息后自动创建"));
     return;
   }
-  for (const session of sessions) box.appendChild(sessionItem(session));
+  for (const session of visibleSessions) box.appendChild(sessionItem(session));
 }
 
 export async function refreshSessionList() {
+  const request = ++listRequestSequence;
+  const revision = store.sessionListRevision;
   try {
     const data = await api.listSessions();
-    const sessions = data.sessions || [];
+    if (request !== listRequestSequence || revision !== store.sessionListRevision) return;
+    const sessions = (data.sessions || []).filter(
+      (session) => !store.sessionTombstones[session.session_id],
+    );
     const activeIds = new Set(sessions.map((session) => session.session_id));
     for (const sessionId of Object.keys(store.sessionDetails)) {
       if (!activeIds.has(sessionId)) delete store.sessionDetails[sessionId];
     }
     renderSessionList(sessions);
   } catch (error) {
+    if (request !== listRequestSequence || revision !== store.sessionListRevision) return;
     renderSessionList([], false);
     console.error("获取会话列表失败:", error);
   }
@@ -215,13 +232,22 @@ export async function selectSession(id) {
   const hasMessages = Object.hasOwn(store.sessionMessages, id);
   const hasArtifacts = Object.hasOwn(store.sessionArtifacts, id);
   if (!hasMessages || !hasArtifacts) {
+    const generation = sessionDetailGeneration(id);
     try {
       const data = await api.getMessages(id);
-      store.sessionMessages[id] = data.messages || [];
-      store.sessionArtifacts[id] = data.artifacts || [];
+      const valid = generation === sessionDetailGeneration(id)
+        && !store.sessionTombstones[id];
+      if (valid && !hasMessages && !Object.hasOwn(store.sessionMessages, id)) {
+        store.sessionMessages[id] = data.messages || [];
+      }
+      if (valid && !hasArtifacts && !Object.hasOwn(store.sessionArtifacts, id)) {
+        store.sessionArtifacts[id] = data.artifacts || [];
+      }
     } catch (error) {
-      delete store.sessionMessages[id];
-      delete store.sessionArtifacts[id];
+      if (generation === sessionDetailGeneration(id) && !store.sessionTombstones[id]) {
+        if (!hasMessages) delete store.sessionMessages[id];
+        if (!hasArtifacts) delete store.sessionArtifacts[id];
+      }
       console.error("恢复会话详情失败:", error);
       if (store.currentSessionId !== id || sequence !== selectionSequence) return;
     }
@@ -236,6 +262,8 @@ export async function selectSession(id) {
 export async function ensureSession() {
   if (store.currentSessionId) return;
   const data = await api.createSession();
+  markSessionListMutation();
+  reviveSession(data.session_id);
   store.currentSessionId = data.session_id;
   store.sessionMessages[data.session_id] = [];
   store.sessionArtifacts[data.session_id] = [];
@@ -253,6 +281,8 @@ export function initSessions() {
   document.getElementById("newSessionBtn").addEventListener("click", async () => {
     try {
       const data = await api.createSession();
+      markSessionListMutation();
+      reviveSession(data.session_id);
       closeReportDrawer();
       store.currentSessionId = data.session_id;
       store.sessionMessages[data.session_id] = [];

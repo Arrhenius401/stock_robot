@@ -534,6 +534,7 @@ renderMessageHistory([
   { role: "user", content: "分析", id: "question-1" },
   { role: "assistant", content: "结论", id: "answer-1" },
   { role: "tool", content: "[analyze_stock] {'symbol': '000001'}", id: "tool-1" },
+  { role: "tool", content: "[analyze_stock] {'symbol': '600036'}", id: "tool-2" },
 ], [linked, legacy]);
 const cards = byClass(chatScroll, "report-summary-card");
 if (cards.length !== 2) throw new Error("历史成果卡恢复数量错误");
@@ -542,8 +543,11 @@ if (orphanGroups.length !== 1 || !orphanGroups[0].textContent.includes("研究�
     || !orphanGroups[0].textContent.includes("旧成果")) {
   throw new Error("无 message_id 的旧成果未放入结尾研究成果区");
 }
-if (byClass(chatScroll, "card-title").some((node) => node.textContent === "工具结果")) {
-  throw new Error("服务端报告工具 repr 与成果卡重复渲染");
+const toolCards = byClass(chatScroll, "card-title")
+  .filter((node) => node.textContent === "工具结果");
+const toolHtml = byClass(chatScroll, "tooltext").map((node) => node.innerHTML).join("\n");
+if (toolCards.length !== 1 || !toolHtml.includes("600036") || toolHtml.includes("000001")) {
+  throw new Error("报告工具 repr 未按具体成果关联去重");
 }
 
 renderMessageHistory([], []);
@@ -664,6 +668,198 @@ if (!renameError?.textContent.includes("重命名失败")
   throw new Error("重命名失败未局部提示并恢复旧值");
 }
 """.replace("__SESSIONS_URL__", sessions_url).replace("__API_URL__", api_url)
+        script = script.replace("__STATE_URL__", state_url)
+        _run_node(tmp_path, script)
+
+    def test_session_list_and_detail_reject_stale_responses(self, tmp_path):
+        sessions_url = json.dumps(_module_url("src/api/static/js/sessions.js"))
+        chat_url = json.dumps(_module_url("src/api/static/js/chat.js"))
+        api_url = json.dumps(_module_url("src/api/static/js/api.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        script = _DOM_STUB + r"""
+const sessionList = makeElement("sessionList");
+makeElement("chatScroll");
+makeElement("chatInput", "textarea");
+makeElement("sendBtn", "button");
+makeElement("appLayout");
+const drawer = makeElement("reportDrawer", "aside");
+drawer.hidden = true;
+drawer.setAttribute("aria-hidden", "true");
+makeElement("reportDrawerError");
+makeElement("reportDrawerNav", "nav");
+makeElement("reportDrawerContent");
+
+const { api } = await import(__API_URL__);
+const { store } = await import(__STATE_URL__);
+const { sendMessage } = await import(__CHAT_URL__);
+const { renderSessionList, refreshSessionList, selectSession } = await import(__SESSIONS_URL__);
+const oldSession = { session_id: "s1", title: "旧标题", updated_at: 1 };
+store.sessionDetails.s1 = oldSession;
+renderSessionList([oldSession]);
+
+let resolveList;
+api.listSessions = () => new Promise((resolve) => { resolveList = resolve; });
+const staleList = refreshSessionList();
+api.renameSession = async () => ({ session_id: "s1", title: "本地新标题" });
+let menu = byClass(sessionList, "sess-menu-toggle")[0];
+await menu.click();
+let rename = byClass(sessionList, "sess-menu-action")[0];
+await rename.click();
+let input = byClass(sessionList, "sess-rename-input")[0];
+input.value = "本地新标题";
+await input.dispatch("keydown", { key: "Enter" });
+resolveList({ sessions: [oldSession] });
+await staleList;
+if (store.sessionDetails.s1.title !== "本地新标题"
+    || !sessionList.textContent.includes("本地新标题")) {
+  throw new Error("重命名后的旧列表响应覆盖了本地新标题");
+}
+
+let resolveDetail;
+api.getMessages = () => new Promise((resolve) => { resolveDetail = resolve; });
+api.chatStream = async (_message, _sessionId, handlers) => { handlers.done({}); };
+api.listSessions = async () => ({ sessions: [store.sessionDetails.s1] });
+store.currentSessionId = "other";
+const staleDetail = selectSession("s1");
+await Promise.resolve();
+await sendMessage("详情加载期间的新消息");
+resolveDetail({
+  messages: [{ role: "assistant", content: "过期历史" }],
+  artifacts: [{ artifact_id: "old-artifact", session_id: "s1",
+    payload: { symbol: "000001", name: "过期成果" } }],
+});
+await staleDetail;
+if (!store.sessionMessages.s1.some((message) => message.content === "详情加载期间的新消息")
+    || store.sessionMessages.s1.some((message) => message.content === "过期历史")
+    || (store.sessionArtifacts.s1 || []).some((item) => item.artifact_id === "old-artifact")) {
+  throw new Error("新消息失效后，旧详情响应仍写入会话缓存");
+}
+
+store.currentSessionId = "other";
+renderSessionList([store.sessionDetails.s1]);
+let resolveDeletedList;
+let deleteListCalls = 0;
+api.listSessions = () => {
+  deleteListCalls += 1;
+  if (deleteListCalls === 1) {
+    return new Promise((resolve) => { resolveDeletedList = resolve; });
+  }
+  return Promise.resolve({ sessions: [] });
+};
+const listBeforeDelete = refreshSessionList();
+window.confirm = () => true;
+api.deleteSession = async () => ({});
+menu = byClass(sessionList, "sess-menu-toggle")[0];
+await menu.click();
+const remove = byClass(sessionList, "sess-menu-action")[1];
+await remove.click();
+resolveDeletedList({ sessions: [oldSession] });
+await listBeforeDelete;
+if (store.sessionDetails.s1 || !store.sessionTombstones.s1
+    || sessionList.textContent.includes("旧标题")) {
+  throw new Error("删除后的旧列表响应复活了 tombstone 会话");
+}
+""".replace("__SESSIONS_URL__", sessions_url).replace("__CHAT_URL__", chat_url)
+        script = script.replace("__API_URL__", api_url).replace("__STATE_URL__", state_url)
+        _run_node(tmp_path, script)
+
+    def test_stream_remounts_after_session_switch_and_deduplicates_report_tool(self, tmp_path):
+        sessions_url = json.dumps(_module_url("src/api/static/js/sessions.js"))
+        chat_url = json.dumps(_module_url("src/api/static/js/chat.js"))
+        api_url = json.dumps(_module_url("src/api/static/js/api.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        script = _DOM_STUB + r"""
+const sessionList = makeElement("sessionList");
+const chatScroll = makeElement("chatScroll");
+makeElement("chatInput", "textarea");
+makeElement("sendBtn", "button");
+makeElement("appLayout");
+const drawer = makeElement("reportDrawer", "aside");
+drawer.hidden = true;
+drawer.setAttribute("aria-hidden", "true");
+makeElement("reportDrawerError");
+makeElement("reportDrawerNav", "nav");
+makeElement("reportDrawerContent");
+
+const { api } = await import(__API_URL__);
+const { store } = await import(__STATE_URL__);
+const { sendMessage } = await import(__CHAT_URL__);
+const { selectSession } = await import(__SESSIONS_URL__);
+store.currentSessionId = "s1";
+store.sessionDetails = {
+  s1: { session_id: "s1", title: "会话一", updated_at: 2 },
+  s2: { session_id: "s2", title: "会话二", updated_at: 1 },
+};
+store.sessionMessages.s1 = [];
+store.sessionMessages.s2 = [];
+store.sessionArtifacts.s1 = [];
+store.sessionArtifacts.s2 = [];
+api.listSessions = async () => ({ sessions: Object.values(store.sessionDetails) });
+let streamHandlers;
+let finishStream;
+api.chatStream = (_message, _sessionId, handlers) => {
+  streamHandlers = handlers;
+  return new Promise((resolve) => { finishStream = resolve; });
+};
+const pendingSend = sendMessage("分析两个标的");
+await Promise.resolve();
+streamHandlers.result({
+  summary: "阶段结论",
+  tool_results: [
+    { tool: "analyze_stock", symbol: "000001", status: "done", content: "000001 原始结果" },
+    { tool: "analyze_stock", symbol: "600036", status: "done", content: "600036 原始结果" },
+  ],
+});
+await selectSession("s2");
+await selectSession("s1");
+streamHandlers.text({ content: "切回后最终正文" });
+streamHandlers.artifact({ artifact: {
+  artifact_id: "artifact-1", session_id: "s1", symbol: "000001",
+  payload: { symbol: "000001", name: "平安银行", commentary: "成果结论" },
+}, persisted: true });
+const renderedHtml = descendants(chatScroll).map((node) => node.innerHTML).join("\n");
+if (!renderedHtml.includes("切回后最终正文")
+    || !chatScroll.textContent.includes("平安银行")) {
+  throw new Error("切走再切回后，流式正文或成果仍写入脱离 DOM 的旧节点");
+}
+if (renderedHtml.includes("000001 原始结果")
+    || !renderedHtml.includes("600036 原始结果")) {
+  throw new Error("实时报告工具卡未按当前 run 与成果 symbol 精确去重");
+}
+streamHandlers.done({});
+finishStream();
+await pendingSend;
+""".replace("__SESSIONS_URL__", sessions_url).replace("__CHAT_URL__", chat_url)
+        script = script.replace("__API_URL__", api_url).replace("__STATE_URL__", state_url)
+        _run_node(tmp_path, script)
+
+    def test_session_title_adopts_cold_stream_before_plan_once(self, tmp_path):
+        chat_url = json.dumps(_module_url("src/api/static/js/chat.js"))
+        api_url = json.dumps(_module_url("src/api/static/js/api.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        script = _DOM_STUB + r"""
+makeElement("chatScroll");
+makeElement("chatInput", "textarea");
+makeElement("sendBtn", "button");
+const { api } = await import(__API_URL__);
+const { store } = await import(__STATE_URL__);
+const { sendMessage } = await import(__CHAT_URL__);
+store.currentSessionId = null;
+api.chatStream = async (_message, sessionId, handlers) => {
+  if (sessionId !== null) throw new Error("冷启动请求应不带 session");
+  handlers.session_title({ session_id: "cold-sid", title: "冷启动标题" });
+  handlers.session_title({ session_id: "cold-sid", title: "精炼冷启动标题" });
+  handlers.text({ content: "冷启动回答" });
+  handlers.done({});
+};
+await sendMessage("冷启动问题");
+const userMessages = (store.sessionMessages["cold-sid"] || [])
+  .filter((message) => message.role === "user");
+if (store.currentSessionId !== "cold-sid" || userMessages.length !== 1
+    || userMessages[0].content !== "冷启动问题") {
+  throw new Error("plan 前 session_title 未接管 sid，或用户消息被重复缓存");
+}
+""".replace("__CHAT_URL__", chat_url).replace("__API_URL__", api_url)
         script = script.replace("__STATE_URL__", state_url)
         _run_node(tmp_path, script)
 
