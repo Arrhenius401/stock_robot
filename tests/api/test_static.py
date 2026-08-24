@@ -187,6 +187,17 @@ class TestStaticUI:
         assert 'id="reportDrawerNav"' in resp.text
 
     @pytest.mark.asyncio
+    async def test_workspace_shell_has_accessible_landmarks(self, client):
+        """工作台外壳提供移动端可访问入口与覆盖层。"""
+        html = (await client.get("/")).text
+
+        assert 'id="appLayout"' in html
+        assert 'aria-label="主要导航"' in html
+        assert 'id="globalStockSearch"' in html
+        assert 'id="mobileNavToggle"' in html
+        assert 'id="workspaceBackdrop"' in html
+
+    @pytest.mark.asyncio
     async def test_chat_uses_textarea_input(self, client):
         resp = await client.get("/")
 

@@ -295,3 +295,207 @@ button { font-family: inherit; }
 .btn-sm.danger { color: var(--accent); }
 .btn-sm.danger:hover { border-color: rgba(229, 72, 77, 0.5); }
 #subsList .dim { color: var(--text-3); font-size: 12px; }
+
+/* ============ 投研工作台外壳 ============ */
+:root {
+  --surface: #161b27;
+  --surface-raised: #1d2433;
+  --surface-hover: #252d3e;
+  --danger: #e86a72;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --shadow-overlay: 0 18px 48px rgba(0, 0, 0, .36);
+}
+
+body { min-width: 0; overflow: hidden; }
+button, input, textarea, select { font: inherit; }
+button { cursor: pointer; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible,
+.nav-item:focus-visible, .sess:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+.topbar {
+  min-height: 58px; padding: var(--space-2) var(--space-4); gap: var(--space-3);
+  background: rgba(19, 23, 34, .96); backdrop-filter: blur(14px);
+}
+.workspace-title { color: var(--text); font-size: 14px; font-weight: 650; white-space: nowrap; }
+.mobile-nav-toggle { display: none; }
+.global-stock-search {
+  display: flex; align-items: center; gap: var(--space-1); min-width: min(300px, 35vw);
+  margin-left: auto; padding: 3px 4px 3px var(--space-3); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: var(--bg);
+}
+.global-stock-search input {
+  min-width: 0; width: 100%; color: var(--text); background: transparent; border: 0; outline: 0;
+}
+.global-stock-search button, .analysis-entry-controls button {
+  border: 0; border-radius: 6px; padding: 6px 12px; color: #fff; background: var(--accent);
+  font-weight: 650;
+}
+.global-stock-search button:hover, .analysis-entry-controls button:hover { background: #d93a3f; }
+.conn-status { flex-shrink: 0; }
+.workspace-backdrop {
+  position: fixed; inset: 0; z-index: 20; width: 100%; height: 100%;
+  border: 0; background: rgba(4, 7, 12, .58); cursor: default;
+}
+
+#appLayout.layout {
+  display: grid; grid-template-columns: 272px minmax(0, 1fr); flex: 1; min-width: 0;
+  overflow: hidden; background: var(--bg); transition: grid-template-columns .18s ease;
+}
+#appLayout.drawer-open { grid-template-columns: 272px minmax(0, 1fr) minmax(420px, 45%); }
+#appLayout:has(#sidebar.collapsed) { grid-template-columns: 72px minmax(0, 1fr); }
+#appLayout.drawer-open:has(#sidebar.collapsed) {
+  grid-template-columns: 72px minmax(0, 1fr) minmax(420px, 45%);
+}
+
+.sidebar {
+  grid-column: 1; width: auto; min-width: 0; padding: var(--space-3) var(--space-2);
+  background: var(--panel); overflow: hidden; transition: padding .18s ease;
+}
+.sidebar.collapsed { width: auto; padding-inline: 6px; }
+.sidebar-top { gap: var(--space-2); }
+.session-list { padding-inline: 2px; }
+.sess { min-width: 0; align-items: flex-start; }
+.sess .t { white-space: normal; line-height: 1.45; overflow: hidden; text-overflow: ellipsis;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.sidebar.collapsed .sess .t { display: none; }
+.nav { margin-top: var(--space-3); }
+.nav-item {
+  width: 100%; border: 0; text-align: left; background: transparent; font-family: inherit;
+}
+.nav-item.on { box-shadow: inset 2px 0 0 var(--accent); }
+
+.main { grid-column: 2; grid-row: 1; min-height: 0; overflow: hidden; background: var(--bg); }
+.view { min-height: 0; }
+#view-chat { padding: var(--space-4); gap: var(--space-2); }
+.chat-scroll { padding: var(--space-2) max(var(--space-2), 5vw); }
+.chat-input {
+  align-items: flex-end; max-width: 900px; width: 100%; margin: 0 auto;
+  padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-md);
+  background: var(--surface); box-shadow: 0 8px 20px rgba(0, 0, 0, .12);
+}
+.chat-input textarea {
+  resize: vertical; min-height: 42px; max-height: 180px; flex: 1; border: 0; outline: 0;
+  color: var(--text); background: transparent; line-height: 1.55; padding: 7px 8px;
+}
+.chat-input:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(229,72,77,.12); }
+.quick-bar { max-width: 900px; width: 100%; margin: 0 auto; }
+.msg { max-width: min(760px, 88%); }
+
+.analysis-entry {
+  display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-soft); background: var(--panel);
+}
+.analysis-entry > label { color: var(--text); font-size: 13px; font-weight: 650; }
+.analysis-entry-controls { display: flex; flex: 1; gap: var(--space-2); max-width: 560px; }
+.analysis-entry-controls input {
+  min-width: 0; flex: 1; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg); color: var(--text); padding: 8px 10px; outline: 0;
+}
+.analysis-entry-controls input:focus { border-color: var(--accent); }
+.report-content { max-width: 980px; padding: var(--space-4) clamp(16px, 4vw, 40px) 48px; }
+.stock-report { display: grid; gap: var(--space-3); width: min(100%, 76ch); margin-inline: auto; }
+.panel, .llm { background: var(--surface); border-color: var(--border); box-shadow: none; }
+.report-content .panel, #reportDrawerContent .panel { overflow-x: auto; }
+.report-content table, #reportDrawerContent table, .md table { min-width: max-content; }
+.md { overflow-wrap: anywhere; }
+
+#reportDrawer {
+  grid-column: 3; grid-row: 1; display: flex; min-width: 0; min-height: 0;
+  flex-direction: column; border-left: 1px solid var(--border); background: var(--panel);
+  box-shadow: -12px 0 30px rgba(0, 0, 0, .14);
+}
+#reportDrawer[hidden] { display: none; }
+.report-drawer-toolbar {
+  display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2);
+  padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-soft);
+}
+.report-drawer-toolbar button, .report-drawer-nav-item {
+  border: 1px solid var(--border); border-radius: 6px; background: var(--surface-raised);
+  color: var(--text-2); padding: 5px 9px; font-size: 12px;
+}
+.report-drawer-toolbar button:hover, .report-drawer-nav-item:hover { background: var(--surface-hover); color: var(--text); }
+#reportDrawerClose { color: var(--danger); }
+#reportDrawerError { margin: var(--space-2) var(--space-3) 0; color: var(--danger); line-height: 1.5; }
+#reportDrawerNav {
+  display: flex; gap: 6px; padding: var(--space-2) var(--space-3); overflow-x: auto;
+  border-bottom: 1px solid var(--border-soft); white-space: nowrap;
+}
+.report-drawer-nav-item { flex-shrink: 0; }
+#reportDrawerContent { min-height: 0; overflow: auto; padding: var(--space-4); }
+#reportDrawerContent .stock-report { width: min(100%, 72ch); }
+
+@media (max-width: 1100px) {
+  #appLayout.layout { grid-template-columns: 220px minmax(0, 1fr); }
+  #appLayout.drawer-open { grid-template-columns: 220px minmax(0, 1fr) minmax(360px, 43%); }
+  #appLayout.drawer-open:has(#sidebar.collapsed) { grid-template-columns: 64px minmax(0, 1fr) minmax(360px, 43%); }
+  #appLayout:has(#sidebar.collapsed) { grid-template-columns: 64px minmax(0, 1fr); }
+  .global-stock-search { min-width: min(260px, 34vw); }
+}
+
+@media (max-width: 760px) {
+  body { overflow: hidden; }
+  .topbar { min-height: 54px; padding: 7px var(--space-2); gap: var(--space-2); }
+  .mobile-nav-toggle {
+    display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid var(--border);
+    border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: 17px;
+  }
+  .logo { display: none; }
+  .workspace-title { overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
+  .global-stock-search { min-width: 0; flex: 1; padding-left: var(--space-2); }
+  .global-stock-search input { font-size: 12px; }
+  .global-stock-search button { padding-inline: 9px; }
+  .conn-status { max-width: 78px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #appLayout.layout, #appLayout.drawer-open, #appLayout:has(#sidebar.collapsed),
+  #appLayout.drawer-open:has(#sidebar.collapsed) { display: block; position: relative; overflow: hidden; }
+  .main { display: flex; min-height: 0; height: 100%; }
+  .sidebar {
+    position: absolute; z-index: 30; inset: 0 auto 0 0; width: min(290px, calc(100vw - 48px));
+    transform: translateX(-105%); box-shadow: var(--shadow-overlay); transition: transform .2s ease;
+  }
+  .workspace-nav-open .sidebar { transform: translateX(0); }
+  .sidebar.collapsed { width: min(290px, calc(100vw - 48px)); padding: var(--space-3) var(--space-2); }
+  .sidebar.collapsed .new-session .txt, .sidebar.collapsed .sess .t,
+  .sidebar.collapsed .nav-item span { display: inline; }
+  .sidebar.collapsed .sess { justify-content: space-between; padding-inline: 10px; }
+  .sidebar.collapsed .nav-item { justify-content: flex-start; padding-inline: 10px; }
+  .collapse-btn { display: none; }
+  .workspace-backdrop { z-index: 20; }
+  #reportDrawer {
+    position: absolute; z-index: 40; inset: 0; width: 100%; border-left: 0;
+    box-shadow: var(--shadow-overlay);
+  }
+  #reportDrawerContent { padding: var(--space-3); }
+  #view-chat { padding: var(--space-2); }
+  .chat-scroll { padding-inline: var(--space-1); }
+  .msg { max-width: 94%; }
+  .analysis-entry { padding: var(--space-3); align-items: stretch; }
+  .analysis-entry-controls { max-width: none; }
+  .report-content { padding: var(--space-3) var(--space-2) 32px; }
+  .stock-report { width: 100%; }
+  .score-big, .report-header { align-items: flex-start; flex-direction: column; }
+  .price-box { margin-left: 0; }
+}
+
+@media (max-width: 420px) {
+  .workspace-title { display: none; }
+  .global-stock-search input::placeholder { color: transparent; }
+  .global-stock-search { margin-left: 0; }
+  .quick-bar { overflow-x: auto; padding-bottom: 2px; }
+  .quick-bar button { flex-shrink: 0; }
+  .chat-input button { padding-inline: 12px; }
+  .analysis-entry-controls { flex-direction: column; }
+  .analysis-entry-controls button { width: 100%; }
+}
