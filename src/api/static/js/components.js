@@ -59,10 +59,16 @@ export function skeleton(lines = 6) {
   return box;
 }
 
-// 顶栏输入框旁红字提示：422 输入校验错误时展示，不切换视图
+function entryContainer(input) {
+  return input?.closest(".entry")
+    || input?.closest(".analysis-entry")
+    || input?.closest(".global-stock-search");
+}
+
+// 输入框附近红字提示：422 输入校验错误时展示，不切换视图
 export function showEntryError(inputId, message) {
   const input = document.getElementById(inputId);
-  const entry = input.closest(".entry");
+  const entry = entryContainer(input);
   if (!entry) return;
   clearEntryError(inputId);
   const tip = el("div", "entry-error", message);
@@ -71,7 +77,7 @@ export function showEntryError(inputId, message) {
 
 export function clearEntryError(inputId) {
   const input = document.getElementById(inputId);
-  const entry = input.closest(".entry");
+  const entry = entryContainer(input);
   if (entry) {
     const old = entry.querySelector(".entry-error");
     if (old) old.remove();

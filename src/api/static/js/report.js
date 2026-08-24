@@ -9,7 +9,7 @@ const content = () => document.getElementById("reportContent");
 
 let reqSeq = 0;  // 请求令牌：慢请求期间二次查询时，丢弃迟到响应/错误
 
-export async function openReport(symbol) {
+export async function openReport(symbol, entryInputId = "stockInput") {
   const seq = ++reqSeq;
   const prevView = store.currentView;  // 记录原视图：422 校验失败时回退
   switchView("report");
@@ -29,12 +29,12 @@ export async function openReport(symbol) {
     if (seq !== reqSeq) return;
     if (err.status === 422) {
       // 输入校验失败：回原视图 + 输入框旁红字，不渲染错误卡
-      showEntryError("stockInput", err.message);
+      showEntryError(entryInputId, err.message);
       switchView(prevView);
       return;
     }
     box.innerHTML = "";
-    box.appendChild(errorCard(`分析失败: ${err.message}`, () => openReport(symbol)));
+    box.appendChild(errorCard(`分析失败: ${err.message}`, () => openReport(symbol, entryInputId)));
   }
 }
 
@@ -47,7 +47,7 @@ function renderReport(d) {
     delete store.reportCache[symbol];
     openReport(symbol);
   });
-  box.replaceChildren(renderStockReport(d), refresh);
+  box.replaceChildren(renderStockReport(d, { sectionIdPrefix: "page-" }), refresh);
 }
 
 export function initReportView() {

@@ -24,10 +24,28 @@ function updateViewTitle(view) {
   if (title) title.textContent = VIEW_TITLES[view] || "Stock Robot";
 }
 
-function closeMobileNavigation() {
+function mainContent() {
+  return document.getElementById("workspaceMain");
+}
+
+function focusVisible(target) {
+  if (!target || typeof target.focus !== "function" || target.isConnected === false) return false;
+  if (target.closest?.("[hidden]")) return false;
+  const view = target.closest?.(".view");
+  if (view && !view.classList.contains("active")) return false;
+  target.focus();
+  return true;
+}
+
+function closeMobileNavigation(focusTarget = null) {
+  const sidebar = document.getElementById("sidebar");
+  const activeInSidebar = sidebar?.contains(document.activeElement);
   document.body.classList.remove("workspace-nav-open");
   const toggle = document.getElementById("mobileNavToggle");
   if (toggle) toggle.setAttribute("aria-expanded", "false");
+  if (activeInSidebar && !focusVisible(focusTarget)) {
+    focusVisible(mainContent()) || focusVisible(toggle);
+  }
 }
 
 function updateWorkspaceBackdrop() {
@@ -40,11 +58,12 @@ function updateWorkspaceBackdrop() {
   backdrop.hidden = !needsBackdrop;
 }
 
-function resetWorkspaceOverlays() {
-  closeMobileNavigation();
+function resetWorkspaceOverlays({ focusTarget = null } = {}) {
+  closeMobileNavigation(focusTarget);
   const layout = document.getElementById("appLayout");
-  if (layout?.classList.contains("drawer-open")) closeReportDrawer();
+  if (layout?.classList.contains("drawer-open")) closeReportDrawer({ restoreFocus: false });
   updateWorkspaceBackdrop();
+  focusVisible(focusTarget);
 }
 
 function initWorkspaceShell() {
@@ -81,24 +100,27 @@ function initWorkspaceShell() {
     event.preventDefault();
     const symbol = search.value.trim();
     if (!symbol) return;
-    resetWorkspaceOverlays();
-    updateViewTitle("report");
-    openReport(symbol);
+    resetWorkspaceOverlays({ focusTarget: search });
+    openReport(symbol, "globalStockSearch");
   });
 }
 
 function init() {
   document.querySelectorAll(".nav-item").forEach((node) => {
     node.addEventListener("click", () => {
-      resetWorkspaceOverlays();
+      const focusTarget = isNarrowScreen() ? mainContent() : node;
+      resetWorkspaceOverlays({ focusTarget });
       switchView(node.dataset.view);
-      updateViewTitle(node.dataset.view);
     });
   });
   // 全局连接状态条：网络层失败（conn-down）/恢复（conn-up）时切换显隐。
   const connStatus = document.getElementById("connStatus");
   bus.addEventListener("conn-down", () => { connStatus.hidden = false; });
   bus.addEventListener("conn-up", () => { connStatus.hidden = true; });
+  bus.addEventListener("view-change", (event) => {
+    updateViewTitle(event.detail.view);
+    resetWorkspaceOverlays({ focusTarget: mainContent() });
+  });
   initWorkspaceShell();
   initChat();
   initReportView();

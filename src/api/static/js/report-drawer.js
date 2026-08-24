@@ -55,7 +55,9 @@ function buildNavigation(article) {
 }
 
 function renderDrawerContent(artifact) {
-  const article = renderStockReport(normalizeArtifactReport(artifact));
+  const article = renderStockReport(normalizeArtifactReport(artifact), {
+    sectionIdPrefix: "drawer-",
+  });
   content().replaceChildren(article);
   buildNavigation(article);
 }
@@ -70,7 +72,7 @@ export async function openReportDrawer(artifact, trigger = null) {
   if (!artifact) return;
   const sequence = ++requestSequence;
   const id = artifactId(artifact);
-  triggerElement = trigger;
+  triggerElement = trigger || triggerElement || document.activeElement;
   store.currentArtifact = artifact;
   store.reportDrawerOpen = true;
   document.getElementById("appLayout").classList.add("drawer-open");
@@ -78,6 +80,7 @@ export async function openReportDrawer(artifact, trigger = null) {
   panel.hidden = false;
   panel.setAttribute("aria-hidden", "false");
   clearError();
+  document.getElementById("reportDrawerClose")?.focus();
 
   if (artifact.payload) {
     cacheArtifact(artifact);
@@ -104,7 +107,14 @@ export async function openReportDrawer(artifact, trigger = null) {
   }
 }
 
-export function closeReportDrawer() {
+function isVisibleFocusTarget(target) {
+  if (!target || typeof target.focus !== "function" || target.isConnected === false) return false;
+  if (target.closest?.("[hidden]")) return false;
+  const view = target.closest?.(".view");
+  return !view || view.classList.contains("active");
+}
+
+export function closeReportDrawer({ restoreFocus = true } = {}) {
   requestSequence += 1;
   store.currentArtifact = null;
   store.reportDrawerOpen = false;
@@ -115,7 +125,11 @@ export function closeReportDrawer() {
   clearError();
   const target = triggerElement;
   triggerElement = null;
-  if (target && typeof target.focus === "function") target.focus();
+  if (restoreFocus && isVisibleFocusTarget(target)) {
+    target.focus();
+  } else if (panel.contains(document.activeElement)) {
+    document.getElementById("workspaceMain")?.focus();
+  }
 }
 
 async function refreshReport() {

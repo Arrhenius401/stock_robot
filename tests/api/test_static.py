@@ -97,6 +97,23 @@ class Element {
     await this.dispatch("blur");
   }
   focus() { this.ownerDocument.activeElement = this; }
+  contains(node) {
+    if (node === this) return true;
+    return this.children.some((child) => child.contains(node));
+  }
+  closest(selector) {
+    let node = this;
+    while (node) {
+      if (selector.split(",").some((part) => {
+        const value = part.trim();
+        if (value.startsWith(".")) return node.classList.contains(value.slice(1));
+        if (value === "[hidden]") return node.hidden;
+        return false;
+      })) return node;
+      node = node.parentNode;
+    }
+    return null;
+  }
   scrollIntoView(options) { this.scrolledWith = options; }
   querySelectorAll(selector) {
     const all = [];
@@ -123,7 +140,10 @@ class DocumentStub {
   async dispatch(type, event) {
     for (const handler of this.listeners[type] || []) await handler(event);
   }
-  querySelectorAll() { return []; }
+  querySelectorAll(selector) {
+    return [...this.ids.values()].filter((node) => selector.startsWith(".")
+      && node.classList.contains(selector.slice(1)));
+  }
 }
 
 globalThis.document = new DocumentStub();
@@ -366,7 +386,71 @@ const partialSummary = renderReportSummary(partialArtifact);
 if (!partialSummary.textContent.includes("600000")) {
   throw new Error("payload 缺少代码时应兼容成果外层 symbol");
 }
+const drawerArticle = renderStockReport(report, { sectionIdPrefix: "drawer-" });
+const pageArticle = renderStockReport(report, { sectionIdPrefix: "page-" });
+const allSectionIds = [
+  ...drawerArticle.querySelectorAll("section[id]"),
+  ...pageArticle.querySelectorAll("section[id]"),
+].map((section) => section.id);
+if (new Set(allSectionIds).size !== allSectionIds.length
+    || !allSectionIds.includes("drawer-report-summary")
+    || !allSectionIds.includes("page-report-summary")) {
+  throw new Error("主报告与抽屉并存时章节 ID 必须唯一");
+}
 """.replace("__RENDERER_URL__", renderer_url)
+        _run_node(tmp_path, script)
+
+    def test_entry_error_follows_moved_and_global_search_inputs(self, tmp_path):
+        """422 必须在实际触发输入附近给出可见提示。"""
+        components_url = json.dumps(_module_url("src/api/static/js/components.js"))
+        script = _DOM_STUB + r"""
+const globalForm = makeElement("globalForm", "form");
+globalForm.className = "global-stock-search";
+const globalInput = makeElement("globalStockSearch", "input");
+globalForm.appendChild(globalInput);
+const analysisEntry = makeElement("analysisEntry");
+analysisEntry.className = "analysis-entry";
+const stockInput = makeElement("stockInput", "input");
+analysisEntry.appendChild(stockInput);
+
+const { showEntryError, clearEntryError } = await import(__COMPONENTS_URL__);
+showEntryError("globalStockSearch", "股票代码无效");
+showEntryError("stockInput", "股票代码无效");
+if (!globalForm.querySelector(".entry-error")
+    || !analysisEntry.querySelector(".entry-error")) {
+  throw new Error("迁移后的输入没有显示 422 错误");
+}
+clearEntryError("globalStockSearch");
+if (globalForm.querySelector(".entry-error")) {
+  throw new Error("清理全局搜索错误后仍残留提示");
+}
+""".replace("__COMPONENTS_URL__", components_url)
+        _run_node(tmp_path, script)
+
+    def test_switch_view_announces_programmatic_view_changes(self, tmp_path):
+        """会话选择、校验回退等程序化切换也要能同步页面标题。"""
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        script = _DOM_STUB + r"""
+const chat = makeElement("view-chat");
+chat.className = "view active";
+const report = makeElement("view-report");
+report.className = "view";
+const chatNav = makeElement("chatNav", "button");
+chatNav.className = "nav-item on";
+chatNav.dataset.view = "chat";
+const reportNav = makeElement("reportNav", "button");
+reportNav.className = "nav-item";
+reportNav.dataset.view = "report";
+
+const { bus, switchView } = await import(__STATE_URL__);
+let received = null;
+bus.addEventListener("view-change", (event) => { received = event.detail.view; });
+switchView("report");
+if (received !== "report" || !report.classList.contains("active")
+    || chat.classList.contains("active")) {
+  throw new Error("程序化视图切换没有通知标题层");
+}
+""".replace("__STATE_URL__", state_url)
         _run_node(tmp_path, script)
 
     def test_report_api_and_state_contract(self, tmp_path):
@@ -446,6 +530,9 @@ if (drawer.hidden || drawer.getAttribute("aria-hidden") !== "false"
     || !layout.classList.contains("drawer-open") || !store.reportDrawerOpen) {
   throw new Error("抽屉未正确展开");
 }
+if (document.activeElement !== closeButton) {
+  throw new Error("打开抽屉后键盘焦点未进入抽屉");
+}
 if (!content.textContent.includes("B 报告") || !content.textContent.includes("000002")
     || nav.children.length === 0) {
   throw new Error("抽屉未使用共享归一化报告或动态章节导航");
@@ -460,6 +547,13 @@ if (!drawer.hidden || drawer.getAttribute("aria-hidden") !== "true"
     || layout.classList.contains("drawer-open") || store.reportDrawerOpen
     || document.activeElement !== trigger) {
   throw new Error("抽屉关闭状态或焦点归还错误");
+}
+
+await openReportDrawer(artifactB, trigger);
+await openReportDrawer(artifactB);
+closeReportDrawer();
+if (document.activeElement !== trigger) {
+  throw new Error("无 trigger 重开抽屉时丢失了原始焦点来源");
 }
 
 let resolveA;

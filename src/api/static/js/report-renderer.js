@@ -63,9 +63,9 @@ function markdownBlock(text, className) {
   return block;
 }
 
-function section(id, title, className = "panel") {
+function section(id, title, className = "panel", sectionIdPrefix = "") {
   const node = el("section", className);
-  node.id = id;
+  node.id = `${sectionIdPrefix}${id}`;
   node.dataset.sectionTitle = title;
   node.appendChild(el("h2", "panel-title", title));
   return node;
@@ -122,8 +122,8 @@ function investmentSummary(report) {
   return "暂无数据";
 }
 
-function summarySection(report) {
-  const card = section("report-summary", "投资摘要");
+function summarySection(report, sectionIdPrefix) {
+  const card = section("report-summary", "投资摘要", "panel", sectionIdPrefix);
   card.appendChild(reportHeader(report));
   card.appendChild(markdownBlock(investmentSummary(report), "report-investment-summary md"));
 
@@ -148,8 +148,8 @@ function summarySection(report) {
   return card;
 }
 
-function scoreSection(report) {
-  const card = section("report-score", "综合评分");
+function scoreSection(report, sectionIdPrefix) {
+  const card = section("report-score", "综合评分", "panel", sectionIdPrefix);
   const score = record(report.score);
   const big = el("div", "score-big");
   const number = el("div", "score-num", readable(score.final, "—"));
@@ -176,8 +176,8 @@ function scoreSection(report) {
   return card;
 }
 
-function dimensionSection(name, label, data) {
-  const card = section(`report-${name}`, label);
+function dimensionSection(name, label, data, sectionIdPrefix) {
+  const card = section(`report-${name}`, label, "panel", sectionIdPrefix);
   if (!data || typeof data !== "object" || Array.isArray(data)) {
     card.appendChild(el("div", "report-empty", "暂无数据"));
     return card;
@@ -217,8 +217,8 @@ function riskFlags(report) {
   return [...unique];
 }
 
-function risksSection(report) {
-  const card = section("report-risks", "汇总风险");
+function risksSection(report, sectionIdPrefix) {
+  const card = section("report-risks", "汇总风险", "panel", sectionIdPrefix);
   const flags = riskFlags(report);
   if (!flags.length) {
     card.appendChild(el("div", "report-empty", "暂无风险提示"));
@@ -230,25 +230,26 @@ function risksSection(report) {
   return card;
 }
 
-function commentarySection(report) {
-  const card = section("report-commentary", "AI 解读", "llm");
+function commentarySection(report, sectionIdPrefix) {
+  const card = section("report-commentary", "AI 解读", "llm", sectionIdPrefix);
   card.appendChild(markdownBlock(commentaryText(report), "report-commentary md"));
   return card;
 }
 
 export function renderStockReport(report, options = {}) {
   const data = record(report);
+  const sectionIdPrefix = options.sectionIdPrefix || "";
   const article = el("article", "stock-report");
   if (options.className) article.classList.add(String(options.className));
-  article.appendChild(summarySection(data));
-  article.appendChild(scoreSection(data));
+  article.appendChild(summarySection(data, sectionIdPrefix));
+  article.appendChild(scoreSection(data, sectionIdPrefix));
 
   const dimensions = record(data.dimensions);
   for (const [name, label] of DIMENSIONS) {
-    article.appendChild(dimensionSection(name, label, dimensions[name]));
+    article.appendChild(dimensionSection(name, label, dimensions[name], sectionIdPrefix));
   }
-  article.appendChild(risksSection(data));
-  article.appendChild(commentarySection(data));
+  article.appendChild(risksSection(data, sectionIdPrefix));
+  article.appendChild(commentarySection(data, sectionIdPrefix));
   return article;
 }
 

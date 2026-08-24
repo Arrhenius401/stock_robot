@@ -62,4 +62,5 @@ export function switchView(name) {
   document.querySelectorAll(".nav-item").forEach((n) => {
     n.classList.toggle("on", n.dataset.view === name);
   });
+  bus.dispatchEvent(new CustomEvent("view-change", { detail: { view: name } }));
 }
