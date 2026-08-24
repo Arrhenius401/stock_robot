@@ -313,8 +313,10 @@ class SessionManager:
         with self._lock:
             if not self._store.session_exists(session_id):
                 return False
+            memory = self._memories.pop(session_id, None)
+            if memory:
+                memory.invalidate()
             self._store.clear_messages(session_id)
-            memory = self._memories.get(session_id)
             if memory:
                 memory.clear_session()
             return True
@@ -323,8 +325,10 @@ class SessionManager:
         with self._lock:
             if not self._store.session_exists(session_id):
                 return False
+            memory = self._memories.pop(session_id, None)
+            if memory:
+                memory.invalidate()
             self._store.delete_session(session_id)
-            self._memories.pop(session_id, None)
             return True
 
     def rename(self, session_id: str, title: str, manual: bool = True) -> bool:

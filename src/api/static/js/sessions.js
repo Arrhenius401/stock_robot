@@ -44,6 +44,7 @@ function clearSessionCache(sessionId) {
   delete store.sessionMessages[sessionId];
   delete store.sessionArtifacts[sessionId];
   delete store.sessionRuns[sessionId];
+  delete store.sessionDetailStale[sessionId];
   delete store.sessionDetails[sessionId];
 }
 
@@ -234,18 +235,22 @@ export async function selectSession(id) {
   clearChatScroll();
   const hasMessages = Object.hasOwn(store.sessionMessages, id);
   const hasArtifacts = Object.hasOwn(store.sessionArtifacts, id);
-  if (!hasMessages || !hasArtifacts) {
+  const stale = Boolean(store.sessionDetailStale[id]);
+  if (stale || !hasMessages || !hasArtifacts) {
     const generation = sessionDetailGeneration(id);
     try {
       const data = await api.getMessages(id);
       const valid = generation === sessionDetailGeneration(id)
         && !store.sessionTombstones[id];
-      if (valid && !hasMessages && !Object.hasOwn(store.sessionMessages, id)) {
+      if (valid && (stale || (!hasMessages
+          && !Object.hasOwn(store.sessionMessages, id)))) {
         store.sessionMessages[id] = data.messages || [];
       }
-      if (valid && !hasArtifacts && !Object.hasOwn(store.sessionArtifacts, id)) {
+      if (valid && (stale || (!hasArtifacts
+          && !Object.hasOwn(store.sessionArtifacts, id)))) {
         store.sessionArtifacts[id] = data.artifacts || [];
       }
+      if (valid) delete store.sessionDetailStale[id];
     } catch (error) {
       if (generation === sessionDetailGeneration(id) && !store.sessionTombstones[id]) {
         if (!hasMessages) delete store.sessionMessages[id];

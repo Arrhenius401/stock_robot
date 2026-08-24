@@ -7,8 +7,8 @@ from httpx import ASGITransport, AsyncClient
 
 from agent.tools import ToolProtocol, ToolRegistry, ToolResult
 from api.app import (
-    _extract_stock_report,
-    _persist_artifact_if_present,
+    _extract_stock_reports,
+    _persist_artifacts_if_present,
     _structured_tool_results,
     create_app,
 )
@@ -51,6 +51,20 @@ class SymbolLLM:
         }, ensure_ascii=False)
 
 
+class MultiSymbolLLM:
+    """返回两个报告步骤，验证一次执行产生多份成果。"""
+
+    def generate(self, prompt, system=None, **kwargs):
+        return json.dumps({
+            "goal": "连续分析两只股票",
+            "complexity": "complex",
+            "steps": [
+                {"id": "step-1", "description": "分析 000001 的估值"},
+                {"id": "step-2", "description": "分析 600036 的估值"},
+            ],
+        }, ensure_ascii=False)
+
+
 class StockTool:
     name = "analyze_stock"
     description = "分析股票的基本面与估值数据，输入股票代码"
@@ -80,6 +94,16 @@ def make_symbol_core():
     return AgentCore(registry=registry, pipeline=cast(Any, FakePipeline()),
                      index_pipeline=cast(Any, FakeIndexPipeline()),
                      llm=cast(Any, SymbolLLM()))
+
+
+def make_multi_symbol_core():
+    """注册报告工具与双步骤计划。"""
+    from typing import Any, cast
+    registry = ToolRegistry()
+    registry.register(StockTool())
+    return AgentCore(registry=registry, pipeline=cast(Any, FakePipeline()),
+                     index_pipeline=cast(Any, FakeIndexPipeline()),
+                     llm=cast(Any, MultiSymbolLLM()))
 
 
 class FakePipeline:
@@ -236,6 +260,26 @@ def make_agent_core():
                      llm=cast(Any, AgentModeLLM()), model=model)
 
 
+def make_multi_report_agent_core():
+    """ReAct 一轮调用两次报告工具，验证 agent 多成果事件。"""
+    from typing import Any, cast
+
+    from langchain_core.messages import AIMessage
+
+    registry = ToolRegistry()
+    registry.register(StockTool())
+    model = FakeChatModel(responses=[
+        AIMessage(content="", tool_calls=[
+            {"name": "analyze_stock", "args": {"symbol": "000001"}, "id": "call_1"},
+            {"name": "analyze_stock", "args": {"symbol": "000001"}, "id": "call_2"},
+        ]),
+        AIMessage(content="两次分析完成", tool_calls=[]),
+    ])
+    return AgentCore(registry=registry, pipeline=cast(Any, FakePipeline()),
+                     index_pipeline=cast(Any, FakeIndexPipeline()),
+                     llm=cast(Any, AgentModeLLM()), model=model)
+
+
 class BrokenRegistry(ToolRegistry):
     """工具匹配即崩溃的注册表，模拟 Agent 执行链路故障
 
@@ -310,6 +354,7 @@ class TestChatEndpoint:
         assert len(tools) == 1
         assert tools[0]["tool"] == "echo"
         assert tools[0]["status"] == "done"
+        assert all("raw_output" not in tool for tool in tools)
         assert tools[0]["symbol"] is None
         assert "echo" in tools[0]["content"]
 
@@ -392,6 +437,7 @@ class TestChatEndpoint:
         assert len(tools) == 1
         assert tools[0]["tool"] == "echo"
         assert tools[0]["status"] == "done"
+        assert all("raw_output" not in tool for tool in tools)
         # 最终回答写入会话消息
         msgs = sessions.get_messages(body["session_id"])
         assert msgs is not None
@@ -486,9 +532,9 @@ class TestStockReportExtraction:
             ),
         }]
 
-        extracted = _extract_stock_report(tool_results)
+        extracted = _extract_stock_reports(tool_results)
 
-        assert extracted == ("000001", {
+        assert extracted == [("000001", {
             "symbol": "000001",
             "name": "平安银行",
             "overview": {"industry": "银行"},
@@ -497,7 +543,7 @@ class TestStockReportExtraction:
             "dimensions": {},
             "commentary": "第一段\n\n第二段",
             "generated_at": "2026-08-24T10:00:00+08:00",
-        }, None)
+        }, None)]
 
     def test_persists_only_successful_report_tool_message_id(self):
         """同代码成功/失败并存时，成果只能关联成功的具体工具消息。"""
@@ -510,7 +556,7 @@ class TestStockReportExtraction:
                 return {"artifact_id": "a1", **self.kwargs}
 
         manager = ArtifactManager()
-        result = _persist_artifact_if_present(manager, "s1", [
+        results = _persist_artifacts_if_present(manager, "s1", [
             {
                 "tool": "analyze_stock", "status": "done", "message_id": 101,
                 "content": "[analyze_stock] success: {'symbol': '000001'}",
@@ -521,17 +567,51 @@ class TestStockReportExtraction:
             },
         ])
 
-        assert result is not None
-        assert result["artifact"]["message_id"] == 101
+        assert len(results) == 1
+        assert results[0]["artifact"]["message_id"] == 101
         assert manager.kwargs["message_id"] == 101
+
+    def test_persists_all_successful_reports_with_distinct_message_ids(self):
+        """一次多个成功报告（含同代码重复）必须逐项持久化并保留关联 ID。"""
+        class ArtifactManager:
+            def __init__(self):
+                self.saved = []
+
+            def save_artifact(self, session_id, **kwargs):
+                artifact = {
+                    "artifact_id": f"a{len(self.saved) + 1}",
+                    "session_id": session_id,
+                    **kwargs,
+                }
+                self.saved.append(artifact)
+                return artifact
+
+        manager = ArtifactManager()
+        events = _persist_artifacts_if_present(manager, "s1", [
+            {
+                "tool": "analyze_stock", "status": "done", "message_id": 201,
+                "content": "[analyze_stock] success: {'symbol': '000001'}",
+            },
+            {
+                "tool": "analyze_stock", "status": "done", "message_id": 202,
+                "content": "[analyze_stock] success: {'symbol': '000001'}",
+            },
+            {
+                "tool": "analyze_stock", "status": "done", "message_id": 203,
+                "content": "[analyze_stock] success: {'symbol': '600036'}",
+            },
+        ])
+
+        assert [event["artifact"]["message_id"] for event in events] == [201, 202, 203]
+        assert [artifact["message_id"] for artifact in manager.saved] == [201, 202, 203]
 
     def test_ignores_unstructured_react_summary(self):
         """ReAct 自然语言摘要不能被误当作报告成果。"""
-        assert _extract_stock_report([{
+        assert _extract_stock_reports([{
             "tool": "analyze_stock",
             "status": "done",
             "content": "平安银行综合评分较高，建议关注。",
-        }]) is None
+        }]) == []
 
 
 class TestStreamEndpoint:
@@ -610,6 +690,26 @@ class TestStreamEndpoint:
             < [event["type"] for event in events].index("done")
         assert history.status_code == 200
         assert history.json()["artifacts"] == [artifact_event["artifact"]]
+
+    @pytest.mark.asyncio
+    async def test_stream_plan_emits_every_report_artifact(self, tmp_path):
+        """plan 的多个报告步骤应逐个保存并逐个发送 artifact 事件。"""
+        sessions = SessionManager(SessionStore(tmp_path / "multi_report.db"))
+        app_stock = create_app(
+            core=make_multi_symbol_core(), sessions=sessions, push=False)
+        async with (
+            AsyncClient(transport=ASGITransport(app=app_stock),
+                        base_url="http://test") as c,
+            c.stream("POST", "/api/v1/chat/stream", json={
+                "message": "连续分析 000001 和 600036",
+            }) as resp,
+        ):
+            events = parse_sse_events((await resp.aread()).decode())
+
+        artifacts = [event["artifact"] for event in events
+                     if event["type"] == "artifact"]
+        assert [artifact["symbol"] for artifact in artifacts] == ["000001", "600036"]
+        assert len({artifact["message_id"] for artifact in artifacts}) == 2
 
     @pytest.mark.asyncio
     async def test_stream_emits_unpersisted_artifact_when_store_fails(
@@ -834,6 +934,31 @@ class TestStreamEndpoint:
         assert '"type": "done"' in text
 
     @pytest.mark.asyncio
+    async def test_stream_agent_mode_emits_every_report_artifact(self, tmp_path):
+        """ReAct 的多个成功报告工具结果应各自产生成果事件。"""
+        sessions = SessionManager(SessionStore(tmp_path / "s_agent_multi.db"))
+        app_agent = create_app(
+            core=make_multi_report_agent_core(), sessions=sessions, push=False)
+        async with (
+            AsyncClient(transport=ASGITransport(app=app_agent),
+                        base_url="http://test") as c,
+            c.stream("POST", "/api/v1/chat/stream",
+                     json={"message": "重复分析平安银行"}) as resp,
+        ):
+            events = parse_sse_events((await resp.aread()).decode())
+
+        artifacts = [event["artifact"] for event in events
+                     if event["type"] == "artifact"]
+        visible_tool_results = [event for event in events
+                                if event["type"] == "tool_result"]
+        assert all("raw_output" not in event for event in visible_tool_results)
+        assert all(len(event.get("content", "")) <= 500
+                   for event in visible_tool_results)
+        assert len(artifacts) == 2, events
+        assert {artifact["symbol"] for artifact in artifacts} == {"000001"}
+        assert len({artifact["message_id"] for artifact in artifacts}) == 2
+
+    @pytest.mark.asyncio
     async def test_stream_agent_mode_without_model_falls_back(self, tmp_path):
         """agent 模式但 model 为 None：降级 plan 单步并正常完成"""
 
@@ -857,6 +982,39 @@ class TestStreamEndpoint:
         assert '"type": "error"' not in text
         # 降级后无工具匹配（"对比茅台和宁德时代" 与 echo 描述无关键词交集）→ 0/1 步完成
         assert "完成: 0/1 步骤" in text
+
+    @pytest.mark.asyncio
+    async def test_stream_agent_fallback_emits_every_report_artifact(
+            self, tmp_path, monkeypatch):
+        """agent 降级返回多个报告结果时也必须逐项发送成果。"""
+        async def fake_fallback(executor, memory, goal):
+            return "降级完成", {"goal": goal, "mode": "plan", "steps": []}, [
+                {
+                    "tool": "analyze_stock", "status": "done", "message_id": 701,
+                    "content": "[analyze_stock] success: {'symbol': '000001'}",
+                },
+                {
+                    "tool": "analyze_stock", "status": "done", "message_id": 702,
+                    "content": "[analyze_stock] success: {'symbol': '600036'}",
+                },
+            ]
+
+        monkeypatch.setattr("api.app._agent_fallback", fake_fallback)
+        sessions = SessionManager(SessionStore(tmp_path / "s_agent_fallback_multi.db"))
+        core = make_agent_core()
+        core.model = None
+        app_fallback = create_app(core=core, sessions=sessions, push=False)
+        async with (
+            AsyncClient(transport=ASGITransport(app=app_fallback),
+                        base_url="http://test") as c,
+            c.stream("POST", "/api/v1/chat/stream",
+                     json={"message": "对比两只股票"}) as resp,
+        ):
+            events = parse_sse_events((await resp.aread()).decode())
+
+        artifacts = [event["artifact"] for event in events
+                     if event["type"] == "artifact"]
+        assert [artifact["message_id"] for artifact in artifacts] == [701, 702]
 
 
 class TestAnalyzeEndpoint:

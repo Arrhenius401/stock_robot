@@ -855,6 +855,29 @@ if (renderedHtml.includes("000001 原始结果")
 streamHandlers.done({});
 finishStream();
 await pendingSend;
+let detailReloads = 0;
+api.getMessages = async (id) => {
+  if (id === "s1") {
+    detailReloads += 1;
+    return {
+      messages: [
+        { role: "user", content: "分析两个标的", message_id: 100 },
+        { role: "tool", content: "[analyze_stock] success: 000001 原始结果",
+          message_id: 101 },
+        { role: "assistant", content: "阶段结论\n\n切回后最终正文", message_id: 103 },
+      ],
+      artifacts: [store.sessionArtifacts.s1[0]],
+    };
+  }
+  return { messages: [], artifacts: [] };
+};
+await selectSession("s2");
+await selectSession("s1");
+if (detailReloads !== 1
+    || byClass(chatScroll, "artifact-history-orphans").length !== 0
+    || byClass(chatScroll, "report-summary-card").length !== 1) {
+  throw new Error("run 完成后切回未强制恢复带 message_id 的历史，成果落入孤儿区");
+}
 """.replace("__SESSIONS_URL__", sessions_url).replace("__CHAT_URL__", chat_url)
         script = script.replace("__API_URL__", api_url).replace("__STATE_URL__", state_url)
         _run_node(tmp_path, script)
@@ -919,9 +942,11 @@ store.sessionMessages.s1 = [];
 store.sessionArtifacts.s1 = [];
 window.confirm = () => true;
 api.clearSession = async () => ({});
+let streamCalls = 0;
 let handlers;
 let resolveStream;
 api.chatStream = (_message, _sessionId, streamHandlers) => {
+  streamCalls += 1;
   handlers = streamHandlers;
   return new Promise((resolve) => { resolveStream = resolve; });
 };
@@ -934,6 +959,21 @@ if (store.sessionDetails.s1.title !== "用户手动标题"
   throw new Error("重载的 manual 标题被迟到 session_title 覆盖");
 }
 await quickClear.click();
+if (document.getElementById("sendBtn").disabled) {
+  throw new Error("clear 后发送按钮仍被旧 run 锁定");
+}
+let newHandlers;
+let resolveNewStream;
+api.chatStream = (_message, _sessionId, streamHandlers) => {
+  streamCalls += 1;
+  newHandlers = streamHandlers;
+  return new Promise((resolve) => { resolveNewStream = resolve; });
+};
+const newPending = sendMessage("清空后新问题");
+await Promise.resolve();
+if (streamCalls !== 2 || !newHandlers || store.sessionRuns.s1.length !== 1) {
+  throw new Error("clear 未释放 sending/发送按钮，无法立即发送新消息");
+}
 handlers.text({ content: "清空后迟到正文" });
 handlers.artifact({ artifact: {
   artifact_id: "late", session_id: "s1", message_id: 99,
@@ -943,11 +983,15 @@ handlers.done({});
 resolveStream();
 await pending;
 const html = descendants(chatScroll).map((node) => node.innerHTML).join("\n");
-if (store.sessionMessages.s1.length !== 0 || store.sessionArtifacts.s1.length !== 0
-    || store.sessionRuns.s1.length !== 0 || html.includes("清空后迟到正文")
+if (!store.sessionMessages.s1.some((message) => message.content === "清空后新问题")
+    || store.sessionArtifacts.s1.length !== 0 || store.sessionRuns.s1.length !== 1
+    || html.includes("清空后迟到正文")
     || chatScroll.textContent.includes("清空后迟到成果")) {
   throw new Error("clear 后旧 run 的迟到事件仍更新缓存或 UI");
 }
+newHandlers.done({});
+resolveNewStream();
+await newPending;
 
 store.currentSessionId = "s2";
 store.sessionMessages.s2 = [];

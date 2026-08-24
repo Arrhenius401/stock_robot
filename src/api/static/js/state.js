@@ -9,6 +9,7 @@ export const store = {
   sessionRuns: {},        // sid -> 尚未结束的流式运行状态
   sessionRunEpochs: {},   // sid -> clear/delete 后递增，令旧 SSE 运行失效
   sessionDetailGenerations: {},
+  sessionDetailStale: {}, // sid -> run 完成后需重新读取带 message_id 的服务端详情
   sessionTombstones: {},
   sessionListRevision: 0,
   currentArtifact: null,
@@ -32,8 +33,14 @@ export function invalidateSessionDetail(sessionId, deleted = false) {
   return store.sessionDetailGenerations[sessionId];
 }
 
+export function markSessionDetailStale(sessionId) {
+  invalidateSessionDetail(sessionId);
+  store.sessionDetailStale[sessionId] = true;
+}
+
 export function reviveSession(sessionId) {
   delete store.sessionTombstones[sessionId];
+  delete store.sessionDetailStale[sessionId];
   invalidateSessionDetail(sessionId);
 }
 

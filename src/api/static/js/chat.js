@@ -1,7 +1,7 @@
 // 聊天视图：SSE 流式渲染、执行计划卡、工具结果卡、快捷按钮
 import {
   store, bus, invalidateSessionDetail, markSessionListMutation, reviveSession,
-  invalidateSessionRuns, sessionRunEpoch,
+  invalidateSessionRuns, sessionRunEpoch, markSessionDetailStale,
 } from "./state.js";
 import { api } from "./api.js";
 import { renderMarkdown } from "./markdown.js";
@@ -100,9 +100,18 @@ function appendReportSummary(artifact, parent = null) {
   return card;
 }
 
-// 并发守卫：流进行中禁止再次发送（模块级，防同会话并发请求交错）
-let sending = false;
+// 并发守卫绑定到具体 run；clear/delete 可释放旧 run，且旧 finally 不会释放新 run。
+let activeSendingRun = null;
 let localRunSequence = 0;
+
+function releaseSending(run, focus = false) {
+  if (activeSendingRun !== run) return;
+  activeSendingRun = null;
+  const sendBtn = document.getElementById("sendBtn");
+  const input = document.getElementById("chatInput");
+  if (sendBtn) sendBtn.disabled = false;
+  if (focus && input) input.focus();
+}
 
 // 返回 { card, stepEls }：计划状态随发送闭包持有，不落模块级变量，避免串会话
 function planCard(evt) {
@@ -201,7 +210,10 @@ function removeRun(run) {
 
 export function cancelSessionRuns(sessionId) {
   invalidateSessionRuns(sessionId);
-  for (const run of store.sessionRuns[sessionId] || []) removeRun(run);
+  for (const run of store.sessionRuns[sessionId] || []) {
+    releaseSending(run);
+    removeRun(run);
+  }
   store.sessionRuns[sessionId] = [];
 }
 
@@ -328,13 +340,13 @@ export function renderMessageHistory(messages, artifacts = []) {
 
 export async function sendMessage(text) {
   const msg = String(text || "").trim();
-  if (!msg || sending) return;
-  sending = true;
+  if (!msg || activeSendingRun) return;
+  let run = null;
   try {
     const initialSessionId = store.currentSessionId;
     let streamSid = initialSessionId;
     let userCached = false;
-    const run = {
+    run = {
       id: `local-run-${++localRunSequence}`,
       sessionId: null,
       message: msg,
@@ -353,6 +365,7 @@ export async function sendMessage(text) {
       committed: false,
       mount: null,
     };
+    activeSendingRun = run;
     const attachRun = (sessionId) => {
       if (run.sessionId === sessionId) return;
       if (store.sessionTombstones[sessionId]) return;
@@ -385,7 +398,7 @@ export async function sendMessage(text) {
     const input = document.getElementById("chatInput");
     input.value = "";   // 发送时即清空，流结束不再清（避免吞掉期间新输入）
     const sendBtn = document.getElementById("sendBtn");
-    const finish = () => { sendBtn.disabled = false; input.focus(); };
+    const finish = () => releaseSending(run, true);
     sendBtn.disabled = true;
     if (streamSid) {
       renderRun(run);
@@ -499,6 +512,7 @@ export async function sendMessage(text) {
             .push({ role: "assistant", content: run.answers.join("\n\n") });
           run.committed = true;
         }
+        if (streamSid) markSessionDetailStale(streamSid);
         renderRun(run);
         if (streamSid) {
           store.sessionRuns[streamSid] = (store.sessionRuns[streamSid] || [])
@@ -521,7 +535,7 @@ export async function sendMessage(text) {
     finish();
     input.focus();
   } finally {
-    sending = false;
+    if (run) releaseSending(run);
   }
 }
 
@@ -571,6 +585,7 @@ export function initChat() {
       invalidateSessionDetail(target);
       store.sessionMessages[target] = [];  // 服务端已清空，本地缓存先同步
       store.sessionArtifacts[target] = [];
+      delete store.sessionDetailStale[target];
       cancelSessionRuns(target);
       if (store.currentSessionId !== target) return;  // 已切换，不动新会话视图
       closeReportDrawer();

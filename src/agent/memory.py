@@ -1,5 +1,6 @@
 """Agent Memory — 对话记忆、计划历史、事实持久化"""
 import json
+import threading
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -77,6 +78,8 @@ class Memory:
     def __init__(self, max_messages: int = 30, facts_path: Path | None = None,
                  session_id: str | None = None, message_store=None):
         self._max_messages = max_messages
+        self._state_lock = threading.RLock()
+        self._active = True
         self.messages: list[MemoryMessage] = []
         self.plan_history: list[Plan] = []
         self.facts: dict[str, Any] = {}
@@ -88,15 +91,24 @@ class Memory:
         self._load_facts()
 
     def add_message(self, role: str, content: str) -> int | None:
-        message: MemoryMessage = {"role": role, "content": content}
-        self.messages.append(message)
-        if len(self.messages) > self._max_messages:
-            self.messages = self.messages[-self._max_messages:]
-        if self._message_store is not None and self.session_id:
-            message_id = self._message_store.append_message(self.session_id, role, content)
-            message["message_id"] = message_id
-            return message_id
-        return None
+        with self._state_lock:
+            if not self._active:
+                return None
+            message: MemoryMessage = {"role": role, "content": content}
+            self.messages.append(message)
+            if len(self.messages) > self._max_messages:
+                self.messages = self.messages[-self._max_messages:]
+            if self._message_store is not None and self.session_id:
+                message_id = self._message_store.append_message(
+                    self.session_id, role, content)
+                message["message_id"] = message_id
+                return message_id
+            return None
+
+    def invalidate(self) -> None:
+        """停用旧执行持有的 Memory，阻止 clear/delete 后迟到写入。"""
+        with self._state_lock:
+            self._active = False
 
     def add_plan(self, plan: Plan) -> None:
         self.plan_history.append(plan)
@@ -117,8 +129,9 @@ class Memory:
 
     def clear_session(self) -> None:
         """清空会话上下文，保留 facts"""
-        self.messages = []
-        self.plan_history = []
+        with self._state_lock:
+            self.messages = []
+            self.plan_history = []
 
     def _load_facts(self) -> None:
         if self._facts_path.exists():

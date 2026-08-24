@@ -65,11 +65,12 @@ def _structured_tool_results(plan, memory) -> list[dict]:
     return results
 
 
-def _extract_stock_report(
+def _extract_stock_reports(
     tool_results: list[dict],
-) -> tuple[str, dict, int | None] | None:
-    """从成功的 analyze_stock 工具结果提取并规范化结构化报告。"""
+) -> list[tuple[str, dict, int | None]]:
+    """提取全部成功的 analyze_stock 工具结果并规范化结构化报告。"""
     prefix = "[analyze_stock] success:"
+    reports = []
     for result in tool_results:
         if result.get("tool") != "analyze_stock":
             continue
@@ -77,11 +78,16 @@ def _extract_stock_report(
             continue
         content = result.get("content")
         report: dict | None = content if isinstance(content, dict) else None
-        if isinstance(content, str) and content.startswith(prefix):
+        if isinstance(content, str):
+            candidate = content.removeprefix(prefix).strip() \
+                if content.startswith(prefix) else content.strip()
             try:
-                parsed = ast.literal_eval(content.removeprefix(prefix).strip())
-            except (SyntaxError, ValueError):
-                continue
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError:
+                try:
+                    parsed = ast.literal_eval(candidate)
+                except (SyntaxError, ValueError):
+                    continue
             if isinstance(parsed, dict):
                 report = parsed
         if report is None:
@@ -112,46 +118,45 @@ def _extract_stock_report(
             "generated_at": report.get("generated_at"),
         }
         message_id = result.get("message_id")
-        return (
+        reports.append((
             payload["symbol"],
             payload,
             message_id if isinstance(message_id, int) else None,
-        )
-    return None
+        ))
+    return reports
 
 
-def _persist_artifact_if_present(
-        manager, session_id: str, tool_results: list[dict]) -> dict | None:
-    """保存工具结果中的报告；存储故障时返回仅存在于本轮事件中的成果。"""
-    extracted = _extract_stock_report(tool_results)
-    if extracted is None:
-        return None
-    symbol, payload, message_id = extracted
-    try:
-        artifact = manager.save_artifact(
-            session_id,
-            kind="stock_report",
-            symbol=symbol,
-            payload=payload,
-            message_id=message_id,
-        )
-        return {"artifact": artifact, "persisted": True}
-    except Exception as exc:  # noqa: BLE001 — 持久化边界失败不能中断聊天
-        logger.error("报告成果持久化失败，会话 %s: %s", session_id, exc)
-        now = datetime.now().astimezone().timestamp()
-        return {
-            "artifact": {
-                "artifact_id": None,
-                "session_id": session_id,
-                "message_id": message_id,
-                "kind": "stock_report",
-                "symbol": symbol,
-                "payload": _json_safe(payload),
-                "created_at": now,
-                "updated_at": now,
-            },
-            "persisted": False,
-        }
+def _persist_artifacts_if_present(
+        manager, session_id: str, tool_results: list[dict]) -> list[dict]:
+    """逐项保存工具结果中的报告；单项故障不影响其他成果与聊天。"""
+    events = []
+    for symbol, payload, message_id in _extract_stock_reports(tool_results):
+        try:
+            artifact = manager.save_artifact(
+                session_id,
+                kind="stock_report",
+                symbol=symbol,
+                payload=payload,
+                message_id=message_id,
+            )
+            events.append({"artifact": artifact, "persisted": True})
+        except Exception as exc:  # noqa: BLE001 — 持久化边界失败不能中断聊天
+            logger.error("报告成果持久化失败，会话 %s: %s", session_id, exc)
+            now = datetime.now().astimezone().timestamp()
+            events.append({
+                "artifact": {
+                    "artifact_id": None,
+                    "session_id": session_id,
+                    "message_id": message_id,
+                    "kind": "stock_report",
+                    "symbol": symbol,
+                    "payload": _json_safe(payload),
+                    "created_at": now,
+                    "updated_at": now,
+                },
+                "persisted": False,
+            })
+    return events
 
 
 def _session_metadata(manager, session_id: str | None) -> dict | None:
@@ -327,7 +332,11 @@ def create_app(core=None, sessions=None, push=None):
                         "content": tc.get("summary", ""),
                         "message_id": tc.get("message_id"),
                     } for tc in outcome.tool_calls]
-                    _persist_artifact_if_present(sessions, sid, tool_results)
+                    artifact_results = [
+                        {**result, "content": tc.get("raw_output", result["content"])}
+                        for result, tc in zip(tool_results, outcome.tool_calls, strict=True)
+                    ]
+                    _persist_artifacts_if_present(sessions, sid, artifact_results)
                     return JSONResponse({
                         "response": outcome.final_reply,
                         "plan": {"goal": plan.goal, "mode": "agent", "steps": []},
@@ -341,7 +350,7 @@ def create_app(core=None, sessions=None, push=None):
                     memory.messages = memory.messages[:msg_snapshot]
                     response, plan_payload, tool_results = await _agent_fallback(
                         executor, memory, message)
-                    _persist_artifact_if_present(sessions, sid, tool_results)
+                    _persist_artifacts_if_present(sessions, sid, tool_results)
                     return JSONResponse({
                         "response": response,
                         "plan": plan_payload,
@@ -352,7 +361,7 @@ def create_app(core=None, sessions=None, push=None):
             done = sum(1 for s in plan.steps if s.status == TaskStatus.DONE)
             total = len(plan.steps)
             tool_results = _structured_tool_results(plan, memory)
-            _persist_artifact_if_present(sessions, sid, tool_results)
+            _persist_artifacts_if_present(sessions, sid, tool_results)
             return JSONResponse({
                 "response": f"目标: {plan.goal}\n完成: {done}/{total} 步骤",
                 "plan": {"goal": plan.goal, "mode": "plan", "steps": [
@@ -473,9 +482,14 @@ def create_app(core=None, sessions=None, push=None):
                             } for tc in outcome.tool_calls]
                             await queue.put({"type": "text",
                                              "content": outcome.final_reply})
-                            artifact_event = _persist_artifact_if_present(
-                                manager, sid, tool_results)
-                            if artifact_event is not None:
+                            artifact_results = [
+                                {**result,
+                                 "content": tc.get("raw_output", result["content"])}
+                                for result, tc in zip(
+                                    tool_results, outcome.tool_calls, strict=True)
+                            ]
+                            for artifact_event in _persist_artifacts_if_present(
+                                    manager, sid, artifact_results):
                                 await queue.put({"type": "artifact", **artifact_event})
                         except Exception as e:  # noqa: BLE001 — agent 失败降级 plan 单步
                             logger.warning("agent 模式失败，降级 plan 单步: %s", e)
@@ -487,9 +501,8 @@ def create_app(core=None, sessions=None, push=None):
                             await queue.put({"type": "result",
                                              "summary": summary,
                                              "tool_results": tool_results})
-                            artifact_event = _persist_artifact_if_present(
-                                manager, sid, tool_results)
-                            if artifact_event is not None:
+                            for artifact_event in _persist_artifacts_if_present(
+                                    manager, sid, tool_results):
                                 await queue.put({"type": "artifact", **artifact_event})
                         await finish_title()
                         await queue.put({"type": "done"})
@@ -505,9 +518,8 @@ def create_app(core=None, sessions=None, push=None):
                     await queue.put({"type": "result",
                                      "summary": f"目标: {plan.goal}\n完成: {done}/{total} 步骤",
                                      "tool_results": tool_results})
-                    artifact_event = _persist_artifact_if_present(
-                        manager, sid, tool_results)
-                    if artifact_event is not None:
+                    for artifact_event in _persist_artifacts_if_present(
+                            manager, sid, tool_results):
                         await queue.put({"type": "artifact", **artifact_event})
                     await finish_title()
                 except Exception as e:  # noqa: BLE001 — SSE 流内兜底，错误以事件返回

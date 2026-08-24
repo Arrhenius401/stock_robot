@@ -177,6 +177,7 @@ class ReActExecutor:
                     tool_calls.append({"tool": name,
                                        "args": entry["args"] if entry else {},
                                        "status": status, "summary": summary,
+                                       "raw_output": output,
                                        "message_id": message_id})
                     if on_event:
                         on_event({"type": "tool_result", "run_id": run_id,

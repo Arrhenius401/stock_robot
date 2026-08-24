@@ -163,12 +163,39 @@ class TestSessionManager:
         assert m1.facts == {"pref": "成长股"}
         assert store.get_messages(sid) == []
 
+    def test_clear_invalidates_inflight_memory_writes(self, store, facts_path):
+        """clear 后旧执行持有的 Memory 不得把迟到消息写回 SQLite。"""
+        mgr = SessionManager(store, facts_path=facts_path)
+        sid, old_memory = mgr.get_or_create(None, "分析平安银行")
+        old_memory.add_message("user", "清空前")
+
+        assert mgr.clear(sid)
+        old_memory.add_message("tool", "清空后迟到工具结果")
+        old_memory.add_message("assistant", "清空后迟到回答")
+        _, new_memory = mgr.get_or_create(sid)
+
+        assert store.get_messages(sid) == []
+        assert old_memory.messages == []
+        assert new_memory is not old_memory
+
     def test_delete_session(self, store, facts_path):
         mgr = SessionManager(store, facts_path=facts_path)
         sid, _ = mgr.get_or_create(None, "你好")
         assert mgr.delete(sid)
         assert mgr.delete(sid) is False
         assert mgr.get_memory(sid) is None
+
+    def test_delete_invalidates_inflight_memory_without_orphans(self, store, facts_path):
+        """delete 后旧执行的迟到消息不得形成无 session 的孤儿记录。"""
+        mgr = SessionManager(store, facts_path=facts_path)
+        sid, old_memory = mgr.get_or_create(None, "分析平安银行")
+
+        assert mgr.delete(sid)
+        old_memory.add_message("tool", "删除后迟到工具结果")
+        old_memory.add_message("assistant", "删除后迟到回答")
+
+        assert store.get_messages(sid) == []
+        assert old_memory.messages == []
 
     def test_title_uses_safe_fallback_for_unknown_request(self, store, facts_path):
         mgr = SessionManager(store, facts_path=facts_path)
