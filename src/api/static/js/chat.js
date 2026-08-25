@@ -30,6 +30,22 @@ function mdDiv(text) {
   return div;
 }
 
+function thinkingDetails(text) {
+  if (!text) return null;
+  const details = el("details", "message-thinking");
+  details.appendChild(el("summary", "", "查看分析过程"));
+  details.appendChild(mdDiv(text));
+  return details;
+}
+
+function assistantMessage(content, thinking = "") {
+  const node = el("div", "assistant-message");
+  node.appendChild(mdDiv(content));
+  const details = thinkingDetails(thinking);
+  if (details) node.appendChild(details);
+  return node;
+}
+
 function appendUser(text) {
   appendBubble("user", mdDiv(text));
 }
@@ -54,6 +70,11 @@ function renderEmptyChat() {
     empty.appendChild(button);
   }
   scrollEl().appendChild(empty);
+}
+
+function syncSuggestionVisibility(messages) {
+  const empty = scrollEl().querySelector(".chat-empty");
+  if (empty) empty.hidden = messages.some((message) => message.role === "user");
 }
 
 function artifactMessageId(artifact) {
@@ -231,7 +252,8 @@ function buildRunBubble(run) {
     }
     content.appendChild(renderedPlan.card);
   }
-  if (run.thinking) content.appendChild(el("div", "thinking", run.thinking));
+  const details = thinkingDetails(run.thinking === "正在分析…" ? "" : run.thinking);
+  if (details) content.appendChild(details);
   for (const answer of run.answers) content.appendChild(mdDiv(answer));
 
   const tools = [...Object.values(run.toolCalls), ...run.resultTools];
@@ -317,7 +339,7 @@ export function renderMessageHistory(messages, artifacts = []) {
         rendered.add(artifact);
       }
     } else if (m.role === "assistant") {
-      appendBubble("agent", mdDiv(m.content));
+      appendBubble("agent", assistantMessage(m.content, m.thinking || ""));
       const id = messageId(m);
       for (const artifact of id == null ? [] : (linked.get(String(id)) || [])) {
         appendReportSummary(artifact);
@@ -336,11 +358,14 @@ export function renderMessageHistory(messages, artifacts = []) {
   renderSessionRuns(store.currentSessionId);
   const hasRuns = (store.sessionRuns[store.currentSessionId] || []).some((run) => !run.done);
   if (!messages.length && !restoredArtifacts.length && !hasRuns) renderEmptyChat();
+  syncSuggestionVisibility(messages);
 }
 
 export async function sendMessage(text) {
   const msg = String(text || "").trim();
   if (!msg || activeSendingRun) return;
+  const empty = scrollEl().querySelector(".chat-empty");
+  if (empty) empty.hidden = true;
   let run = null;
   try {
     const initialSessionId = store.currentSessionId;
@@ -499,6 +524,7 @@ export async function sendMessage(text) {
       text: (e) => {
         if (!runIsValid(run)) return;
         run.thinking = "";
+        if (e.thinking) run.thinking = e.thinking;
         if (e.content) run.answers.push(e.content);
         renderRun(run);
         bus.dispatchEvent(new Event("chat-done"));
