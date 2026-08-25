@@ -145,6 +145,7 @@ class ReActExecutor:
         pending_tools: dict[str, dict] = {}
         final_reply = ""
         thinking = ""
+        final_reply_streamed = False
         try:
             async for event in agent.astream_events(
                     {"messages": history}, config=config, version="v2"):
@@ -155,7 +156,12 @@ class ReActExecutor:
                     content = getattr(chunk, "content", "") if chunk else ""
                     # 工具调用参数流不当作推理文本；空内容跳过（节流）
                     if content and not getattr(chunk, "tool_call_chunks", None) and on_event:
-                        on_event({"type": "thinking", "content": content})
+                        # 工具完成后紧接的模型输出是面向用户的最终回答，必须
+                        # 作为正文增量推送；此前统一标为 thinking 导致正文只能
+                        # 在整个 agent 结束、重载历史后才出现。
+                        event_type = "text_delta" if tool_calls else "thinking"
+                        on_event({"type": event_type, "content": content})
+                        final_reply_streamed = final_reply_streamed or event_type == "text_delta"
                 elif etype == "on_tool_start":
                     data = event.get("data", {})
                     args = data.get("input", {})
@@ -198,6 +204,10 @@ class ReActExecutor:
             await close_checkpointer(agent)
         if not final_reply:
             final_reply = "（模型未给出回答）"
+        # 少数模型/测试实现不触发 token stream 事件。仍在返回最终 outcome 前
+        # 补发一次正文增量，保证前端无需等待切换会话才能显示回答。
+        if on_event and not final_reply_streamed:
+            on_event({"type": "text_delta", "content": final_reply})
         self._memory.add_message("assistant", final_reply)
         return AgentOutcome(final_reply=final_reply, thinking=thinking,
                             tool_calls=tool_calls)

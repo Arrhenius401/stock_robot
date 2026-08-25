@@ -100,7 +100,7 @@ async def test_run_tool_error_returns_to_model():
 
 @pytest.mark.asyncio
 async def test_run_emits_live_events():
-    """astream_events 事件经 on_event 回调透出（thinking/tool_call/tool_result）"""
+    """工具完成后的最终回答 token 应透出为正文流，而非混入思考。"""
     model = make_model([
         AIMessage(content="", tool_calls=[
             {"name": "echo", "args": {"text": "hi"}, "id": "call_3"}]),
@@ -115,6 +115,8 @@ async def test_run_emits_live_events():
     types = [e["type"] for e in events]
     assert "tool_call" in types
     assert "tool_result" in types
+    streamed = [event["content"] for event in events if event["type"] == "text_delta"]
+    assert "完成" in "".join(streamed)
     tool_call = next(e for e in events if e["type"] == "tool_call")
     assert tool_call["tool"] == "echo"
     assert tool_call["args"] == {"text": "hi"}

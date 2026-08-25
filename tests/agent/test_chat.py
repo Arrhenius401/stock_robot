@@ -35,6 +35,15 @@ class TestExtractText:
 
 class TestChatResponder:
     @pytest.mark.asyncio
+    async def test_stream_reply_emits_text_chunks(self):
+        """普通聊天也应把模型正文以增量形式交给 API 层。"""
+        responder = ChatResponder(model=FakeChatModel(content="实时回复"))
+
+        chunks = [chunk async for chunk in responder.stream_reply_content("你好", Memory())]
+
+        assert chunks == [{"text": "实时回复"}]
+
+    @pytest.mark.asyncio
     async def test_reply_returns_model_content(self):
         model = FakeChatModel(content="你好呀！有什么可以帮你？")
         responder = ChatResponder(model=model)

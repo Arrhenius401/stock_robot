@@ -391,6 +391,7 @@ export async function sendMessage(text) {
       toolCalls: {},
       resultTools: [],
       answers: [],
+      answerStreamed: false,
       artifacts: [],
       error: "",
       interrupted: false,
@@ -536,9 +537,20 @@ export async function sendMessage(text) {
         if (!runIsValid(run)) return;
         run.thinking = "";
         if (e.thinking) run.thinking = e.thinking;
-        if (e.content) run.answers.push(e.content);
+        if (e.content) {
+          // 流式片段已展示时，最终事件携带的是完整正文，替换而非重复追加。
+          run.answers = run.answerStreamed ? [e.content] : [...run.answers, e.content];
+        }
         renderRun(run);
         bus.dispatchEvent(new Event("chat-done"));
+      },
+      text_delta: (e) => {
+        if (!runIsValid(run) || !e.content) return;
+        run.thinking = "";
+        run.answerStreamed = true;
+        if (!run.answers.length) run.answers.push("");
+        run.answers[run.answers.length - 1] += e.content;
+        renderRun(run);
       },
       done: () => {
         if (!runIsValid(run)) return;

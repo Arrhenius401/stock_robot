@@ -1214,6 +1214,37 @@ if (errors.length !== 1 || !errors[0].textContent.includes("连接中断")) {
         script = script.replace("__STATE_URL__", state_url)
         _run_node(tmp_path, script)
 
+    def test_text_delta_renders_before_stream_completion(self, tmp_path):
+        """SSE 正文片段到达时必须立即展示，不能等切换会话后的历史恢复。"""
+        chat_url = json.dumps(_module_url("src/api/static/js/chat.js"))
+        api_url = json.dumps(_module_url("src/api/static/js/api.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        script = _DOM_STUB + r"""
+const chatScroll = makeElement("chatScroll");
+makeElement("chatInput", "textarea");
+makeElement("sendBtn", "button");
+const { api } = await import(__API_URL__);
+const { store } = await import(__STATE_URL__);
+const { sendMessage } = await import(__CHAT_URL__);
+store.currentSessionId = "s1";
+let sawLive = false;
+api.chatStream = async (_message, _sessionId, handlers) => {
+  handlers.session_title({ session_id: "s1", title: "流式测试" });
+  handlers.text_delta({ content: "实时正文片段" });
+  const html = descendants(chatScroll).map((item) => item.innerHTML).join("\n");
+  if (!html.includes("实时正文片段")) {
+    throw new Error("正文片段未在 SSE 完成前渲染");
+  }
+  sawLive = true;
+  handlers.text({ content: "实时正文片段已完成" });
+  handlers.done({});
+};
+await sendMessage("流式回答");
+if (!sawLive) throw new Error("流式正文处理器未在结束前完成渲染");
+""".replace("__CHAT_URL__", chat_url).replace("__API_URL__", api_url)
+        script = script.replace("__STATE_URL__", state_url)
+        _run_node(tmp_path, script)
+
     def test_clear_invalidates_stream_and_manual_title_blocks_late_event(self, tmp_path):
         chat_url = json.dumps(_module_url("src/api/static/js/chat.js"))
         api_url = json.dumps(_module_url("src/api/static/js/api.js"))

@@ -961,6 +961,7 @@ class TestStreamEndpoint:
                 body += chunk
 
         text = body.decode()
+        assert '"type": "text_delta"' in text
         assert '"type": "text"' in text
         assert "你好呀" in text
 

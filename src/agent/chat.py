@@ -1,5 +1,6 @@
 """ChatResponder — 闲聊的普通 AI 会话回复（LangChain 模型，无工具绑定）"""
 import logging
+from collections.abc import AsyncIterator
 from typing import Any
 
 from agent.memory import Memory
@@ -35,20 +36,46 @@ class ChatResponder:
     def __init__(self, model=None):
         self._model = model
 
+    @staticmethod
+    def _messages_for_reply(user_input: str, memory: Memory) -> list[dict[str, str]]:
+        messages = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}]
+        for msg in memory.get_context_window(n=10):
+            if msg["role"] not in ("user", "assistant"):
+                continue
+            messages.append({"role": msg["role"], "content": msg["content"]})
+        last = messages[-1] if messages else None
+        if last is None or last.get("content") != user_input:
+            messages.append({"role": "user", "content": user_input})
+        return messages
+
+    async def stream_reply_content(
+            self, user_input: str, memory: Memory) -> AsyncIterator[dict[str, str]]:
+        """逐块产出普通会话正文，供 SSE 在模型生成期间即时转发。"""
+        if self._model is None:
+            yield {"text": MODEL_NOT_CONFIGURED_REPLY}
+            return
+        emitted_text = False
+        try:
+            async for response in self._model.astream(
+                    self._messages_for_reply(user_input, memory)):
+                content = normalize_message_content(getattr(response, "content", ""))
+                if not content["text"] and not content.get("thinking"):
+                    continue
+                emitted_text = emitted_text or bool(content["text"])
+                yield content
+            if not emitted_text:
+                yield {"text": LLM_ERROR_REPLY.format(error="模型未返回有效回复")}
+        except Exception as e:  # noqa: BLE001 — LLM 流式边界异常降级可诊断提示
+            logger.error("闲聊流式回复失败: %s", e)
+            yield {"text": LLM_ERROR_REPLY.format(error=e)}
+
     async def reply_content(self, user_input: str, memory: Memory) -> dict[str, str]:
         """返回规范化的正文与可选推理，不负责写入 Memory。"""
         if self._model is None:
             return {"text": MODEL_NOT_CONFIGURED_REPLY}
         try:
-            messages = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}]
-            for msg in memory.get_context_window(n=10):
-                if msg["role"] not in ("user", "assistant"):
-                    continue
-                messages.append({"role": msg["role"], "content": msg["content"]})
-            last = messages[-1] if messages else None
-            if last is None or last.get("content") != user_input:
-                messages.append({"role": "user", "content": user_input})
-            response = await self._model.ainvoke(messages)
+            response = await self._model.ainvoke(
+                self._messages_for_reply(user_input, memory))
             content = normalize_message_content(getattr(response, "content", ""))
             if not content["text"]:
                 return {"text": LLM_ERROR_REPLY.format(error="模型未返回有效回复")}

@@ -456,9 +456,22 @@ def create_app(core=None, sessions=None, push=None):
                     planner, executor, chat_responder = _build_agent(memory)
                     plan = await asyncio.to_thread(planner.plan, message)
                     if plan.mode == "chat":
-                        # 闲聊：直接发 text 事件后结束，不再走执行器与 result 事件
-                        normalized = await chat_responder.reply_content(message, memory)
-                        reply = normalized["text"]
+                        # 闲聊：模型 token 到达即转成正文增量，避免用户等待整段回复。
+                        reply_parts: list[str] = []
+                        thinking_parts: list[str] = []
+                        async for chunk in chat_responder.stream_reply_content(message, memory):
+                            if chunk["text"]:
+                                reply_parts.append(chunk["text"])
+                                await queue.put({"type": "text_delta",
+                                                 "content": chunk["text"]})
+                            if chunk.get("thinking"):
+                                thinking_parts.append(chunk["thinking"])
+                                await queue.put({"type": "thinking",
+                                                 "content": chunk["thinking"]})
+                        reply = "".join(reply_parts)
+                        normalized = {"text": reply}
+                        if thinking_parts:
+                            normalized["thinking"] = "\n\n".join(thinking_parts)
                         memory.add_message("assistant", reply)
                         await queue.put({"type": "text", **normalized})
                         await finish_title()
