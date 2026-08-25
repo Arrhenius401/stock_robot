@@ -204,9 +204,9 @@ function toolResultCard(t) {
   return card;
 }
 
-function interruptedCard(retry) {
+function interruptedCard(retry, message = "连接中断") {
   const card = el("div", "error-card");
-  card.appendChild(el("div", "error-title", "连接中断"));
+  card.appendChild(el("div", "error-title", message));
   const btn = el("button", "btn-retry", "重试");
   btn.addEventListener("click", () => {
     card.remove();
@@ -287,7 +287,7 @@ function buildRunBubble(run) {
     content.appendChild(interruptedCard(() => {
       removeRun(run);
       sendMessage(run.message);
-    }));
+    }, run.interruptedMessage));
   }
   return wrap;
 }
@@ -394,6 +394,7 @@ export async function sendMessage(text) {
       artifacts: [],
       error: "",
       interrupted: false,
+      interruptedMessage: "",
       done: false,
       cancelled: false,
       epoch: null,
@@ -561,6 +562,17 @@ export async function sendMessage(text) {
       await api.chatStream(msg, streamSid, handlers);
     } catch {
       if (!runIsValid(run)) {
+        // 冷启动时服务可能在 session_title 之前就断开。此前直接返回会让
+        // 用户只看到自己的提问，以为 AI 没有回应；此时仍应展示可重试错误。
+        run.thinking = "";
+        run.interrupted = true;
+        run.interruptedMessage = "连接中断：请检查服务是否已启动后重试";
+        if (run.mount && Array.from(scrollEl().children).includes(run.mount)) {
+          run.mount.remove();
+        }
+        run.mount = buildRunBubble(run);
+        scrollEl().appendChild(run.mount);
+        scrollEl().scrollTop = scrollEl().scrollHeight;
         finish();
         return;
       }

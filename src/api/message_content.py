@@ -1,12 +1,16 @@
 """模型消息内容规范化：安全提取正文与推理。"""
 
 import ast
+from html import unescape
 import json
 from typing import Any
 
 
 def _parse_blocks(value: str) -> list[dict[str, Any]] | None:
     """仅解析 JSON 或 Python 字面量形式的内容块列表。"""
+    # 旧版页面曾把消息末尾空格序列化成 ``&#x20;``。先还原 HTML 实体并
+    # 去掉外围空白，避免合法的内容块列表因尾随实体无法被安全解析。
+    value = unescape(value).strip()
     candidate: Any
     try:
         candidate = json.loads(value)

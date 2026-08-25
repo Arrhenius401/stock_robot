@@ -1191,6 +1191,29 @@ if (store.currentSessionId !== "cold-sid" || userMessages.length !== 1
         script = script.replace("__STATE_URL__", state_url)
         _run_node(tmp_path, script)
 
+    def test_cold_stream_failure_shows_actionable_error(self, tmp_path):
+        """服务在返回 session id 前失败时，用户仍必须看到可重试错误。"""
+        chat_url = json.dumps(_module_url("src/api/static/js/chat.js"))
+        api_url = json.dumps(_module_url("src/api/static/js/api.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        script = _DOM_STUB + r"""
+const chatScroll = makeElement("chatScroll");
+makeElement("chatInput", "textarea");
+makeElement("sendBtn", "button");
+const { api } = await import(__API_URL__);
+const { store } = await import(__STATE_URL__);
+const { sendMessage } = await import(__CHAT_URL__);
+store.currentSessionId = null;
+api.chatStream = async () => { throw new Error("服务未启动"); };
+await sendMessage("你好");
+const errors = byClass(chatScroll, "error-card");
+if (errors.length !== 1 || !errors[0].textContent.includes("连接中断")) {
+  throw new Error("冷启动连接失败时未展示可见错误");
+}
+""".replace("__CHAT_URL__", chat_url).replace("__API_URL__", api_url)
+        script = script.replace("__STATE_URL__", state_url)
+        _run_node(tmp_path, script)
+
     def test_clear_invalidates_stream_and_manual_title_blocks_late_event(self, tmp_path):
         chat_url = json.dumps(_module_url("src/api/static/js/chat.js"))
         api_url = json.dumps(_module_url("src/api/static/js/api.js"))

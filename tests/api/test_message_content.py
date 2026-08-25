@@ -25,6 +25,15 @@ def test_normalize_old_python_literal_content_blocks():
     assert normalize_message_content(raw) == {"text": "# 正文", "thinking": "推理"}
 
 
+def test_normalize_old_python_literal_with_html_space_suffix():
+    """浏览器历史存储追加的 HTML 空格实体不能阻止正文与推理拆分。"""
+    raw = (
+        "[{'thinking': '推理', 'type': 'thinking'}, "
+        "{'text': '# 正文', 'type': 'text'}] &#x20;"
+    )
+    assert normalize_message_content(raw) == {"text": "# 正文", "thinking": "推理"}
+
+
 def test_invalid_or_unsafe_legacy_string_is_plain_text():
     raw = "__import__('os').system('echo unsafe')"
     assert normalize_message_content(raw) == {"text": raw}
