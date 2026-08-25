@@ -559,3 +559,65 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .analysis-entry-controls { flex-direction: column; }
   .analysis-entry-controls button { width: 100%; }
 }
+
+/* 浅色成品主题必须置于旧版工作台规则之后，避免被遗留的深色样式覆盖。 */
+:root {
+  --workspace-bg: #f6f8fb;
+  --bg: #f6f8fb;
+  --panel: #ffffff;
+  --panel-2: #e8f0ff;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-hover: #f3f6fb;
+  --border: #dfe6ef;
+  --border-soft: #e9eef5;
+  --accent: #1264e8;
+  --accent-2: #4d8df7;
+  --text: #172033;
+  --text-2: #2d3a4f;
+  --text-3: #5e6d82;
+  --text-4: #7e8ba0;
+  --blue: #1264e8;
+  --danger: #ce3844;
+  --shadow-overlay: 0 18px 48px rgba(32, 52, 84, .18);
+}
+
+body, #appLayout.layout, .main { background: var(--workspace-bg); }
+.topbar { background: #fff; border-color: var(--border-soft); }
+.logo { color: var(--text); }
+.global-stock-search, .entry { background: #f6f8fb; }
+.sidebar { width: 230px; padding: 16px 12px; background: #fff; border-color: var(--border-soft); }
+.new-session, .chat-input button, .global-stock-search button, .analysis-entry-controls button { background: #1264e8; }
+.new-session:hover, .chat-input button:hover, .global-stock-search button:hover, .analysis-entry-controls button:hover { background: #0e56c7; }
+.new-session { border-radius: 9px; padding: 10px; }
+.collapse-btn { background: #f6f8fb; border-color: var(--border); }
+.sess-main:hover, .sess.active .sess-main, .nav-item.on { background: #e8f0ff; color: #164fa9; }
+.sess-menu, .report-drawer-toolbar button, .report-drawer-nav-item { background: #fff; }
+.sess-menu-toggle:hover, .sess-menu-toggle[aria-expanded="true"], .sess-menu-action:hover { background: #f3f6fb; }
+.nav { border-color: var(--border-soft); }
+#view-chat { padding: 0 0 18px; gap: 12px; background: var(--workspace-bg); }
+.chat-scroll, .quick-bar { padding-inline: clamp(26px, 6vw, 86px); }
+.chat-empty { width: min(900px, 100%); margin: clamp(30px, 10vh, 110px) auto 0; padding: 30px; background: #fff; border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 12px 34px rgba(22, 38, 66, .08); }
+.chat-empty-eyebrow { color: #4278cb; }
+.chat-empty-title { color: #172033; font-size: clamp(27px, 3.2vw, 36px); }
+.chat-empty-subtitle { color: #6d7c91; }
+.research-suggestion { background: #fff; border-color: #dce5f0; color: #26364d; box-shadow: 0 1px 3px rgba(22,38,66,.04); }
+.research-suggestion:hover { background: #f7faff; border-color: #8db6f6; }
+.research-suggestion-copy strong { color: #1d2b40; }
+.research-suggestion-copy span { color: #718096; }
+.msg.agent { background: #fff; border-color: var(--border); color: var(--text-2); box-shadow: 0 2px 7px rgba(22,38,66,.05); }
+.msg.user { background: #1264e8; border-color: #1264e8; color: #fff; }
+.md h1, .md h2, .md h3, .md h4 { color: var(--text); }
+.md code, .md pre { background: #f5f7fa; border-color: var(--border); }
+.quick-bar button { color: var(--text-3); border-color: var(--border); background: #fff; }
+.quick-bar button:hover { color: var(--accent); border-color: #a9c8f5; background: #f7faff; }
+.chat-input { margin: 0 clamp(26px, 6vw, 86px); padding: 10px; background: #fff; border: 1px solid var(--border); border-radius: 13px; box-shadow: 0 3px 10px rgba(22, 38, 66, .06); }
+.chat-input textarea { color: var(--text); }
+.chat-input:focus-within { box-shadow: 0 0 0 3px rgba(18, 100, 232, .13); }
+.analysis-entry, #reportDrawer { background: #fff; }
+
+@media (max-width: 760px) {
+  .sidebar { width: 210px; }
+  .chat-scroll, .quick-bar { padding-inline: 18px; }
+  .chat-input { margin-inline: 18px; }
+}
