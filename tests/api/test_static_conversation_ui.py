@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 ROOT = Path(__file__).parents[2]
 CHAT_JS = ROOT / "src" / "api" / "static" / "js" / "chat.js"
 
