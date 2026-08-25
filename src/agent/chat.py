@@ -3,6 +3,7 @@ import logging
 from typing import Any
 
 from agent.memory import Memory
+from api.message_content import normalize_message_content
 
 logger = logging.getLogger(__name__)
 
@@ -21,17 +22,11 @@ def _extract_text(content: Any) -> str:
     Anthropic 风格为内容块列表（含 thinking 块），只拼接 type == "text"
     的块文本，thinking/signature 不展示给用户。
     """
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = []
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                text = block.get("text", "")
-                if isinstance(text, str):
-                    parts.append(text)
-        return "".join(parts)
-    return ""
+    if not isinstance(content, (str, list, dict)):
+        return ""
+    if isinstance(content, list) and not all(isinstance(block, dict) for block in content):
+        content = [block for block in content if isinstance(block, dict)]
+    return normalize_message_content(content)["text"]
 
 
 class ChatResponder:
@@ -40,25 +35,27 @@ class ChatResponder:
     def __init__(self, model=None):
         self._model = model
 
-    async def reply(self, user_input: str, memory: Memory) -> str:
+    async def reply_content(self, user_input: str, memory: Memory) -> dict[str, str]:
+        """返回规范化的正文与可选推理，不负责写入 Memory。"""
         if self._model is None:
-            return MODEL_NOT_CONFIGURED_REPLY
+            return {"text": MODEL_NOT_CONFIGURED_REPLY}
         try:
             messages = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}]
             for msg in memory.get_context_window(n=10):
                 if msg["role"] not in ("user", "assistant"):
                     continue
                 messages.append({"role": msg["role"], "content": msg["content"]})
-            # API 调用方已把当前用户消息写入 memory，避免上下文重复
             last = messages[-1] if messages else None
             if last is None or last.get("content") != user_input:
                 messages.append({"role": "user", "content": user_input})
-
             response = await self._model.ainvoke(messages)
-            content = _extract_text(getattr(response, "content", ""))
-            if not content:
-                return LLM_ERROR_REPLY.format(error="模型未返回有效回复")
+            content = normalize_message_content(getattr(response, "content", ""))
+            if not content["text"]:
+                return {"text": LLM_ERROR_REPLY.format(error="模型未返回有效回复")}
             return content
         except Exception as e:  # noqa: BLE001 — LLM 边界异常降级可诊断提示
             logger.error("闲聊回复失败: %s", e)
-            return LLM_ERROR_REPLY.format(error=e)
+            return {"text": LLM_ERROR_REPLY.format(error=e)}
+
+    async def reply(self, user_input: str, memory: Memory) -> str:
+        return (await self.reply_content(user_input, memory))["text"]

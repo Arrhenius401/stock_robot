@@ -18,6 +18,7 @@ from agent.graph import DEFAULT_CHECKPOINT_DIR
 from agent.memory import TaskStatus
 from agent.planner import Planner
 from agent.react import ReActExecutor
+from api.message_content import normalize_message_content
 from api.session_titles import SessionTitleRefiner, derive_session_title
 from push.models import Channel, Subscription
 
@@ -310,7 +311,8 @@ def create_app(core=None, sessions=None, push=None):
             plan = await asyncio.to_thread(planner.plan, message)
             if plan.mode == "chat":
                 # 闲聊：ChatResponder 普通会话回复，跳过执行器并写入会话消息
-                reply = await chat_responder.reply(message, memory)
+                normalized = await chat_responder.reply_content(message, memory)
+                reply = normalized["text"]
                 memory.add_message("assistant", reply)
                 return JSONResponse({
                     "response": reply,
@@ -341,6 +343,7 @@ def create_app(core=None, sessions=None, push=None):
                         sessions, sid, artifact_results, memory=memory)
                     return JSONResponse({
                         "response": outcome.final_reply,
+                        **({"thinking": outcome.thinking} if outcome.thinking else {}),
                         "plan": {"goal": plan.goal, "mode": "agent", "steps": []},
                         "tool_results": tool_results,
                         "session_id": sid,
@@ -454,9 +457,10 @@ def create_app(core=None, sessions=None, push=None):
                     plan = await asyncio.to_thread(planner.plan, message)
                     if plan.mode == "chat":
                         # 闲聊：直接发 text 事件后结束，不再走执行器与 result 事件
-                        reply = await chat_responder.reply(message, memory)
+                        normalized = await chat_responder.reply_content(message, memory)
+                        reply = normalized["text"]
                         memory.add_message("assistant", reply)
-                        await queue.put({"type": "text", "content": reply})
+                        await queue.put({"type": "text", **normalized})
                         await finish_title()
                         await queue.put({"type": "done"})
                         return
@@ -484,8 +488,10 @@ def create_app(core=None, sessions=None, push=None):
                                 "content": tc.get("summary", ""),
                                 "message_id": tc.get("message_id"),
                             } for tc in outcome.tool_calls]
-                            await queue.put({"type": "text",
-                                             "content": outcome.final_reply})
+                            event = {"type": "text", "content": outcome.final_reply}
+                            if outcome.thinking:
+                                event["thinking"] = outcome.thinking
+                            await queue.put(event)
                             artifact_results = [
                                 {**result,
                                  "content": tc.get("raw_output", result["content"])}
@@ -714,6 +720,9 @@ def create_app(core=None, sessions=None, push=None):
         detail = sessions.get_session_detail(session_id)
         if detail is None:
             raise HTTPException(status_code=404, detail=f"会话不存在: {session_id}")
+        for message in detail.get("messages", []):
+            if message.get("role") == "assistant":
+                message.update(normalize_message_content(message.get("content", "")))
         return JSONResponse(detail)
 
     @app.get("/api/v1/sessions/{session_id}/artifacts/{artifact_id}")

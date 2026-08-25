@@ -79,6 +79,10 @@ def derive_session_title(message: str) -> str:
 
     targets = _extract_targets(text)
     intent = _extract_intent(text)
+    if intent == "比较" and len(targets) < 2:
+        pair = re.search(r"(?:比较|对比)?(.+?)(?:和|与|及)(.+?)(?:数据|情况|表现|$)", text)
+        if pair:
+            targets = [pair.group(1).strip(), pair.group(2).strip()]
     if intent == "比较" and len(targets) >= 2:
         return f"{targets[0]}与{targets[1]}比较"[:TITLE_MAX_LENGTH]
     if targets and intent:
@@ -88,6 +92,26 @@ def derive_session_title(message: str) -> str:
     if re.search(r"分析|研究", text) and "的" not in fallback and len(fallback) <= 10:
         return f"{fallback}分析"[:TITLE_MAX_LENGTH]
     return fallback
+
+
+def derive_session_title_from_messages(messages: list[str]) -> str:
+    """从前两条用户消息生成标题；首条信息不足时使用后续消息。"""
+    candidates = [item.strip() for item in messages[:2] if item and item.strip()]
+    if not candidates:
+        return "新会话"
+    first = derive_session_title(candidates[0])
+    if first != "新会话" and len(first) >= 6 and not _is_low_information(candidates[0]):
+        return first
+    for message in candidates[1:]:
+        refined = derive_session_title(message)
+        if refined != "新会话" and not _is_low_information(message):
+            return refined
+    return first
+
+
+def _is_low_information(message: str) -> bool:
+    cleaned = re.sub(r"[\s，。！？、,.!?]+", "", message)
+    return len(cleaned) < 4 or cleaned in {"你好", "您好", "谢谢", "好的", "嗯"}
 
 
 class SessionTitleRefiner:
