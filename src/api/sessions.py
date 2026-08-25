@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 
 from agent.memory import Memory, MemoryMessage
-from api.session_titles import derive_session_title
+from api.session_titles import derive_session_title, derive_session_title_from_messages
 
 _AUTOMATIC_TITLE_SOURCES = ("legacy", "local", "llm", "default")
 
@@ -267,7 +267,26 @@ class SessionManager:
             return self._memories.get(session_id)
 
     def list_sessions(self) -> list[dict]:
+        sessions = self._store.list_sessions()
+        for item in sessions:
+            if item["title_source"] == "manual" or item["message_count"] == 0:
+                continue
+            self.refresh_automatic_title(item["session_id"])
         return self._store.list_sessions()
+
+    def refresh_automatic_title(self, session_id: str) -> str | None:
+        """用前两条用户消息回填自动标题，不覆盖手动标题。"""
+        meta = next((item for item in self._store.list_sessions()
+                     if item["session_id"] == session_id), None)
+        if meta is None or meta["title_source"] == "manual":
+            return None
+        messages = [message["content"] for message in self._store.get_messages(session_id)
+                    if message["role"] == "user"][:2]
+        title = derive_session_title_from_messages(messages)
+        if title == meta["title"]:
+            return None
+        return title if self._store.update_title(
+            session_id, title, "local", only_if_automatic=True) else None
 
     def get_messages(self, session_id: str) -> list[MemoryMessage] | None:
         """按会话读回持久化消息；会话不存在返回 None"""
