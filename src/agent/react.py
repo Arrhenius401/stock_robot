@@ -18,6 +18,7 @@ from langgraph.prebuilt import create_react_agent
 
 from agent.memory import Memory
 from agent.tools import ToolProtocol, ToolRegistry
+from api.message_content import normalize_message_content
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ EventCallback = Callable[[dict], None]
 class AgentOutcome:
     """agent 模式执行结果：最终回答 + 工具调用统计"""
     final_reply: str
+    thinking: str = ""
     tool_calls: list[dict] = field(default_factory=list)
     # tool_calls 元素: {"tool", "args", "status": "success|error", "summary"}
 
@@ -142,6 +144,7 @@ class ReActExecutor:
         # on_tool_start/on_tool_end 交错，必须按 run_id 配对防串名
         pending_tools: dict[str, dict] = {}
         final_reply = ""
+        thinking = ""
         try:
             async for event in agent.astream_events(
                     {"messages": history}, config=config, version="v2"):
@@ -187,11 +190,14 @@ class ReActExecutor:
             state = await agent.aget_state(config)
             for msg in reversed(state.values.get("messages", [])):
                 if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
-                    final_reply = str(msg.content)
+                    normalized = normalize_message_content(msg.content)
+                    final_reply = normalized["text"]
+                    thinking = normalized.get("thinking", "")
                     break
         finally:
             await close_checkpointer(agent)
         if not final_reply:
             final_reply = "（模型未给出回答）"
         self._memory.add_message("assistant", final_reply)
-        return AgentOutcome(final_reply=final_reply, tool_calls=tool_calls)
+        return AgentOutcome(final_reply=final_reply, thinking=thinking,
+                            tool_calls=tool_calls)
