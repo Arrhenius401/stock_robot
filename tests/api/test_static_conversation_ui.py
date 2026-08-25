@@ -8,6 +8,7 @@ def test_chat_hides_suggestions_after_first_user_message():
     source = CHAT_JS.read_text(encoding="utf-8")
     assert "syncSuggestionVisibility" in source
     assert 'empty.hidden = true' in source
+    assert "research-suggestion-grid" in source
 
 
 def test_chat_renders_collapsed_thinking_details():

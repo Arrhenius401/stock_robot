@@ -51,24 +51,34 @@ function appendUser(text) {
 }
 
 const RESEARCH_SUGGESTIONS = [
-  "分析 600519 贵州茅台的基本面与估值",
-  "比较 000001 平安银行与 600036 招商银行",
-  "大盘现在适合入场吗？",
+  { icon: "📈", title: "分析一只 A 股", detail: "输入股票代码，生成完整研报", prompt: "分析 600519 贵州茅台的基本面与估值" },
+  { icon: "⚖️", title: "对比两家公司", detail: "从财务、估值、技术面比较", prompt: "比较 000001 平安银行与 600036 招商银行" },
+  { icon: "🧭", title: "发现行业机会", detail: "按行业筛选并追踪信号", prompt: "分析当前值得关注的行业机会" },
+  { icon: "📰", title: "解读最新公告", detail: "提炼风险与关键变化", prompt: "解读我关注股票的最新公告" },
 ];
 
 function renderEmptyChat() {
   const empty = el("section", "chat-empty");
-  empty.appendChild(el("div", "chat-empty-title", "从一个常用研究问题开始"));
-  for (const prompt of RESEARCH_SUGGESTIONS) {
-    const button = el("button", "research-suggestion", prompt);
+  empty.appendChild(el("div", "chat-empty-eyebrow", "投研工作台"));
+  empty.appendChild(el("div", "chat-empty-title", "开始一项新的研究"));
+  empty.appendChild(el("div", "chat-empty-subtitle", "选择一个方向，或直接输入你的投资研究问题"));
+  const grid = el("div", "research-suggestion-grid");
+  for (const suggestion of RESEARCH_SUGGESTIONS) {
+    const button = el("button", "research-suggestion");
     button.type = "button";
+    button.appendChild(el("span", "research-suggestion-icon", suggestion.icon));
+    const copy = el("span", "research-suggestion-copy");
+    copy.appendChild(el("strong", "", suggestion.title));
+    copy.appendChild(el("span", "", suggestion.detail));
+    button.appendChild(copy);
     button.addEventListener("click", () => {
       const input = document.getElementById("chatInput");
-      input.value = prompt;
+      input.value = suggestion.prompt;
       input.focus();
     });
-    empty.appendChild(button);
+    grid.appendChild(button);
   }
+  empty.appendChild(grid);
   scrollEl().appendChild(empty);
 }
 

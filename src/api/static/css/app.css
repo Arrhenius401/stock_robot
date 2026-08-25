@@ -147,13 +147,20 @@ button { font-family: inherit; }
 .thinking { color: var(--text-4); font-size: 12.5px; animation: pulse 1.5s infinite; }
 /* 自主循环推理片段：与占位共用 .thinking，追加内容后常驻显示 */
 .thinking { font-style: italic; }
-.chat-empty { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; padding: 28px 0; }
-.chat-empty-title { grid-column: 1 / -1; color: var(--text-2); font-size: 20px; font-weight: 700; margin-bottom: 4px; }
-.research-suggestion { min-height: 72px; padding: 14px 16px; text-align: left; color: var(--text-2); background: var(--panel); border: 1px solid var(--border); border-radius: 11px; cursor: pointer; line-height: 1.55; transition: border .12s, transform .12s; }
-.research-suggestion:hover { border-color: var(--blue); transform: translateY(-1px); }
+.chat-empty { width: min(820px, 100%); margin: clamp(28px, 9vh, 100px) auto 0; padding: 20px; border-radius: 18px; background: linear-gradient(145deg, #161d2b, #121722); border: 1px solid #2b3548; box-shadow: 0 18px 50px rgba(0,0,0,.22); }
+.chat-empty-eyebrow { color: #7fb3ff; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.chat-empty-title { color: #f4f7fb; font-size: clamp(24px, 3vw, 32px); font-weight: 750; margin: 7px 0; }
+.chat-empty-subtitle { color: var(--text-4); font-size: 13px; margin-bottom: 22px; }
+.research-suggestion-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.research-suggestion { min-height: 100px; padding: 17px; text-align: left; color: var(--text-2); background: #111827; border: 1px solid #2a3447; border-radius: 12px; cursor: pointer; display: flex; gap: 12px; align-items: flex-start; line-height: 1.5; transition: border .12s, background .12s, transform .12s; }
+.research-suggestion:hover { border-color: #5d9cff; background: #172238; transform: translateY(-2px); }
+.research-suggestion-icon { font-size: 19px; line-height: 1.2; }
+.research-suggestion-copy { display: flex; flex-direction: column; gap: 4px; }
+.research-suggestion-copy strong { color: #f1f5fa; font-size: 14px; }
+.research-suggestion-copy span { color: var(--text-4); font-size: 12px; }
 .message-thinking { margin-top: 10px; padding: 8px 10px; color: var(--text-4); background: var(--panel-2); border-radius: 8px; font-size: 11.5px; }
 .message-thinking summary { cursor: pointer; color: var(--text-3); }
-@media (max-width: 640px) { .chat-empty { grid-template-columns: 1fr; } .chat-empty-title { grid-column: auto; } }
+@media (max-width: 640px) { .chat-empty { margin-top: 16px; padding: 16px; } .research-suggestion-grid { grid-template-columns: 1fr; } }
 
 /* 错误与中断 */
 .error-card { border: 1px solid rgba(229,72,77,.4); background: rgba(229,72,77,.08);
