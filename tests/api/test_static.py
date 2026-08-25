@@ -837,7 +837,7 @@ if (toolCards.length !== 1 || !toolHtml.includes("000001 失败")
 
 renderMessageHistory([], []);
 const suggestions = byClass(chatScroll, "research-suggestion");
-if (suggestions.length !== 3) throw new Error("空会话应展示三个研究建议");
+    if (suggestions.length !== 4) throw new Error("空会话应展示四个研究建议");
 await suggestions[0].click();
 if (!chatInput.value || byClass(chatScroll, "msg").length !== 0) {
   throw new Error("研究建议应只填充输入框而不发送");
