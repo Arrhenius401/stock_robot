@@ -18,6 +18,7 @@ from agent.graph import DEFAULT_CHECKPOINT_DIR
 from agent.memory import TaskStatus
 from agent.planner import Planner
 from agent.react import ReActExecutor
+from api.configuration import create_configuration_router
 from api.message_content import normalize_message_content
 from api.session_titles import SessionTitleRefiner, derive_session_title
 from api.sessions import is_draft_session_id
@@ -260,6 +261,7 @@ def create_app(core=None, sessions=None, push=None):
 
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
                        allow_headers=["*"])
+    app.include_router(create_configuration_router())
 
     if sessions is None and core is not None:
         from api.sessions import SessionManager, SessionStore

@@ -108,6 +108,11 @@ class Config:
         node[keys[-1]] = value
         self._persist()
 
+    def update(self, values: dict[str, Any]) -> None:
+        """深度合并一组配置，并仅执行一次持久化。"""
+        self._merge(self.data, self._deep_copy(values))
+        self._persist()
+
     def get_llm_config(self) -> dict[str, Any]:
         return {k: v for k, v in self.data["llm"].items() if k != "api_key"}
 
