@@ -1323,6 +1323,69 @@ await pending;
         script = script.replace("__API_URL__", api_url).replace("__STATE_URL__", state_url)
         _run_node(tmp_path, script)
 
+    def test_cancelled_draft_stream_does_not_adopt_late_persisted_session(self, tmp_path):
+        """草稿流被新建操作取消后，迟到 SSE 不得接管或复活缓存。"""
+        sessions_url = json.dumps(_module_url("src/api/static/js/sessions.js"))
+        chat_url = json.dumps(_module_url("src/api/static/js/chat.js"))
+        api_url = json.dumps(_module_url("src/api/static/js/api.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        script = _DOM_STUB + r"""
+makeElement("chatScroll");
+makeElement("chatInput", "textarea");
+makeElement("sendBtn", "button");
+makeElement("newSessionBtn", "button");
+makeElement("collapseBtn", "button");
+makeElement("sessionList");
+makeElement("appLayout");
+const drawer = makeElement("reportDrawer", "aside");
+drawer.hidden = true;
+drawer.setAttribute("aria-hidden", "true");
+makeElement("reportDrawerError");
+makeElement("reportDrawerNav", "nav");
+makeElement("reportDrawerContent");
+
+const { api } = await import(__API_URL__);
+const { store } = await import(__STATE_URL__);
+const { initSessions } = await import(__SESSIONS_URL__);
+const { sendMessage } = await import(__CHAT_URL__);
+const draftId = "draft-cancelled";
+store.currentSessionId = draftId;
+store.sessionMessages[draftId] = [];
+store.sessionArtifacts[draftId] = [];
+let handlers;
+let resolveStream;
+api.chatStream = (_message, sessionId, streamHandlers) => {
+  if (sessionId !== draftId) throw new Error("取消前的请求必须使用草稿 ID");
+  handlers = streamHandlers;
+  return new Promise((resolve) => { resolveStream = resolve; });
+};
+initSessions();
+const pending = sendMessage("会被取消的问题");
+await Promise.resolve();
+await document.getElementById("newSessionBtn").click();
+handlers.session_title({ session_id: "server-late", title: "迟到标题" });
+handlers.plan({ session_id: "server-late", steps: [] });
+handlers.artifact({ artifact: {
+  artifact_id: "late-artifact", session_id: "server-late",
+  payload: { symbol: "000001", name: "迟到成果" },
+}, persisted: true });
+if (store.currentSessionId !== draftId || store.sessionDetails["server-late"]
+    || store.sessionMessages["server-late"] || store.sessionArtifacts["server-late"]
+    || store.sessionRuns["server-late"] || (store.sessionRuns[draftId] || []).length !== 0) {
+  throw new Error(`取消后的迟到 SSE 仍接管或复活了草稿会话: current=${store.currentSessionId}, `
+    + `detail=${Boolean(store.sessionDetails["server-late"])}, `
+    + `messages=${Boolean(store.sessionMessages["server-late"])}, `
+    + `artifacts=${Boolean(store.sessionArtifacts["server-late"])}, `
+    + `lateRuns=${Boolean(store.sessionRuns["server-late"])}, `
+    + `draftRunCount=${(store.sessionRuns[draftId] || []).length}`);
+}
+handlers.done({});
+resolveStream();
+await pending;
+""".replace("__SESSIONS_URL__", sessions_url).replace("__CHAT_URL__", chat_url)
+        script = script.replace("__API_URL__", api_url).replace("__STATE_URL__", state_url)
+        _run_node(tmp_path, script)
+
     def test_static_assets_do_not_expose_clear_session_operation(self):
         """已废弃的会话创建、清空操作不得留在静态界面。"""
         html = Path("src/api/static/index.html").read_text(encoding="utf-8")

@@ -418,7 +418,8 @@ export async function sendMessage(text) {
           && !isDraftSessionId(streamSid))) return false;
       if (store.sessionTombstones[sessionId] || run.cancelled) return false;
       if (run.sessionId && !runIsValid(run)) return false;
-      const draftId = isDraftSessionId(streamSid) ? streamSid : null;
+      const draftId = isDraftSessionId(streamSid) && streamSid !== sessionId
+        ? streamSid : null;
       if (draftId) {
         adoptPersistedSession(draftId, sessionId);
         streamSid = sessionId;
