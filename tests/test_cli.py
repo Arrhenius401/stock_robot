@@ -82,22 +82,21 @@ def test_run_builds_server_and_reports_ready_url(mocker):
     result = CliRunner().invoke(main, ["run", "--port", "8000"])
 
     assert result.exit_code == 0
-    assert "正在启动 HTTP 服务" in result.output
+    assert "正在启动 HTTP 服务" not in result.output
     assert "http://127.0.0.1:8000" in result.output
     mock_core.assert_called_once()
     mock_server.assert_called_once_with(mock_app.return_value, "127.0.0.1", 8000)
 
 
-def test_run_web_server_keeps_running_status_visible(mocker):
-    """服务运行期间持续显示可退出提示。"""
-    mock_server = mocker.Mock()
-    mocker.patch("uvicorn.Server", return_value=mock_server)
+def test_run_web_server_does_not_write_console_status(mocker):
+    """Uvicorn 日志已经覆盖运行状态，命令层不再输出 spinner。"""
+    mocker.patch("uvicorn.run")
     status = mocker.patch("stock_robot.cli.console.status")
 
     from stock_robot.cli import _run_web_server
     _run_web_server(object(), "127.0.0.1", 8000)
 
-    status.assert_called_once_with("Web 服务正在运行，按 Ctrl+C 退出")
+    status.assert_not_called()
 
 
 def test_api_bind_resolution_uses_config_defaults(tmp_path):
