@@ -1395,6 +1395,122 @@ await pending;
         assert "createSession(" not in api_source
         assert "clearSession(" not in api_source
 
+    def test_settings_renders_configuration_and_handles_secrets_and_save(self, tmp_path):
+        """设置页应按需读取密钥、保留编辑值，并只提交实际修改的字段。"""
+        settings_url = json.dumps(_module_url("src/api/static/js/settings.js"))
+        api_url = json.dumps(_module_url("src/api/static/js/api.js"))
+        script = _DOM_STUB + r"""
+const settingsContent = makeElement("settingsContent");
+const { api } = await import(__API_URL__);
+const { initSettings, renderSettings } = await import(__SETTINGS_URL__);
+const payload = {
+  config: {
+    llm: { enabled: true, provider: "openai", model: "gpt-4o",
+      api_key: { configured: true, masked: "sk-ab*****wxyz" }, base_url: "",
+      temperature: 0.3, max_tokens: 2000, retry_times: 2, timeout_seconds: 60 },
+    data: { disclaimer_accepted: false,
+      cache_ttl: { daily: 86400, quarterly: 604800, news: 21600 } },
+    api: { host: "127.0.0.1", port: 25618 },
+    push: { enabled: true, max_symbols_per_subscription: 20,
+      email: { smtp_host: "smtp.qq.com", smtp_port: 465, smtp_user: "user",
+        smtp_password: { configured: true, masked: "smtp*****xyz" }, to_addr: "to@example.com" },
+      wecom: { corp_id: "corp", agent_id: "agent",
+        secret: { configured: true, masked: "weco*****cret" }, to_user: "@all" } },
+    signal: { thresholds: { attack: 7, watch: 4 }, actions: {
+      attack: { action: "可考虑建仓/加仓", position: "60%-80%" },
+      watch: { action: "持有观察，等待明确方向", position: "30%-50%" },
+      defend: { action: "减仓或回避", position: "0%-20%" },
+    } },
+  },
+  paths: { state_dir: "D:/project/.stock_robot", config_file: "D:/project/.stock_robot/config.yaml" },
+};
+let credentialCalls = 0;
+let putBody = null;
+api.getConfig = async () => payload;
+api.getCredential = async (key) => {
+  credentialCalls += 1;
+  if (key !== "llm.api_key") throw new Error("读取了错误密钥");
+  return { value: "sk-actual-secret-wxyz" };
+};
+api.updateConfig = async (config) => {
+  putBody = config;
+  return { ...payload, restart_required: true };
+};
+initSettings();
+renderSettings(payload);
+for (const heading of ["LLM 设置", "数据与缓存", "服务设置", "推送设置", "信号策略"]) {
+  if (!settingsContent.textContent.includes(heading)) throw new Error(`缺少分区: ${heading}`);
+}
+if (!settingsContent.textContent.includes("D:/project/.stock_robot")
+    || !settingsContent.textContent.includes("sk-ab*****wxyz")) {
+  throw new Error("未显示只读路径或默认掩码");
+}
+const toggle = byClass(settingsContent, "settings-secret-toggle")[0];
+if (toggle.getAttribute("aria-label") !== "显示完整密钥") {
+  throw new Error("密钥默认未使用显示按钮语义");
+}
+await toggle.click();
+if (credentialCalls !== 1 || !settingsContent.textContent.includes("sk-actual-secret-wxyz")
+    || toggle.getAttribute("aria-label") !== "隐藏完整密钥") {
+  throw new Error("睁眼未按需读取或展示完整密钥");
+}
+await toggle.click();
+if (credentialCalls !== 1 || settingsContent.textContent.includes("sk-actual-secret-wxyz")
+    || !settingsContent.textContent.includes("sk-ab*****wxyz")
+    || toggle.getAttribute("aria-label") !== "显示完整密钥") {
+  throw new Error("闭眼未擦除完整密钥并恢复掩码");
+}
+const model = document.getElementById("settings-llm-model");
+model.value = "gpt-5";
+await model.dispatch("input");
+const apiKey = document.getElementById("settings-llm-api_key");
+apiKey.value = "sk-ab*****wxyz";
+await apiKey.dispatch("input");
+await document.getElementById("settingsSaveBtn").click();
+if (putBody?.llm?.model !== "gpt-5" || Object.hasOwn(putBody.llm, "api_key")) {
+  throw new Error("保存未形成最小更新，或空密钥覆盖了旧值");
+}
+if (!settingsContent.textContent.includes("服务地址或端口已保存，重启 stock-robot run 后生效")) {
+  throw new Error("缺少服务配置重启提示");
+}
+const updatedModel = document.getElementById("settings-llm-model");
+updatedModel.value = "保留编辑值";
+await updatedModel.dispatch("input");
+api.updateConfig = async () => { const error = new Error("llm.model: 不允许"); error.status = 422; throw error; };
+await document.getElementById("settingsSaveBtn").click();
+if (updatedModel.value !== "保留编辑值" || !settingsContent.textContent.includes("llm.model: 不允许")) {
+  throw new Error("保存失败覆盖了编辑值，或未显示校验错误");
+}
+""".replace("__SETTINGS_URL__", settings_url).replace("__API_URL__", api_url)
+        _run_node(tmp_path, script)
+
+    def test_settings_loads_only_on_entry_and_offers_retry_after_failure(self, tmp_path):
+        """配置请求应延迟至进入视图，并在失败后保留明确的重试入口。"""
+        settings_url = json.dumps(_module_url("src/api/static/js/settings.js"))
+        api_url = json.dumps(_module_url("src/api/static/js/api.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        script = _DOM_STUB + r"""
+const settingsContent = makeElement("settingsContent");
+const { api } = await import(__API_URL__);
+const { bus } = await import(__STATE_URL__);
+const { initSettings } = await import(__SETTINGS_URL__);
+let configCalls = 0;
+api.getConfig = async () => { configCalls += 1; throw new Error("服务未启动"); };
+initSettings();
+if (configCalls !== 0) throw new Error("初始化时不应提前加载配置");
+const enter = new Event("view-change");
+Object.defineProperty(enter, "detail", { value: { view: "settings" } });
+bus.dispatchEvent(enter);
+await new Promise((resolve) => setTimeout(resolve, 0));
+if (configCalls !== 1 || !settingsContent.textContent.includes("无法加载配置，请检查服务连接后重试")) {
+  throw new Error("进入设置页后未显示加载失败提示");
+}
+await byClass(settingsContent, "btn-retry")[0].click();
+if (configCalls !== 2) throw new Error("加载失败后的重试按钮未重新请求配置");
+""".replace("__SETTINGS_URL__", settings_url).replace("__API_URL__", api_url)
+        script = script.replace("__STATE_URL__", state_url)
+        _run_node(tmp_path, script)
+
     @pytest.mark.asyncio
     async def test_css_served(self, client):
         resp = await client.get("/css/app.css")

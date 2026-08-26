@@ -93,6 +93,15 @@ export const api = {
   getArtifact(sessionId, artifactId) {
     return request(`/api/v1/sessions/${sessionId}/artifacts/${artifactId}`);
   },
+  getConfig() {
+    return request("/api/v1/config");
+  },
+  getCredential(key) {
+    return request(`/api/v1/config/credentials/${key}`);
+  },
+  updateConfig(config) {
+    return request("/api/v1/config", { method: "PUT", body: JSON.stringify({ config }) });
+  },
   listTools() {
     return request("/api/v1/tools");
   },

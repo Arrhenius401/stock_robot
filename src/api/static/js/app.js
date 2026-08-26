@@ -8,12 +8,14 @@ import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./w
 import { initIndexView } from "./indexview.js";
 import { initSessions, initSessionStartup } from "./sessions.js";
 import { initSubscriptions } from "./subscriptions.js";
+import { initSettings } from "./settings.js";
 
 const VIEW_TITLES = {
   chat: "会话研究",
   report: "个股报告",
   index: "指数分析",
   subscriptions: "订阅推送",
+  settings: "配置",
 };
 
 function isNarrowScreen() {
@@ -137,6 +139,7 @@ function init() {
   initIndexView();
   initSessions();
   initSubscriptions();
+  initSettings();
   initSessionStartup().catch((error) => console.error("会话初始化失败:", error));
 }
 
