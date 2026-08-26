@@ -30,7 +30,7 @@ D:\code\stock_robot\.venv\Scripts\python.exe -m pytest tests/test_cli.py tests/t
 
 提交信息：`refactor(命令行): 统一分析进度条样式`
 
-提交哈希：待提交
+提交哈希：`b930cb9`
 
 ## 疑虑
 
