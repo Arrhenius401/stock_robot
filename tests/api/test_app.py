@@ -1,6 +1,7 @@
 """FastAPI HTTP API 端点测试（真实接线：Planner/Executor/SessionManager）"""
 import asyncio
 import json
+import uuid
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -389,14 +390,22 @@ class TestChatEndpoint:
         assert r2.json()["session_id"] == sid
 
     @pytest.mark.asyncio
-    async def test_chat_replaces_draft_session_id_with_persisted_id(self, client):
-        response = await client.post(
-            "/api/v1/chat",
-            json={"message": "echo 测试", "session_id": "draft-browser-1"},
-        )
+    async def test_chat_replaces_draft_session_id_with_persisted_id(self, tmp_path):
+        store = SessionStore(tmp_path / "draft_rest.db")
+        sessions = SessionManager(store, facts_path=tmp_path / "facts.json")
+        app_draft = create_app(core=make_core(), sessions=sessions, push=False)
+        async with AsyncClient(transport=ASGITransport(app=app_draft),
+                               base_url="http://test") as client:
+            response = await client.post(
+                "/api/v1/chat",
+                json={"message": "echo 测试", "session_id": "draft-browser-1"},
+            )
 
         assert response.status_code == 200
-        assert response.json()["session_id"] != "draft-browser-1"
+        sid = response.json()["session_id"]
+        assert uuid.UUID(hex=sid).version == 4
+        assert all(not item["session_id"].startswith("draft-")
+                   for item in store.list_sessions())
 
     @pytest.mark.asyncio
     async def test_chat_returns_500_on_agent_failure(self, tmp_path):
@@ -1212,6 +1221,26 @@ class TestSessionsEndpoints:
         assert detail.status_code == 404
         assert renamed.status_code == 404
         assert deleted.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_draft_history_is_not_readable_renamable_or_deletable(self, tmp_path):
+        store = SessionStore(tmp_path / "draft_history.db")
+        store.create_session("draft-legacy", "历史草稿")
+        store.append_message("draft-legacy", "user", "旧消息")
+        sessions = SessionManager(store, facts_path=tmp_path / "facts.json")
+        app_history = create_app(core=make_core(), sessions=sessions, push=False)
+
+        async with AsyncClient(transport=ASGITransport(app=app_history),
+                               base_url="http://test") as client:
+            detail = await client.get("/api/v1/sessions/draft-legacy/messages")
+            renamed = await client.patch(
+                "/api/v1/sessions/draft-legacy", json={"title": "不可编辑"})
+            deleted = await client.delete("/api/v1/sessions/draft-legacy")
+
+        assert detail.status_code == 404
+        assert renamed.status_code == 404
+        assert deleted.status_code == 404
+        assert store.session_exists("draft-legacy") is True
 
     @pytest.mark.asyncio
     async def test_patch_session_title_trims_and_marks_manual(self, client):

@@ -20,6 +20,7 @@ from agent.planner import Planner
 from agent.react import ReActExecutor
 from api.message_content import normalize_message_content
 from api.session_titles import SessionTitleRefiner, derive_session_title
+from api.sessions import is_draft_session_id
 from push.models import Channel, Subscription
 
 logger = logging.getLogger(__name__)
@@ -305,8 +306,7 @@ def create_app(core=None, sessions=None, push=None):
                                  "session_id": session_id or ""})
 
         try:
-            sid, memory = sessions.get_or_create(session_id, message)
-            memory.add_message("user", message)
+            sid, memory = sessions.get_or_create_for_message(session_id, message)
             planner, executor, chat_responder = _build_agent(memory)
             plan = await asyncio.to_thread(planner.plan, message)
             if plan.mode == "chat":
@@ -409,13 +409,15 @@ def create_app(core=None, sessions=None, push=None):
                     # 事件流入口已校验 sessions 注入，复制到局部变量并断言收窄类型
                     manager = sessions
                     assert manager is not None
-                    sid, memory = manager.get_or_create(session_id, message)
-                    is_first_turn = not memory.messages
-                    memory.add_message("user", message)
+                    sid, memory = manager.get_or_create_for_message(session_id, message)
                     local_title = derive_session_title(message)
                     should_refine_title = False
                     try:
                         previous_meta = _session_metadata(manager, sid)
+                        is_first_turn = (
+                            previous_meta is not None
+                            and previous_meta.get("message_count") == 1
+                        )
                         if (is_first_turn and previous_meta is not None
                                 and previous_meta.get("title_source") != "manual"):
                             manager.maybe_update_title(
@@ -724,6 +726,8 @@ def create_app(core=None, sessions=None, push=None):
 
     @app.get("/api/v1/sessions/{session_id}/messages")
     async def get_session_messages(session_id: str):
+        if is_draft_session_id(session_id):
+            raise HTTPException(status_code=404, detail=f"会话不存在: {session_id}")
         if sessions is None:
             raise HTTPException(status_code=503, detail="会话管理未初始化")
         detail = sessions.get_session_detail(session_id)
@@ -736,6 +740,8 @@ def create_app(core=None, sessions=None, push=None):
 
     @app.get("/api/v1/sessions/{session_id}/artifacts/{artifact_id}")
     async def get_session_artifact(session_id: str, artifact_id: str):
+        if is_draft_session_id(session_id):
+            raise HTTPException(status_code=404, detail=f"会话不存在: {session_id}")
         if sessions is None:
             raise HTTPException(status_code=503, detail="会话管理未初始化")
         if sessions.get_session_detail(session_id) is None:
@@ -751,6 +757,8 @@ def create_app(core=None, sessions=None, push=None):
 
     @app.patch("/api/v1/sessions/{session_id}")
     async def rename_session(session_id: str, request: Request):
+        if is_draft_session_id(session_id):
+            raise HTTPException(status_code=404, detail=f"会话不存在: {session_id}")
         if sessions is None:
             raise HTTPException(status_code=503, detail="会话管理未初始化")
         body = await request.json()
@@ -770,6 +778,8 @@ def create_app(core=None, sessions=None, push=None):
 
     @app.delete("/api/v1/sessions/{session_id}")
     async def delete_session(session_id: str):
+        if is_draft_session_id(session_id):
+            raise HTTPException(status_code=404, detail=f"会话不存在: {session_id}")
         if sessions is None:
             raise HTTPException(status_code=503, detail="会话管理未初始化")
         if not sessions.delete(session_id):

@@ -131,6 +131,73 @@ class TestSessionManager:
         assert store.session_exists("draft-browser-1") is False
         assert store.session_exists(sid) is True
 
+    def test_interleaved_listing_keeps_initial_message_and_artifact(self, tmp_path):
+        """列表清理不能删除正在原子创建的首发会话。"""
+        class BlockingStore(SessionStore):
+            def __init__(self, db_path):
+                super().__init__(db_path)
+                self.creation_started = threading.Event()
+                self.allow_creation = threading.Event()
+                self.purge_started = threading.Event()
+
+            def create_session_with_initial_message(self, *args, **kwargs):
+                self.creation_started.set()
+                assert self.allow_creation.wait(timeout=2)
+                return super().create_session_with_initial_message(*args, **kwargs)
+
+            def purge_empty_sessions(self):
+                self.purge_started.set()
+                return super().purge_empty_sessions()
+
+        store = BlockingStore(tmp_path / "sessions.db")
+        manager = SessionManager(store, facts_path=tmp_path / "facts.json")
+        result: dict = {}
+        errors: list[BaseException] = []
+
+        def create_first_turn() -> None:
+            try:
+                sid, memory = manager.get_or_create_for_message(
+                    "draft-browser-1", "分析 000001")
+                message_id = memory.messages[-1]["message_id"]
+                result["sid"] = sid
+                result["artifact"] = manager.save_artifact(
+                    sid,
+                    kind="stock_report",
+                    symbol="000001",
+                    payload={"symbol": "000001"},
+                    message_id=message_id,
+                    memory=memory,
+                )
+            except BaseException as exc:  # noqa: BLE001 — 线程失败需交回主断言
+                errors.append(exc)
+
+        creator = threading.Thread(target=create_first_turn)
+        creator.start()
+        assert store.creation_started.wait(timeout=1)
+
+        listing_started = threading.Event()
+
+        def list_sessions() -> None:
+            listing_started.set()
+            manager.list_sessions()
+
+        lister = threading.Thread(target=list_sessions)
+        lister.start()
+        assert listing_started.wait(timeout=1)
+        assert store.purge_started.wait(timeout=0.1) is False
+        store.allow_creation.set()
+        creator.join(timeout=2)
+        lister.join(timeout=2)
+
+        assert errors == []
+        assert store.purge_started.is_set()
+        sid = result["sid"]
+        assert sid != "draft-browser-1"
+        assert store.get_messages(sid)[0]["content"] == "分析 000001"
+        assert store.list_artifacts(sid) == [result["artifact"]]
+        assert all(not item["session_id"].startswith("draft-")
+                   for item in store.list_sessions())
+
     def test_get_or_create_new_session(self, store, facts_path):
         mgr = SessionManager(store, facts_path=facts_path)
         sid, memory = mgr.get_or_create(None, "帮我分析平安银行")

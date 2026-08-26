@@ -102,6 +102,26 @@ class SessionStore:
                 (session_id, title, source, now, now),
             )
 
+    def create_session_with_initial_message(
+        self, session_id: str, title: str, source: str, content: str
+    ) -> int:
+        """在同一事务中创建会话并写入首条用户消息。"""
+        now = time.time()
+        with self._lock, self._get_conn() as conn:
+            conn.execute(
+                "INSERT INTO sessions "
+                "(session_id, title, title_source, created_at, updated_at) VALUES (?,?,?,?,?)",
+                (session_id, title, source, now, now),
+            )
+            cursor = conn.execute(
+                "INSERT INTO messages (session_id, role, content, created_at) VALUES (?,?,?,?)",
+                (session_id, "user", content, now),
+            )
+        message_id = cursor.lastrowid
+        if message_id is None:
+            raise RuntimeError("SQLite 未返回首条消息 ID")
+        return int(message_id)
+
     def session_exists(self, session_id: str) -> bool:
         with self._get_conn() as conn:
             row = conn.execute(
@@ -260,7 +280,7 @@ class SessionManager:
         self._max_messages = max_messages
         self._facts_path = facts_path
         self._memories: dict[str, Memory] = {}
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
     def _new_memory(self, session_id: str) -> Memory:
         return Memory(session_id=session_id, message_store=self._store,
@@ -287,18 +307,50 @@ class SessionManager:
             self._memories[sid] = memory
             return sid, memory
 
+    def get_or_create_for_message(
+        self, session_id: str | None, message: str
+    ) -> tuple[str, Memory]:
+        """获取会话并持久化本轮用户消息；新会话的首条消息原子写入。"""
+        with self._lock:
+            if is_draft_session_id(session_id):
+                session_id = None
+            if session_id and session_id in self._memories:
+                memory = self._memories[session_id]
+                memory.add_message("user", message)
+                return session_id, memory
+            if session_id and self._store.session_exists(session_id):
+                memory = self._new_memory(session_id)
+                memory.messages = self._store.get_messages(session_id)[-self._max_messages:]
+                memory.add_message("user", message)
+                self._memories[session_id] = memory
+                return session_id, memory
+            sid = uuid.uuid4().hex
+            title = derive_session_title(message)
+            message_id = self._store.create_session_with_initial_message(
+                sid, title, "local", message
+            )
+            memory = self._new_memory(sid)
+            memory.messages = [{
+                "message_id": message_id,
+                "role": "user",
+                "content": message,
+            }]
+            self._memories[sid] = memory
+            return sid, memory
+
     def get_memory(self, session_id: str) -> Memory | None:
         with self._lock:
             return self._memories.get(session_id)
 
     def list_sessions(self) -> list[dict]:
-        self._store.purge_empty_sessions()
-        sessions = self._store.list_sessions()
-        for item in sessions:
-            if item["title_source"] == "manual" or item["message_count"] == 0:
-                continue
-            self.refresh_automatic_title(item["session_id"])
-        return self._store.list_sessions()
+        with self._lock:
+            self._store.purge_empty_sessions()
+            sessions = self._store.list_sessions()
+            for item in sessions:
+                if item["title_source"] == "manual" or item["message_count"] == 0:
+                    continue
+                self.refresh_automatic_title(item["session_id"])
+            return self._store.list_sessions()
 
     def refresh_automatic_title(self, session_id: str) -> str | None:
         """用前两条用户消息回填自动标题，不覆盖手动标题。"""
