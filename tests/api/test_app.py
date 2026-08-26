@@ -389,6 +389,16 @@ class TestChatEndpoint:
         assert r2.json()["session_id"] == sid
 
     @pytest.mark.asyncio
+    async def test_chat_replaces_draft_session_id_with_persisted_id(self, client):
+        response = await client.post(
+            "/api/v1/chat",
+            json={"message": "echo 测试", "session_id": "draft-browser-1"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["session_id"] != "draft-browser-1"
+
+    @pytest.mark.asyncio
     async def test_chat_returns_500_on_agent_failure(self, tmp_path):
         store = SessionStore(tmp_path / "sessions_err.db")
         sessions = SessionManager(store, facts_path=tmp_path / "facts_err.json")
@@ -634,6 +644,18 @@ class TestStreamEndpoint:
         assert '"type": "done"' in body
 
     @pytest.mark.asyncio
+    async def test_stream_replaces_draft_session_id_in_first_session_event(self, client):
+        async with client.stream("POST", "/api/v1/chat/stream", json={
+            "message": "echo 测试", "session_id": "draft-browser-1",
+        }) as response:
+            events = parse_sse_events((await response.aread()).decode())
+
+        session_event = next(
+            event for event in events if event["type"] in ("session_title", "plan")
+        )
+        assert session_event["session_id"] != "draft-browser-1"
+
+    @pytest.mark.asyncio
     async def test_stream_emits_local_session_title_after_start(self, client):
         async with client.stream("POST", "/api/v1/chat/stream",
                                  json={"message": "echo 测试"}) as resp:
@@ -712,57 +734,6 @@ class TestStreamEndpoint:
         assert len({artifact["message_id"] for artifact in artifacts}) == 2
 
     @pytest.mark.asyncio
-    async def test_rest_and_sse_reject_artifact_after_memory_is_cleared(
-            self, tmp_path, monkeypatch):
-        """REST/SSE 共用持久化助手必须携带本轮 Memory 并拒绝 clear 后写回。"""
-        original_persist = _persist_artifacts_if_present
-        observed_message_ids = []
-
-        def clear_before_persist(manager, session_id, tool_results, *, memory):
-            detail = manager.get_session_detail(session_id)
-            tool_messages = [message for message in detail["messages"]
-                             if message["role"] == "tool"]
-            observed_message_ids.append(tool_messages[-1]["message_id"])
-            assert manager.clear(session_id)
-            return original_persist(
-                manager, session_id, tool_results, memory=memory)
-
-        monkeypatch.setattr(
-            "api.app._persist_artifacts_if_present", clear_before_persist)
-
-        rest_sessions = SessionManager(SessionStore(tmp_path / "rest_clear_race.db"))
-        rest_app = create_app(
-            core=make_symbol_core(), sessions=rest_sessions, push=False)
-        async with AsyncClient(
-                transport=ASGITransport(app=rest_app), base_url="http://test") as client:
-            response = await client.post(
-                "/api/v1/chat", json={"message": "分析 000001 的估值"})
-
-        assert response.status_code == 200
-        rest_detail = rest_sessions.get_session_detail(response.json()["session_id"])
-        assert rest_detail == {"messages": [], "artifacts": []}
-
-        sse_sessions = SessionManager(SessionStore(tmp_path / "sse_clear_race.db"))
-        sse_app = create_app(
-            core=make_symbol_core(), sessions=sse_sessions, push=False)
-        async with (
-            AsyncClient(transport=ASGITransport(app=sse_app),
-                        base_url="http://test") as client,
-            client.stream("POST", "/api/v1/chat/stream", json={
-                "message": "分析 000001 的估值",
-            }) as response,
-        ):
-            events = parse_sse_events((await response.aread()).decode())
-
-        session_id = next(event["session_id"] for event in events
-                          if event["type"] == "plan")
-        artifact_events = [event for event in events if event["type"] == "artifact"]
-        assert len(observed_message_ids) == 2
-        assert artifact_events and artifact_events[0]["persisted"] is False
-        assert sse_sessions.get_session_detail(session_id) == {
-            "messages": [], "artifacts": [],
-        }
-
     @pytest.mark.asyncio
     async def test_stream_emits_unpersisted_artifact_when_store_fails(
             self, tmp_path, monkeypatch):
@@ -823,11 +794,8 @@ class TestStreamEndpoint:
         )
         async with AsyncClient(transport=ASGITransport(app=app_chat),
                                base_url="http://test") as c:
-            created = await c.post("/api/v1/sessions")
-            sid = created.json()["session_id"]
-            renamed = await c.patch(
-                f"/api/v1/sessions/{sid}", json={"title": "用户手动标题"})
-            assert renamed.status_code == 200
+            sid, _ = sessions.get_or_create(None, "")
+            assert sessions.rename(sid, "用户手动标题")
             async with c.stream("POST", "/api/v1/chat/stream", json={
                 "message": "你好", "session_id": sid,
             }) as resp:
@@ -1207,17 +1175,26 @@ class TestIndexEndpoint:
 
 class TestSessionsEndpoints:
     @pytest.mark.asyncio
-    async def test_sessions_crud(self, client):
+    async def test_empty_session_creation_and_clear_routes_are_unavailable(self, client):
         create_resp = await client.post("/api/v1/sessions")
-        assert create_resp.status_code == 200
-        sid = create_resp.json()["session_id"]
+        assert create_resp.status_code == 404
 
-        list_resp = await client.get("/api/v1/sessions")
-        ids = [s["session_id"] for s in list_resp.json()["sessions"]]
-        assert sid in ids
+        clear_resp = await client.post("/api/v1/sessions/draft-browser-1/clear")
+        assert clear_resp.status_code == 404
 
-        clear_resp = await client.post(f"/api/v1/sessions/{sid}/clear")
-        assert clear_resp.status_code == 200
+    @pytest.mark.asyncio
+    async def test_real_message_session_can_be_read_renamed_and_deleted(self, client):
+        created = await client.post("/api/v1/chat", json={"message": "echo 测试"})
+        assert created.status_code == 200
+        sid = created.json()["session_id"]
+
+        history = await client.get(f"/api/v1/sessions/{sid}/messages")
+        assert history.status_code == 200
+        assert history.json()["messages"]
+
+        renamed = await client.patch(
+            f"/api/v1/sessions/{sid}", json={"title": "我的会话"})
+        assert renamed.status_code == 200
 
         del_resp = await client.delete(f"/api/v1/sessions/{sid}")
         assert del_resp.status_code == 200
@@ -1226,13 +1203,19 @@ class TestSessionsEndpoints:
         assert del_again.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_clear_unknown_session_returns_404(self, client):
-        resp = await client.post("/api/v1/sessions/nope/clear")
-        assert resp.status_code == 404
+    async def test_draft_session_detail_rename_and_delete_return_404(self, client):
+        detail = await client.get("/api/v1/sessions/draft-browser-1/messages")
+        renamed = await client.patch(
+            "/api/v1/sessions/draft-browser-1", json={"title": "无效会话"})
+        deleted = await client.delete("/api/v1/sessions/draft-browser-1")
+
+        assert detail.status_code == 404
+        assert renamed.status_code == 404
+        assert deleted.status_code == 404
 
     @pytest.mark.asyncio
     async def test_patch_session_title_trims_and_marks_manual(self, client):
-        created = await client.post("/api/v1/sessions")
+        created = await client.post("/api/v1/chat", json={"message": "echo 测试"})
         sid = created.json()["session_id"]
 
         resp = await client.patch(
@@ -1248,7 +1231,7 @@ class TestSessionsEndpoints:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("title", ["   ", "超" * 21], ids=["empty", "overlong"])
     async def test_patch_session_title_rejects_invalid_length(self, client, title):
-        created = await client.post("/api/v1/sessions")
+        created = await client.post("/api/v1/chat", json={"message": "echo 测试"})
         sid = created.json()["session_id"]
 
         resp = await client.patch(
@@ -1320,16 +1303,6 @@ class TestSessionsEndpoints:
     async def test_get_messages_unknown_session_returns_404(self, client):
         resp = await client.get("/api/v1/sessions/nope/messages")
         assert resp.status_code == 404
-
-    @pytest.mark.asyncio
-    async def test_get_messages_after_clear_returns_empty(self, client):
-        r = await client.post("/api/v1/chat", json={"message": "echo 测试"})
-        sid = r.json()["session_id"]
-        await client.post(f"/api/v1/sessions/{sid}/clear")
-        resp = await client.get(f"/api/v1/sessions/{sid}/messages")
-        assert resp.status_code == 200
-        assert resp.json()["messages"] == []
-
 
 class TestNoCoreMode:
     @pytest.fixture

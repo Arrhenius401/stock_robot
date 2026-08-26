@@ -12,6 +12,11 @@ from api.session_titles import derive_session_title, derive_session_title_from_m
 _AUTOMATIC_TITLE_SOURCES = ("legacy", "local", "llm", "default")
 
 
+def is_draft_session_id(session_id: str | None) -> bool:
+    """判断是否为仅存在于浏览器中的临时会话 ID。"""
+    return bool(session_id and session_id.startswith("draft-"))
+
+
 class SessionStore:
     """SQLite 会话存储 — sessions + messages 两张表"""
 
@@ -64,6 +69,29 @@ class SessionStore:
                 conn.execute(
                     "ALTER TABLE sessions ADD COLUMN title_source TEXT NOT NULL DEFAULT 'legacy'"
                 )
+            self._purge_empty_sessions(conn)
+
+    @staticmethod
+    def _purge_empty_sessions(conn: sqlite3.Connection) -> int:
+        """删除没有消息的会话及其关联成果。"""
+        empty_sessions = """
+            SELECT s.session_id FROM sessions s
+            WHERE NOT EXISTS (
+                SELECT 1 FROM messages m WHERE m.session_id = s.session_id
+            )
+        """
+        conn.execute(
+            f"DELETE FROM artifacts WHERE session_id IN ({empty_sessions})"
+        )
+        result = conn.execute(
+            f"DELETE FROM sessions WHERE session_id IN ({empty_sessions})"
+        )
+        return result.rowcount
+
+    def purge_empty_sessions(self) -> int:
+        """清理零消息会话，返回已删除的会话数。"""
+        with self._lock, self._get_conn() as conn:
+            return self._purge_empty_sessions(conn)
 
     def create_session(self, session_id: str, title: str, source: str = "legacy") -> None:
         now = time.time()
@@ -136,11 +164,6 @@ class SessionStore:
         with self._lock, self._get_conn() as conn:
             result = conn.execute(query, params)
         return result.rowcount == 1
-
-    def clear_messages(self, session_id: str) -> None:
-        with self._lock, self._get_conn() as conn:
-            conn.execute("DELETE FROM artifacts WHERE session_id=?", (session_id,))
-            conn.execute("DELETE FROM messages WHERE session_id=?", (session_id,))
 
     def delete_session(self, session_id: str) -> None:
         with self._lock, self._get_conn() as conn:
@@ -247,6 +270,8 @@ class SessionManager:
     def get_or_create(self, session_id: str | None,
                       first_message: str = "") -> tuple[str, Memory]:
         with self._lock:
+            if is_draft_session_id(session_id):
+                session_id = None
             if session_id and session_id in self._memories:
                 return session_id, self._memories[session_id]
             if session_id and self._store.session_exists(session_id):
@@ -267,6 +292,7 @@ class SessionManager:
             return self._memories.get(session_id)
 
     def list_sessions(self) -> list[dict]:
+        self._store.purge_empty_sessions()
         sessions = self._store.list_sessions()
         for item in sessions:
             if item["title_source"] == "manual" or item["message_count"] == 0:
@@ -332,18 +358,6 @@ class SessionManager:
                 "messages": self._store.get_messages(session_id),
                 "artifacts": self._store.list_artifacts(session_id),
             }
-
-    def clear(self, session_id: str) -> bool:
-        with self._lock:
-            if not self._store.session_exists(session_id):
-                return False
-            memory = self._memories.pop(session_id, None)
-            if memory:
-                memory.invalidate()
-            self._store.clear_messages(session_id)
-            if memory:
-                memory.clear_session()
-            return True
 
     def delete(self, session_id: str) -> bool:
         with self._lock:

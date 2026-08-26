@@ -410,15 +410,12 @@ def create_app(core=None, sessions=None, push=None):
                     manager = sessions
                     assert manager is not None
                     sid, memory = manager.get_or_create(session_id, message)
+                    is_first_turn = not memory.messages
+                    memory.add_message("user", message)
                     local_title = derive_session_title(message)
-                    is_first_turn = True
                     should_refine_title = False
                     try:
-                        previous_meta = _session_metadata(manager, session_id)
-                        is_first_turn = (
-                            previous_meta is None
-                            or previous_meta.get("message_count", 0) == 0
-                        )
+                        previous_meta = _session_metadata(manager, sid)
                         if (is_first_turn and previous_meta is not None
                                 and previous_meta.get("title_source") != "manual"):
                             manager.maybe_update_title(
@@ -452,7 +449,6 @@ def create_app(core=None, sessions=None, push=None):
                             agent_core.model, queue,
                         )
 
-                    memory.add_message("user", message)
                     planner, executor, chat_responder = _build_agent(memory)
                     plan = await asyncio.to_thread(planner.plan, message)
                     if plan.mode == "chat":
@@ -750,11 +746,8 @@ def create_app(core=None, sessions=None, push=None):
         return JSONResponse({"artifact": artifact})
 
     @app.post("/api/v1/sessions")
-    async def create_session():
-        if sessions is None:
-            raise HTTPException(status_code=503, detail="会话管理未初始化")
-        sid, _ = sessions.get_or_create(None)
-        return JSONResponse({"session_id": sid})
+    async def reject_empty_session_creation():
+        raise HTTPException(status_code=404, detail="会话创建接口不存在")
 
     @app.patch("/api/v1/sessions/{session_id}")
     async def rename_session(session_id: str, request: Request):
@@ -784,12 +777,8 @@ def create_app(core=None, sessions=None, push=None):
         return JSONResponse({"status": "ok"})
 
     @app.post("/api/v1/sessions/{session_id}/clear")
-    async def clear_session(session_id: str):
-        if sessions is None:
-            raise HTTPException(status_code=503, detail="会话管理未初始化")
-        if not sessions.clear(session_id):
-            raise HTTPException(status_code=404, detail=f"会话不存在: {session_id}")
-        return JSONResponse({"status": "ok"})
+    async def reject_session_clearing(session_id: str):
+        raise HTTPException(status_code=404, detail="会话清空接口不存在")
 
     # ---- 订阅推送管理 ----
 
