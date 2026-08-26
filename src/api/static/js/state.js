@@ -18,6 +18,39 @@ export const store = {
 
 export const bus = new EventTarget();
 
+let draftSequence = 0;
+
+export function isDraftSessionId(sessionId) {
+  return typeof sessionId === "string" && sessionId.startsWith("draft-");
+}
+
+export function createDraftSession() {
+  draftSequence += 1;
+  const suffix = globalThis.crypto?.randomUUID?.()
+    || `${Date.now().toString(36)}-${draftSequence}`;
+  return `draft-${suffix}`;
+}
+
+export function adoptPersistedSession(draftId, sessionId) {
+  if (!isDraftSessionId(draftId) || !sessionId || draftId === sessionId) return;
+  const buckets = [
+    "sessionMessages", "sessionArtifacts", "sessionRuns", "sessionRunEpochs",
+    "sessionDetailGenerations", "sessionDetailStale",
+  ];
+  for (const bucket of buckets) {
+    if (!Object.hasOwn(store[bucket], draftId)) continue;
+    store[bucket][sessionId] = store[bucket][draftId];
+    delete store[bucket][draftId];
+  }
+  for (const artifact of store.sessionArtifacts[sessionId] || []) {
+    artifact.session_id = sessionId;
+  }
+  for (const run of store.sessionRuns[sessionId] || []) {
+    run.sessionId = sessionId;
+  }
+  if (store.currentSessionId === draftId) store.currentSessionId = sessionId;
+}
+
 export function markSessionListMutation() {
   store.sessionListRevision += 1;
   return store.sessionListRevision;

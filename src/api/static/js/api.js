@@ -79,9 +79,6 @@ export const api = {
   listSessions() {
     return request("/api/v1/sessions");
   },
-  createSession() {
-    return request("/api/v1/sessions", { method: "POST" });
-  },
   deleteSession(id) {
     return request(`/api/v1/sessions/${id}`, { method: "DELETE" });
   },
@@ -89,9 +86,6 @@ export const api = {
     return request(`/api/v1/sessions/${id}`, {
       method: "PATCH", body: JSON.stringify({ title }),
     });
-  },
-  clearSession(id) {
-    return request(`/api/v1/sessions/${id}/clear`, { method: "POST" });
   },
   getMessages(id) {
     return request(`/api/v1/sessions/${id}/messages`);

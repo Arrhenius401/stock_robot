@@ -1,7 +1,8 @@
 // 侧边栏会话列表：历史恢复、内联重命名与会话级缓存隔离。
 import {
-  store, bus, switchView, invalidateSessionDetail, markSessionListMutation,
-  reviveSession, sessionDetailGeneration,
+  store, bus, switchView, createDraftSession, isDraftSessionId,
+  invalidateSessionDetail, markSessionListMutation, reviveSession,
+  sessionDetailGeneration,
 } from "./state.js";
 import { api } from "./api.js";
 import { renderMessageHistory, clearChatScroll, cancelSessionRuns } from "./chat.js";
@@ -228,6 +229,7 @@ export async function refreshSessionList() {
 
 export async function selectSession(id) {
   if (id === store.currentSessionId) return;
+  if (isDraftSessionId(store.currentSessionId)) cancelSessionRuns(store.currentSessionId);
   const sequence = ++selectionSequence;
   closeReportDrawer();
   store.currentSessionId = id;
@@ -269,44 +271,26 @@ export async function selectSession(id) {
 
 export async function ensureSession() {
   if (store.currentSessionId) return;
-  const data = await api.createSession();
-  markSessionListMutation();
-  reviveSession(data.session_id);
-  store.currentSessionId = data.session_id;
-  store.sessionMessages[data.session_id] = [];
-  store.sessionArtifacts[data.session_id] = [];
-  store.sessionDetails[data.session_id] = {
-    ...data,
-    session_id: data.session_id,
-    title: data.title || "新会话",
-    updated_at: data.updated_at ?? Date.now() / 1000,
-  };
+  const sessionId = createDraftSession();
+  store.currentSessionId = sessionId;
+  store.sessionMessages[sessionId] = [];
+  store.sessionArtifacts[sessionId] = [];
 }
 
 export function initSessions() {
   if (initialized) return;
   initialized = true;
-  document.getElementById("newSessionBtn").addEventListener("click", async () => {
-    try {
-      const data = await api.createSession();
-      markSessionListMutation();
-      reviveSession(data.session_id);
-      closeReportDrawer();
-      store.currentSessionId = data.session_id;
-      store.sessionMessages[data.session_id] = [];
-      store.sessionArtifacts[data.session_id] = [];
-      store.sessionDetails[data.session_id] = {
-        ...data,
-        session_id: data.session_id,
-        title: data.title || "新会话",
-        updated_at: data.updated_at ?? Date.now() / 1000,
-      };
-      switchView("chat");
-      renderMessageHistory([], []);
-      await refreshSessionList();
-    } catch (error) {
-      window.alert(`新建会话失败: ${error.message}`);
-    }
+  document.getElementById("newSessionBtn").addEventListener("click", () => {
+    const existingId = store.currentSessionId;
+    const sessionId = isDraftSessionId(existingId) ? existingId : createDraftSession();
+    if (!isDraftSessionId(existingId)) store.currentSessionId = sessionId;
+    cancelSessionRuns(sessionId);
+    store.sessionMessages[sessionId] = [];
+    store.sessionArtifacts[sessionId] = [];
+    closeReportDrawer();
+    document.getElementById("chatInput").value = "";
+    switchView("chat");
+    renderMessageHistory([], []);
   });
   const collapseBtn = document.getElementById("collapseBtn");
   collapseBtn.addEventListener("click", () => {

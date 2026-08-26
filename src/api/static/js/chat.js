@@ -1,7 +1,8 @@
 // 聊天视图：SSE 流式渲染、执行计划卡、工具结果卡、快捷按钮
 import {
-  store, bus, invalidateSessionDetail, markSessionListMutation, reviveSession,
-  invalidateSessionRuns, sessionRunEpoch, markSessionDetailStale,
+  store, bus, adoptPersistedSession, isDraftSessionId, invalidateSessionDetail,
+  markSessionListMutation, reviveSession, invalidateSessionRuns, sessionRunEpoch,
+  markSessionDetailStale,
 } from "./state.js";
 import { api } from "./api.js";
 import { renderMarkdown } from "./markdown.js";
@@ -413,14 +414,22 @@ export async function sendMessage(text) {
       store.sessionRuns[sessionId] = runs;
     };
     const adoptSession = (sessionId) => {
-      if (!sessionId || (streamSid && streamSid !== sessionId)) return false;
+      if (!sessionId || (streamSid && streamSid !== sessionId
+          && !isDraftSessionId(streamSid))) return false;
       if (store.sessionTombstones[sessionId] || run.cancelled) return false;
       if (run.sessionId && !runIsValid(run)) return false;
+      const draftId = isDraftSessionId(streamSid) ? streamSid : null;
+      if (draftId) {
+        adoptPersistedSession(draftId, sessionId);
+        streamSid = sessionId;
+        if (!runIsValid(run)) return false;
+        markSessionListMutation();
+      }
       if (!streamSid) streamSid = sessionId;
       if (!userCached) {
         if (initialSessionId === null) reviveSession(sessionId);
         else invalidateSessionDetail(sessionId);
-        markSessionListMutation();
+        if (!isDraftSessionId(sessionId)) markSessionListMutation();
         (store.sessionMessages[sessionId] = store.sessionMessages[sessionId] || [])
           .push({ role: "user", content: msg });
         userCached = true;
@@ -635,26 +644,6 @@ export function initChat() {
   document.getElementById("quickTiming").addEventListener(
     "click", () => sendMessage("大盘现在适合入场吗？"));
   document.getElementById("quickTools").addEventListener("click", showToolsPanel);
-  document.getElementById("quickClear").addEventListener("click", async () => {
-    const target = store.currentSessionId;   // await 期间可能切换会话，先捕获
-    if (!target) return;
-    if (!window.confirm("清空当前会话的全部消息？")) return;
-    try {
-      await api.clearSession(target);
-      markSessionListMutation();
-      invalidateSessionDetail(target);
-      store.sessionMessages[target] = [];  // 服务端已清空，本地缓存先同步
-      store.sessionArtifacts[target] = [];
-      delete store.sessionDetailStale[target];
-      cancelSessionRuns(target);
-      if (store.currentSessionId !== target) return;  // 已切换，不动新会话视图
-      closeReportDrawer();
-      renderMessageHistory([], []);
-      bus.dispatchEvent(new Event("chat-done"));
-    } catch (err) {
-      window.alert(`清空失败: ${err.message}`);
-    }
-  });
 }
 
 export function handleChatInputKeydown(event, send, composing = false) {

@@ -1245,17 +1245,19 @@ if (!sawLive) throw new Error("流式正文处理器未在结束前完成渲染"
         script = script.replace("__STATE_URL__", state_url)
         _run_node(tmp_path, script)
 
-    def test_clear_invalidates_stream_and_manual_title_blocks_late_event(self, tmp_path):
+    def test_draft_session_reuses_input_and_adopts_persisted_session(self, tmp_path):
+        """草稿会话不落库，首条 SSE 事件原子接管全部本地缓存。"""
+        sessions_url = json.dumps(_module_url("src/api/static/js/sessions.js"))
         chat_url = json.dumps(_module_url("src/api/static/js/chat.js"))
         api_url = json.dumps(_module_url("src/api/static/js/api.js"))
         state_url = json.dumps(_module_url("src/api/static/js/state.js"))
         script = _DOM_STUB + r"""
 const chatScroll = makeElement("chatScroll");
-makeElement("chatInput", "textarea");
+const chatInput = makeElement("chatInput", "textarea");
 makeElement("sendBtn", "button");
-makeElement("quickTiming", "button");
-makeElement("quickTools", "button");
-const quickClear = makeElement("quickClear", "button");
+makeElement("newSessionBtn", "button");
+makeElement("collapseBtn", "button");
+makeElement("sessionList");
 makeElement("appLayout");
 const drawer = makeElement("reportDrawer", "aside");
 drawer.hidden = true;
@@ -1266,87 +1268,69 @@ makeElement("reportDrawerContent");
 
 const { api } = await import(__API_URL__);
 const { store } = await import(__STATE_URL__);
-const { initChat, sendMessage } = await import(__CHAT_URL__);
-store.currentSessionId = "s1";
-store.sessionDetails.s1 = {
-  session_id: "s1", title: "用户手动标题", title_source: "manual", titleRevision: 4,
-};
-store.sessionMessages.s1 = [];
-store.sessionArtifacts.s1 = [];
-window.confirm = () => true;
-api.clearSession = async () => ({});
-let streamCalls = 0;
+const { initSessions, initSessionStartup } = await import(__SESSIONS_URL__);
+const { sendMessage } = await import(__CHAT_URL__);
+let createCalls = 0;
+api.createSession = async () => { createCalls += 1; return { session_id: "unexpected" }; };
+api.listSessions = async () => ({ sessions: [] });
+initSessions();
+await initSessionStartup();
+const draftId = store.currentSessionId;
+if (!draftId?.startsWith("draft-") || createCalls !== 0 || store.sessionDetails[draftId]) {
+  throw new Error("启动空会话不应持久化，且必须使用 draft- ID");
+}
+chatInput.value = "未发送内容";
+await document.getElementById("newSessionBtn").click();
+if (store.currentSessionId !== draftId || chatInput.value !== "" || createCalls !== 0) {
+  throw new Error("重复新建应复用草稿并清空输入，不得请求创建会话");
+}
+
+store.sessionMessages[draftId] = [];
+store.sessionArtifacts[draftId] = [{ artifact_id: "old-artifact", session_id: draftId }];
+store.sessionRunEpochs[draftId] = 3;
+store.sessionDetailGenerations[draftId] = 4;
+store.sessionDetailStale[draftId] = true;
 let handlers;
 let resolveStream;
-api.chatStream = (_message, _sessionId, streamHandlers) => {
-  streamCalls += 1;
+api.chatStream = (_message, sessionId, streamHandlers) => {
+  if (sessionId !== draftId) throw new Error("首条消息必须携带草稿 ID");
   handlers = streamHandlers;
+  handlers.plan({ session_id: "server-1", steps: [] });
+  handlers.session_title({ session_id: "server-1", title: "真实会话" });
   return new Promise((resolve) => { resolveStream = resolve; });
 };
-initChat();
-const pending = sendMessage("清空前问题");
+const pending = sendMessage("首条问题");
 await Promise.resolve();
-handlers.session_title({ session_id: "s1", title: "迟到自动标题" });
-if (store.sessionDetails.s1.title !== "用户手动标题"
-    || store.sessionDetails.s1.title_source !== "manual") {
-  throw new Error("重载的 manual 标题被迟到 session_title 覆盖");
+const requiredCaches = [
+  "sessionMessages", "sessionArtifacts", "sessionRuns", "sessionRunEpochs",
+  "sessionDetailGenerations", "sessionDetailStale",
+];
+for (const name of requiredCaches) {
+  if (Object.hasOwn(store[name], draftId) || !Object.hasOwn(store[name], "server-1")) {
+    throw new Error(`${name} 未从草稿原子迁移到真实会话`);
+  }
 }
-await quickClear.click();
-if (document.getElementById("sendBtn").disabled) {
-  throw new Error("clear 后发送按钮仍被旧 run 锁定");
+if (store.currentSessionId !== "server-1" || store.sessionDetails[draftId]
+    || !store.sessionDetails["server-1"]
+    || store.sessionRuns["server-1"][0].sessionId !== "server-1"
+    || store.sessionArtifacts["server-1"][0].session_id !== "server-1") {
+  throw new Error("草稿接管后当前会话、详情、run 或成果仍指向草稿");
 }
-let newHandlers;
-let resolveNewStream;
-api.chatStream = (_message, _sessionId, streamHandlers) => {
-  streamCalls += 1;
-  newHandlers = streamHandlers;
-  return new Promise((resolve) => { resolveNewStream = resolve; });
-};
-const newPending = sendMessage("清空后新问题");
-await Promise.resolve();
-if (streamCalls !== 2 || !newHandlers || store.sessionRuns.s1.length !== 1) {
-  throw new Error("clear 未释放 sending/发送按钮，无法立即发送新消息");
-}
-handlers.text({ content: "清空后迟到正文" });
-handlers.artifact({ artifact: {
-  artifact_id: "late", session_id: "s1", message_id: 99,
-  payload: { symbol: "000001", name: "清空后迟到成果" },
-}, persisted: true });
 handlers.done({});
 resolveStream();
 await pending;
-const html = descendants(chatScroll).map((node) => node.innerHTML).join("\n");
-if (!store.sessionMessages.s1.some((message) => message.content === "清空后新问题")
-    || store.sessionArtifacts.s1.length !== 0 || store.sessionRuns.s1.length !== 1
-    || html.includes("清空后迟到正文")
-    || chatScroll.textContent.includes("清空后迟到成果")) {
-  throw new Error("clear 后旧 run 的迟到事件仍更新缓存或 UI");
-}
-newHandlers.done({});
-resolveNewStream();
-await newPending;
-
-store.currentSessionId = "s2";
-store.sessionMessages.s2 = [];
-store.sessionArtifacts.s2 = [];
-api.chatStream = async () => { throw new Error("断线"); };
-await sendMessage("需要重试");
-const oldRunId = store.sessionRuns.s2[0].id;
-let retryHandlers;
-let resolveRetry;
-api.chatStream = (_message, _sessionId, streamHandlers) => {
-  retryHandlers = streamHandlers;
-  return new Promise((resolve) => { resolveRetry = resolve; });
-};
-await byClass(chatScroll, "btn-retry")[0].click();
-if (store.sessionRuns.s2.length !== 1 || store.sessionRuns.s2[0].id === oldRunId) {
-  throw new Error("retry 未完成并移除旧 interrupted run，切回会出现幽灵卡");
-}
-retryHandlers.done({});
-resolveRetry();
-""".replace("__CHAT_URL__", chat_url).replace("__API_URL__", api_url)
-        script = script.replace("__STATE_URL__", state_url)
+""".replace("__SESSIONS_URL__", sessions_url).replace("__CHAT_URL__", chat_url)
+        script = script.replace("__API_URL__", api_url).replace("__STATE_URL__", state_url)
         _run_node(tmp_path, script)
+
+    def test_static_assets_do_not_expose_clear_session_operation(self):
+        """已废弃的会话创建、清空操作不得留在静态界面。"""
+        html = Path("src/api/static/index.html").read_text(encoding="utf-8")
+        api_source = Path("src/api/static/js/api.js").read_text(encoding="utf-8")
+
+        assert 'id="quickClear"' not in html
+        assert "createSession(" not in api_source
+        assert "clearSession(" not in api_source
 
     @pytest.mark.asyncio
     async def test_css_served(self, client):
