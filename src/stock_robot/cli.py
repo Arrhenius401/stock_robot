@@ -1,6 +1,7 @@
 """Stock Robot CLI — AI 驱动的股票分析研报助手"""
 import logging
 import os
+import threading
 
 os.environ["TQDM_DISABLE"] = "1"
 
@@ -503,10 +504,19 @@ def _resolve_api_bind(host: str | None, port: int | None, config: Config) -> tup
 
 
 def _run_web_server(app, host: str, port: int) -> None:
-    """运行 Web 服务，供命令层测试替换。"""
+    """运行 Web 服务，并在运行期间显示状态提示。"""
     import uvicorn
 
-    uvicorn.run(app, host=host, port=port)
+    server = uvicorn.Server(uvicorn.Config(app, host=host, port=port))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    try:
+        with console.status("Web 服务正在运行，按 Ctrl+C 退出"):
+            while thread.is_alive():
+                thread.join(timeout=0.2)
+    except KeyboardInterrupt:
+        server.should_exit = True
+        thread.join()
 
 
 @main.command("run")
