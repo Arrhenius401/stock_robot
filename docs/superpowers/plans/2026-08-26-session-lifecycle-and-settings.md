@@ -32,6 +32,78 @@
 | src/api/static/js/api.js、app.js、index.html、app.css | API 封装、页面入口和样式。 |
 | tests/api/test_sessions.py、test_app.py、test_configuration.py、test_static.py | 后端、API、静态模块测试。 |
 
+## 固定接口契约
+
+### 配置 API
+
+GET /api/v1/config 的 200 响应固定为：
+
+~~~json
+{
+  "config": {
+    "llm": {"provider": "openai", "model": "gpt-4o", "enabled": true,
+      "api_key": {"configured": true, "masked": "sk-a****9z"},
+      "base_url": "", "temperature": 0.3, "max_tokens": 2000,
+      "retry_times": 2, "timeout_seconds": 60},
+    "data": {"cache_ttl": {"daily": 86400, "quarterly": 604800, "news": 21600},
+      "disclaimer_accepted": false},
+    "api": {"host": "127.0.0.1", "port": 25618},
+    "push": {"enabled": true, "max_symbols_per_subscription": 20,
+      "email": {"smtp_host": "smtp.qq.com", "smtp_port": 465, "smtp_user": "",
+        "smtp_password": {"configured": false, "masked": ""}, "to_addr": ""},
+      "wecom": {"corp_id": "", "agent_id": "", "secret": {"configured": false, "masked": ""},
+        "to_user": "@all"}},
+    "signal": {"thresholds": {"attack": 7, "watch": 4},
+      "actions": {"attack": {"action": "可考虑建仓/加仓", "position": "60%-80%"},
+        "watch": {"action": "持有观察，等待明确方向", "position": "30%-50%"},
+        "defend": {"action": "减仓或回避", "position": "0%-20%"}}}
+  },
+  "paths": {"state_dir": "D:/project/.stock_robot",
+    "config_file": "D:/project/.stock_robot/config.yaml"}
+}
+~~~
+
+PUT /api/v1/config 的请求体只能是上述 config 的任意嵌套子集；未提交字段保持原值，密钥空字符串表示保持原值。成功时返回完整的安全配置、同一 paths 和 restart_required。GET /api/v1/config/credentials/{key} 仅支持 llm.api_key、push.email.smtp_password、push.wecom.secret，响应为 value 字段；其余 key 必须 404。
+
+后端必须拒绝未知键，且按以下边界返回 422：provider 仅 openai 或 claude；model、host、邮箱主机、用户/收件人、企业微信 ID、action、position 为去空白后的非空字符串；temperature 为 0 至 2；max_tokens 为 1 至 128000；retry_times 为 0 至 10；timeout_seconds 为 1 至 600；全部 cache_ttl、smtp_port、max_symbols_per_subscription 和 api.port 分别为正整数，其中 port 不大于 65535；阈值满足 0 < watch < attack <= 10。
+
+### 草稿会话与 SSE 顺序
+
+1. createDraftSession 创建 draft- 前缀 ID，只初始化本地缓存；它不写 sessionDetails，因此列表刷新永远不会显示它。
+2. sendMessage 发送草稿 ID 后，先把用户气泡显示在 DOM，并把 run 暂挂在草稿 ID 下；服务端 get_or_create 把草稿 ID 视作 None，创建真实 UUID 和首条用户消息。
+3. session_title、plan、artifact 等任何带真实 session_id 的第一条 SSE 事件到达时，前端必须先调用 adoptPersistedSession，再处理该事件。迁移必须同时更新 run.sessionId 和 artifact.session_id。
+4. 迁移后只允许真实 ID 写入 sessionDetails，并调用 markSessionListMutation；此前在途的 refreshSessionList 响应因 revision 已变化而丢弃，不能删除刚迁移的真实缓存。
+5. 用户在 SSE 尚未返回真实 ID 前删除/切换会话时，取消草稿 run；迟到事件若对应已取消 run 或 tombstone，必须不迁移、不写缓存。
+6. 只有持久化会话出现在侧边栏，因此重命名、删除、历史详情请求从不接受 draft- ID；服务端未知或 draft- 详情、重命名、删除均返回 404。
+
+### 设置表单与提交规则
+
+设置页使用以下固定分区和字段顺序，避免通过对象遍历产生不稳定 UI：
+
+| 分区 | 字段路径 | 控件 |
+| --- | --- | --- |
+| LLM 设置 | llm.enabled、provider、model、api_key、base_url、temperature、max_tokens、retry_times、timeout_seconds | 复选框、下拉框、文本、密钥框、数值框 |
+| 数据与缓存 | data.disclaimer_accepted、data.cache_ttl.daily、quarterly、news | 复选框、正整数数值框 |
+| 服务设置 | api.host、api.port | 文本、1-65535 数值框 |
+| 推送设置 | push.enabled、max_symbols_per_subscription、email 全部字段、wecom 全部字段 | 复选框、文本、数值、密钥框 |
+| 信号策略 | signal.thresholds.attack、watch、三种 action/position | 数值、文本 |
+
+所有字段初始值从 GET 返回填充，且在用户修改前不进入待提交集合。保存按钮构造仅含已修改字段的最小嵌套 config；密钥“输入新值”为空或仍等于掩码时都不得包含在请求中。每个密钥显示一个 button，默认 aria-label 为“显示完整密钥”；点击成功后只将完整值放入该字段的局部闭包，button 变为“隐藏完整密钥”；再次点击或离开配置视图时删除该局部值并恢复 masked 文本。任何 API 失败必须保留用户已编辑的表单值，不回填为服务端值。
+
+设置视图进入时才 GET /api/v1/config，首次加载失败显示“无法加载配置，请检查服务连接后重试”和重试按钮。成功保存后重新 GET 安全配置；若 restart_required 为 true，在成功提示中显示“服务地址或端口已保存，重启 stock-robot run 后生效”，否则显示“配置已保存”。
+
+### 测试矩阵
+
+| 行为 | 测试位置 | 关键断言 |
+| --- | --- | --- |
+| 三命令进度样式 | tests/test_cli.py、tests/test_cli_index.py | 三列、transient、没有 task.completed |
+| 旧空记录迁移 | tests/api/test_sessions.py | 重启后空 sessions 与 artifact 同时消失，有消息记录保留 |
+| 首发草稿 ID | tests/api/test_app.py | REST 与 SSE 返回的 ID 不等于 draft ID，数据库无 draft 行，首条 user message 属于真实 ID |
+| 路由收敛 | tests/api/test_app.py | POST sessions 与 POST clear 返回 404，删除仍能删除真实会话 |
+| 缓存迁移/竞态 | tests/api/test_static.py | 所有按 ID 分桶状态移至真实 ID，陈旧列表和已取消 SSE 不复活会话 |
+| 配置安全与校验 | tests/api/test_configuration.py | 完整响应无明文；三种凭据单独读取；未知键及每类非法边界 422 |
+| 设置页面 | tests/api/test_static.py | 五分区、眼睛按需请求/关闭即擦除、最小 PUT、重启/错误提示 |
+
 ## Task 1: 统一 CLI 进度条
 
 **Files:**
