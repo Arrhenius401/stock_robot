@@ -1,4 +1,6 @@
 """受控配置 API 的边界契约测试。"""
+import copy
+import json
 from pathlib import Path
 
 import pytest
@@ -17,7 +19,11 @@ def config_client(tmp_path: Path, monkeypatch):
     config.set("llm.api_key", "abcde12345vwxyz")
     config.set("push.email.smtp_password", "smtp-secret-xyz")
     config.set("push.wecom.secret", "wecom-secret-xyz")
-    return config, TestClient(create_app(push=False))
+    return config, TestClient(
+        create_app(push=False),
+        client=("127.0.0.1", 43210),
+        raise_server_exceptions=False,
+    )
 
 
 @pytest.mark.parametrize(
@@ -92,6 +98,34 @@ def test_get_credential_rejects_unknown_key(config_client):
     assert response.status_code == 404
 
 
+def test_get_credential_allows_loopback_client(config_client):
+    """本机浏览器仍可按需读取完整凭据。"""
+    _, client = config_client
+
+    response = client.get("/api/v1/config/credentials/llm.api_key")
+
+    assert response.status_code == 200
+    assert response.json() == {"value": "abcde12345vwxyz"}
+
+
+def test_get_credential_rejects_remote_client_but_keeps_safe_config_public(tmp_path, monkeypatch):
+    """非回环来源不能读取完整凭据，但可读取已脱敏的普通配置。"""
+    monkeypatch.chdir(tmp_path)
+    config = Config()
+    config.set("llm.api_key", "remote-secret")
+    client = TestClient(create_app(push=False), client=("192.0.2.25", 43210))
+
+    credential = client.get("/api/v1/config/credentials/llm.api_key")
+    public_config = client.get("/api/v1/config")
+
+    assert credential.status_code == 403
+    assert public_config.status_code == 200
+    assert public_config.json()["config"]["llm"]["api_key"] == {
+        "configured": True,
+        "masked": "remot***ecret",
+    }
+
+
 def test_update_deep_merges_only_submitted_values_and_persists_once(config_client, monkeypatch):
     """局部更新不重置同层字段，并在一次写盘后可被新实例读取。"""
     config, client = config_client
@@ -150,6 +184,107 @@ def test_empty_secret_does_not_overwrite_existing_value(config_client, monkeypat
     assert response.status_code == 200
     assert config.get("llm.api_key") == "abcde12345vwxyz"
     assert response.json()["config"]["llm"]["api_key"]["masked"] == "abcde*****vwxyz"
+
+
+def test_update_rejects_malformed_json_without_persisting(config_client):
+    """畸形 JSON 应是可恢复的客户端错误，且不能写入配置。"""
+    config, client = config_client
+    before = copy.deepcopy(config.data)
+
+    response = client.put(
+        "/api/v1/config",
+        content=b'{"config":',
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 422
+    assert Config(config_dir=config.config_dir).data == before
+
+
+@pytest.mark.parametrize(
+    ("body", "path"),
+    [
+        ({"config": {"llm": {"temperature": float("nan")}}}, "llm.temperature"),
+        ({"config": {"llm": {"temperature": float("inf")}}}, "llm.temperature"),
+        ({"config": {"llm": {"temperature": float("-inf")}}}, "llm.temperature"),
+        ({"config": {"signal": {"thresholds": {"watch": float("nan")}}}},
+         "signal.thresholds.watch"),
+        ({"config": {"signal": {"thresholds": {"attack": float("nan")}}}},
+         "signal.thresholds.attack"),
+        ({"config": {"signal": {"thresholds": {"watch": float("inf")}}}},
+         "signal.thresholds.watch"),
+        ({"config": {"signal": {"thresholds": {"attack": float("-inf")}}}},
+         "signal.thresholds.attack"),
+    ],
+)
+def test_update_rejects_non_finite_numbers_without_persisting(config_client, body, path):
+    """温度与信号阈值不接受 NaN/正负无穷，也绝不写入文件。"""
+    config, client = config_client
+    before = config.get(path)
+
+    response = client.put(
+        "/api/v1/config",
+        content=json.dumps(body),
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 422
+    assert Config(config_dir=config.config_dir).get(path) == before
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"config": {"llm": {"temperature": "0"}}},
+        {"config": {"llm": {"max_tokens": True}}},
+        {"config": {"llm": {"retry_times": "0"}}},
+        {"config": {"llm": {"timeout_seconds": False}}},
+        {"config": {"data": {"cache_ttl": {"daily": "1"}}}},
+        {"config": {"api": {"port": True}}},
+        {"config": {"push": {"max_symbols_per_subscription": "1"}}},
+        {"config": {"push": {"email": {"smtp_port": False}}}},
+        {"config": {"signal": {"thresholds": {"watch": "1"}}}},
+    ],
+)
+def test_update_rejects_numeric_type_boundaries_without_persisting(config_client, body):
+    """数值字段拒绝字符串和布尔值，不持久化任何无效更新。"""
+    config, client = config_client
+    before = copy.deepcopy(config.data)
+
+    response = client.put("/api/v1/config", json=body)
+
+    assert response.status_code == 422
+    assert Config(config_dir=config.config_dir).data == before
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"config": {"llm": {"temperature": 0}}},
+        {"config": {"llm": {"temperature": 2}}},
+        {"config": {"llm": {"max_tokens": 1}}},
+        {"config": {"llm": {"max_tokens": 128000}}},
+        {"config": {"llm": {"retry_times": 0}}},
+        {"config": {"llm": {"retry_times": 10}}},
+        {"config": {"llm": {"timeout_seconds": 1}}},
+        {"config": {"llm": {"timeout_seconds": 600}}},
+        {"config": {"data": {"cache_ttl": {"daily": 1}}}},
+        {"config": {"data": {"cache_ttl": {"quarterly": 1}}}},
+        {"config": {"data": {"cache_ttl": {"news": 1}}}},
+        {"config": {"api": {"port": 1}}},
+        {"config": {"api": {"port": 65535}}},
+        {"config": {"push": {"max_symbols_per_subscription": 1}}},
+        {"config": {"push": {"email": {"smtp_port": 1}}}},
+        {"config": {"signal": {"thresholds": {"watch": 1, "attack": 10}}}},
+    ],
+)
+def test_update_accepts_closed_interval_endpoints(config_client, body):
+    """允许的闭区间端点能够保存为有效配置。"""
+    _, client = config_client
+
+    response = client.put("/api/v1/config", json=body)
+
+    assert response.status_code == 200
 
 
 @pytest.mark.parametrize("field", ["host", "port"])

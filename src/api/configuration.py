@@ -1,6 +1,8 @@
 """受控配置读取与更新接口。"""
 import copy
+import math
 from collections.abc import Callable
+from json import JSONDecodeError
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -154,6 +156,8 @@ def _require_number(
 ) -> float | int:
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         _validation_error(path, "必须是数字")
+    if not math.isfinite(float(value)):
+        _validation_error(path, "必须是有限数字")
     if value < minimum or value > maximum:
         _validation_error(path, "数值超出允许范围")
     return value
@@ -247,6 +251,11 @@ def _restart_required(update: dict[str, Any]) -> bool:
     return bool(update.get("api", {}).keys() & {"host", "port"})
 
 
+def _is_loopback_client(request: Request) -> bool:
+    """完整凭据只交给本机回环请求，防止远程页面读取。"""
+    return request.client is not None and request.client.host in {"127.0.0.1", "::1"}
+
+
 def create_configuration_router(config_factory: Callable[[], Config] | None = None) -> APIRouter:
     """创建使用同一份项目配置文件的受控配置路由。"""
     router = APIRouter()
@@ -266,15 +275,20 @@ def create_configuration_router(config_factory: Callable[[], Config] | None = No
         })
 
     @router.get("/api/v1/config/credentials/{key}")
-    async def get_credential(key: str):
+    async def get_credential(key: str, request: Request):
         path = _CREDENTIAL_PATHS.get(key)
         if path is None:
             raise HTTPException(status_code=404, detail="凭据不存在")
+        if not _is_loopback_client(request):
+            raise HTTPException(status_code=403, detail="仅允许本机读取完整凭据")
         return JSONResponse({"value": _get_value(get_config().data, path)})
 
     @router.put("/api/v1/config")
     async def update_config(request: Request):
-        body = await request.json()
+        try:
+            body = await request.json()
+        except JSONDecodeError as exc:
+            raise HTTPException(status_code=422, detail="body: JSON 格式无效") from exc
         if not isinstance(body, dict) or set(body) != {"config"}:
             _validation_error(("body",), "只能包含 config")
         config = get_config()
