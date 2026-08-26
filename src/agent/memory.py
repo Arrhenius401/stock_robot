@@ -6,6 +6,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal, NotRequired, TypedDict
 
+from utils.paths import project_state_dir
+
 
 class MemoryMessage(TypedDict):
     """内存中的消息；持久化消息额外保留数据库 ID。"""
@@ -86,7 +88,7 @@ class Memory:
         self.session_id = session_id
         self._message_store = message_store
         if facts_path is None:
-            facts_path = Path.home() / ".stock_robot" / "agent_facts.json"
+            facts_path = project_state_dir() / "agent_facts.json"
         self._facts_path = Path(facts_path)
         self._load_facts()
 

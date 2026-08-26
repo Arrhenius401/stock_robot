@@ -64,7 +64,7 @@ class LocalReportSync:
         known_hashes = ingested_hashes or self._load_ingested_hashes()
         new_files = []
 
-        for file_path in sorted(reports_path.glob("*.md")):
+        for file_path in sorted(reports_path.rglob("*.md")):
             content = file_path.read_text(encoding="utf-8")
             file_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
             if file_hash in known_hashes:

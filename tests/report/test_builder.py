@@ -74,6 +74,17 @@ class TestReportBuilder:
             if "指标" in line and "数值" in line:
                 assert lines[i + 1].startswith("|-"), f"期望分隔线，得到: {lines[i + 1]}"
                 assert lines[i + 2].startswith("| "), f"期望数据行，得到: {lines[i + 2]}"
-                assert "pe_ttm" in lines[i + 2]
+                assert "PE(TTM)" in lines[i + 2]
                 return
         pytest.fail("未找到表格结构")
+
+    def test_metric_table_uses_chinese_display_name(self):
+        results = [
+            AnalysisResult(dimension="financial", status="ok", summary="",
+                           metrics={"latest_quarter": "2026-06-30"}),
+        ]
+
+        report = ReportBuilder().build("000001", "平安银行", results, commentary={})
+
+        assert "最新财报季度" in report
+        assert "| latest_quarter" not in report

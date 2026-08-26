@@ -9,6 +9,55 @@ from rich.table import Table
 
 _SEP_RE = re.compile(r'^\|[-\s:|]+\|$')
 
+METRIC_DISPLAY_NAMES = {
+    "latest_quarter": "最新财报季度",
+    "revenue": "营业收入",
+    "net_profit": "净利润",
+    "total_assets": "总资产",
+    "total_equity": "股东权益",
+    "operating_cash_flow": "经营活动现金流",
+    "revenue_growth_yoy": "营收同比增长",
+    "profit_growth_yoy": "净利润同比增长",
+    "roe": "ROE",
+    "gross_margin": "毛利率",
+    "latest_close": "最新收盘价",
+    "ma_5": "5 日均线",
+    "ma_20": "20 日均线",
+    "ma_60": "60 日均线",
+    "year_high": "近一年最高价",
+    "year_low": "近一年最低价",
+    "pe_ttm": "PE(TTM)",
+    "pb": "PB",
+    "ps_ttm": "PS(TTM)",
+    "pe_percentile": "PE 分位",
+    "pb_percentile": "PB 分位",
+    "dividend_yield": "股息率",
+    "valuation_valid": "估值样本有效",
+    "percentile_lookback_years": "分位回看年限",
+    "sample_start": "样本起始日期",
+    "sample_end": "样本结束日期",
+    "industry": "所属行业",
+    "sector": "所属板块",
+    "headline_count": "新闻数量",
+    "date": "数据日期",
+    "north_bound": "北向资金净流入",
+    "main_net_inflow": "主力资金净流入",
+    "margin_balance": "融资余额",
+    "pmi": "PMI",
+    "shibor_3m": "3 月期 Shibor",
+    "cpi_yoy": "CPI 同比",
+    "usd_cny": "美元兑人民币",
+    "shibor_percentile": "Shibor 分位",
+    "pmi_percentile": "PMI 分位",
+    "tag": "信号标签",
+}
+
+
+def metric_display_name(key: object) -> str:
+    """返回指标的中文显示名，未知指标保留原键名。"""
+    text = str(key)
+    return METRIC_DISPLAY_NAMES.get(text, text)
+
 
 def _is_separator(line: str) -> bool:
     """检测 Markdown 表格分隔行"""
@@ -43,9 +92,11 @@ class ReportFormatter:
         if output_dir is None:
             output_dir = Path.cwd() / "reports"
         output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        filename = f"{symbol}_{datetime.now().astimezone().strftime('%Y%m%d_%H%M%S')}.md"
-        filepath = output_dir / filename
+        generated_at = datetime.now().astimezone()
+        report_dir = output_dir / symbol / generated_at.strftime("%Y-%m")
+        report_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"{symbol}_{generated_at.strftime('%Y%m%d_%H%M%S')}.md"
+        filepath = report_dir / filename
         filepath.write_text(report, encoding="utf-8")
         return filepath
 

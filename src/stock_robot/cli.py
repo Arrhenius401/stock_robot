@@ -1,6 +1,7 @@
 """Stock Robot CLI — AI 驱动的股票分析研报助手"""
 import logging
 import os
+import threading
 
 os.environ["TQDM_DISABLE"] = "1"
 
@@ -502,21 +503,50 @@ def _resolve_api_bind(host: str | None, port: int | None, config: Config) -> tup
     return resolved_host, resolved_port
 
 
-@main.command()
+def _run_web_server(app, host: str, port: int) -> None:
+    """运行 Web 服务，并在运行期间显示状态提示。"""
+    import uvicorn
+
+    server = uvicorn.Server(uvicorn.Config(app, host=host, port=port))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    try:
+        with console.status("Web 服务正在运行，按 Ctrl+C 退出"):
+            while thread.is_alive():
+                thread.join(timeout=0.2)
+    except KeyboardInterrupt:
+        server.should_exit = True
+        thread.join()
+
+
+@main.command("run")
 @click.option("--host", default=None, help="监听地址（默认读配置 api.host，缺省 127.0.0.1）")
 @click.option("--port", default=None, type=int, help="监听端口（默认读配置 api.port，缺省 25618）")
-def api(host, port):
+def run(host, port):
     """启动 Web API 服务（含 Web UI）"""
+    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
+
     from api.app import create_app
     from api.bootstrap import build_agent_core
 
     config = Config()
     bind_host, bind_port = _resolve_api_bind(host, port, config)
-    core = build_agent_core(config)
-    app = create_app(core=core)
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        console=console,
+        transient=False,
+    ) as progress:
+        task_id = progress.add_task("正在构建 Agent 核心", total=3)
+        core = build_agent_core(config)
+        progress.update(task_id, completed=1, description="正在创建 Web 应用")
+        app = create_app(core=core)
+        progress.update(task_id, completed=3, description="正在启动 HTTP 服务")
+
     logger.info("Stock Robot API 启动于 http://%s:%d", bind_host, bind_port)
-    import uvicorn
-    uvicorn.run(app, host=bind_host, port=bind_port)
+    console.print(f"[green]Web 服务正在运行: http://{bind_host}:{bind_port}[/green]")
+    _run_web_server(app, bind_host, bind_port)
 
 
 @main.command()

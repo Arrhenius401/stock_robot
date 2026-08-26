@@ -1,6 +1,5 @@
 """Memory 数据结构与持久化测试"""
 import json
-from pathlib import Path
 
 from agent.memory import Memory, Plan, TaskStatus, TaskStep
 
@@ -235,7 +234,7 @@ class TestMemory:
         assert m.plan_history == []
         assert m.facts == {"key": "value"}  # facts 保留
 
-    def test_default_facts_path_is_in_config_dir(self, monkeypatch):
-        monkeypatch.setattr(Path, "home", lambda: Path("/tmp"))
+    def test_default_facts_path_is_in_project_state_dir(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
         m = Memory()
-        assert str(m._facts_path).startswith(str(Path("/tmp") / ".stock_robot"))
+        assert m._facts_path == tmp_path / ".stock_robot" / "agent_facts.json"

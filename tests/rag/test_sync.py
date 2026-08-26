@@ -42,6 +42,17 @@ class TestLocalReportSync:
         results = sync.scan_new_files()
         assert len(results) > 0
 
+    def test_scan_new_files_detects_nested_reports(self, sync):
+        report_path = Path(sync.reports_dir) / "000001" / "2026-08" / "000001_20260826_093000.md"
+        report_path.parent.mkdir(parents=True)
+        report_path.write_text("# 报告", encoding="utf-8")
+
+        results = sync.scan_new_files()
+
+        assert len(results) == 1
+        assert results[0]["date"] == "2026-08-26"
+        assert results[0]["symbols"] == ["000001"]
+
     def test_scan_new_files_skips_already_ingested(self, sync):
         report_path = Path(sync.reports_dir) / "000001_20260807_existing.md"
         content = "# 报告\n\n已摄入内容"

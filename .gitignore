@@ -1,6 +1,7 @@
 .superpowers/
 .worktrees/
 .codegraph/
+/.stock_robot/
 .claude/
 __pycache__/
 *.pyc
