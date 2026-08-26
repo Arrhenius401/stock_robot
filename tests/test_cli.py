@@ -3,6 +3,16 @@ from click.testing import CliRunner
 from stock_robot.cli import main
 
 
+def test_create_cli_progress_uses_shared_transient_columns():
+    from stock_robot.cli import _create_cli_progress
+
+    progress = _create_cli_progress()
+
+    assert progress.live.transient is True
+    assert len(progress.columns) == 3
+    assert all("task.completed" not in str(column) for column in progress.columns)
+
+
 class TestCLI:
     def test_analyze_without_symbol_shows_error(self):
         runner = CliRunner()
@@ -22,11 +32,15 @@ class TestCLI:
         mock_instance = mock_pipeline.return_value
         from data.schemas import AnalysisContext, AnalysisResult
         ctx = AnalysisContext(symbol="000001", name="平安银行")
-        mock_instance.run.return_value = (
-            [AnalysisResult(dimension="financial", status="ok", summary="OK", metrics={"roe": 0.12})],
-            {"bulk": "综合解读"},
-            ctx,
-        )
+        def run_with_progress(*args, **kwargs):
+            kwargs["on_progress"]("data", 1, 3, "读取")
+            return (
+                [AnalysisResult(dimension="financial", status="ok", summary="OK", metrics={"roe": 0.12})],
+                {"bulk": "综合解读"},
+                ctx,
+            )
+
+        mock_instance.run.side_effect = run_with_progress
 
         runner = CliRunner()
         result = runner.invoke(main, ["analyze", "000001", "--no-llm"])

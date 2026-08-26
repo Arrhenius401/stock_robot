@@ -18,6 +18,19 @@ logger = logging.getLogger(__name__)
 from utils.config import Config
 
 
+def _create_cli_progress():
+    """创建三条 CLI 命令共用的进度条。"""
+    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
+
+    return Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        console=console,
+        transient=True,
+    )
+
+
 def _get_registry():
     """构建默认注册表"""
     from analysis.financial import FinancialAnalyzer
@@ -133,17 +146,8 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
     llm_enabled = not no_llm and config.get("llm.enabled", True)
     pipeline = _build_pipeline(llm_enabled=llm_enabled)
 
-    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
-
     try:
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("{task.completed}/{task.total}"),
-            console=console,
-            transient=True,
-        ) as progress:
+        with _create_cli_progress() as progress:
             task_id = progress.add_task("正在查询股票名称...", total=None)
 
             name = resolve_name(symbol) or symbol
@@ -330,17 +334,8 @@ def index(symbols, style, output, compare_only):
             name=name, market=market, index_style=index_style,
         ))
 
-    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
-
     pipeline = IndexPipeline()
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("{task.completed}/{task.total}"),
-        console=console,
-        transient=True,
-    ) as progress:
+    with _create_cli_progress() as progress:
         task_id = progress.add_task("正在分析指数...", total=None)
 
         def on_progress(stage, current, total, label):
@@ -514,20 +509,12 @@ def _run_web_server(app, host: str, port: int) -> None:
 @click.option("--port", default=None, type=int, help="监听端口（默认读配置 api.port，缺省 25618）")
 def run(host, port):
     """启动 Web API 服务（含 Web UI）"""
-    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
-
     from api.app import create_app
     from api.bootstrap import build_agent_core
 
     config = Config()
     bind_host, bind_port = _resolve_api_bind(host, port, config)
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        console=console,
-        transient=True,
-    ) as progress:
+    with _create_cli_progress() as progress:
         task_id = progress.add_task("正在构建 Agent 核心", total=3)
         core = build_agent_core(config)
         progress.update(task_id, completed=1, description="正在创建 Web 应用")
