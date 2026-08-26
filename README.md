@@ -167,7 +167,7 @@ stock-robot rag ingest /path/to/report.pdf -s research_reports \
 stock-robot rag ingest /data/reports/ -s research_reports --symbol 000001
 
 # 摄入历史分析报告
-stock-robot rag ingest reports/000001_20260807_161939.md \
+stock-robot rag ingest reports/000001/2026-08/000001_20260807_161939.md \
     -s history_reports -t "平安银行分析" --symbol 000001 --tag 历史报告
 ```
 
@@ -237,13 +237,13 @@ print(f"已处理: {result['processed']}, 跳过: {result['skipped']}, 失败: {
 一键启动（自动注入 Agent 核心）：
 
 ```bash
-stock-robot api
+stock-robot run
 ```
 
-默认监听 `127.0.0.1:25618`（端口可在配置文件 `~/.stock_robot/config.yaml` 的 `api.port` 中自定义，CLI 参数 `--host`/`--port` 优先于配置）：
+默认监听 `127.0.0.1:25618`（端口可在配置文件 `./.stock_robot/config.yaml` 的 `api.port` 中自定义，CLI 参数 `--host`/`--port` 优先于配置）：
 
 ```bash
-stock-robot api --host 127.0.0.1 --port 8000
+stock-robot run --host 127.0.0.1 --port 8000
 ```
 
 浏览器打开 http://127.0.0.1:25618 使用 Web 聊天界面。页面功能：
@@ -320,7 +320,7 @@ for tool in tools:
 ```bash
 stock-robot config get llm.provider              # 查看
 stock-robot config set llm.temperature 0.1       # 设置
-cat ~/.stock_robot/config.yaml                   # 完整配置
+cat ./.stock_robot/config.yaml                   # 完整配置
 ```
 
 | 键 | 说明 | 默认值 |
@@ -345,7 +345,7 @@ stock-robot cache status     # 查看缓存状态
 stock-robot cache clear      # 清空所有缓存
 ```
 
-缓存存储在 `~/.stock_robot/cache.db`（SQLite），TTL 到期自动失效。
+缓存存储在 `./.stock_robot/cache.db`（SQLite），TTL 到期自动失效。
 
 ---
 
@@ -380,16 +380,19 @@ stock-robot cache clear      # 清空所有缓存
 
 ```
 reports/
-├── 000001_20260705_143021.md
-├── 600036_20260705_150532.md
-└── ...
+├── 000001/
+│   └── 2026-07/
+│       └── 000001_20260705_143021.md
+└── 600036/
+    └── 2026-07/
+        └── 600036_20260705_150532.md
 ```
 
-文件名格式：`{股票代码}_{日期}_{时间}.md`
+目录格式：`{股票或指数代码}/{年份-月份}/{代码}_{日期}_{时间}.md`
 
 ## LLM 成本
 
-每次 LLM 调用记录到 `~/.stock_robot/usage.log`，包含模型、token 消耗和费用估算。
+每次 LLM 调用记录到 `./.stock_robot/usage.log`，包含模型、token 消耗和费用估算。
 
 ## 常见问题
 

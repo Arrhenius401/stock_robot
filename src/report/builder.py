@@ -5,6 +5,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 
 from data.schemas import AnalysisResult
+from report.formatter import metric_display_name
 
 
 def _display_width(s: str) -> int:
@@ -37,7 +38,7 @@ def _md_table(data, headers=None):
             return ""
         headers = ["指标", "数值"]
         for k, v in filtered.items():
-            rows.append([str(k), str(v) if v is not None else "N/A"])
+            rows.append([metric_display_name(k), str(v) if v is not None else "N/A"])
 
     elif isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
         if headers is None:

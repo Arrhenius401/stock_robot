@@ -1,7 +1,6 @@
 """LangGraph 执行图 — 决策→执行→反馈条件循环，带 checkpointer 持久化"""
 import logging
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any, TypedDict
 
 from langgraph.graph import END
@@ -9,10 +8,11 @@ from langgraph.graph import END
 from agent.memory import Memory, Plan, TaskStatus, TaskStep
 from agent.tool_selector import ToolSelector
 from agent.tools import ToolRegistry
+from utils.paths import project_state_dir
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CHECKPOINT_DIR = Path.home() / ".stock_robot" / "langgraph_checkpoints.sqlite"
+DEFAULT_CHECKPOINT_DIR = project_state_dir() / "langgraph_checkpoints.sqlite"
 
 
 class GraphState(TypedDict):

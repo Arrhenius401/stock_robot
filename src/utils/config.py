@@ -4,6 +4,8 @@ from typing import Any
 
 import yaml
 
+from utils.paths import project_state_dir
+
 DEFAULT_CONFIG = {
     "llm": {
         "provider": "openai",
@@ -62,7 +64,7 @@ DEFAULT_CONFIG = {
 class Config:
     def __init__(self, config_dir: Path | None = None):
         if config_dir is None:
-            config_dir = Path.home() / ".stock_robot"
+            config_dir = project_state_dir()
         self._config_dir = Path(config_dir)
         self._config_dir.mkdir(parents=True, exist_ok=True)
         self._config_path = self._config_dir / "config.yaml"

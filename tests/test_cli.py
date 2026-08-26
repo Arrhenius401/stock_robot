@@ -64,16 +64,28 @@ class TestCLI:
         assert result.exit_code == 0
 
 
-def test_api_command_help():
-    """api 命令存在且可显示帮助"""
-    from click.testing import CliRunner
-
-    from stock_robot.cli import main
-
+def test_run_command_help_is_available_and_api_is_unknown():
+    """run 是唯一的 Web 服务启动命令。"""
     runner = CliRunner()
-    result = runner.invoke(main, ["api", "--help"])
+    result = runner.invoke(main, ["run", "--help"])
     assert result.exit_code == 0
     assert "启动 Web API 服务" in result.output
+    assert runner.invoke(main, ["api", "--help"]).exit_code != 0
+
+
+def test_run_builds_server_and_reports_ready_url(mocker):
+    """run 显示启动进度并将解析后的地址交给服务运行器。"""
+    mock_core = mocker.patch("api.bootstrap.build_agent_core", return_value=object())
+    mock_app = mocker.patch("api.app.create_app", return_value=object())
+    mock_server = mocker.patch("stock_robot.cli._run_web_server")
+
+    result = CliRunner().invoke(main, ["run", "--port", "8000"])
+
+    assert result.exit_code == 0
+    assert "正在启动 HTTP 服务" in result.output
+    assert "http://127.0.0.1:8000" in result.output
+    mock_core.assert_called_once()
+    mock_server.assert_called_once_with(mock_app.return_value, "127.0.0.1", 8000)
 
 
 def test_api_bind_resolution_uses_config_defaults(tmp_path):
