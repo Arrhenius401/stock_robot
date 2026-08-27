@@ -1184,12 +1184,17 @@ class TestIndexEndpoint:
 
 class TestSessionsEndpoints:
     @pytest.mark.asyncio
-    async def test_empty_session_creation_and_clear_routes_are_unavailable(self, client):
+    async def test_empty_session_creation_and_clear_operations_are_not_registered(self, client):
         create_resp = await client.post("/api/v1/sessions")
-        assert create_resp.status_code == 404
+        assert create_resp.status_code == 405
 
         clear_resp = await client.post("/api/v1/sessions/draft-browser-1/clear")
-        assert clear_resp.status_code == 404
+        assert clear_resp.status_code == 405
+
+        schema = await client.get("/openapi.json")
+        paths = schema.json()["paths"]
+        assert "post" not in paths["/api/v1/sessions"]
+        assert "/api/v1/sessions/{session_id}/clear" not in paths
 
     @pytest.mark.asyncio
     async def test_real_message_session_can_be_read_renamed_and_deleted(self, client):

@@ -753,10 +753,6 @@ def create_app(core=None, sessions=None, push=None):
             raise HTTPException(status_code=404, detail=f"成果不存在: {artifact_id}")
         return JSONResponse({"artifact": artifact})
 
-    @app.post("/api/v1/sessions")
-    async def reject_empty_session_creation():
-        raise HTTPException(status_code=404, detail="会话创建接口不存在")
-
     @app.patch("/api/v1/sessions/{session_id}")
     async def rename_session(session_id: str, request: Request):
         if is_draft_session_id(session_id):
@@ -787,10 +783,6 @@ def create_app(core=None, sessions=None, push=None):
         if not sessions.delete(session_id):
             raise HTTPException(status_code=404, detail=f"会话不存在: {session_id}")
         return JSONResponse({"status": "ok"})
-
-    @app.post("/api/v1/sessions/{session_id}/clear")
-    async def reject_session_clearing(session_id: str):
-        raise HTTPException(status_code=404, detail="会话清空接口不存在")
 
     # ---- 订阅推送管理 ----
 
