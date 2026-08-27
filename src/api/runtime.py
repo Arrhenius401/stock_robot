@@ -1,0 +1,98 @@
+"""API 运行时快照的原子替换管理。"""
+import logging
+from collections.abc import Callable
+from dataclasses import dataclass
+from threading import Lock
+
+from api.bootstrap import AgentCore, build_agent_core
+from push.executor import PushExecutor
+from push.scheduler import PushScheduler
+from push.store import PushStore
+from utils.config import Config
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class RuntimeSnapshot:
+    """一次请求或推送任务可独占持有的运行时依赖。"""
+
+    config: Config
+    core: AgentCore | None
+    push_store: PushStore | None
+    push_executor: PushExecutor | None
+    push_scheduler: PushScheduler | None
+
+
+@dataclass(frozen=True)
+class ReloadResult:
+    """运行时替换结果。"""
+
+    applied: bool
+    error: str | None = None
+
+
+class RuntimeManager:
+    """在不中断已开始任务的前提下替换 API 运行时。"""
+
+    def __init__(
+        self,
+        config: Config,
+        *,
+        core_factory: Callable[[Config], AgentCore | None] = build_agent_core,
+        executor_factory: Callable[[AgentCore | None, PushStore, Config], PushExecutor] = PushExecutor,
+        scheduler_factory: Callable[[PushExecutor, PushStore, Config], PushScheduler] = PushScheduler,
+    ) -> None:
+        self._lock = Lock()
+        self._core_factory = core_factory
+        self._executor_factory = executor_factory
+        self._scheduler_factory = scheduler_factory
+        self._snapshot = self._build_snapshot(config)
+        self._start_scheduler(self._snapshot)
+
+    def snapshot(self) -> RuntimeSnapshot:
+        """读取当前快照；调用方在锁外继续使用返回对象。"""
+        with self._lock:
+            return self._snapshot
+
+    def reload(self, config: Config) -> ReloadResult:
+        """构建并原子替换运行时；失败时保留当前可用快照。"""
+        try:
+            candidate = self._build_snapshot(config)
+        except Exception:  # noqa: BLE001 — 运行时依赖构建边界需保留旧快照
+            logger.error("运行时快照重建失败，保留当前运行时快照")
+            return ReloadResult(applied=False, error="运行时快照重建失败")
+
+        with self._lock:
+            previous = self._snapshot
+            self._snapshot = candidate
+
+        self._start_scheduler(candidate)
+        self._shutdown_scheduler(previous)
+        return ReloadResult(applied=True)
+
+    def _build_snapshot(self, config: Config) -> RuntimeSnapshot:
+        """在锁外构建候选快照，避免阻塞正在读取快照的请求。"""
+        core = self._core_factory(config)
+        push_store = PushStore(config.config_dir / "push.db")
+        push_executor = self._executor_factory(core, push_store, config)
+        push_scheduler = self._scheduler_factory(push_executor, push_store, config)
+        return RuntimeSnapshot(
+            config=config,
+            core=core,
+            push_store=push_store,
+            push_executor=push_executor,
+            push_scheduler=push_scheduler,
+        )
+
+    @staticmethod
+    def _start_scheduler(snapshot: RuntimeSnapshot) -> None:
+        """仅在推送启用时启动已替换进快照的调度器。"""
+        if snapshot.push_scheduler is not None and snapshot.config.get("push.enabled", True):
+            snapshot.push_scheduler.start()
+
+    @staticmethod
+    def _shutdown_scheduler(snapshot: RuntimeSnapshot) -> None:
+        """在替换后停止旧调度器；其实现以 wait=False 关闭后台调度。"""
+        if snapshot.push_scheduler is not None:
+            snapshot.push_scheduler.shutdown()

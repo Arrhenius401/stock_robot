@@ -30,8 +30,8 @@ class AgentCore:
     model: object | None = None   # LangChain 聊天模型（agent 层 tool calling / 闲聊）
 
 
-def build_llm(config) -> LLMBackend | None:
-    """按配置构建 LLM 后端；未配置 api_key 或初始化失败返回 None"""
+def build_llm(config, strict: bool = False) -> LLMBackend | None:
+    """按配置构建 LLM 后端；默认在初始化失败时降级为 None。"""
     provider = config.get("llm.provider", "openai")
     api_key = config.get("llm.api_key", "")
     base_url = config.get("llm.base_url", "") or None
@@ -65,12 +65,18 @@ def build_llm(config) -> LLMBackend | None:
             )
         else:
             logger.warning("未知 LLM provider: %s，LLM 不可用", provider)
-    except Exception as e:  # noqa: BLE001 — LLM SDK 初始化失败降级为无 LLM
-        logger.warning(f"LLM 后端初始化失败: {e}")
+    except Exception:  # noqa: BLE001 — LLM SDK 初始化边界无法穷举异常类型
+        logger.warning("LLM 后端初始化失败，LLM 不可用")
+        if strict:
+            raise RuntimeError("LLM 后端初始化失败") from None
     return None
 
 
-def build_agent_core(config=None, llm_enabled: bool | None = None) -> AgentCore:
+def build_agent_core(
+    config=None,
+    llm_enabled: bool | None = None,
+    strict_llm: bool = False,
+) -> AgentCore:
     """组装 Agent 完整依赖：Pipeline、工具注册表、LLM
 
     Pipeline/IndexPipeline 各构建一次并注入工具，消除每次工具调用重建的开销。
@@ -87,7 +93,7 @@ def build_agent_core(config=None, llm_enabled: bool | None = None) -> AgentCore:
     from utils.config import Config
 
     config = config or Config()
-    llm = build_llm(config)
+    llm = build_llm(config, strict=strict_llm)
 
     reg = Registry()
     reg.register_data_source(AkShareAdapter())
