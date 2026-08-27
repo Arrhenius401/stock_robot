@@ -257,7 +257,7 @@ stock-robot run --host 127.0.0.1 --port 8000
 主要 API 端点：
 
 - `POST /api/v1/chat` — Agent 对话（body: `{"message": "...", "session_id": "可选"}`）
-- `POST /api/v1/chat/stream` — SSE 流式对话（start/plan/progress/result/error/text/done 事件）
+- `POST /api/v1/chat/stream` — SSE 流式对话（可能包含 `plan`、`progress`、`thinking`、`text_delta`、`tool_call`、`tool_result`、`text`、`result`、`artifact`、`session_title`、`error`、`done` 事件；`thinking` 为可折叠思考过程，`text_delta` 为即时正文片段，`text` 为最终完整正文）
 - `POST /api/v1/analyze` — 个股分析（body: `{"symbol": "600519"}`），返回完整报告 JSON（含 `signal` 操作信号字段：`level` 为 `attack`/`watch`/`defend`，`label`/`action`/`position` 为中文展示与动作建议；阈值与动作文案可在配置 `signal` 节自定义）
 - `POST /api/v1/index` — 指数分析（body: `{"symbols": ["000300", "000905"], "index_style": "可选"}`；单指数兼容 `{"symbol": "000300"}`；多指数响应含 `compare` 对比表）
 - `GET /api/v1/sessions`、`DELETE /api/v1/sessions/{id}`、`GET /api/v1/sessions/{id}/messages` — 会话管理（会话在发送首条消息时创建）
@@ -332,7 +332,7 @@ cat ./.stock_robot/config.yaml                   # 查看完整配置
 | `llm.provider` | LLM 提供商 | `openai` |
 | `llm.model` | 模型名称 | `gpt-4o` |
 | `llm.api_key` | API 密钥 | 空 |
-| `llm.temperature` | 生成温度 (0-1) | `0.3` |
+| `llm.temperature` | 生成温度 (0-2) | `0.3` |
 | `llm.max_tokens` | 最大输出 token | `2000` |
 | `llm.enabled` | 是否启用 LLM | `true` |
 | `llm.retry_times` | LLM 调用重试次数 | `2` |
