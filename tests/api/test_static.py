@@ -237,7 +237,8 @@ class TestStaticUI:
         for path in ("/js/app.js", "/js/api.js", "/js/state.js", "/js/markdown.js",
                      "/js/chat.js", "/js/sessions.js", "/js/components.js",
                      "/js/report.js", "/js/indexview.js", "/js/report-renderer.js",
-                     "/js/report-drawer.js", "/js/workspace-modal.js"):
+                     "/js/report-drawer.js", "/js/workspace-modal.js",
+                     "/js/settings.js"):
             resp = await client.get(path)
             assert resp.status_code == 200, path
 
