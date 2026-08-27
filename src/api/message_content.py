@@ -1,8 +1,8 @@
 """模型消息内容规范化：安全提取正文与推理。"""
 
 import ast
-from html import unescape
 import json
+from html import unescape
 from typing import Any
 
 

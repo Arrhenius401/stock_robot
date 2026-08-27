@@ -25,14 +25,14 @@ MAX_ROUNDS = 3    # 最大轮数（含首轮）
 
 def _wait_until_available(max_minutes: int = 30) -> None:
     """等待站点限流解除：每 30s 试探 overview 一次，解除后返回"""
-    from data.industry_mapping_builder import _get_with_retry, OVERVIEW_URL
+    from data.industry_mapping_builder import OVERVIEW_URL, _get_with_retry
 
     for i in range(max_minutes * 2):
         try:
             _get_with_retry(OVERVIEW_URL, retries=1)
             print("站点可用，开始重建", flush=True)
             return
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — 第三方网络边界异常类型不可预测
             print(f"等待解除 {i * 30}s: {e}", flush=True)
             time.sleep(30)
     raise SystemExit("等待站点恢复超时")
@@ -53,7 +53,7 @@ def main():
         for i, (code, (name, container_level2)) in enumerate(pending, 1):
             try:
                 stocks = fetch_constituents(code)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — 第三方网络边界异常类型不可预测
                 print(f"  失败 {name}({code}): {e}", flush=True)
                 failed.append((code, (name, container_level2)))
                 time.sleep(RETRY_REST)

@@ -158,7 +158,8 @@ class TestSessionManager:
             try:
                 sid, memory = manager.get_or_create_for_message(
                     "draft-browser-1", "分析 000001")
-                message_id = memory.messages[-1]["message_id"]
+                message_id = memory.messages[-1].get("message_id")
+                assert isinstance(message_id, int)
                 result["sid"] = sid
                 result["artifact"] = manager.save_artifact(
                     sid,
@@ -300,7 +301,8 @@ class TestSessionManager:
         )
 
         assert mgr.get_session_detail("missing") is None
-        message_id = memory.messages[0]["message_id"]
+        message_id = memory.messages[0].get("message_id")
+        assert isinstance(message_id, int)
         assert mgr.get_session_detail(sid) == {
             "messages": [{
                 "message_id": message_id,

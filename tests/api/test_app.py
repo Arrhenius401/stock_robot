@@ -588,6 +588,7 @@ class TestStockReportExtraction:
 
         assert len(results) == 1
         assert results[0]["artifact"]["message_id"] == 101
+        assert manager.kwargs is not None
         assert manager.kwargs["message_id"] == 101
 
     def test_persists_all_successful_reports_with_distinct_message_ids(self):
