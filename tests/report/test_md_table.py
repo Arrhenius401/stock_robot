@@ -9,9 +9,9 @@ class TestMdTableDict:
         assert len(lines) == 4  # header + sep + 2 data rows
         assert "指标" in lines[0]
         assert "数值" in lines[0]
-        assert "revenue" in result
+        assert "营业收入" in result
         assert "100" in result
-        assert "roe" in result
+        assert "ROE" in result
         assert "0.12" in result
 
     def test_with_none_value(self):
@@ -23,7 +23,7 @@ class TestMdTableDict:
         data = {"peers": ["000001", "600036"], "roe": 0.12}
         result = _md_table(data)
         assert "peers" not in result  # list 字段被过滤
-        assert "roe" in result
+        assert "ROE" in result
         assert "0.12" in result
 
     def test_empty_dict(self):

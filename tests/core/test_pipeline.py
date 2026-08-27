@@ -276,7 +276,7 @@ class TestPipelineIndustryIntegration:
         assert ctx.sw_industry != ""
         assert ctx.style_category != ""
 
-    def test_analysis_results_have_scores(self):
+    def test_analysis_results_have_scores(self, mocker, tmp_path):
         """分析结果应有配置驱动的分数"""
         from analysis.financial import FinancialAnalyzer
         from analysis.industry import IndustryAnalyzer
@@ -286,6 +286,44 @@ class TestPipelineIndustryIntegration:
         from core.pipeline import Pipeline
         from core.registry import Registry
         from data.akshare import AkShareAdapter
+        from utils.config import Config
+
+        financials = [
+            FinancialData(
+                symbol="000001", fiscal_quarter=date(year, quarter, 28),
+                revenue=revenue, net_profit=profit, total_assets=500e9,
+                total_equity=45e9, operating_cash_flow=12e9, roe=0.12,
+            )
+            for year, quarter, revenue, profit in [
+                (2026, 3, 14e9, 2.8e9), (2025, 12, 52e9, 10e9),
+                (2025, 9, 38e9, 7.5e9), (2025, 6, 25e9, 5e9),
+            ]
+        ]
+
+        def fetch(_self, symbol, **kwargs):
+            data_type = kwargs["data_type"]
+            if data_type == "financial":
+                return financials
+            if data_type == "price":
+                return [PriceData(
+                    symbol=symbol, trade_date=date(2026, 8, 27), open=10,
+                    high=11, low=9.5, close=10.5, volume=1_000_000,
+                )]
+            if data_type == "valuation":
+                return [ValuationData(
+                    symbol=symbol, date=date(2026, 8, 27), pe_ttm=7.5, pb=0.85,
+                )]
+            if data_type == "industry":
+                return [IndustryData(
+                    symbol=symbol, industry="银行", sector="金融", peers=["600036"],
+                )]
+            if data_type == "news":
+                return [NewsData(
+                    symbol=symbol, date=date(2026, 8, 27), headlines=["业绩增长"],
+                )]
+            return []
+
+        mocker.patch.object(AkShareAdapter, "fetch", new=fetch)
 
         reg = Registry()
         reg.register_data_source(AkShareAdapter())
@@ -295,7 +333,9 @@ class TestPipelineIndustryIntegration:
         reg.register_analysis_module(TechnicalAnalyzer())
         reg.register_analysis_module(SentimentAnalyzer())
 
-        pipeline = Pipeline(registry=reg, llm_enabled=False)
+        pipeline = Pipeline(
+            registry=reg, config=Config(config_dir=tmp_path), llm_enabled=False,
+        )
         results, _, ctx = pipeline.run("000001", "平安银行")
 
         assert len(results) == 5
