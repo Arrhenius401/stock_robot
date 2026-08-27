@@ -1,7 +1,7 @@
 // 配置管理视图：仅呈现受控配置 API 暴露的字段，密钥按需读取。
 import { api } from "./api.js";
 import { el, errorCard, skeleton } from "./components.js";
-import { bus } from "./state.js";
+import { bus, store } from "./state.js";
 
 const SECTIONS = [
   {
@@ -69,10 +69,15 @@ const SECTIONS = [
 
 const fieldsByPath = new Map(SECTIONS.flatMap((section) => section.fields)
   .map((field) => [field.path, field]));
+const secretPaths = [...fieldsByPath.values()]
+  .filter((field) => field.type === "secret")
+  .map((field) => field.path);
 const changed = new Set();
 const originals = new Map();
 const secretDisplays = new Map();
 const revealedSecrets = new Map();
+const revealGenerations = new Map();
+const pendingReveals = new Map();
 let initialized = false;
 let loaded = false;
 
@@ -107,13 +112,21 @@ function displaySecret(path) {
     : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
 }
 
-function hideSecret(path) {
+function invalidateSecret(path) {
   revealedSecrets.delete(path);
+  revealGenerations.set(path, (revealGenerations.get(path) || 0) + 1);
   displaySecret(path);
 }
 
 function hideAllSecrets() {
-  for (const path of revealedSecrets.keys()) hideSecret(path);
+  for (const path of secretPaths) invalidateSecret(path);
+}
+
+function isCurrentSettingsView(state) {
+  const view = document.getElementById("view-settings");
+  return store.currentView === "settings"
+    && (!view || view.classList.contains("active"))
+    && secretDisplays.get(state.path) === state;
 }
 
 function addLabeledField(container, field, value) {
@@ -172,7 +185,9 @@ function addSelectField(container, field, value) {
 
 function addSecretField(container, field, secret) {
   const row = el("div", "settings-field settings-secret-field");
-  row.appendChild(el("div", "settings-label", field.label));
+  const label = el("div", "settings-label", field.label);
+  label.id = `${inputId(field.path)}-label`;
+  row.appendChild(label);
   const control = el("div", "settings-control settings-secret-control");
   const current = el("span", "settings-secret-value", secret.masked || "未配置");
   const toggle = el("button", "settings-secret-toggle");
@@ -182,24 +197,44 @@ function addSecretField(container, field, secret) {
   replacement.type = "password";
   replacement.placeholder = "输入新值以覆盖";
   replacement.autocomplete = "new-password";
+  replacement.setAttribute("aria-labelledby", label.id);
   originals.set(field.path, "");
-  secretDisplays.set(field.path, { value: current, button: toggle, masked: secret.masked || "" });
+  const state = { path: field.path, value: current, button: toggle, masked: secret.masked || "" };
+  secretDisplays.set(field.path, state);
   displaySecret(field.path);
   toggle.addEventListener("click", async () => {
     if (revealedSecrets.has(field.path)) {
-      hideSecret(field.path);
+      invalidateSecret(field.path);
       return;
     }
+    if (pendingReveals.has(field.path)) {
+      invalidateSecret(field.path);
+      return;
+    }
+    const generation = revealGenerations.get(field.path) || 0;
+    const request = api.getCredential(field.path);
+    pendingReveals.set(field.path, request);
+    toggle.setAttribute("aria-label", "隐藏完整密钥");
     try {
-      const response = await api.getCredential(field.path);
+      const response = await request;
+      if (pendingReveals.get(field.path) !== request
+          || revealGenerations.get(field.path) !== generation
+          || !isCurrentSettingsView(state)) return;
       revealedSecrets.set(field.path, response.value);
       displaySecret(field.path);
     } catch (error) {
-      showMessage(`无法读取完整密钥: ${error.message}`, "error");
+      if (pendingReveals.get(field.path) === request
+          && revealGenerations.get(field.path) === generation
+          && isCurrentSettingsView(state)) {
+        showMessage(`无法读取完整密钥: ${error.message}`, "error");
+      }
+    } finally {
+      if (pendingReveals.get(field.path) === request) pendingReveals.delete(field.path);
+      if (secretDisplays.get(field.path) === state) toggle.disabled = false;
     }
   });
   replacement.addEventListener("input", () => {
-    hideSecret(field.path);
+    invalidateSecret(field.path);
     if (replacement.value && replacement.value !== secret.masked) changed.add(field.path);
     else changed.delete(field.path);
   });
@@ -292,7 +327,7 @@ async function saveSettings() {
 export function renderSettings(payload) {
   const box = content();
   if (!box) return;
-  revealedSecrets.clear();
+  hideAllSecrets();
   secretDisplays.clear();
   originals.clear();
   changed.clear();

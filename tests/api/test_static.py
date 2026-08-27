@@ -1399,9 +1399,13 @@ await pending;
         """设置页应按需读取密钥、保留编辑值，并只提交实际修改的字段。"""
         settings_url = json.dumps(_module_url("src/api/static/js/settings.js"))
         api_url = json.dumps(_module_url("src/api/static/js/api.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
         script = _DOM_STUB + r"""
 const settingsContent = makeElement("settingsContent");
+const settingsView = makeElement("view-settings");
+settingsView.className = "view active";
 const { api } = await import(__API_URL__);
+const { store } = await import(__STATE_URL__);
 const { initSettings, renderSettings } = await import(__SETTINGS_URL__);
 const payload = {
   config: {
@@ -1436,6 +1440,7 @@ api.updateConfig = async (config) => {
   putBody = config;
   return { ...payload, restart_required: true };
 };
+store.currentView = "settings";
 initSettings();
 renderSettings(payload);
 for (const heading of ["LLM 设置", "数据与缓存", "服务设置", "推送设置", "信号策略"]) {
@@ -1482,6 +1487,7 @@ if (updatedModel.value !== "保留编辑值" || !settingsContent.textContent.inc
   throw new Error("保存失败覆盖了编辑值，或未显示校验错误");
 }
 """.replace("__SETTINGS_URL__", settings_url).replace("__API_URL__", api_url)
+        script = script.replace("__STATE_URL__", state_url)
         _run_node(tmp_path, script)
 
     def test_settings_loads_only_on_entry_and_offers_retry_after_failure(self, tmp_path):
@@ -1507,6 +1513,87 @@ if (configCalls !== 1 || !settingsContent.textContent.includes("无法加载配�
 }
 await byClass(settingsContent, "btn-retry")[0].click();
 if (configCalls !== 2) throw new Error("加载失败后的重试按钮未重新请求配置");
+""".replace("__SETTINGS_URL__", settings_url).replace("__API_URL__", api_url)
+        script = script.replace("__STATE_URL__", state_url)
+        _run_node(tmp_path, script)
+
+    def test_settings_ignores_stale_secrets_and_labels_secret_inputs(self, tmp_path):
+        """密钥请求只能作用于当前设置页，且连续睁眼应复用同一请求。"""
+        settings_url = json.dumps(_module_url("src/api/static/js/settings.js"))
+        api_url = json.dumps(_module_url("src/api/static/js/api.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        script = _DOM_STUB + r"""
+const settingsContent = makeElement("settingsContent");
+const settingsView = makeElement("view-settings");
+settingsView.className = "view active";
+const { api } = await import(__API_URL__);
+const { bus, store } = await import(__STATE_URL__);
+const { initSettings, renderSettings } = await import(__SETTINGS_URL__);
+const payload = {
+  config: {
+    llm: { api_key: { configured: true, masked: "mask-llm" } },
+    push: {
+      email: { smtp_password: { configured: true, masked: "mask-smtp" } },
+      wecom: { secret: { configured: true, masked: "mask-wecom" } },
+    },
+  },
+  paths: { state_dir: "D:/project/.stock_robot", config_file: "D:/project/.stock_robot/config.yaml" },
+};
+store.currentView = "settings";
+initSettings();
+renderSettings(payload);
+for (const path of ["llm.api_key", "push.email.smtp_password", "push.wecom.secret"]) {
+  const input = document.getElementById(`settings-${path.replaceAll(".", "-")}`);
+  const labelId = `settings-${path.replaceAll(".", "-")}-label`;
+  if (input.getAttribute("aria-labelledby") !== labelId || !document.getElementById(labelId)) {
+    throw new Error(`密钥输入框缺少可访问名称: ${path}`);
+  }
+}
+let calls = 0;
+const resolvers = [];
+api.getCredential = () => {
+  calls += 1;
+  return new Promise((resolve) => resolvers.push(resolve));
+};
+let toggle = byClass(settingsContent, "settings-secret-toggle")[0];
+const first = toggle.click();
+const second = toggle.click();
+if (calls !== 1) throw new Error("连续睁眼不应重复读取完整密钥");
+resolvers.shift()({ value: "first-complete-secret" });
+await Promise.all([first, second]);
+if (settingsContent.textContent.includes("first-complete-secret")) {
+  throw new Error("第二次点击闭眼后迟到响应不应显示完整密钥");
+}
+
+renderSettings(payload);
+store.currentView = "settings";
+settingsView.classList.add("active");
+toggle = byClass(settingsContent, "settings-secret-toggle")[0];
+const afterEdit = toggle.click();
+const replacement = document.getElementById("settings-llm-api_key");
+replacement.value = "new-secret";
+await replacement.dispatch("input");
+resolvers.shift()({ value: "late-after-edit" });
+await afterEdit;
+if (settingsContent.textContent.includes("late-after-edit")) {
+  throw new Error("编辑新密钥后迟到响应泄露了完整值");
+}
+
+renderSettings(payload);
+store.currentView = "settings";
+settingsView.classList.add("active");
+toggle = byClass(settingsContent, "settings-secret-toggle")[0];
+const afterLeave = toggle.click();
+const leave = new Event("view-change");
+Object.defineProperty(leave, "detail", { value: { view: "chat" } });
+store.currentView = "chat";
+settingsView.classList.remove("active");
+bus.dispatchEvent(leave);
+resolvers.shift()({ value: "late-after-leave" });
+await afterLeave;
+if (settingsContent.textContent.includes("late-after-leave")) {
+  throw new Error("离开设置页后迟到响应泄露了完整值");
+}
 """.replace("__SETTINGS_URL__", settings_url).replace("__API_URL__", api_url)
         script = script.replace("__STATE_URL__", state_url)
         _run_node(tmp_path, script)
