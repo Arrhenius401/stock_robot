@@ -25,9 +25,6 @@ from utils.retry import retry_on_network_error
 
 logger = logging.getLogger(__name__)
 
-# 单次分析生命周期内复用 stock_individual_info_em 结果
-_info_cache: dict[str, dict] = {}
-
 # 海外指数代码 → 全球指数接口所需的中文名称
 _OVERSEAS_NAME_MAP = {
     "HSI": "恒生指数",
@@ -38,28 +35,61 @@ _OVERSEAS_NAME_MAP = {
 }
 
 
-def clear_info_cache():
-    """清空个股信息缓存（测试用）"""
-    _info_cache.clear()
+def get_total_shares(symbol: str, financials: list | None = None) -> float | None:
+    """总股本三级链：东财轻量接口 → 腾讯流通股本 → 财报反推（离线兜底）
+
+    财报反推口径：累计净利润 ÷ 累计基本每股收益，禁止单季/累计混用。
+    """
+    # 1. 东财轻量接口（在线优先）
+    try:
+        df: Any = _ak_individual_info_em(symbol)
+        if df is not None and "item" in df.columns and "value" in df.columns:
+            info = dict(zip(df["item"], df["value"]))
+            shares = parse_cn_number(str(info.get("总股本", "")))
+            if shares is not None and shares > 0:
+                return shares
+    except Exception:
+        logger.debug("东财总股本获取失败，切换腾讯源")
+    # 2. 腾讯流通股本（在线）
+    try:
+        end = datetime.now().astimezone().date().strftime("%Y%m%d")
+        start = (datetime.now().astimezone().date() - timedelta(days=10)).strftime("%Y%m%d")
+        df: Any = _ak_daily(symbol=symbol, start_date=start, end_date=end, adjust="")
+        if df is not None and "outstanding_share" in df.columns and len(df) > 0:
+            last = df["outstanding_share"].iloc[-1]
+            if last is not None and str(last) not in ("nan", "None") and float(last) > 0:
+                return float(last)
+    except Exception:
+        logger.debug("腾讯流通股本获取失败，切换财报反推")
+    # 3. 财报反推（离线兜底）
+    if financials:
+        fin = sorted(financials, key=lambda x: x.fiscal_quarter)
+        latest = fin[-1]
+        # >0 判断统一口径，避免 NaN 真值通过
+        if latest.net_profit is not None and latest.basic_eps is not None and latest.net_profit > 0 and latest.basic_eps > 0:
+            return latest.net_profit / latest.basic_eps
+    return None
 
 
-def get_individual_info(symbol: str) -> dict:
-    """获取个股基本信息（带内存缓存），返回 {item: value} 字典"""
-    if symbol not in _info_cache:
-        try:
-            if symbol.startswith("6"):
-                xq_symbol = f"SH{symbol}"
-            else:
-                xq_symbol = f"SZ{symbol}"
-            df: Any = ak.stock_individual_basic_info_xq(symbol=xq_symbol)
-            if "item" in df.columns and "value" in df.columns:
-                _info_cache[symbol] = dict(zip(df["item"], df["value"]))
-            else:
-                _info_cache[symbol] = {}
-        except Exception:
-            logger.debug(f"获取个股基本信息失败: {symbol}")
-            _info_cache[symbol] = {}
-    return _info_cache[symbol]
+def _get_industry_name(symbol: str) -> str:
+    """行业名两级链：东财轻量接口 → 本地映射表（离线兜底）"""
+    try:
+        df: Any = _ak_individual_info_em(symbol)
+        if df is not None and "item" in df.columns and "value" in df.columns:
+            info = dict(zip(df["item"], df["value"]))
+            ind = str(info.get("行业", "") or "").strip()
+            if ind and ind != "未知":
+                return ind
+    except Exception:
+        logger.debug("东财行业信息获取失败，切换本地映射表")
+    try:
+        from data.industry_classifier import IndustryClassifier
+        cls = IndustryClassifier().lookup(symbol)
+        if cls.sw_level1 and cls.sw_level1 not in ("综合", "未知"):
+            return cls.sw_level1
+    except Exception:
+        logger.debug("本地行业映射表不可用")
+    return ""
 
 
 @retry_on_network_error()
@@ -78,16 +108,6 @@ def _ak_daily(symbol, start_date, end_date, adjust):
 
 
 @retry_on_network_error()
-def _ak_spot_em():
-    return ak.stock_zh_a_spot_em()
-
-
-@retry_on_network_error()
-def _ak_industry_name():
-    return ak.stock_board_industry_name_em()
-
-
-@retry_on_network_error()
 def _ak_individual_info_em(symbol):
     """单只股票基本信息接口（轻量，含行业字段）"""
     return ak.stock_individual_info_em(symbol=symbol)
@@ -96,17 +116,6 @@ def _ak_individual_info_em(symbol):
 @retry_on_network_error()
 def _ak_news(symbol):
     return ak.stock_news_em(symbol=symbol)
-
-
-@retry_on_network_error()
-def _ak_individual_spot_xq(symbol):
-    """单只股票行情接口（雪球，轻量，替代全市场扫描）"""
-    # 雪球 symbol 格式: SH600000 / SZ000001
-    if symbol.startswith("6"):
-        xq_symbol = f"SH{symbol}"
-    else:
-        xq_symbol = f"SZ{symbol}"
-    return ak.stock_individual_spot_xq(symbol=xq_symbol)
 
 
 @retry_on_network_error()
@@ -134,112 +143,75 @@ def _fetch_sw_peers(industry_name: str) -> list[dict[str, Any]]:
     """通过申万行业分类获取同行股票（含 PE/PB/市值，来源 legulegu.com）
     返回 list[dict]，每个 dict 包含: symbol, name, market_cap, pe_ttm, pb
     """
-    from io import StringIO as _StringIO
+    from data.industry_mapping_builder import fetch_constituents, fetch_taxonomy
 
-    import pandas as _pd
-    import requests as _req
-    from bs4 import BeautifulSoup as _BeautifulSoup
-
-    # 第一步：获取申万三级行业代码列表（带浏览器请求头，绕过 Cloudflare）
-    sw_codes_map: dict[str, list[str]] = {}  # broad_name -> [SW codes]
+    # 第一步：申万行业树（新版页面解析，旧版 id="level3Items" 结构已移除）
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml",
-            "Accept-Language": "zh-CN,zh;q=0.9",
-            "Referer": "https://legulegu.com/",
-        }
-        url = "https://legulegu.com/stockdata/sw-industry-overview"
-        resp = _req.get(url, headers=headers, timeout=15)
-        soup = _BeautifulSoup(resp.text, "html.parser")
-        level3 = soup.find("div", id="level3Items")
-        if level3:
-            code_items = level3.find_all("div", class_="lg-industries-item-chinese-title")
-            name_items = level3.find_all("div", class_="lg-industries-item-number")
-            codes = [item.get_text().strip() for item in code_items]
-            for code, name_item in zip(codes, name_items):
-                full_text = name_item.get_text()
-                parent_name = ""
-                # 提取上级行业名称（格式: "行业名(成分数)" 或 "行业名（成分数）"）
-                span = name_item.find("span")
-                if span:
-                    parent_name = span.get_text().strip(" ()（）")
-                    # 去掉最后的 ( ) 中内容
-                    if "(" in parent_name:
-                        parent_name = parent_name.rsplit("(", 1)[0].strip()
-                    if "（" in parent_name:
-                        parent_name = parent_name.rsplit("（", 1)[0].strip()
-                # 尝试从上级行业名匹配；也尝试从行业名称匹配
-                # 行业名称格式: 行业名Ⅲ(成分数)，取行业名部分
-                industry_detail = full_text.split("(")[0].split("（")[0].strip()
-                # 去掉 Ⅲ、Ⅱ、Ⅰ 后缀
-                broad = industry_detail.rstrip("ⅢⅡⅠ")
-                if broad not in sw_codes_map:
-                    sw_codes_map[broad] = []
-                sw_codes_map[broad].append(code)
-    except Exception:
-        logger.warning("无法获取申万行业列表，将使用回退方案")
+        _, level3_map = fetch_taxonomy()
+    except Exception as e:
+        logger.warning("无法获取申万行业列表: %s", e)
+        return []
 
-    # 在映射表中模糊匹配
+    # 三级行业名/二级名模糊匹配（level3_map 含名称与归属）
     matched_codes = []
-    for broad, codes in sw_codes_map.items():
-        if industry_name in broad or broad in industry_name:
-            matched_codes.extend(codes)
-
-    # 去重
+    for code, (name, parent) in level3_map.items():
+        if industry_name in name or industry_name in parent or name in industry_name:
+            matched_codes.append(code)
     matched_codes = list(set(matched_codes))
 
     if not matched_codes:
-        logger.info(f"未找到与 '{industry_name}' 匹配的申万行业")
+        logger.info("未找到与 '%s' 匹配的申万行业", industry_name)
         return []
 
-    # 第二步：从 legulegu.com 直接抓取成分股数据
+    # 第二步：成分股（含 PE/PB/市值，市值单位亿元 → 元）
     peers: list[dict[str, Any]] = []
     for sw_code in matched_codes:
         try:
-            url = f"https://legulegu.com/stockdata/index-composition?industryCode={sw_code}"
-            resp = _req.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-            dfs = _pd.read_html(_StringIO(resp.text))
-            if not dfs:
-                continue
-            df = dfs[0]
-
-            # 清理列名（去掉网站注入的 JSON-LD schema.org 标记）
-            clean_cols = {}
-            for col in df.columns:
-                col_str = str(col)
-                if "  " in col_str:
-                    clean_cols[col] = col_str.split("  ")[0].strip()
-            df.rename(columns=clean_cols, inplace=True)
-
-            for _, row in df.iterrows():
-                try:
-                    code = str(row.get("股票代码", ""))
-                    name = str(row.get("股票简称", ""))
-                    if not code or any(tag in name for tag in ("ST", "退市", "PT")):
-                        continue
-                    # 股票代码格式: 601398.SH → 去掉后缀
-                    if "." in code:
-                        code = code.split(".")[0]
-
-                    mcap_raw: Any = row.get("市值（亿元）")
-                    pe_raw: Any = row.get("市盈率ttm")
-                    pb_raw: Any = row.get("市净率")
-
-                    peers.append({
-                        "symbol": code,
-                        "name": name,
-                        "market_cap": float(mcap_raw) * 1e8 if mcap_raw is not None and str(mcap_raw) not in ("nan", "") else None,
-                        "pe_ttm": float(pe_raw) if pe_raw is not None and str(pe_raw) not in ("nan", "") else None,
-                        "pb": float(pb_raw) if pb_raw is not None and str(pb_raw) not in ("nan", "") else None,
-                    })
-                except (ValueError, TypeError):
-                    continue
-        except Exception:
-            logger.warning(f"获取申万行业成分股失败: {sw_code}")
+            stocks = fetch_constituents(sw_code)
+        except Exception as e:
+            logger.warning("获取申万行业成分股失败 %s: %s", sw_code, e)
             continue
-
+        for s in stocks:
+            if s["market_cap"] is None:
+                continue
+            peers.append({
+                "symbol": s["symbol"],
+                "name": s["name"],
+                "market_cap": s["market_cap"] * 1e8,
+                "pe_ttm": s["pe_ttm"],
+                "pb": s["pb"],
+            })
     return peers
+
+
+def _parse_debt_new(bs_df: Any) -> dict[str, tuple[float | None, float | None, float | None]]:
+    """解析 THS 新长表资产负债表 → {报告期: (equity, assets, common_equity)}
+
+    common_equity 为普通股东权益（所有者权益 − 其他权益工具 − 优先股），
+    PB 口径与市场惯例（腾讯/东财）一致；相关指标缺失时等于 equity。
+    """
+    balance_map: dict[str, tuple[float | None, float | None, float | None]] = {}
+    per_date: dict[str, dict[str, float | None]] = {}
+    for _, row in bs_df.iterrows():
+        period = str(row.get("report_date", ""))
+        try:
+            period_date = datetime.strptime(period, "%Y-%m-%d").astimezone().date().isoformat()
+        except ValueError:
+            continue
+        name = str(row.get("metric_name", ""))
+        if name in ("assets_total", "holder_equity_total", "debt_and_equity_total",
+                    "other_equity_tools", "preferred_stock"):
+            per_date.setdefault(period_date, {})[name] = parse_cn_number(row.get("value"))
+    for period_date, vals in per_date.items():
+        assets = vals.get("assets_total")
+        if assets is None:
+            assets = vals.get("debt_and_equity_total")
+        equity = vals.get("holder_equity_total")
+        common = equity
+        if equity is not None:
+            common = equity - (vals.get("other_equity_tools") or 0.0) - (vals.get("preferred_stock") or 0.0)
+        balance_map[period_date] = (equity, assets, common)
+    return balance_map
 
 
 class AkShareAdapter(DataSource):
@@ -351,25 +323,31 @@ class AkShareAdapter(DataSource):
         df: Any = ak.stock_financial_abstract_ths(symbol=symbol)
 
         # 从资产负债表端点补充 total_equity / total_assets（同花顺源，非东方财富）
-        balance_map: dict[str, tuple[float | None, float | None]] = {}
+        # 新版长表优先（含其他权益工具 → 普通股东权益 common_equity，PB 口径对齐市场惯例）
+        balance_map: dict[str, tuple[float | None, float | None, float | None]] = {}
         try:
-            bs_df: Any = ak.stock_financial_debt_ths(symbol=symbol)
-            for _, row in bs_df.iterrows():
-                period_str = str(row.get("报告期", ""))
-                try:
-                    period_date = datetime.strptime(period_str, "%Y-%m-%d").astimezone().date().isoformat()
-                except ValueError:
-                    continue
-                equity = parse_cn_number(row.get("*所有者权益（或股东权益）合计"))
-                assets = parse_cn_number(row.get("*资产合计"))
-                # 若简化版字段为空，尝试 "所有者权益（或股东权益）合计"（无星号版本）
-                if equity is None:
-                    equity = parse_cn_number(row.get("所有者权益（或股东权益）合计"))
-                if assets is None:
-                    assets = parse_cn_number(row.get("资产合计"))
-                balance_map[period_date] = (equity, assets)
+            balance_map = _parse_debt_new(ak.stock_financial_debt_new_ths(symbol=symbol))
         except Exception:
-            logger.debug("资产负债表数据获取失败，将使用利润表数据")
+            logger.debug("新版长表资产负债表接口失败，尝试旧版接口")
+            try:
+                bs_df: Any = ak.stock_financial_debt_ths(symbol=symbol)
+                for _, row in bs_df.iterrows():
+                    period_str = str(row.get("报告期", ""))
+                    try:
+                        period_date = datetime.strptime(period_str, "%Y-%m-%d").astimezone().date().isoformat()
+                    except ValueError:
+                        continue
+                    equity = parse_cn_number(row.get("*所有者权益（或股东权益）合计"))
+                    assets = parse_cn_number(row.get("*资产合计"))
+                    # 若简化版字段为空，尝试 "所有者权益（或股东权益）合计"（无星号版本）
+                    if equity is None:
+                        equity = parse_cn_number(row.get("所有者权益（或股东权益）合计"))
+                    if assets is None:
+                        assets = parse_cn_number(row.get("资产合计"))
+                    # 旧表无法解析其他权益工具，common_equity 留空（PB 回退 total_equity）
+                    balance_map[period_date] = (equity, assets, None)
+            except Exception:
+                logger.debug("资产负债表数据获取失败，将使用利润表数据")
 
         results = []
         periods = df.get("报告期", [])
@@ -414,9 +392,10 @@ class AkShareAdapter(DataSource):
                 elif ocf_per_share is not None:
                     ocf = ocf_per_share  # 降级：无法反推总股本时保留 per-share 值
 
-                # 从资产负债表映射中获取净资产和总资产
+                # 从资产负债表映射中获取净资产、普通股东权益和总资产
                 date_key = fiscal_date.isoformat()
-                total_equity, total_assets = balance_map.get(date_key, (None, None))
+                total_equity, total_assets, common_equity = balance_map.get(
+                    date_key, (None, None, None))
 
                 results.append(FinancialData(
                     symbol=symbol,
@@ -426,76 +405,49 @@ class AkShareAdapter(DataSource):
                     deducted_net_profit=deducted,
                     total_assets=total_assets,
                     total_equity=total_equity,
+                    common_equity=common_equity,
                     operating_cash_flow=ocf,
                     roe=roe,
                     gross_margin=net_margin,
+                    basic_eps=basic_eps,
                 ))
             except (ValueError, IndexError, TypeError) as e:
                 logger.warning(f"跳过异常财务数据行 {idx}: {e}")
         return results
 
     def _fetch_valuation(self, symbol: str, **kwargs) -> list[ValuationData]:
-        pe_ttm, pb = None, None
+        """估值：腾讯实时快照（含 PE/PB，独立口径）。失败返回空列表。"""
+        import requests as _req
 
-        # 优先：单只股票轻量接口（雪球）
+        tx_symbol = f"sh{symbol}" if symbol.startswith("6") else f"sz{symbol}"
         try:
-            df: Any = _ak_individual_spot_xq(symbol)
-            if "item" in df.columns and "value" in df.columns:
-                pe_row = df[df["item"] == "市盈率(动)"]
-                pb_row = df[df["item"] == "市净率"]
-                if not pe_row.empty:
-                    pe_ttm = parse_cn_number(pe_row["value"].iloc[0])
-                if not pb_row.empty:
-                    pb = parse_cn_number(pb_row["value"].iloc[0])
-        except Exception:
-            logger.debug("雪球估值接口失败，回退全市场接口")
+            resp = _req.get(f"https://qt.gtimg.cn/q={tx_symbol}", timeout=10)
+            fields = resp.text.split("~")
+            # 字段: [3]=现价, [39]=PE(TTM), [46]=PB；字段数不足视为上游结构变化
+            if len(fields) < 47:
+                logger.warning(f"腾讯快照字段数异常: {len(fields)}")
+                return []
+            pe = float(fields[39]) if fields[39] else None
+            pb = float(fields[46]) if fields[46] else None
+        except Exception:  # 第三方网络边界，兜底降级
+            logger.debug("腾讯快照获取失败，估值数据缺失")
+            return []
 
-        # 回退：旧全市场接口
-        if pe_ttm is None and pb is None:
-            try:
-                df: Any = _ak_spot_em()
-                row = df[df["代码"] == symbol]
-                pe_ttm = parse_cn_number(row["市盈率-动态"].iloc[0]) if not row.empty and row["市盈率-动态"].iloc[0] != "-" else None
-                pb = parse_cn_number(row["市净率"].iloc[0]) if not row.empty and row["市净率"].iloc[0] != "-" else None
-            except Exception:
-                logger.debug("全市场估值接口失败，估值字段为空")
-
-        return [ValuationData(symbol=symbol, date=datetime.now().astimezone().date(), pe_ttm=pe_ttm, pb=pb, ps_ttm=None)]
+        return [ValuationData(symbol=symbol, date=datetime.now().astimezone().date(),
+                              pe_ttm=pe, pb=pb, ps_ttm=None)]
 
     def _fetch_industry(self, symbol: str, **kwargs) -> list[IndustryData]:
         from data.schemas import PeerBasicInfo
 
-        industry = ""
+        # 行业名两级链：东财轻量接口 → 本地映射表（离线兜底）
+        industry = _get_industry_name(symbol)
         sector = ""
         top_peers = []
-
-        # 获取行业分类（带缓存，后续充实层可复用）
-        info = get_individual_info(symbol)
-        # 雪球源：affiliate_industry 为 {"ind_code": "BK0055", "ind_name": "银行"} 格式
-        aff_ind = info.get("affiliate_industry", "")
-        if isinstance(aff_ind, dict):
-            industry = str(aff_ind.get("ind_name", ""))
-        else:
-            industry = str(aff_ind) if aff_ind else ""
-        sector = str(info.get("classi_name", "") or info.get("板块", "") or info.get("所属部门", ""))
-
-        # 回退：新端点失败时尝试旧行业名称端点
-        if not industry or industry == "未知":
-            try:
-                name_df: Any = _ak_industry_name()
-                if "板块名称" in name_df.columns:
-                    names = name_df["板块名称"].tolist()
-                    if names:
-                        industry = str(names[0])
-            except Exception:
-                logger.debug("行业名称接口失败，使用空行业名")
-
-        # 通过申万行业分类获取同行成分股（优先；东方财富端点不稳定）
         all_peer_symbols: list[str] = []
         target_mcap: float | None = None
         target_rank: int | None = None
 
-        if industry and industry != "未知":
+        if industry:
             sw_peers = _fetch_sw_peers(industry)
             if sw_peers:
                 # 过滤无效市值，按市值排序
@@ -602,42 +554,20 @@ class AkShareAdapter(DataSource):
         except Exception as e:
             logger.warning(f"新闻数据获取失败: {e}")
 
-        # 拉取公告（stock_notice_report 的 symbol 参数是报告类型而非股票代码）
+        # 拉取公告（个股接口，直接按代码过滤，替代全市场拉取再过滤）
         try:
-            today_str = today.strftime("%Y%m%d")
-            announce_df: Any = ak.stock_notice_report(symbol="全部", date=today_str)
-            if announce_df is not None and not announce_df.empty:
-                cols = list(announce_df.columns)
-                # 探测列名映射
-                title_col = None
-                code_col = None
-                date_col = None
-                for c in cols:
-                    c_str = str(c)
-                    if "标题" in c_str or "title" in c_str.lower():
-                        title_col = c
-                    elif "代码" in c_str or "code" in c_str.lower() or "symbol" in c_str.lower():
-                        code_col = c
-                    elif "日期" in c_str or "date" in c_str.lower():
-                        date_col = c
-                if title_col is None:
-                    title_col = cols[0]
-
-                for _, row in announce_df.head(30).iterrows():
-                    # 按股票代码过滤
-                    if code_col:
-                        cell_code = str(row.get(code_col, ""))
-                        if symbol not in cell_code:
-                            continue
-
-                    title = str(row.get(title_col, ""))
+            notice_df: Any = ak.stock_individual_notice_report(security=symbol)
+            if notice_df is not None and not notice_df.empty:
+                for _, row in notice_df.head(20).iterrows():
+                    title = str(row.get("公告标题", "") or row.get("标题", ""))
                     if not title or title in seen_titles:
                         continue
                     seen_titles.add(title)
                     pub_date = today
-                    if date_col:
+                    raw_date = row.get("公告日期", "") or row.get("日期", "")
+                    if raw_date:
                         try:
-                            pub_date = datetime.strptime(str(row[date_col])[:10], "%Y-%m-%d").astimezone().date()
+                            pub_date = datetime.strptime(str(raw_date)[:10], "%Y-%m-%d").astimezone().date()
                         except (ValueError, TypeError):
                             logger.debug("公告日期解析失败，使用今天日期")
                     if pub_date >= start_date:

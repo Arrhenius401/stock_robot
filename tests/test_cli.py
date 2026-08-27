@@ -3,6 +3,16 @@ from click.testing import CliRunner
 from stock_robot.cli import main
 
 
+def test_create_cli_progress_uses_shared_transient_columns():
+    from stock_robot.cli import _create_cli_progress
+
+    progress = _create_cli_progress()
+
+    assert progress.live.transient is True
+    assert len(progress.columns) == 3
+    assert all("task.completed" not in str(column) for column in progress.columns)
+
+
 class TestCLI:
     def test_analyze_without_symbol_shows_error(self):
         runner = CliRunner()
@@ -22,11 +32,15 @@ class TestCLI:
         mock_instance = mock_pipeline.return_value
         from data.schemas import AnalysisContext, AnalysisResult
         ctx = AnalysisContext(symbol="000001", name="平安银行")
-        mock_instance.run.return_value = (
-            [AnalysisResult(dimension="financial", status="ok", summary="OK", metrics={"roe": 0.12})],
-            {"bulk": "综合解读"},
-            ctx,
-        )
+        def run_with_progress(*args, **kwargs):
+            kwargs["on_progress"]("data", 1, 3, "读取")
+            return (
+                [AnalysisResult(dimension="financial", status="ok", summary="OK", metrics={"roe": 0.12})],
+                {"bulk": "综合解读"},
+                ctx,
+            )
+
+        mock_instance.run.side_effect = run_with_progress
 
         runner = CliRunner()
         result = runner.invoke(main, ["analyze", "000001", "--no-llm"])
@@ -64,16 +78,39 @@ class TestCLI:
         assert result.exit_code == 0
 
 
-def test_api_command_help():
-    """api 命令存在且可显示帮助"""
-    from click.testing import CliRunner
-
-    from stock_robot.cli import main
-
+def test_run_command_help_is_available_and_api_is_unknown():
+    """run 是唯一的 Web 服务启动命令。"""
     runner = CliRunner()
-    result = runner.invoke(main, ["api", "--help"])
+    result = runner.invoke(main, ["run", "--help"])
     assert result.exit_code == 0
     assert "启动 Web API 服务" in result.output
+    assert runner.invoke(main, ["api", "--help"]).exit_code != 0
+
+
+def test_run_builds_server_and_reports_ready_url(mocker):
+    """run 显示启动进度并将解析后的地址交给服务运行器。"""
+    mock_core = mocker.patch("api.bootstrap.build_agent_core", return_value=object())
+    mock_app = mocker.patch("api.app.create_app", return_value=object())
+    mock_server = mocker.patch("stock_robot.cli._run_web_server")
+
+    result = CliRunner().invoke(main, ["run", "--port", "8000"])
+
+    assert result.exit_code == 0
+    assert "正在启动 HTTP 服务" not in result.output
+    assert "http://127.0.0.1:8000" in result.output
+    mock_core.assert_called_once()
+    mock_server.assert_called_once_with(mock_app.return_value, "127.0.0.1", 8000)
+
+
+def test_run_web_server_does_not_write_console_status(mocker):
+    """Uvicorn 日志已经覆盖运行状态，命令层不再输出 spinner。"""
+    mocker.patch("uvicorn.run")
+    status = mocker.patch("stock_robot.cli.console.status")
+
+    from stock_robot.cli import _run_web_server
+    _run_web_server(object(), "127.0.0.1", 8000)
+
+    status.assert_not_called()
 
 
 def test_api_bind_resolution_uses_config_defaults(tmp_path):
@@ -194,3 +231,44 @@ class TestSubscribe:
         assert result.exit_code == 0
         mock_executor.return_value.run_subscription.assert_called_once_with(sub)
         assert "1/1" in result.output
+
+
+class TestIndustryMappingCommand:
+    def test_update_symbol(self, mocker):
+        from click.testing import CliRunner
+
+        from stock_robot.cli import main
+
+        mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
+        mocker.patch("data.industry_mapping_builder.update_symbol",
+                     return_value={"symbol": "600097", "sw_level1": "农林牧渔",
+                                   "sw_level2": "渔业", "style_category": "必选消费",
+                                   "action": "updated"})
+        result = CliRunner().invoke(main, ["industry-mapping", "600097"])
+        assert result.exit_code == 0
+        assert "600097" in result.output
+        assert "农林牧渔" in result.output
+
+    def test_rebuild_all(self, mocker):
+        from click.testing import CliRunner
+
+        from stock_robot.cli import main
+
+        mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
+        mocker.patch("data.industry_mapping_builder.rebuild_all",
+                     return_value={"total_industries": 335, "failed_industries": [],
+                                   "stock_count": 5534, "coverage_pct": 98.2})
+        result = CliRunner().invoke(main, ["industry-mapping"])
+        assert result.exit_code == 0
+        assert "5534" in result.output
+        assert "98.2%" in result.output
+
+    def test_invalid_symbol(self, mocker):
+        from click.testing import CliRunner
+
+        from stock_robot.cli import main
+
+        mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
+        result = CliRunner().invoke(main, ["industry-mapping", "abc"])
+        assert result.exit_code == 1
+        assert "无效" in result.output

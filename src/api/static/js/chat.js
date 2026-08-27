@@ -1,9 +1,15 @@
 // 聊天视图：SSE 流式渲染、执行计划卡、工具结果卡、快捷按钮
-import { store, bus } from "./state.js";
+import {
+  store, bus, adoptPersistedSession, isDraftSessionId, invalidateSessionDetail,
+  markSessionListMutation, reviveSession, invalidateSessionRuns, sessionRunEpoch,
+  markSessionDetailStale,
+} from "./state.js";
 import { api } from "./api.js";
 import { renderMarkdown } from "./markdown.js";
 import { el } from "./components.js";
 import { openReport } from "./report.js";
+import { openReportDrawer, closeReportDrawer } from "./report-drawer.js";
+import { renderReportSummary } from "./report-renderer.js";
 
 const scrollEl = () => document.getElementById("chatScroll");
 
@@ -25,12 +31,119 @@ function mdDiv(text) {
   return div;
 }
 
+function thinkingDetails(text) {
+  if (!text) return null;
+  const details = el("details", "message-thinking");
+  details.appendChild(el("summary", "", "查看分析过程"));
+  details.appendChild(mdDiv(text));
+  return details;
+}
+
+function assistantMessage(content, thinking = "") {
+  const node = el("div", "assistant-message");
+  node.appendChild(mdDiv(content));
+  const details = thinkingDetails(thinking);
+  if (details) node.appendChild(details);
+  return node;
+}
+
 function appendUser(text) {
   appendBubble("user", mdDiv(text));
 }
 
-// 并发守卫：流进行中禁止再次发送（模块级，防同会话并发请求交错）
-let sending = false;
+const RESEARCH_SUGGESTIONS = [
+  { icon: "📈", title: "分析一只 A 股", detail: "输入股票代码，生成完整研报", prompt: "分析 600519 贵州茅台的基本面与估值" },
+  { icon: "⚖️", title: "对比两家公司", detail: "从财务、估值、技术面比较", prompt: "比较 000001 平安银行与 600036 招商银行" },
+  { icon: "🧭", title: "发现行业机会", detail: "按行业筛选并追踪信号", prompt: "分析当前值得关注的行业机会" },
+  { icon: "📰", title: "解读最新公告", detail: "提炼风险与关键变化", prompt: "解读我关注股票的最新公告" },
+];
+
+function renderEmptyChat() {
+  const empty = el("section", "chat-empty");
+  empty.appendChild(el("div", "chat-empty-eyebrow", "投研工作台"));
+  empty.appendChild(el("div", "chat-empty-title", "开始一项新的研究"));
+  empty.appendChild(el("div", "chat-empty-subtitle", "选择一个方向，或直接输入你的投资研究问题"));
+  const grid = el("div", "research-suggestion-grid");
+  for (const suggestion of RESEARCH_SUGGESTIONS) {
+    const button = el("button", "research-suggestion");
+    button.type = "button";
+    button.appendChild(el("span", "research-suggestion-icon", suggestion.icon));
+    const copy = el("span", "research-suggestion-copy");
+    copy.appendChild(el("strong", "", suggestion.title));
+    copy.appendChild(el("span", "", suggestion.detail));
+    button.appendChild(copy);
+    button.addEventListener("click", () => {
+      const input = document.getElementById("chatInput");
+      input.value = suggestion.prompt;
+      input.focus();
+    });
+    grid.appendChild(button);
+  }
+  empty.appendChild(grid);
+  scrollEl().appendChild(empty);
+}
+
+function syncSuggestionVisibility(messages) {
+  const empty = scrollEl().querySelector(".chat-empty");
+  if (empty) empty.hidden = messages.some((message) => message.role === "user");
+}
+
+function artifactMessageId(artifact) {
+  return artifact?.message_id ?? artifact?.messageId ?? null;
+}
+
+function messageId(message) {
+  return message?.message_id ?? message?.id ?? null;
+}
+
+function artifactId(artifact) {
+  return artifact?.artifact_id ?? artifact?.id ?? null;
+}
+
+function cacheArtifact(sessionId, artifact, persisted = true) {
+  if (!sessionId || !artifact) return null;
+  const cached = { ...artifact, session_id: artifact.session_id ?? sessionId, persisted };
+  const artifacts = store.sessionArtifacts[sessionId] || [];
+  const id = artifactId(cached);
+  const index = id == null ? -1 : artifacts.findIndex((item) => artifactId(item) === id);
+  if (index >= 0) artifacts[index] = cached;
+  else artifacts.push(cached);
+  store.sessionArtifacts[sessionId] = artifacts;
+  return cached;
+}
+
+function reportSummary(artifact) {
+  const card = renderReportSummary(artifact);
+  if (artifact?.persisted === false) {
+    card.appendChild(el("div", "report-summary-persist-warning",
+      "本轮报告可查看，但未保存到历史记录"));
+  }
+  const button = card.querySelector(".report-summary-open");
+  if (button) {
+    button.addEventListener("click", () => openReportDrawer(artifact, button));
+  }
+  return card;
+}
+
+function appendReportSummary(artifact, parent = null) {
+  const card = reportSummary(artifact);
+  if (parent) parent.appendChild(card);
+  else appendBubble("agent", card);
+  return card;
+}
+
+// 并发守卫绑定到具体 run；clear/delete 可释放旧 run，且旧 finally 不会释放新 run。
+let activeSendingRun = null;
+let localRunSequence = 0;
+
+function releaseSending(run, focus = false) {
+  if (activeSendingRun !== run) return;
+  activeSendingRun = null;
+  const sendBtn = document.getElementById("sendBtn");
+  const input = document.getElementById("chatInput");
+  if (sendBtn) sendBtn.disabled = false;
+  if (focus && input) input.focus();
+}
 
 // 返回 { card, stepEls }：计划状态随发送闭包持有，不落模块级变量，避免串会话
 function planCard(evt) {
@@ -92,9 +205,9 @@ function toolResultCard(t) {
   return card;
 }
 
-function interruptedCard(retry) {
+function interruptedCard(retry, message = "连接中断") {
   const card = el("div", "error-card");
-  card.appendChild(el("div", "error-title", "连接中断"));
+  card.appendChild(el("div", "error-title", message));
   const btn = el("button", "btn-retry", "重试");
   btn.addEventListener("click", () => {
     card.remove();
@@ -104,151 +217,395 @@ function interruptedCard(retry) {
   return card;
 }
 
-export function renderMessageHistory(messages) {
+function toolHasArtifact(tool, artifacts) {
+  const id = messageId(tool);
+  return id != null && artifacts.some(
+    (artifact) => String(artifactMessageId(artifact)) === String(id),
+  );
+}
+
+function runIsValid(run) {
+  if (run.cancelled || !run.sessionId) return false;
+  return !store.sessionTombstones[run.sessionId]
+    && run.epoch === sessionRunEpoch(run.sessionId);
+}
+
+function removeRun(run) {
+  run.cancelled = true;
+  run.done = true;
+  run.mount?.remove();
+  if (run.sessionId) {
+    store.sessionRuns[run.sessionId] = (store.sessionRuns[run.sessionId] || [])
+      .filter((item) => item !== run);
+  }
+}
+
+export function cancelSessionRuns(sessionId) {
+  invalidateSessionRuns(sessionId);
+  for (const run of store.sessionRuns[sessionId] || []) {
+    releaseSending(run);
+    removeRun(run);
+  }
+  store.sessionRuns[sessionId] = [];
+}
+
+function buildRunBubble(run) {
+  const wrap = el("div", "msg agent");
+  wrap.dataset.runId = run.id;
+  const content = el("div", "content");
+  wrap.appendChild(content);
+
+  if (run.plan) {
+    const renderedPlan = planCard(run.plan);
+    if (run.progress) updatePlan(renderedPlan, run.progress);
+    if (run.answers.length) {
+      renderedPlan.stepEls.forEach((step) => setStep(step, "done", "完成"));
+    }
+    content.appendChild(renderedPlan.card);
+  }
+  const details = thinkingDetails(run.thinking === "正在分析…" ? "" : run.thinking);
+  if (details) content.appendChild(details);
+  for (const answer of run.answers) content.appendChild(mdDiv(answer));
+
+  const tools = [...Object.values(run.toolCalls), ...run.resultTools];
+  for (const tool of tools) {
+    if (toolHasArtifact(tool, run.artifacts)) continue;
+    const card = toolResultCard(tool);
+    if (tool.symbol && tool.status === "done") {
+      const link = el("span", "link", "查看完整报告 →");
+      link.addEventListener("click", () => openReport(tool.symbol));
+      card.appendChild(link);
+    }
+    content.appendChild(card);
+  }
+  for (const artifact of run.artifacts) appendReportSummary(artifact, content);
+  if (run.error) {
+    const card = el("div", "error-card");
+    card.appendChild(el("div", "error-msg", run.error));
+    content.appendChild(card);
+  }
+  if (run.interrupted) {
+    content.appendChild(interruptedCard(() => {
+      removeRun(run);
+      sendMessage(run.message);
+    }, run.interruptedMessage));
+  }
+  return wrap;
+}
+
+function renderRun(run) {
+  if (!runIsValid(run) || store.currentSessionId !== run.sessionId) return;
+  const scroll = scrollEl();
+  if (run.mount && Array.from(scroll.children).includes(run.mount)) run.mount.remove();
+  const bubble = buildRunBubble(run);
+  scroll.appendChild(bubble);
+  scroll.scrollTop = scroll.scrollHeight;
+  run.mount = bubble;
+}
+
+export function renderSessionRuns(sessionId) {
+  for (const run of store.sessionRuns[sessionId] || []) {
+    if (run.done) continue;
+    run.mount = null;
+    renderRun(run);
+  }
+}
+
+function isDuplicateReportTool(message, artifacts) {
+  return toolHasArtifact(message, artifacts);
+}
+
+export function renderMessageHistory(messages, artifacts = []) {
   clearChatScroll();
+  const activeRuns = (store.sessionRuns[store.currentSessionId] || [])
+    .filter((run) => !run.done);
+  const liveArtifacts = activeRuns.flatMap((run) => run.artifacts);
+  const liveArtifactIds = new Set(liveArtifacts
+    .map((artifact) => artifactId(artifact)).filter((id) => id != null));
+  const restoredArtifacts = artifacts.filter(
+    (artifact) => !liveArtifacts.includes(artifact)
+      && !liveArtifactIds.has(artifactId(artifact)),
+  );
+  const linked = new Map();
+  for (const artifact of restoredArtifacts) {
+    const id = artifactMessageId(artifact);
+    if (id == null) continue;
+    const key = String(id);
+    const values = linked.get(key) || [];
+    values.push(artifact);
+    linked.set(key, values);
+  }
+  const rendered = new Set();
   for (const m of messages) {
     if (m.role === "user") {
       appendUser(m.content);
     } else if (m.role === "tool") {
-      appendBubble("agent", toolResultCard(parseToolMessage(m.content)));
+      const id = messageId(m);
+      const matched = id == null ? [] : (linked.get(String(id)) || []);
+      if (!isDuplicateReportTool(m, restoredArtifacts)) {
+        appendBubble("agent", toolResultCard(parseToolMessage(m.content)));
+      }
+      for (const artifact of matched) {
+        appendReportSummary(artifact);
+        rendered.add(artifact);
+      }
     } else if (m.role === "assistant") {
-      appendBubble("agent", mdDiv(m.content));
+      appendBubble("agent", assistantMessage(m.content, m.thinking || ""));
+      const id = messageId(m);
+      for (const artifact of id == null ? [] : (linked.get(String(id)) || [])) {
+        appendReportSummary(artifact);
+        rendered.add(artifact);
+      }
     }
     // system 消息不展示
   }
+  const remaining = restoredArtifacts.filter((artifact) => !rendered.has(artifact));
+  if (remaining.length) {
+    const section = el("section", "artifact-history-orphans");
+    section.appendChild(el("div", "artifact-history-title", "研究成果"));
+    for (const artifact of remaining) appendReportSummary(artifact, section);
+    scrollEl().appendChild(section);
+  }
+  renderSessionRuns(store.currentSessionId);
+  const hasRuns = (store.sessionRuns[store.currentSessionId] || []).some((run) => !run.done);
+  if (!messages.length && !restoredArtifacts.length && !hasRuns) renderEmptyChat();
+  syncSuggestionVisibility(messages);
 }
 
 export async function sendMessage(text) {
   const msg = String(text || "").trim();
-  if (!msg || sending) return;
-  sending = true;
+  if (!msg || activeSendingRun) return;
+  const empty = scrollEl().querySelector(".chat-empty");
+  if (empty) empty.hidden = true;
+  let run = null;
   try {
-    // 无 Agent 调试模式下 session 为 null，后端流接口的 text 事件分支仍可用
-    let streamSid = store.currentSessionId;
-    if (streamSid) {
-      (store.sessionMessages[streamSid] = store.sessionMessages[streamSid] || [])
-        .push({ role: "user", content: msg });
-    }
+    const initialSessionId = store.currentSessionId;
+    let streamSid = initialSessionId;
+    let userCached = false;
+    run = {
+      id: `local-run-${++localRunSequence}`,
+      sessionId: null,
+      message: msg,
+      thinking: "正在分析…",
+      plan: null,
+      progress: null,
+      toolCalls: {},
+      resultTools: [],
+      answers: [],
+      answerStreamed: false,
+      artifacts: [],
+      error: "",
+      interrupted: false,
+      interruptedMessage: "",
+      done: false,
+      cancelled: false,
+      epoch: null,
+      committed: false,
+      mount: null,
+    };
+    activeSendingRun = run;
+    const attachRun = (sessionId) => {
+      if (run.sessionId === sessionId) return;
+      if (store.sessionTombstones[sessionId]) return;
+      run.sessionId = sessionId;
+      run.epoch = sessionRunEpoch(sessionId);
+      const runs = store.sessionRuns[sessionId] || [];
+      if (!runs.includes(run)) runs.push(run);
+      store.sessionRuns[sessionId] = runs;
+    };
+    const adoptSession = (sessionId) => {
+      if (!sessionId || (streamSid && streamSid !== sessionId
+          && !isDraftSessionId(streamSid))) return false;
+      if (store.sessionTombstones[sessionId] || run.cancelled) return false;
+      if (run.sessionId && !runIsValid(run)) return false;
+      const draftId = isDraftSessionId(streamSid) && streamSid !== sessionId
+        ? streamSid : null;
+      if (draftId) {
+        adoptPersistedSession(draftId, sessionId);
+        streamSid = sessionId;
+        if (!runIsValid(run)) return false;
+        markSessionListMutation();
+      }
+      if (!streamSid) streamSid = sessionId;
+      if (!userCached) {
+        if (initialSessionId === null) reviveSession(sessionId);
+        else invalidateSessionDetail(sessionId);
+        if (!isDraftSessionId(sessionId)) markSessionListMutation();
+        (store.sessionMessages[sessionId] = store.sessionMessages[sessionId] || [])
+          .push({ role: "user", content: msg });
+        userCached = true;
+      }
+      attachRun(sessionId);
+      if (!runIsValid(run)) return false;
+      if (store.currentSessionId === initialSessionId) store.currentSessionId = sessionId;
+      return true;
+    };
+    if (streamSid) adoptSession(streamSid);
     appendUser(msg);
     const input = document.getElementById("chatInput");
     input.value = "";   // 发送时即清空，流结束不再清（避免吞掉期间新输入）
     const sendBtn = document.getElementById("sendBtn");
-    const finish = () => { sendBtn.disabled = false; input.focus(); };
+    const finish = () => releaseSending(run, true);
     sendBtn.disabled = true;
-    // 计划状态随本次发送闭包持有，中途切换会话也不会串扰其他会话的计划卡
-    let myPlan = null;
-    // 自主循环工具卡片：按 run_id 映射（单条消息可并行多工具调用，
-    // tool_result 需回落到发起调用的那张卡片）
-    const myToolCards = {};
-
-    const agentBox = appendBubble("agent", el("div", "content"));
-    const thinking = el("div", "thinking", "正在分析…");
-    agentBox.appendChild(thinking);
+    if (streamSid) {
+      renderRun(run);
+    } else {
+      run.mount = buildRunBubble(run);
+      scrollEl().appendChild(run.mount);
+    }
 
     const handlers = {
+      session_title: (e) => {
+        const sessionId = e.session_id || streamSid;
+        if (!adoptSession(sessionId) || sessionId !== streamSid) return;
+        const existing = store.sessionDetails[sessionId] || {};
+        if (existing.title_source === "manual") return;
+        markSessionListMutation();
+        store.sessionDetails[sessionId] = {
+          ...existing,
+          session_id: sessionId,
+          title: e.title || "新会话",
+          title_source: e.title_source || "llm",
+          titleRevision: Number(existing.titleRevision || 0) + 1,
+          updated_at: Date.now() / 1000,
+        };
+        const event = new Event("session-title");
+        event.sessionId = sessionId;
+        event.title = e.title || "新会话";
+        bus.dispatchEvent(event);
+        renderRun(run);
+      },
+      artifact: (e) => {
+        const artifact = e.artifact;
+        const sessionId = artifact?.session_id || streamSid;
+        if (!artifact || !adoptSession(sessionId) || sessionId !== streamSid) return;
+        const cached = cacheArtifact(sessionId, artifact, e.persisted !== false);
+        if (!cached) return;
+        const id = artifactId(cached);
+        const index = id == null ? -1
+          : run.artifacts.findIndex((item) => artifactId(item) === id);
+        if (index >= 0) run.artifacts[index] = cached;
+        else run.artifacts.push(cached);
+        renderRun(run);
+      },
       plan: (e) => {
-        // 无会话发送时（正常模式冷启动兜底），采纳后端新建的 session。
-        // 用户消息无条件写入（缓存与 result 的 assistant 写保持对称），
-        // 仅 currentSessionId 接管以不劫持用户新选的会话为条件
-        if (!streamSid && e.session_id) {
-          streamSid = e.session_id;
-          (store.sessionMessages[e.session_id] = store.sessionMessages[e.session_id] || [])
-            .push({ role: "user", content: msg });
-          if (!store.currentSessionId) {
-            store.currentSessionId = e.session_id;
-          }
-        }
-        // agent 模式 plan 事件步骤为空，占位保留供 thinking 片段追加；
-        // 仅 plan 模式（有步骤）移除占位
-        if ((e.steps || []).length) thinking.remove();
-        myPlan = planCard(e);
-        agentBox.appendChild(myPlan.card);
+        if (!adoptSession(e.session_id || streamSid)) return;
+        run.plan = e;
+        if ((e.steps || []).length) run.thinking = "";
+        renderRun(run);
       },
       thinking: (e) => {
-        // 模型推理片段追加到占位元素（后端已节流，仅非空片段）
-        thinking.textContent += e.content || "";
+        if (!runIsValid(run)) return;
+        run.thinking += e.content || "";
+        renderRun(run);
       },
       tool_call: (e) => {
-        if (store.currentSessionId !== streamSid) return;
-        const card = toolResultCard({ tool: e.tool, content: "调用中…" });
-        myToolCards[e.run_id || "default"] = card;
-        agentBox.appendChild(card);
+        if (!runIsValid(run)) return;
+        const key = e.run_id || "default";
+        run.toolCalls[key] = {
+          tool: e.tool,
+          args: e.args,
+          symbol: e.symbol ?? e.args?.symbol,
+          content: "调用中…",
+          status: "running",
+        };
+        renderRun(run);
       },
       tool_result: (e) => {
-        if (store.currentSessionId !== streamSid) return;
-        const card = myToolCards[e.run_id || "default"];
-        if (!card) return;
-        const body = card.querySelector(".tooltext");
-        body.innerHTML = renderMarkdown(String(e.content || ""));
-        delete myToolCards[e.run_id || "default"];
+        if (!runIsValid(run)) return;
+        const key = e.run_id || "default";
+        run.toolCalls[key] = {
+          ...(run.toolCalls[key] || { tool: e.tool || "tool" }),
+          content: e.content || "",
+          status: e.status || "done",
+          symbol: e.symbol ?? run.toolCalls[key]?.symbol,
+          message_id: e.message_id ?? run.toolCalls[key]?.message_id,
+        };
+        renderRun(run);
       },
       progress: (e) => {
-        // 会话已切换时跳过：气泡已脱离视图，且避免驱动新会话的计划卡。
-        // 取舍：无 Agent 模式 streamSid 为 null，若期间其他流程把 currentSessionId
-        // 置为非 null，进度更新会被跳过；但该模式后端不发 plan 事件、myPlan 恒为
-        // null，此分支实际不会触发；即便触发，updatePlan 只改本气泡（已脱离视图）
-        // 的节点，最多是极端角落下的进度停更——宁可丢进度也不污染新会话视图。
-        if (!myPlan || store.currentSessionId !== streamSid) return;
-        updatePlan(myPlan, e);
+        if (!runIsValid(run)) return;
+        run.progress = e;
+        renderRun(run);
       },
       result: (e) => {
-        thinking.remove();
-        const isCurrent = store.currentSessionId === streamSid;
-        if (myPlan) myPlan.stepEls.forEach((s) => setStep(s, "done", "完成"));
-        if (e.summary && isCurrent) agentBox.appendChild(mdDiv(e.summary));
-        for (const t of e.tool_results || []) {
-          if (!isCurrent) continue;
-          const card = toolResultCard({ tool: t.tool, content: t.content || "" });
-          if (t.symbol && t.status === "done") {
-            const link = el("span", "link", "查看完整报告 →");
-            link.addEventListener("click", () => openReport(t.symbol));
-            card.appendChild(link);
-          }
-          agentBox.appendChild(card);
-        }
-        if (streamSid) {
-          (store.sessionMessages[streamSid] = store.sessionMessages[streamSid] || [])
-            .push({ role: "assistant", content: e.summary || "" });
-        }
+        if (!runIsValid(run)) return;
+        run.thinking = "";
+        if (e.summary) run.answers.push(e.summary);
+        run.resultTools = e.tool_results || [];
+        renderRun(run);
         bus.dispatchEvent(new Event("chat-done"));
       },
       error: (e) => {
-        thinking.remove();
-        // chat-done 先派发：后端可能已建新会话，侧边栏需刷新；视图渲染才需守卫
+        if (!runIsValid(run)) return;
+        run.thinking = "";
+        run.error = e.message || "处理请求时出错";
+        renderRun(run);
         bus.dispatchEvent(new Event("chat-done"));
-        if (store.currentSessionId !== streamSid) return;
-        const card = el("div", "error-card");
-        card.appendChild(el("div", "error-msg", e.message || "处理请求时出错"));
-        agentBox.appendChild(card);
       },
       text: (e) => {
-        thinking.remove();
-        agentBox.appendChild(mdDiv(e.content));
-        // agent 模式最终回答写入会话缓存并触发侧边栏刷新
-        if (streamSid) {
-          (store.sessionMessages[streamSid] = store.sessionMessages[streamSid] || [])
-            .push({ role: "assistant", content: e.content || "" });
+        if (!runIsValid(run)) return;
+        run.thinking = "";
+        if (e.thinking) run.thinking = e.thinking;
+        if (e.content) {
+          // 流式片段已展示时，最终事件携带的是完整正文，替换而非重复追加。
+          run.answers = run.answerStreamed ? [e.content] : [...run.answers, e.content];
         }
+        renderRun(run);
         bus.dispatchEvent(new Event("chat-done"));
       },
-      // done 事件清理占位（无 Agent 模式或异常路径兜底）
+      text_delta: (e) => {
+        if (!runIsValid(run) || !e.content) return;
+        run.thinking = "";
+        run.answerStreamed = true;
+        if (!run.answers.length) run.answers.push("");
+        run.answers[run.answers.length - 1] += e.content;
+        renderRun(run);
+      },
       done: () => {
-        thinking.remove();
+        if (!runIsValid(run)) return;
+        run.thinking = "";
+        run.done = true;
+        if (streamSid && !run.committed && run.answers.length) {
+          (store.sessionMessages[streamSid] = store.sessionMessages[streamSid] || [])
+            .push({ role: "assistant", content: run.answers.join("\n\n") });
+          run.committed = true;
+        }
+        if (streamSid) markSessionDetailStale(streamSid);
+        renderRun(run);
+        if (streamSid) {
+          store.sessionRuns[streamSid] = (store.sessionRuns[streamSid] || [])
+            .filter((item) => item !== run);
+        }
         finish();
       },
     };
     try {
       await api.chatStream(msg, streamSid, handlers);
-    } catch (err) {
-      thinking.remove();
-      if (store.currentSessionId === streamSid) {
-        agentBox.appendChild(interruptedCard(() => sendMessage(msg)));
+    } catch {
+      if (!runIsValid(run)) {
+        // 冷启动时服务可能在 session_title 之前就断开。此前直接返回会让
+        // 用户只看到自己的提问，以为 AI 没有回应；此时仍应展示可重试错误。
+        run.thinking = "";
+        run.interrupted = true;
+        run.interruptedMessage = "连接中断：请检查服务是否已启动后重试";
+        if (run.mount && Array.from(scrollEl().children).includes(run.mount)) {
+          run.mount.remove();
+        }
+        run.mount = buildRunBubble(run);
+        scrollEl().appendChild(run.mount);
+        scrollEl().scrollTop = scrollEl().scrollHeight;
+        finish();
+        return;
       }
+      run.thinking = "";
+      run.interrupted = true;
+      renderRun(run);
     }
     finish();
     input.focus();
   } finally {
-    sending = false;
+    if (run) releaseSending(run);
   }
 }
 
@@ -276,28 +633,24 @@ async function showToolsPanel() {
 }
 
 export function initChat() {
+  if (initChat.initialized) return;
+  initChat.initialized = true;
   const input = document.getElementById("chatInput");
   const send = () => sendMessage(input.value);
   document.getElementById("sendBtn").addEventListener("click", send);
-  input.addEventListener("keydown", (e) => {
-    // isComposing：中文等 IME 组合输入的回车仅确认候选词，不应触发发送
-    if (e.key === "Enter" && !e.isComposing) send();
-  });
+  let composing = false;
+  input.addEventListener("compositionstart", () => { composing = true; });
+  input.addEventListener("compositionend", () => { composing = false; });
+  input.addEventListener("keydown", (e) => handleChatInputKeydown(e, send, composing));
   document.getElementById("quickTiming").addEventListener(
     "click", () => sendMessage("大盘现在适合入场吗？"));
   document.getElementById("quickTools").addEventListener("click", showToolsPanel);
-  document.getElementById("quickClear").addEventListener("click", async () => {
-    const target = store.currentSessionId;   // await 期间可能切换会话，先捕获
-    if (!target) return;
-    if (!window.confirm("清空当前会话的全部消息？")) return;
-    try {
-      await api.clearSession(target);
-      store.sessionMessages[target] = [];  // 服务端已清空，本地缓存先同步
-      if (store.currentSessionId !== target) return;  // 已切换，不动新会话视图
-      clearChatScroll();
-      bus.dispatchEvent(new Event("chat-done"));
-    } catch (err) {
-      window.alert(`清空失败: ${err.message}`);
-    }
-  });
+}
+
+export function handleChatInputKeydown(event, send, composing = false) {
+  if (event.key !== "Enter" || event.shiftKey) return;
+  // 某些浏览器在 IME 提交期间仅暴露 keyCode=229，三重守卫避免误发送。
+  if (composing || event.isComposing || event.keyCode === 229) return;
+  event.preventDefault();
+  send();
 }

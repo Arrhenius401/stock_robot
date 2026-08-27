@@ -8,6 +8,7 @@ from typing import Any
 from rag.embedding import EmbeddingProvider, create_embedding_provider
 from rag.ingestion import IngestionPipeline
 from rag.retrieval import RetrievalPipeline
+from utils.paths import project_state_dir
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +42,6 @@ COLLECTION_NAMES = [
     "system_rules",
 ]
 
-DEFAULT_PERSIST_DIR = Path.home() / ".stock_robot" / "chroma"
-
-
 class RAGEngine:
     def __init__(
         self,
@@ -52,7 +50,7 @@ class RAGEngine:
     ):
         import chromadb
 
-        persist_path = persist_dir or str(DEFAULT_PERSIST_DIR)
+        persist_path = persist_dir or str(project_state_dir() / "chroma")
         Path(persist_path).mkdir(parents=True, exist_ok=True)
 
         self._client = chromadb.PersistentClient(path=persist_path)

@@ -1,6 +1,8 @@
 """充实器单元测试"""
 from datetime import date, datetime, timedelta
 
+import pytest
+
 from data.enrichers.financial_enricher import FinancialEnricher
 from data.enrichers.industry_enricher import IndustryEnricher
 from data.enrichers.price_enricher import PriceEnricher
@@ -126,7 +128,8 @@ def make_price_series(n: int, close: float = 10.0) -> list[PriceData]:
 class TestValuationEnricher:
     def test_insufficient_when_price_partial(self):
         """行情数据不足 60 条时，估值标记为 insufficient"""
-        prices = make_price_series(30)
+        # 29 条：价格维度仍为 partial（20-59），但有效估值点数 29 < 30 → 估值 insufficient
+        prices = make_price_series(29)
         financials = make_financial_data(4)
         ctx = AnalysisContext(symbol="000001", name="测试",
                               price_data=prices, financial_data=financials)
@@ -226,3 +229,199 @@ class TestSentimentEnricher:
         ctx = PriceEnricher().enrich(ctx)
         ctx = SentimentEnricher().enrich(ctx)
         assert ctx.sufficiency.sentiment.level == SufficiencyLevel.INSUFFICIENT
+
+
+class TestValuationAnchoring:
+    def test_anchor_shares_from_measured_pe(self, mocker):
+        """实测 PE 存在时反推总股本锚点，历史序列用锚点重算"""
+        prices = make_price_series(200, close=10.0)
+        financials = make_financial_data(4)
+        # 使 TTM 净利润 = 40 亿：最近4期各 10 亿（make_financial_data 结构见文件头部）
+        for f in financials:
+            f.net_profit = 10e8
+            f.total_equity = 200e8
+        # 锚定路径只做离线估算偏差告警，不应触发 get_total_shares 网络链
+        get_total_shares = mocker.patch(
+            "data.enrichers.valuation_enricher.get_total_shares")
+        ctx = AnalysisContext(symbol="000001", name="测试",
+                              price_data=prices, financial_data=financials)
+        ctx.valuation_data = ValuationData(
+            symbol="000001", date=datetime.now().astimezone().date(),
+            pe_ttm=8.0, pb=1.6, ps_ttm=None)
+        ctx = PriceEnricher().enrich(ctx)
+        ctx = FinancialEnricher().enrich(ctx)
+        ctx = ValuationEnricher().enrich(ctx)
+        # 锚点：shares = 8.0 * 40亿 / 10.0 = 32 亿股
+        # 序列首点 PE = 32亿 * 10.0 / 40亿 = 8.0
+        assert ctx.enriched_valuation is not None
+        assert ctx.enriched_valuation.daily_points[0].pe == 8.0
+        assert ctx.enriched_valuation.pe_percentile is not None
+        # 实测锚定 → 标记为已校验
+        assert ctx.enriched_valuation.validated is True
+        # 锚定路径不调用网络三级链
+        get_total_shares.assert_not_called()
+
+    def test_no_measured_pe_uses_chain_shares(self, mocker):
+        """无实测 PE 时用 get_total_shares 链估算，标记未经校验"""
+        prices = make_price_series(200, close=10.0)
+        financials = make_financial_data(4)
+        for f in financials:
+            f.net_profit = 10e8
+            f.total_equity = 200e8
+        ctx = AnalysisContext(symbol="000001", name="测试",
+                              price_data=prices, financial_data=financials)
+        # valuation_data 为空（快照失败）
+        mocker.patch("data.enrichers.valuation_enricher.get_total_shares",
+                     return_value=32e8)
+        ctx = PriceEnricher().enrich(ctx)
+        ctx = FinancialEnricher().enrich(ctx)
+        ctx = ValuationEnricher().enrich(ctx)
+        assert ctx.enriched_valuation is not None
+        assert ctx.enriched_valuation.daily_points[0].pe == 8.0
+        # 未经校验标记（enriched_valuation 增加字段 validated: bool = False）
+        assert ctx.enriched_valuation.validated is False
+
+
+class TestTTMCumulative:
+    def test_cross_year_cumulative_uses_aligned_ttm(self, mocker):
+        """跨年累计财务（银行型 Q1 < 上年 Q4 破坏单调性）：
+        TTM = 最新累计 + 去年全年 − 去年同期累计，而非 4 期直接求和"""
+        prices = make_price_series(200, close=10.0)
+        # 累计 YTD 财务：Q2'25(6m) Q3'25(9m) Q4'25(12m) Q1'26(3m) Q2'26(6m)
+        financials = [
+            FinancialData(symbol="000001", fiscal_quarter=date(2025, 6, 30),
+                          revenue=300e8, net_profit=100e8, total_equity=280e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2025, 9, 30),
+                          revenue=450e8, net_profit=150e8, total_equity=290e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2025, 12, 31),
+                          revenue=600e8, net_profit=200e8, total_equity=300e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2026, 3, 31),
+                          revenue=180e8, net_profit=60e8, total_equity=310e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2026, 6, 30),
+                          revenue=390e8, net_profit=130e8, total_equity=320e8),
+        ]
+        ctx = AnalysisContext(symbol="000001", name="测试",
+                              price_data=prices, financial_data=financials)
+        ctx.valuation_data = ValuationData(
+            symbol="000001", date=datetime.now().astimezone().date(),
+            pe_ttm=8.0, pb=None, ps_ttm=None)
+        mocker.patch("data.enrichers.valuation_enricher.get_total_shares")
+        ctx = PriceEnricher().enrich(ctx)
+        ctx = FinancialEnricher().enrich(ctx)
+        ctx = ValuationEnricher().enrich(ctx)
+        assert ctx.enriched_valuation is not None
+        # 正确 TTM = 130 + 200 − 100 = 230 亿 → 锚定股本 = 8.0×230e8/10.0 = 184 亿股
+        # PB = 股本×现价 ÷ 最新净资产(320e8)；错误 TTM(求和 540 亿) 会给 432 亿股
+        assert ctx.enriched_valuation.daily_points[0].pb == pytest.approx(184e8 * 10.0 / 320e8)
+
+    def test_cross_year_ttm_without_anchor_uses_chain(self, mocker):
+        """跨年累计且无实测 PE：三级链股本直接驱动序列，TTM 口径同样正确"""
+        prices = make_price_series(200, close=10.0)
+        financials = [
+            FinancialData(symbol="000001", fiscal_quarter=date(2025, 6, 30),
+                          revenue=300e8, net_profit=100e8, total_equity=280e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2025, 9, 30),
+                          revenue=450e8, net_profit=150e8, total_equity=290e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2025, 12, 31),
+                          revenue=600e8, net_profit=200e8, total_equity=300e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2026, 3, 31),
+                          revenue=180e8, net_profit=60e8, total_equity=310e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2026, 6, 30),
+                          revenue=390e8, net_profit=130e8, total_equity=320e8),
+        ]
+        ctx = AnalysisContext(symbol="000001", name="测试",
+                              price_data=prices, financial_data=financials)
+        # 无 valuation_data（快照失败）→ 三级链估算股本 184 亿股
+        mocker.patch("data.enrichers.valuation_enricher.get_total_shares",
+                     return_value=184e8)
+        ctx = PriceEnricher().enrich(ctx)
+        ctx = FinancialEnricher().enrich(ctx)
+        ctx = ValuationEnricher().enrich(ctx)
+        assert ctx.enriched_valuation is not None
+        # PE = 股本×价格 ÷ 正确 TTM(230 亿) = 184e8×10/230e8 = 8.0
+        assert ctx.enriched_valuation.daily_points[0].pe == pytest.approx(8.0)
+
+    def test_flat_data_not_treated_as_cumulative(self):
+        """同年期值相等（单季/平坦数据）不得误入跨年累计对齐分支"""
+        from data.enrichers.valuation_enricher import _compute_ttm
+        financials = [
+            FinancialData(symbol="000001", fiscal_quarter=date(2025, 6, 30),
+                          revenue=100e8, net_profit=10e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2025, 9, 30),
+                          revenue=100e8, net_profit=10e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2025, 12, 31),
+                          revenue=100e8, net_profit=10e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2026, 3, 31),
+                          revenue=100e8, net_profit=10e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2026, 6, 30),
+                          revenue=100e8, net_profit=10e8),
+        ]
+        ttm_profit, ttm_revenue = _compute_ttm(financials)
+        # 单季求和：最近 4 期之和 = 40 亿（误入对齐分支会得 10 亿）
+        assert ttm_profit == pytest.approx(40e8)
+        assert ttm_revenue == pytest.approx(400e8)
+
+    def test_pb_uses_common_equity_when_available(self, mocker):
+        """PB 序列分母优先普通股东权益（剔除永续债），对齐腾讯实测口径"""
+        prices = make_price_series(200, close=10.0)
+        financials = make_financial_data(4)
+        for f in financials:
+            f.net_profit = 10e8
+            f.total_equity = 5482.14e8
+            f.common_equity = 4682.14e8
+        ctx = AnalysisContext(symbol="000001", name="测试",
+                              price_data=prices, financial_data=financials)
+        ctx.valuation_data = ValuationData(
+            symbol="000001", date=datetime.now().astimezone().date(),
+            pe_ttm=8.0, pb=None, ps_ttm=None)
+        mocker.patch("data.enrichers.valuation_enricher.get_total_shares")
+        ctx = PriceEnricher().enrich(ctx)
+        ctx = FinancialEnricher().enrich(ctx)
+        ctx = ValuationEnricher().enrich(ctx)
+        assert ctx.enriched_valuation is not None
+        # 锚定股本 = 8.0×40亿/10.0 = 32 亿股；PB = 32亿×10 ÷ 4682.14亿（common）
+        assert ctx.enriched_valuation.daily_points[0].pb == pytest.approx(32e8 * 10.0 / 4682.14e8)
+
+    def test_pb_falls_back_total_equity_without_common(self, mocker):
+        """无 common_equity（旧表回退路径）时 PB 分母用 total_equity"""
+        prices = make_price_series(200, close=10.0)
+        financials = make_financial_data(4)
+        for f in financials:
+            f.net_profit = 10e8
+            f.total_equity = 5482.14e8
+            f.common_equity = None
+        ctx = AnalysisContext(symbol="000001", name="测试",
+                              price_data=prices, financial_data=financials)
+        ctx.valuation_data = ValuationData(
+            symbol="000001", date=datetime.now().astimezone().date(),
+            pe_ttm=8.0, pb=None, ps_ttm=None)
+        mocker.patch("data.enrichers.valuation_enricher.get_total_shares")
+        ctx = PriceEnricher().enrich(ctx)
+        ctx = FinancialEnricher().enrich(ctx)
+        ctx = ValuationEnricher().enrich(ctx)
+        assert ctx.enriched_valuation is not None
+        assert ctx.enriched_valuation.daily_points[0].pb == pytest.approx(32e8 * 10.0 / 5482.14e8)
+
+    def test_negative_aligned_ttm_returns_none(self):
+        """跨年对齐 TTM 非正时返回 None（财务异常交由调用方判 INSUFFICIENT）"""
+        from data.enrichers.valuation_enricher import _compute_ttm
+        financials = [
+            FinancialData(symbol="000001", fiscal_quarter=date(2025, 6, 30),
+                          revenue=300e8, net_profit=100e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2025, 9, 30),
+                          revenue=450e8, net_profit=150e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2025, 12, 31),
+                          revenue=600e8, net_profit=50e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2026, 3, 31),
+                          revenue=180e8, net_profit=60e8),
+            FinancialData(symbol="000001", fiscal_quarter=date(2026, 6, 30),
+                          revenue=390e8, net_profit=130e8),
+        ]
+        # 对齐 TTM = 130 + 50 − 100 = 80 亿（正，正常路径）
+        ttm_profit, _ = _compute_ttm(financials)
+        assert ttm_profit == pytest.approx(80e8)
+        # 最新期净利骤降 → 对齐 TTM = 40 + 50 − 100 = −10 亿（非正 → None）
+        financials[2].net_profit = 50e8
+        financials[-1].net_profit = 40e8
+        ttm_profit, _ = _compute_ttm(financials)
+        assert ttm_profit is None

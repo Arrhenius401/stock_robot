@@ -4,6 +4,12 @@ from utils.config import Config
 
 
 class TestConfig:
+    def test_default_config_dir_is_under_current_directory(self, monkeypatch, tmp_path):
+        """未显式传入目录时使用项目内状态目录。"""
+        monkeypatch.chdir(tmp_path)
+
+        assert Config().config_dir == tmp_path / ".stock_robot"
+
     def test_default_config_has_required_sections(self):
         cfg = Config(config_dir=Path("/nonexistent"))
         assert "llm" in cfg.data

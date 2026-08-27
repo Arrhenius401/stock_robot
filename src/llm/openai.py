@@ -59,10 +59,10 @@ class OpenAIAdapter(LLMBackend):
     def _log_usage(self, prompt_tokens: int, completion_tokens: int):
         try:
             cost = self._estimate_cost(prompt_tokens, completion_tokens)
-            from pathlib import Path
-
             from llm.usage import UsageLogger
-            log_path = Path.home() / ".stock_robot" / "usage.log"
+            from utils.paths import project_state_dir
+
+            log_path = project_state_dir() / "usage.log"
             UsageLogger(log_path).log(self._model, prompt_tokens, completion_tokens, cost)
         except Exception:  # noqa: BLE001 — 用量记录失败不得影响生成流程
             logger.debug("用量记录失败")

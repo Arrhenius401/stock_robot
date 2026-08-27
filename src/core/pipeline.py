@@ -6,6 +6,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from core.circuit_breaker import CircuitBreaker
 from core.registry import Registry
 from data.cache import CacheManager
 from data.schemas import AnalysisContext, AnalysisResult, AnalysisTarget
@@ -80,6 +81,9 @@ class Pipeline:
         cache_db = self._config.config_dir / "cache.db"
         self._cache = CacheManager(db_path=cache_db)
 
+        # 内存断路器：per (symbol, data_type) 失败计数，源头故障时跳过请求
+        self._breaker = CircuitBreaker()
+
         # 新增：行业分类器 + 配置加载器
         from analysis.config_loader import ConfigLoader
         from data.industry_classifier import IndustryClassifier
@@ -97,10 +101,15 @@ class Pipeline:
         def fetch_one(data_type: str, stagger_index: int):
             # 递增错峰：第 n 个线程延迟 n*0.15s，减轻上游瞬时压力
             time.sleep(stagger_index * 0.15)
+            # 本地缓存读取不触达上游，优先于断路器——断路器打开期间缓存健康数据仍可用
             if not refresh_cache:
                 cached = self._get_cached(symbol, data_type)
                 if cached is not None:
+                    self._breaker.record_success(symbol, data_type)
                     return data_type, cached
+            if self._breaker.is_open(symbol, data_type):
+                logger.warning(f"断路器打开: {symbol}/{data_type}，跳过源头请求")
+                return data_type, None
 
             sources = self._registry.get_data_sources(market, data_type)
             for source in sources:
@@ -108,12 +117,19 @@ class Pipeline:
                     try:
                         result = source.fetch(symbol, data_type=data_type)
                         if result:
-                            self._set_cache(symbol, data_type, result)
+                            if self._is_healthy(data_type, result):
+                                self._set_cache(symbol, data_type, result)
+                                self._breaker.record_success(symbol, data_type)
+                            else:
+                                # 退化结果：不落库（_set_cache 门控双保险），计失败促断路器
+                                self._set_cache(symbol, data_type, result)
+                                self._breaker.record_failure(symbol, data_type)
                             return data_type, result
                     except Exception as e:  # noqa: BLE001 — 多数据源逐个尝试，单源失败降级
                         logger.warning(f"数据源 {source.__class__.__name__} 获取 {data_type} 失败: {e}")
                     if attempt == 0:
                         time.sleep(1)  # 重试前等待 1 秒
+            self._breaker.record_failure(symbol, data_type)
             return data_type, None
 
         stagger_counter = 0
@@ -145,6 +161,12 @@ class Pipeline:
                 self._config_loader.config_dir / "申万_大类_映射.yaml"
             )
             ctx.style_category = mapping.get(real_industry, "高端制造")
+            # 在线回填：把观测沉淀到映射表占位行（失败不影响分析）
+            try:
+                from data.industry_mapping_builder import backfill_symbol
+                backfill_symbol(symbol, real_industry)
+            except Exception:  # noqa: BLE001 — 回填失败不阻断分析流程
+                logger.debug("行业映射在线回填失败 %s", symbol)
 
         return ctx
 
@@ -328,7 +350,29 @@ class Pipeline:
         except Exception:  # noqa: BLE001 — 缓存损坏视为未命中
             return None
 
+    def _is_healthy(self, data_type: str, data: list) -> bool:
+        """健康判据：退化结果（空/未知/全缺失）不写持久缓存"""
+        if not data:
+            return False
+        if data_type == "industry":
+            ind = data[0]
+            if getattr(ind, "industry", "") in ("", "未知"):
+                return False
+        elif data_type == "financial":
+            if all(f.total_equity is None and f.total_assets is None for f in data):
+                return False
+        elif data_type == "price":
+            if len(data) < 60:
+                return False
+        elif data_type == "valuation":
+            if all(v.pe_ttm is None and v.pb is None for v in data):
+                return False
+        return True
+
     def _set_cache(self, symbol: str, data_type: str, data: list):
+        if not self._is_healthy(data_type, data):
+            logger.info(f"缓存 {data_type}/{symbol} 数据退化，跳过持久化")
+            return
         date_key = "latest"
         try:
             dicts = []

@@ -2,8 +2,9 @@
 import json
 import logging
 import re
+from collections.abc import Sequence
 
-from agent.memory import Memory, Plan, TaskStep
+from agent.memory import Memory, MemoryMessage, Plan, TaskStep
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +133,8 @@ class Planner:
             )
         return PLANNER_SYSTEM_PROMPT.format(capabilities=capabilities)
 
-    def _build_plan_prompt(self, user_input: str, context: list[dict]) -> str:
+    def _build_plan_prompt(self, user_input: str,
+                           context: Sequence[MemoryMessage]) -> str:
         parts = []
         if context:
             recent = context[-4:]

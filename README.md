@@ -69,7 +69,7 @@ stock-robot chat --ask "大盘现在适合入场吗？" --verbose
 | `/help` | 显示可用命令和工具列表 |
 | `/tools` | 列出当前注册的所有工具 |
 | `/plan` | 显示当前/最近一次执行计划 |
-| `/clear` | 清空当前会话上下文 |
+| `/clear` | 清空当前对话上下文（仅限交互式 Agent） |
 | `/verbose` | 切换详细输出模式（显示工具调用细节） |
 | `/exit` | 退出对话 |
 
@@ -167,7 +167,7 @@ stock-robot rag ingest /path/to/report.pdf -s research_reports \
 stock-robot rag ingest /data/reports/ -s research_reports --symbol 000001
 
 # 摄入历史分析报告
-stock-robot rag ingest reports/000001_20260807_161939.md \
+stock-robot rag ingest reports/000001/2026-08/000001_20260807_161939.md \
     -s history_reports -t "平安银行分析" --symbol 000001 --tag 历史报告
 ```
 
@@ -237,13 +237,13 @@ print(f"已处理: {result['processed']}, 跳过: {result['skipped']}, 失败: {
 一键启动（自动注入 Agent 核心）：
 
 ```bash
-stock-robot api
+stock-robot run
 ```
 
-默认监听 `127.0.0.1:25618`（端口可在配置文件 `~/.stock_robot/config.yaml` 的 `api.port` 中自定义，CLI 参数 `--host`/`--port` 优先于配置）：
+默认监听 `127.0.0.1:25618`（端口可在项目当前位置的 `.stock_robot/config.yaml` 中通过 `api.port` 自定义，CLI 参数 `--host`/`--port` 优先于配置）：
 
 ```bash
-stock-robot api --host 127.0.0.1 --port 8000
+stock-robot run --host 127.0.0.1 --port 8000
 ```
 
 浏览器打开 http://127.0.0.1:25618 使用 Web 聊天界面。页面功能：
@@ -251,21 +251,23 @@ stock-robot api --host 127.0.0.1 --port 8000
 - **聊天**：SSE 流式展示 Agent 执行计划与进度；工具结果卡可一键跳转完整报告
 - **个股报告**：顶栏输入代码直达，或从聊天结果跳转；完整维度评分 + AI 解读
 - **指数分析**：顶栏支持多指数（空格分隔），自动生成对比表 + 逐指数研报
-- **会话管理**：左侧边栏新建/切换/删除/清空会话，历史消息重启后恢复
+- **会话管理**：左侧边栏新建/切换/删除会话，历史消息重启后恢复；仅新建但未发送消息的临时会话不会保存
+- **配置管理**：在“配置”页面可视化修改受支持的 LLM、缓存、服务、推送和信号策略字段；敏感凭据默认只显示首尾字符
 
 主要 API 端点：
 
 - `POST /api/v1/chat` — Agent 对话（body: `{"message": "...", "session_id": "可选"}`）
-- `POST /api/v1/chat/stream` — SSE 流式对话（start/plan/progress/result/error/text/done 事件）
+- `POST /api/v1/chat/stream` — SSE 流式对话（可能包含 `plan`、`progress`、`thinking`、`text_delta`、`tool_call`、`tool_result`、`text`、`result`、`artifact`、`session_title`、`error`、`done` 事件；`thinking` 为可折叠思考过程，`text_delta` 为即时正文片段，`text` 为最终完整正文）
 - `POST /api/v1/analyze` — 个股分析（body: `{"symbol": "600519"}`），返回完整报告 JSON（含 `signal` 操作信号字段：`level` 为 `attack`/`watch`/`defend`，`label`/`action`/`position` 为中文展示与动作建议；阈值与动作文案可在配置 `signal` 节自定义）
 - `POST /api/v1/index` — 指数分析（body: `{"symbols": ["000300", "000905"], "index_style": "可选"}`；单指数兼容 `{"symbol": "000300"}`；多指数响应含 `compare` 对比表）
-- `GET/POST /api/v1/sessions`、`DELETE /api/v1/sessions/{id}`、`POST /api/v1/sessions/{id}/clear`、`GET /api/v1/sessions/{id}/messages` — 会话管理
+- `GET /api/v1/sessions`、`DELETE /api/v1/sessions/{id}`、`GET /api/v1/sessions/{id}/messages` — 会话管理（会话在发送首条消息时创建）
+- `GET /api/v1/config`、`PUT /api/v1/config`、`GET /api/v1/config/credentials/{key}` — 配置读取、局部更新和按需读取凭据
 - `GET /api/v1/tools` — 工具列表
 
 > 无 Agent 模式（仅调试静态页）：`PYTHONPATH=src python -m uvicorn api.app:app`，
 > 该模式下 chat 返回"Agent 核心未注入"提示，analyze/index 返回 503。
 
-**鉴权模式：** 默认仅监听 `127.0.0.1`，无需鉴权。
+**鉴权模式：** 默认仅监听 `127.0.0.1`，无需鉴权。配置页面的“显示完整密钥”仅允许本机访问，遮罩和本机限制不应被视为远程安全边界。
 
 ---
 
@@ -320,15 +322,17 @@ for tool in tools:
 ```bash
 stock-robot config get llm.provider              # 查看
 stock-robot config set llm.temperature 0.1       # 设置
-cat ~/.stock_robot/config.yaml                   # 完整配置
+cat ./.stock_robot/config.yaml                   # 查看完整配置
 ```
+
+配置文件和运行状态目录固定在项目当前位置的 `./.stock_robot/` 下，包含 `config.yaml`、缓存数据库和用量日志。Web 界面也可在“配置”页面更新允许编辑的字段；`api.host` 或 `api.port` 保存后需要重启 `stock-robot run` 才会生效。
 
 | 键 | 说明 | 默认值 |
 |----|------|--------|
 | `llm.provider` | LLM 提供商 | `openai` |
 | `llm.model` | 模型名称 | `gpt-4o` |
 | `llm.api_key` | API 密钥 | 空 |
-| `llm.temperature` | 生成温度 (0-1) | `0.3` |
+| `llm.temperature` | 生成温度 (0-2) | `0.3` |
 | `llm.max_tokens` | 最大输出 token | `2000` |
 | `llm.enabled` | 是否启用 LLM | `true` |
 | `llm.retry_times` | LLM 调用重试次数 | `2` |
@@ -345,7 +349,7 @@ stock-robot cache status     # 查看缓存状态
 stock-robot cache clear      # 清空所有缓存
 ```
 
-缓存存储在 `~/.stock_robot/cache.db`（SQLite），TTL 到期自动失效。
+缓存存储在项目当前位置的 `./.stock_robot/cache.db`（SQLite），TTL 到期自动失效。
 
 ---
 
@@ -380,16 +384,19 @@ stock-robot cache clear      # 清空所有缓存
 
 ```
 reports/
-├── 000001_20260705_143021.md
-├── 600036_20260705_150532.md
-└── ...
+├── 000001/
+│   └── 2026-07/
+│       └── 000001_20260705_143021.md
+└── 600036/
+    └── 2026-07/
+        └── 600036_20260705_150532.md
 ```
 
-文件名格式：`{股票代码}_{日期}_{时间}.md`
+目录格式：`{股票或指数代码}/{年份-月份}/{代码}_{日期}_{时间}.md`
 
 ## LLM 成本
 
-每次 LLM 调用记录到 `~/.stock_robot/usage.log`，包含模型、token 消耗和费用估算。
+每次 LLM 调用记录到项目当前位置的 `./.stock_robot/usage.log`，包含模型、token 消耗和费用估算。
 
 ## 常见问题
 

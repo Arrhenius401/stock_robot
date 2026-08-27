@@ -79,17 +79,28 @@ export const api = {
   listSessions() {
     return request("/api/v1/sessions");
   },
-  createSession() {
-    return request("/api/v1/sessions", { method: "POST" });
-  },
   deleteSession(id) {
     return request(`/api/v1/sessions/${id}`, { method: "DELETE" });
   },
-  clearSession(id) {
-    return request(`/api/v1/sessions/${id}/clear`, { method: "POST" });
+  renameSession(id, title) {
+    return request(`/api/v1/sessions/${id}`, {
+      method: "PATCH", body: JSON.stringify({ title }),
+    });
   },
   getMessages(id) {
     return request(`/api/v1/sessions/${id}/messages`);
+  },
+  getArtifact(sessionId, artifactId) {
+    return request(`/api/v1/sessions/${sessionId}/artifacts/${artifactId}`);
+  },
+  getConfig() {
+    return request("/api/v1/config");
+  },
+  getCredential(key) {
+    return request(`/api/v1/config/credentials/${key}`);
+  },
+  updateConfig(config) {
+    return request("/api/v1/config", { method: "PUT", body: JSON.stringify({ config }) });
   },
   listTools() {
     return request("/api/v1/tools");

@@ -1,8 +1,6 @@
 """行业充实器 — 同业对比与行业中位数计算"""
 import logging
 import statistics
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any
 
 from data.enricher import DataEnricher
 from data.schemas import (
@@ -14,30 +12,6 @@ from data.schemas import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _fetch_peer_valuation(code: str) -> tuple[str, float | None, float | None]:
-    """查询单只股票的 PE/PB，返回 (code, pe_ttm, pb)"""
-    from data.akshare import parse_cn_number
-    try:
-        if code.startswith("6"):
-            xq = f"SH{code}"
-        else:
-            xq = f"SZ{code}"
-        from data.akshare import _ak_individual_spot_xq
-        spot_df: Any = _ak_individual_spot_xq(xq)
-        pe_ttm = None
-        pb = None
-        if spot_df is not None and "item" in spot_df.columns and "value" in spot_df.columns:
-            pe_row = spot_df[spot_df["item"] == "市盈率(动)"]
-            pb_row = spot_df[spot_df["item"] == "市净率"]
-            if not pe_row.empty:
-                pe_ttm = parse_cn_number(pe_row["value"].iloc[0])
-            if not pb_row.empty:
-                pb = parse_cn_number(pb_row["value"].iloc[0])
-        return code, pe_ttm, pb
-    except Exception:  # noqa: BLE001 — 估值接口失败降级为无估值
-        return code, None, None
 
 
 class IndustryEnricher(DataEnricher):
@@ -53,21 +27,10 @@ class IndustryEnricher(DataEnricher):
 
         top_peers = ind_data.top_peers or []
 
-        # 同行 PE/PB：优先使用采集层已附带的值（如申万数据），缺失时才并行查询
-        peer_valuations: dict[str, tuple[float | None, float | None]] = {}
-        peers_to_fetch = [p for p in top_peers if p.pe_ttm is None and p.pb is None]
-
-        if peers_to_fetch:
-            with ThreadPoolExecutor(max_workers=5) as executor:
-                futures = {executor.submit(_fetch_peer_valuation, p.symbol): p.symbol for p in peers_to_fetch}
-                for future in as_completed(futures):
-                    code, pe, pb = future.result()
-                    peer_valuations[code] = (pe, pb)
-
-        # 合并已有数据
-        for p in top_peers:
-            if p.symbol not in peer_valuations:
-                peer_valuations[p.symbol] = (p.pe_ttm, p.pb)
+        # 同行 PE/PB：使用采集层附带值（legulegu 成分股自带），不再在线补查
+        peer_valuations: dict[str, tuple[float | None, float | None]] = {
+            p.symbol: (p.pe_ttm, p.pb) for p in top_peers
+        }
 
         # 构建带 PE/PB 的同行对比列表
         peer_comparisons = []

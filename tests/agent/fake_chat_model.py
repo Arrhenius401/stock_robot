@@ -39,6 +39,10 @@ class FakeChatModel(Runnable[Any, Any]):
             return self._responses.pop(0)
         return FakeAIMessage(content=self._content, tool_calls=self._tool_calls)
 
+    async def astream(self, messages, config=None, **kwargs):
+        """以单个 chunk 模拟支持流式输出的 LangChain ChatModel。"""
+        yield await self.ainvoke(messages, config=config, **kwargs)
+
 
 def make_tool_call(name: str, args: dict | None = None,
                    call_id: str = "call_1") -> dict:

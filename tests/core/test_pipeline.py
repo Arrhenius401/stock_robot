@@ -200,6 +200,65 @@ class TestGenerateCommentary:
         assert len(llm.calls) == 1
 
 
+class TestCacheHealth:
+    """缓存健康校验：退化结果不写持久缓存"""
+
+    def _make_pipeline(self, tmp_path, mocker):
+        """构建隔离缓存管道的 Pipeline（缓存 DB 落在 tmp_path）"""
+        from core.pipeline import Pipeline
+        from core.registry import Registry
+        from utils.config import Config
+
+        reg = Registry()
+        cfg = Config(config_dir=tmp_path)
+        return Pipeline(registry=reg, config=cfg, llm_enabled=False)
+
+    def test_industry_unknown_not_cached(self, tmp_path, mocker):
+        """行业未知的结果不写持久缓存"""
+        from data.schemas import IndustryData
+        pipe = self._make_pipeline(tmp_path, mocker)
+        ind = IndustryData(symbol="000001", industry="未知", sector="", peers=[], top_peers=[])
+        pipe._set_cache("000001", "industry", [ind])
+        assert pipe._get_cached("000001", "industry") is None
+
+    def test_healthy_data_is_cached(self, tmp_path, mocker):
+        """健康数据正常缓存"""
+        from data.schemas import IndustryData
+        pipe = self._make_pipeline(tmp_path, mocker)
+        ind = IndustryData(symbol="000001", industry="银行", sector="金融", peers=["600000"], top_peers=[])
+        pipe._set_cache("000001", "industry", [ind])
+        cached = pipe._get_cached("000001", "industry")
+        assert cached is not None and cached[0].industry == "银行"
+
+    def test_financial_all_equity_missing_not_cached(self, tmp_path, mocker):
+        """财务 equity 全缺失不写缓存"""
+        from data.schemas import FinancialData
+        pipe = self._make_pipeline(tmp_path, mocker)
+        fin = FinancialData(symbol="000001", fiscal_quarter=date(2026, 6, 30))
+        pipe._set_cache("000001", "financial", [fin])
+        assert pipe._get_cached("000001", "financial") is None
+
+    def test_cache_served_when_breaker_open(self, tmp_path, mocker):
+        """断路器打开时，collect 仍从本地缓存返回健康数据"""
+        from data.schemas import IndustryData
+        pipe = self._make_pipeline(tmp_path, mocker)
+        # 先写入健康缓存
+        ind = IndustryData(symbol="000001", industry="银行", sector="金融",
+                           peers=["600000"], top_peers=[])
+        pipe._set_cache("000001", "industry", [ind])
+        assert pipe._get_cached("000001", "industry") is not None
+        # 手动打开断路器
+        for _ in range(3):
+            pipe._breaker.record_failure("000001", "industry")
+        assert pipe._breaker.is_open("000001", "industry")
+        # 断路器打开期间 collect：应命中缓存返回，而非被断路器屏蔽为 None
+        ctx = pipe.collect("000001", "平安银行", data_types=["industry"])
+        assert ctx.industry_data is not None
+        assert ctx.industry_data.industry == "银行"
+        # 缓存命中走 record_success，断路器被重置
+        assert not pipe._breaker.is_open("000001", "industry")
+
+
 class TestPipelineIndustryIntegration:
     """验证管道已正确集成行业分类和配置驱动打分"""
 
@@ -217,7 +276,7 @@ class TestPipelineIndustryIntegration:
         assert ctx.sw_industry != ""
         assert ctx.style_category != ""
 
-    def test_analysis_results_have_scores(self):
+    def test_analysis_results_have_scores(self, mocker, tmp_path):
         """分析结果应有配置驱动的分数"""
         from analysis.financial import FinancialAnalyzer
         from analysis.industry import IndustryAnalyzer
@@ -227,6 +286,44 @@ class TestPipelineIndustryIntegration:
         from core.pipeline import Pipeline
         from core.registry import Registry
         from data.akshare import AkShareAdapter
+        from utils.config import Config
+
+        financials = [
+            FinancialData(
+                symbol="000001", fiscal_quarter=date(year, quarter, 28),
+                revenue=revenue, net_profit=profit, total_assets=500e9,
+                total_equity=45e9, operating_cash_flow=12e9, roe=0.12,
+            )
+            for year, quarter, revenue, profit in [
+                (2026, 3, 14e9, 2.8e9), (2025, 12, 52e9, 10e9),
+                (2025, 9, 38e9, 7.5e9), (2025, 6, 25e9, 5e9),
+            ]
+        ]
+
+        def fetch(_self, symbol, **kwargs):
+            data_type = kwargs["data_type"]
+            if data_type == "financial":
+                return financials
+            if data_type == "price":
+                return [PriceData(
+                    symbol=symbol, trade_date=date(2026, 8, 27), open=10,
+                    high=11, low=9.5, close=10.5, volume=1_000_000,
+                )]
+            if data_type == "valuation":
+                return [ValuationData(
+                    symbol=symbol, date=date(2026, 8, 27), pe_ttm=7.5, pb=0.85,
+                )]
+            if data_type == "industry":
+                return [IndustryData(
+                    symbol=symbol, industry="银行", sector="金融", peers=["600036"],
+                )]
+            if data_type == "news":
+                return [NewsData(
+                    symbol=symbol, date=date(2026, 8, 27), headlines=["业绩增长"],
+                )]
+            return []
+
+        mocker.patch.object(AkShareAdapter, "fetch", new=fetch)
 
         reg = Registry()
         reg.register_data_source(AkShareAdapter())
@@ -236,7 +333,9 @@ class TestPipelineIndustryIntegration:
         reg.register_analysis_module(TechnicalAnalyzer())
         reg.register_analysis_module(SentimentAnalyzer())
 
-        pipeline = Pipeline(registry=reg, llm_enabled=False)
+        pipeline = Pipeline(
+            registry=reg, config=Config(config_dir=tmp_path), llm_enabled=False,
+        )
         results, _, ctx = pipeline.run("000001", "平安银行")
 
         assert len(results) == 5

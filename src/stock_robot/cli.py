@@ -18,6 +18,19 @@ logger = logging.getLogger(__name__)
 from utils.config import Config
 
 
+def _create_cli_progress():
+    """创建三条 CLI 命令共用的进度条。"""
+    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
+
+    return Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        console=console,
+        transient=True,
+    )
+
+
 def _get_registry():
     """构建默认注册表"""
     from analysis.financial import FinancialAnalyzer
@@ -133,17 +146,8 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
     llm_enabled = not no_llm and config.get("llm.enabled", True)
     pipeline = _build_pipeline(llm_enabled=llm_enabled)
 
-    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
-
     try:
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("{task.completed}/{task.total}"),
-            console=console,
-            transient=True,
-        ) as progress:
+        with _create_cli_progress() as progress:
             task_id = progress.add_task("正在查询股票名称...", total=None)
 
             name = resolve_name(symbol) or symbol
@@ -330,17 +334,8 @@ def index(symbols, style, output, compare_only):
             name=name, market=market, index_style=index_style,
         ))
 
-    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
-
     pipeline = IndexPipeline()
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("{task.completed}/{task.total}"),
-        console=console,
-        transient=True,
-    ) as progress:
+    with _create_cli_progress() as progress:
         task_id = progress.add_task("正在分析指数...", total=None)
 
         def on_progress(stage, current, total, label):
@@ -369,6 +364,77 @@ def index(symbols, style, output, compare_only):
     if result.errors:
         for err in result.errors:
             console.print(f"[yellow]警告: {err}[/yellow]")
+
+
+@main.command("industry-mapping")
+@click.argument("symbol", required=False)
+@click.option("--verbose", "-v", is_flag=True, help="显示抓取明细")
+def industry_mapping(symbol, verbose):
+    """重建/更新行业映射表。
+
+    无参数 → 全量重建（遍历 335 个申万三级行业，约 8-10 分钟）；
+    带股票代码 → 单只秒级更新。
+    """
+    from data.industry_mapping_builder import (
+        IndustryMappingError,
+        rebuild_all,
+        update_symbol,
+    )
+    from utils.config import Config
+    from utils.symbols import normalize_symbol, validate_symbol
+
+    config = Config()
+    if not _check_disclaimer(config):
+        return
+
+    try:
+        if symbol:
+            if not validate_symbol(symbol):
+                console.print(f"[red]无效的股票代码: {symbol}[/red]")
+                sys.exit(1)
+            symbol = normalize_symbol(symbol)
+            result = update_symbol(symbol)
+            console.print(
+                f"[green]✓ {result['symbol']} → {result['sw_level1']}"
+                f"/{result['sw_level2']}（{result['style_category']}）"
+                f"[/green] [dim]({'更新' if result['action'] == 'updated' else '新增'})[/dim]"
+            )
+        else:
+            from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
+
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("{task.completed}/{task.total}"),
+                console=console,
+                transient=True,
+            ) as progress:
+                task_id = progress.add_task("正在重建行业映射表", total=335)
+
+                def on_progress(current, total, label):
+                    progress.update(task_id, completed=current, total=total,
+                                    description=f"[{current}/{total}] {label}")
+
+                result = rebuild_all(on_progress=on_progress)
+                progress.update(task_id, visible=False)
+
+            coverage = result["coverage_pct"]
+            color = "green" if coverage >= 95 else "red"
+            console.print(
+                f"[{color}]✓ 行业映射表重建完成：{result['stock_count']} 只股票，"
+                f"覆盖率 {coverage}%[/{color}]"
+            )
+            if result["failed_industries"]:
+                console.print(
+                    f"[yellow]⚠ 失败行业 {len(result['failed_industries'])} 个: "
+                    f"{', '.join(result['failed_industries'])}[/yellow]"
+                )
+            if verbose:
+                console.print(f"[dim]遍历行业 {result['total_industries']} 个[/dim]")
+    except IndustryMappingError as e:
+        console.print(f"[red]✗ 行业映射操作失败: {e}[/red]")
+        sys.exit(1)
 
 
 @main.group()
@@ -431,21 +497,33 @@ def _resolve_api_bind(host: str | None, port: int | None, config: Config) -> tup
     return resolved_host, resolved_port
 
 
-@main.command()
+def _run_web_server(app, host: str, port: int) -> None:
+    """运行 Web 服务。"""
+    import uvicorn
+
+    uvicorn.run(app, host=host, port=port)
+
+
+@main.command("run")
 @click.option("--host", default=None, help="监听地址（默认读配置 api.host，缺省 127.0.0.1）")
 @click.option("--port", default=None, type=int, help="监听端口（默认读配置 api.port，缺省 25618）")
-def api(host, port):
+def run(host, port):
     """启动 Web API 服务（含 Web UI）"""
     from api.app import create_app
     from api.bootstrap import build_agent_core
 
     config = Config()
     bind_host, bind_port = _resolve_api_bind(host, port, config)
-    core = build_agent_core(config)
-    app = create_app(core=core)
+    with _create_cli_progress() as progress:
+        task_id = progress.add_task("正在构建 Agent 核心", total=3)
+        core = build_agent_core(config)
+        progress.update(task_id, completed=1, description="正在创建 Web 应用")
+        app = create_app(core=core)
+        progress.update(task_id, completed=3, description="正在启动 HTTP 服务")
+
     logger.info("Stock Robot API 启动于 http://%s:%d", bind_host, bind_port)
-    import uvicorn
-    uvicorn.run(app, host=bind_host, port=bind_port)
+    console.print(f"[green]Web 服务正在运行: http://{bind_host}:{bind_port}[/green]")
+    _run_web_server(app, bind_host, bind_port)
 
 
 @main.command()
