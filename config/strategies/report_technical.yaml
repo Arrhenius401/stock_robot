@@ -1,0 +1,14 @@
+id: report_technical
+name: 报告技术信号策略
+version: 1
+signal_source: technical_score
+thresholds:
+  attack: 7
+  watch: 4
+target_positions:
+  attack: 0.7
+  watch: 0.4
+  defend: 0.0
+execution: next_open
+warmup_days: 90
+cost_profile: a_share_default

@@ -8,7 +8,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "src"))
 
 from analysis.config_loader import ConfigLoader
-from analysis.scorers.general import GeneralScorer
+from analysis.scorers.general import GeneralScorer, calculate_macd
 from data.schemas import (
     AnalysisContext,
     EnrichedIndustry,
@@ -120,3 +120,51 @@ class TestGeneralScorerSentiment:
         scorer = GeneralScorer(config, {})
         score, _, _ = scorer.score_sentiment(ctx)
         assert score > 5.0
+
+
+def test_macd_dea_is_not_equal_to_dif_for_non_linear_prices():
+    closes = [
+        10.0,
+        10.4,
+        10.2,
+        10.8,
+        11.1,
+        10.9,
+        11.6,
+        11.4,
+        11.9,
+        12.2,
+        12.0,
+        12.7,
+        12.9,
+        12.6,
+        13.4,
+        13.1,
+        13.7,
+        13.9,
+        14.2,
+        14.0,
+        14.6,
+        14.9,
+        14.7,
+        15.3,
+        15.1,
+        15.8,
+        16.0,
+        15.7,
+        16.4,
+        16.1,
+        16.8,
+        17.0,
+        16.7,
+        17.3,
+        17.1,
+        17.8,
+        18.0,
+        17.6,
+        18.3,
+        18.1,
+    ]
+
+    macd = calculate_macd(closes)
+    assert macd.dea != macd.dif
