@@ -264,6 +264,8 @@ stock-robot run --host 127.0.0.1 --port 8000
 - `GET /api/v1/config`、`PUT /api/v1/config`、`GET /api/v1/config/credentials/{key}` — 配置读取、局部更新和按需读取凭据
 - `GET /api/v1/tools` — 工具列表
 
+> **配置热更新：** `PUT /api/v1/config` 响应包含三个固定状态字段——`persisted`（是否已写盘）、`applied`（是否已应用于运行时）、`restart_required`（是否需重启），以及 `applied=false` 且非监听配置时的 `reload_error`（不含敏感信息）。LLM、缓存 TTL、推送、信号等字段保存后立即对**后续新建**的聊天、分析、指数分析和推送任务生效；已开始的任务继续使用其启动时的配置快照。`api.host` 与 `api.port` 例外：只写入配置文件，必须重启 `stock-robot run` 后生效。
+
 > 无 Agent 模式（仅调试静态页）：`PYTHONPATH=src python -m uvicorn api.app:app`，
 > 该模式下 chat 返回"Agent 核心未注入"提示，analyze/index 返回 503。
 
