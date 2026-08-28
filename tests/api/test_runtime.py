@@ -23,12 +23,16 @@ class _FakeScheduler(PushScheduler):
         self.start_calls = 0
         self.shutdown_calls = 0
         self.fail_start = False
+        self.start_then_fail = False
         self.fail_shutdown_before_stop = False
         self.stop_then_fail_shutdown = False
         self.running = False
 
     def start(self) -> None:
         self.start_calls += 1
+        if self.start_then_fail:
+            self.running = True
+            raise RuntimeError("调度器启动失败")
         if self.fail_start:
             raise RuntimeError("调度器启动失败")
         self.running = True
@@ -265,3 +269,61 @@ class TestRuntimeManager:
         assert schedulers[0].running is True
         assert schedulers[1].shutdown_calls == 1
         assert schedulers[1].running is False
+
+    def test_reload_start_cleanup_failure_keeps_previous_snapshot_and_reports_failure(self, tmp_path):
+        """候选启动后清理失败时，不能把不确定运行态标为已应用。"""
+        config = Config(config_dir=tmp_path)
+        schedulers: list[_FakeScheduler] = []
+
+        def scheduler_factory(executor: PushExecutor, store: object, scheduler_config: Config) -> _FakeScheduler:
+            scheduler = _FakeScheduler(executor, store, scheduler_config)
+            if schedulers:
+                scheduler.start_then_fail = True
+                scheduler.fail_shutdown_before_stop = True
+            schedulers.append(scheduler)
+            return scheduler
+
+        runtime = RuntimeManager(
+            config,
+            core_factory=lambda _config: cast(AgentCore, object()),
+            executor_factory=_FakeExecutor,
+            scheduler_factory=scheduler_factory,
+        )
+        original_snapshot = runtime.snapshot()
+
+        result = runtime.reload(config)
+
+        assert result.applied is False
+        assert result.error == "运行时调度器启动失败"
+        assert runtime.snapshot() is original_snapshot
+        assert schedulers[0].running is True
+        assert schedulers[1].running is True
+        assert schedulers[1].shutdown_calls == 1
+
+    def test_reload_shutdown_cleanup_failure_keeps_previous_snapshot_and_reports_failure(self, tmp_path):
+        """双调度器都无法确认清理时，必须保留旧快照并明确失败。"""
+        config = Config(config_dir=tmp_path)
+        schedulers: list[_FakeScheduler] = []
+
+        def scheduler_factory(executor: PushExecutor, store: object, scheduler_config: Config) -> _FakeScheduler:
+            scheduler = _FakeScheduler(executor, store, scheduler_config)
+            scheduler.fail_shutdown_before_stop = True
+            schedulers.append(scheduler)
+            return scheduler
+
+        runtime = RuntimeManager(
+            config,
+            core_factory=lambda _config: cast(AgentCore, object()),
+            executor_factory=_FakeExecutor,
+            scheduler_factory=scheduler_factory,
+        )
+        original_snapshot = runtime.snapshot()
+
+        result = runtime.reload(config)
+
+        assert result.applied is False
+        assert result.error == "运行时调度器切换失败"
+        assert runtime.snapshot() is original_snapshot
+        assert schedulers[0].running is True
+        assert schedulers[1].running is True
+        assert schedulers[1].shutdown_calls == 1

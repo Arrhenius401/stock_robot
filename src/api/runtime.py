@@ -69,10 +69,6 @@ class RuntimeManager:
         except Exception:
             logger.exception("候选运行时调度器启动失败，保留当前运行时快照")
             self._cleanup_scheduler(candidate)
-            if self._scheduler_is_running(candidate):
-                with self._lock:
-                    self._snapshot = candidate
-                return ReloadResult(applied=True)
             return ReloadResult(applied=False, error="运行时调度器启动失败")
 
         with self._lock:
@@ -85,12 +81,10 @@ class RuntimeManager:
             if self._scheduler_is_running(previous):
                 logger.exception("旧运行时调度器仍在运行，停止候选并回滚快照")
                 self._cleanup_scheduler(candidate)
-                if not self._scheduler_is_running(candidate):
-                    with self._lock:
-                        if self._snapshot is candidate:
-                            self._snapshot = previous
-                    return ReloadResult(applied=False, error="运行时调度器切换失败")
-                logger.error("候选调度器未能停止，继续使用已启动的新运行时")
+                with self._lock:
+                    if self._snapshot is candidate:
+                        self._snapshot = previous
+                return ReloadResult(applied=False, error="运行时调度器切换失败")
             else:
                 # 旧调度器可能已完成停止后才抛出异常；候选已启动且已提交，
                 # 保持其为当前快照才能确保 applied 与实际可用运行态一致。
