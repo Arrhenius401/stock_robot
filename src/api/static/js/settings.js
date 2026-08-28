@@ -347,20 +347,26 @@ async function saveSettings() {
   }
   try {
     const result = await api.updateConfig(update);
-    if (result.persisted && result.applied) {
-      // 热更新已应用：重新读取并重绘，草稿已落盘
+    if (result.applied) {
+      // 热更新已应用：重新读取并重绘，草稿已落盘；同时含监听字段时附加重启提示
       const payload = await api.getConfig();
       renderSettings(payload);
-      showMessage("配置已保存并应用", "success");
-    } else if (result.persisted && result.restart_required) {
-      // 监听地址/端口需重启生效，其余字段已落盘
+      showMessage(
+        result.restart_required
+          ? "配置已保存并应用；监听地址或端口在重启 stock-robot run 后生效"
+          : "配置已保存并应用",
+        "success",
+      );
+    } else if (result.restart_required && !result.reload_error) {
+      // 仅监听地址/端口变更：已落盘，重启后生效
       const payload = await api.getConfig();
       renderSettings(payload);
       showMessage("配置已保存；监听地址或端口在重启 stock-robot run 后生效", "success");
     } else {
-      // 已落盘但运行时未应用（applied=false 且无需重启）：保留草稿，展示可读错误
+      // 已落盘但热更新未应用（含监听字段与热字段混合提交失败）：保留草稿，展示可读错误
       restoreSaveButton();
-      showMessage(result.reload_error || "配置已保存但运行时应用失败", "error");
+      const restartNote = result.restart_required ? "监听地址或端口已保存，重启后生效；" : "";
+      showMessage(restartNote + (result.reload_error || "配置已保存但运行时应用失败"), "error");
     }
   } catch (error) {
     // 网络/422 校验失败：保留草稿与输入，仅展示错误

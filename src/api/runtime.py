@@ -3,6 +3,7 @@ import copy
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import partial
 from threading import Lock
 
 from api.bootstrap import AgentCore, build_agent_core
@@ -40,13 +41,19 @@ class RuntimeManager:
         self,
         config: Config,
         *,
-        core_factory: Callable[[Config], AgentCore | None] = build_agent_core,
+        core_factory: Callable[[Config], AgentCore | None] | None = None,
         executor_factory: Callable[[AgentCore | None, PushStore, Config], PushExecutor] = PushExecutor,
         scheduler_factory: Callable[[PushExecutor, PushStore, Config], PushScheduler] = PushScheduler,
     ) -> None:
         self._lock = Lock()
         self._reload_lock = Lock()
-        self._core_factory = core_factory
+        if core_factory is None:
+            # 默认工厂：初始构建保持降级语义，热重载必须暴露 LLM 初始化失败
+            self._core_factory = build_agent_core
+            self._strict_core_factory = partial(build_agent_core, strict_llm=True)
+        else:
+            self._core_factory = core_factory
+            self._strict_core_factory = core_factory
         self._executor_factory = executor_factory
         self._scheduler_factory = scheduler_factory
         self._snapshot = self._build_snapshot(config)
@@ -65,15 +72,15 @@ class RuntimeManager:
     def _reload(self, config: Config) -> ReloadResult:
         """事务式替换运行时，未提交候选不会激活可执行 cron。"""
         try:
-            candidate = self._build_snapshot(config)
-        except Exception:  # noqa: BLE001 — 运行时依赖构建边界需保留旧快照
-            logger.error("运行时快照重建失败，保留当前运行时快照")
+            candidate = self._build_snapshot(config, strict_llm=True)
+        except Exception as exc:  # noqa: BLE001 — 运行时依赖构建边界需保留旧快照
+            logger.error("运行时快照重建失败，保留当前运行时快照: %s", exc)
             return ReloadResult(applied=False, error="运行时快照重建失败")
 
         previous = self.snapshot()
         try:
             self._shutdown_scheduler(previous)
-        except Exception:
+        except Exception:  # 调度器关闭为运行时隔离边界，关闭异常不应中断切换
             if self._scheduler_is_running(previous):
                 logger.exception("旧运行时调度器仍在运行，取消运行时切换")
                 self._cleanup_scheduler(candidate)
@@ -82,7 +89,7 @@ class RuntimeManager:
 
         try:
             self._start_scheduler(candidate, paused=True)
-        except Exception:
+        except Exception:  # 调度器启动为运行时隔离边界
             logger.exception("候选运行时调度器准备失败，恢复旧运行时")
             self._cleanup_scheduler(candidate)
             if not self._restore_scheduler(previous):
@@ -93,7 +100,7 @@ class RuntimeManager:
             self._snapshot = candidate
         try:
             self._activate_scheduler(candidate)
-        except Exception:
+        except Exception:  # 调度器激活为运行时隔离边界
             logger.exception("候选运行时调度器激活失败，恢复旧运行时")
             self._cleanup_scheduler(candidate)
             with self._lock:
@@ -105,10 +112,10 @@ class RuntimeManager:
 
         return ReloadResult(applied=True)
 
-    def _build_snapshot(self, config: Config) -> RuntimeSnapshot:
+    def _build_snapshot(self, config: Config, *, strict_llm: bool = False) -> RuntimeSnapshot:
         """在锁外构建候选快照，避免阻塞正在读取快照的请求。"""
         snapshot_config = self._copy_config(config)
-        core = self._core_factory(snapshot_config)
+        core = (self._strict_core_factory if strict_llm else self._core_factory)(snapshot_config)
         push_store = PushStore(snapshot_config.config_dir / "push.db")
         push_executor = self._executor_factory(core, push_store, snapshot_config)
         push_scheduler = self._scheduler_factory(push_executor, push_store, snapshot_config)
@@ -156,7 +163,7 @@ class RuntimeManager:
         """候选失败后尽力恢复已停止的旧调度器。"""
         try:
             cls._start_scheduler(snapshot)
-        except Exception:
+        except Exception:  # 调度器恢复为运行时隔离边界
             logger.exception("旧运行时调度器恢复失败")
             return False
         return True
@@ -166,7 +173,7 @@ class RuntimeManager:
         """尽力回收未提交候选快照的调度器，清理失败不覆盖主错误。"""
         try:
             cls._shutdown_scheduler(snapshot)
-        except Exception:
+        except Exception:  # 调度器清理为运行时隔离边界
             logger.exception("候选运行时调度器清理失败")
             return False
         return True

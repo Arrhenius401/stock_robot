@@ -259,7 +259,8 @@ def _initial_core_factory(core: Any):
             return core
         from api.bootstrap import build_agent_core
 
-        return build_agent_core(config)
+        # 热重载必须暴露 LLM 初始化失败，避免静默降级后误报 applied=true
+        return build_agent_core(config, strict_llm=True)
 
     return build
 

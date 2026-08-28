@@ -72,6 +72,25 @@ class _FakeCore(AgentCore):
 
 
 class TestRuntimeManager:
+    def test_reload_with_default_factory_uses_strict_llm(self, tmp_path, monkeypatch):
+        """默认核心工厂在热重载时以 strict_llm=True 构建，LLM 初始化失败转为 reload 失败而非静默降级。"""
+        calls: list[bool] = []
+
+        def spy(config: Config, *, strict_llm: bool = False) -> AgentCore:
+            calls.append(strict_llm)
+            return cast(AgentCore, object())
+
+        monkeypatch.setattr("api.runtime.build_agent_core", spy)
+        runtime = RuntimeManager(
+            Config(config_dir=tmp_path),
+            executor_factory=_FakeExecutor,
+            scheduler_factory=_FakeScheduler,
+        )
+        result = runtime.reload(Config(config_dir=tmp_path))
+
+        assert result.applied is True
+        assert calls == [False, True]
+
     def test_concurrent_reloads_serialize_transactions_and_leave_one_active_scheduler(self, tmp_path):
         """并发 reload 必须串行，避免两个候选调度器同时激活。"""
         config = Config(config_dir=tmp_path)
@@ -95,7 +114,7 @@ class TestRuntimeManager:
         active_builds = 0
         max_active_builds = 0
 
-        def blocking_build(config: Config):
+        def blocking_build(config: Config, *, strict_llm: bool = False):
             nonlocal active_builds, max_active_builds
             with counter_lock:
                 active_builds += 1

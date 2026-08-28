@@ -1530,6 +1530,17 @@ if (model2.value !== "gpt-6" || document.getElementById("settingsDirtyBar").hidd
     || document.getElementById("settingsSaveBtn").textContent !== "保存并应用") {
   throw new Error("运行时应用失败应保留输入与提示条，并显示 reload_error");
 }
+putResult = {
+  persisted: true, applied: false, restart_required: true,
+  reload_error: "LLM 后端初始化失败",
+};
+await document.getElementById("settingsSaveBtn").click();
+if (model2.value !== "gpt-6" || document.getElementById("settingsDirtyBar").hidden
+    || !settingsContent.textContent.includes("有 1 项配置尚未保存")
+    || !settingsContent.textContent.includes("监听地址或端口已保存，重启后生效")
+    || !settingsContent.textContent.includes("LLM 后端初始化失败")) {
+  throw new Error("混合更新失败应保留草稿，并同时提示重启与 reload_error");
+}
 api.updateConfig = async () => { const error = new Error("llm.model: 不允许"); error.status = 422; throw error; };
 await document.getElementById("settingsSaveBtn").click();
 if (model2.value !== "gpt-6" || document.getElementById("settingsDirtyBar").hidden
