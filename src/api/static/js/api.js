@@ -100,6 +100,7 @@ export const api = {
     return request(`/api/v1/config/credentials/${key}`);
   },
   updateConfig(config) {
+    // PUT 响应含 persisted/applied/restart_required 与可选 reload_error，由设置页决定是否重绘
     return request("/api/v1/config", { method: "PUT", body: JSON.stringify({ config }) });
   },
   listTools() {

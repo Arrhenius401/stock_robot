@@ -127,6 +127,8 @@ class Element {
       for (const child of node.children) {
         if (selector === "section[id]" && child.tagName === "SECTION" && child.id) all.push(child);
         if (selector.startsWith(".") && child.classList.contains(selector.slice(1))) all.push(child);
+        const attr = selector.match(/^\[data-([a-z-]+)=([a-z0-9_-]+)\]$/);
+        if (attr && child.dataset[attr[1]] === attr[2]) all.push(child);
         visit(child);
       }
     };
@@ -1397,7 +1399,7 @@ await pending;
         assert "clearSession(" not in api_source
 
     def test_settings_renders_configuration_and_handles_secrets_and_save(self, tmp_path):
-        """设置页应按需读取密钥、保留编辑值，并只提交实际修改的字段。"""
+        """设置页应维护本地草稿，编辑只更新提示条计数，保存时才提交变更。"""
         settings_url = json.dumps(_module_url("src/api/static/js/settings.js"))
         api_url = json.dumps(_module_url("src/api/static/js/api.js"))
         state_url = json.dumps(_module_url("src/api/static/js/state.js"))
@@ -1431,6 +1433,7 @@ const payload = {
 };
 let credentialCalls = 0;
 let putBody = null;
+let putResult = { persisted: true, applied: true, restart_required: false };
 api.getConfig = async () => payload;
 api.getCredential = async (key) => {
   credentialCalls += 1;
@@ -1439,7 +1442,7 @@ api.getCredential = async (key) => {
 };
 api.updateConfig = async (config) => {
   putBody = config;
-  return { ...payload, restart_required: true };
+  return { ...payload, ...putResult };
 };
 store.currentView = "settings";
 initSettings();
@@ -1447,45 +1450,91 @@ renderSettings(payload);
 for (const heading of ["LLM 设置", "数据与缓存", "服务设置", "推送设置", "信号策略"]) {
   if (!settingsContent.textContent.includes(heading)) throw new Error(`缺少分区: ${heading}`);
 }
-if (!settingsContent.textContent.includes("D:/project/.stock_robot")
-    || !settingsContent.textContent.includes("sk-ab*****wxyz")) {
-  throw new Error("未显示只读路径或默认掩码");
+if (!settingsContent.textContent.includes("D:/project/.stock_robot")) {
+  throw new Error("未显示只读路径");
+}
+if (!document.getElementById("settingsDirtyBar").hidden) {
+  throw new Error("未编辑时不应显示全局未保存提示");
+}
+const apiKey = document.getElementById("settings-llm-api_key");
+if (byClass(settingsContent, "settings-secret-value").length
+    || apiKey.value || apiKey.placeholder !== "sk-ab*****wxyz"
+    || apiKey.type !== "password") {
+  throw new Error("密钥应使用单一输入框展示掩码，且不保留额外展示列");
 }
 const toggle = byClass(settingsContent, "settings-secret-toggle")[0];
 if (toggle.getAttribute("aria-label") !== "显示完整密钥") {
   throw new Error("密钥默认未使用显示按钮语义");
 }
 await toggle.click();
-if (credentialCalls !== 1 || !settingsContent.textContent.includes("sk-actual-secret-wxyz")
+if (credentialCalls !== 1 || apiKey.value !== "sk-actual-secret-wxyz" || apiKey.type !== "text"
     || toggle.getAttribute("aria-label") !== "隐藏完整密钥") {
   throw new Error("睁眼未按需读取或展示完整密钥");
 }
 await toggle.click();
-if (credentialCalls !== 1 || settingsContent.textContent.includes("sk-actual-secret-wxyz")
-    || !settingsContent.textContent.includes("sk-ab*****wxyz")
+if (credentialCalls !== 1 || apiKey.value || apiKey.placeholder !== "sk-ab*****wxyz"
+    || apiKey.type !== "password"
     || toggle.getAttribute("aria-label") !== "显示完整密钥") {
   throw new Error("闭眼未擦除完整密钥并恢复掩码");
 }
 const model = document.getElementById("settings-llm-model");
 model.value = "gpt-5";
 await model.dispatch("input");
-const apiKey = document.getElementById("settings-llm-api_key");
-apiKey.value = "sk-ab*****wxyz";
-await apiKey.dispatch("input");
-await document.getElementById("settingsSaveBtn").click();
-if (putBody?.llm?.model !== "gpt-5" || Object.hasOwn(putBody.llm, "api_key")) {
-  throw new Error("保存未形成最小更新，或空密钥覆盖了旧值");
+if (putBody !== null || document.getElementById("settingsDirtyBar").hidden
+    || !settingsContent.textContent.includes("有 1 项配置尚未保存")) {
+  throw new Error("编辑配置不应立即保存，且必须显示全局未保存提示");
 }
-if (!settingsContent.textContent.includes("服务地址或端口已保存，重启 stock-robot run 后生效")) {
+apiKey.value = "sk-new-secret-wxyz";
+await apiKey.dispatch("input");
+if (putBody !== null || document.getElementById("settingsDirtyBar").hidden
+    || !settingsContent.textContent.includes("有 2 项配置尚未保存")) {
+  throw new Error("多字段编辑未显示 N=2 计数，或编辑时不应触发保存");
+}
+await document.getElementById("settingsSaveBtn").click();
+if (putBody?.llm?.model !== "gpt-5" || putBody?.llm?.api_key !== "sk-new-secret-wxyz") {
+  throw new Error("保存未提交草稿，或密钥未在保存时才进入 PUT body");
+}
+if (!document.getElementById("settingsDirtyBar").hidden
+    || !settingsContent.textContent.includes("配置已保存并应用")) {
+  throw new Error("热更新成功未隐藏提示条或未显示已保存并应用");
+}
+const host = document.getElementById("settings-api-host");
+const port = document.getElementById("settings-api-port");
+host.value = "0.0.0.0";
+await host.dispatch("input");
+port.value = "8080";
+await port.dispatch("input");
+if (document.getElementById("settingsDirtyBar").hidden
+    || !settingsContent.textContent.includes("有 2 项配置尚未保存")) {
+  throw new Error("监听地址与端口编辑未显示 N=2 未保存计数");
+}
+putResult = { persisted: true, applied: false, restart_required: true };
+await document.getElementById("settingsSaveBtn").click();
+if (putBody?.api?.host !== "0.0.0.0" || putBody?.api?.port !== 8080) {
+  throw new Error("保存未提交监听地址与端口");
+}
+if (!settingsContent.textContent.includes("配置已保存；监听地址或端口在重启 stock-robot run 后生效")) {
   throw new Error("缺少服务配置重启提示");
 }
-const updatedModel = document.getElementById("settings-llm-model");
-updatedModel.value = "保留编辑值";
-await updatedModel.dispatch("input");
+const model2 = document.getElementById("settings-llm-model");
+model2.value = "gpt-6";
+await model2.dispatch("input");
+putResult = {
+  persisted: true, applied: false, restart_required: false,
+  reload_error: "运行时未连接，配置将在下次启动时生效",
+};
+await document.getElementById("settingsSaveBtn").click();
+if (model2.value !== "gpt-6" || document.getElementById("settingsDirtyBar").hidden
+    || !settingsContent.textContent.includes("有 1 项配置尚未保存")
+    || !settingsContent.textContent.includes("运行时未连接，配置将在下次启动时生效")
+    || document.getElementById("settingsSaveBtn").textContent !== "保存并应用") {
+  throw new Error("运行时应用失败应保留输入与提示条，并显示 reload_error");
+}
 api.updateConfig = async () => { const error = new Error("llm.model: 不允许"); error.status = 422; throw error; };
 await document.getElementById("settingsSaveBtn").click();
-if (updatedModel.value !== "保留编辑值" || !settingsContent.textContent.includes("llm.model: 不允许")) {
-  throw new Error("保存失败覆盖了编辑值，或未显示校验错误");
+if (model2.value !== "gpt-6" || document.getElementById("settingsDirtyBar").hidden
+    || !settingsContent.textContent.includes("llm.model: 不允许")) {
+  throw new Error("保存失败覆盖了编辑值，或未显示校验错误，或未保留未保存提示");
 }
 """.replace("__SETTINGS_URL__", settings_url).replace("__API_URL__", api_url)
         script = script.replace("__STATE_URL__", state_url)
@@ -1562,7 +1611,7 @@ const second = toggle.click();
 if (calls !== 1) throw new Error("连续睁眼不应重复读取完整密钥");
 resolvers.shift()({ value: "first-complete-secret" });
 await Promise.all([first, second]);
-if (settingsContent.textContent.includes("first-complete-secret")) {
+if (document.getElementById("settings-llm-api_key").value === "first-complete-secret") {
   throw new Error("第二次点击闭眼后迟到响应不应显示完整密钥");
 }
 
@@ -1576,7 +1625,7 @@ replacement.value = "new-secret";
 await replacement.dispatch("input");
 resolvers.shift()({ value: "late-after-edit" });
 await afterEdit;
-if (settingsContent.textContent.includes("late-after-edit")) {
+if (replacement.value === "late-after-edit") {
   throw new Error("编辑新密钥后迟到响应泄露了完整值");
 }
 
@@ -1592,7 +1641,7 @@ settingsView.classList.remove("active");
 bus.dispatchEvent(leave);
 resolvers.shift()({ value: "late-after-leave" });
 await afterLeave;
-if (settingsContent.textContent.includes("late-after-leave")) {
+if (document.getElementById("settings-llm-api_key").value === "late-after-leave") {
   throw new Error("离开设置页后迟到响应泄露了完整值");
 }
 """.replace("__SETTINGS_URL__", settings_url).replace("__API_URL__", api_url)
