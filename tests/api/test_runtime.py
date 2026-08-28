@@ -30,6 +30,13 @@ class _FakeScheduler(PushScheduler):
         self.shutdown_calls += 1
 
 
+class _FakeCore(AgentCore):
+    """仅记录构建时配置，避免测试触发真实数据源与 LLM 初始化。"""
+
+    def __init__(self, config: Config):
+        self.config = config
+
+
 class TestRuntimeManager:
     def test_reload_replaces_snapshot_then_starts_new_scheduler_and_stops_old(self, tmp_path):
         """替换顺序或生命周期遗漏会让新旧调度器状态断言失败。"""
@@ -107,8 +114,35 @@ class TestRuntimeManager:
         assert runtime.reload(config).applied is True
 
         assert held_snapshot.core is old_core
-        assert held_snapshot.config is config
+        assert held_snapshot.config is not config
         assert runtime.snapshot().core is new_core
+
+    def test_reload_after_source_config_set_and_update_keeps_held_snapshot_isolated(self, tmp_path):
+        """来源配置原地写入后，旧任务及其 core 仍读取构建时配置。"""
+        source_config = Config(config_dir=tmp_path)
+        runtime = RuntimeManager(
+            source_config,
+            core_factory=_FakeCore,
+            executor_factory=_FakeExecutor,
+            scheduler_factory=_FakeScheduler,
+        )
+        held_snapshot = runtime.snapshot()
+
+        source_config.set("signal.thresholds.attack", 9)
+        source_config.update({"llm": {"model": "snapshot-safe-model"}})
+        assert runtime.reload(source_config).applied is True
+        current_snapshot = runtime.snapshot()
+        held_core = cast(_FakeCore, held_snapshot.core)
+        current_core = cast(_FakeCore, current_snapshot.core)
+
+        assert held_snapshot.config.get("signal.thresholds.attack") == 7
+        assert held_core.config.get("signal.thresholds.attack") == 7
+        assert held_snapshot.config.get("llm.model") == "gpt-4o"
+        assert held_core.config.get("llm.model") == "gpt-4o"
+        assert current_snapshot.config.get("signal.thresholds.attack") == 9
+        assert current_core.config.get("signal.thresholds.attack") == 9
+        assert current_snapshot.config.get("llm.model") == "snapshot-safe-model"
+        assert current_core.config.get("llm.model") == "snapshot-safe-model"
 
     def test_reload_does_not_start_scheduler_when_push_disabled(self, tmp_path):
         """关闭推送时错误启动调度器会创建不应存在的后台任务。"""

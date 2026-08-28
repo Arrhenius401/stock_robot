@@ -1,4 +1,5 @@
 """API 运行时快照的原子替换管理。"""
+import copy
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -73,17 +74,25 @@ class RuntimeManager:
 
     def _build_snapshot(self, config: Config) -> RuntimeSnapshot:
         """在锁外构建候选快照，避免阻塞正在读取快照的请求。"""
-        core = self._core_factory(config)
-        push_store = PushStore(config.config_dir / "push.db")
-        push_executor = self._executor_factory(core, push_store, config)
-        push_scheduler = self._scheduler_factory(push_executor, push_store, config)
+        snapshot_config = self._copy_config(config)
+        core = self._core_factory(snapshot_config)
+        push_store = PushStore(snapshot_config.config_dir / "push.db")
+        push_executor = self._executor_factory(core, push_store, snapshot_config)
+        push_scheduler = self._scheduler_factory(push_executor, push_store, snapshot_config)
         return RuntimeSnapshot(
-            config=config,
+            config=snapshot_config,
             core=core,
             push_store=push_store,
             push_executor=push_executor,
             push_scheduler=push_scheduler,
         )
+
+    @staticmethod
+    def _copy_config(config: Config) -> Config:
+        """复制配置数据，防止后续来源配置原地更新影响已持有快照。"""
+        snapshot_config = Config(config_dir=config.config_dir)
+        snapshot_config.data = copy.deepcopy(config.data)
+        return snapshot_config
 
     @staticmethod
     def _start_scheduler(snapshot: RuntimeSnapshot) -> None:
