@@ -5,7 +5,7 @@ import json
 import logging
 import threading
 from datetime import datetime
-from typing import cast
+from typing import Any, cast
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,6 +20,7 @@ from agent.planner import Planner
 from agent.react import ReActExecutor
 from api.configuration import create_configuration_router
 from api.message_content import normalize_message_content
+from api.runtime import RuntimeManager
 from api.session_titles import SessionTitleRefiner, derive_session_title
 from api.sessions import is_draft_session_id
 from push.models import Channel, Subscription
@@ -241,7 +242,18 @@ def _build_signal_payload(final_score: float) -> dict:
             "action": action.action, "position": action.position}
 
 
-def create_app(core=None, sessions=None, push=None):
+def _reload_push_if_active(push: Any) -> None:
+    """仅对已启用的推送调度器触发订阅重载。"""
+    if push is not None and push is not False:
+        push.reload()
+
+
+def create_app(
+    core=None,
+    sessions=None,
+    push: Any = None,
+    runtime: RuntimeManager | None = None,
+):
     # 推送模块：仅当 core 注入且未显式传 push 时自动构建（测试注入桩时跳过）
     push_store = None
     push_executor = None
@@ -256,12 +268,17 @@ def create_app(core=None, sessions=None, push=None):
         push = PushScheduler(push_executor, push_store, config)
         push.start()
 
+    if runtime is None and core is not None and push is not False:
+        from utils.config import Config
+
+        runtime = RuntimeManager(Config())
+
     app = FastAPI(title="Stock Robot API", version="0.1.0",
                   description="AI 驱动的股票分析研报助手 HTTP API")
 
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
                        allow_headers=["*"])
-    app.include_router(create_configuration_router())
+    app.include_router(create_configuration_router(runtime=runtime))
 
     if sessions is None and core is not None:
         from api.sessions import SessionManager, SessionStore
@@ -834,8 +851,7 @@ def create_app(core=None, sessions=None, push=None):
         _check_symbol_limit(sub)
         sub.created_at = datetime.now().astimezone().isoformat()
         sub_id = store.create(sub)
-        if push is not None:
-            push.reload()
+        _reload_push_if_active(push)
         # 先展开 model_dump（id 为 None），再覆盖真实 id
         return JSONResponse({**sub.model_dump(mode="json"), "id": sub_id})
 
@@ -861,8 +877,7 @@ def create_app(core=None, sessions=None, push=None):
         _check_symbol_limit(sub)
         sub.id = subscription_id
         store.update(sub)
-        if push is not None:
-            push.reload()
+        _reload_push_if_active(push)
         return JSONResponse(sub.model_dump(mode="json"))
 
     @app.delete("/api/v1/subscriptions/{subscription_id}")
@@ -871,8 +886,7 @@ def create_app(core=None, sessions=None, push=None):
         if not store.delete(subscription_id):
             raise HTTPException(status_code=404,
                                 detail=f"订阅不存在: {subscription_id}")
-        if push is not None:
-            push.reload()
+        _reload_push_if_active(push)
         return JSONResponse({"status": "ok"})
 
     @app.post("/api/v1/subscriptions/{subscription_id}/run")

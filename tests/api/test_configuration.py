@@ -8,7 +8,20 @@ from fastapi.testclient import TestClient
 
 from api.app import create_app
 from api.configuration import mask_secret
+from api.runtime import ReloadResult, RuntimeManager
 from utils.config import Config
+
+
+class RuntimeStub(RuntimeManager):
+    """记录配置路由交给运行时的重载请求。"""
+
+    def __init__(self, result: ReloadResult | None = None) -> None:
+        self.reload_configs: list[Config] = []
+        self.result = result or ReloadResult(applied=True)
+
+    def reload(self, config: Config) -> ReloadResult:
+        self.reload_configs.append(config)
+        return self.result
 
 
 @pytest.fixture
@@ -21,6 +34,19 @@ def config_client(tmp_path: Path, monkeypatch):
     config.set("push.wecom.secret", "wecom-secret-xyz")
     return config, TestClient(
         create_app(push=False),
+        client=("127.0.0.1", 43210),
+        raise_server_exceptions=False,
+    )
+
+
+@pytest.fixture
+def runtime_config_client(tmp_path: Path, monkeypatch):
+    """创建带运行时桩的配置客户端，隔离真实 AgentCore。"""
+    monkeypatch.chdir(tmp_path)
+    config = Config()
+    runtime = RuntimeStub()
+    return config, runtime, TestClient(
+        create_app(push=False, runtime=runtime),
         client=("127.0.0.1", 43210),
         raise_server_exceptions=False,
     )
@@ -150,6 +176,92 @@ def test_update_deep_merges_only_submitted_values_and_persists_once(config_clien
     assert response.json()["config"]["llm"]["model"] == "gpt-4o"
     assert persist_calls == 1
     assert Config(config_dir=config.config_dir).get("llm.temperature") == 0.8
+
+
+def test_hot_update_persists_then_applies_runtime(runtime_config_client):
+    """热更新写盘成功后应立刻交给运行时生效。"""
+    config, runtime, client = runtime_config_client
+
+    response = client.put("/api/v1/config", json={
+        "config": {"llm": {"temperature": 0.8}},
+    })
+
+    assert response.status_code == 200
+    assert response.json()["persisted"] is True
+    assert response.json()["applied"] is True
+    assert response.json()["restart_required"] is False
+    assert len(runtime.reload_configs) == 1
+    assert Config(config_dir=config.config_dir).get("llm.temperature") == 0.8
+
+
+def test_listener_only_update_persists_without_runtime_reload(runtime_config_client):
+    """仅监听配置变更只写盘并要求重启，不能重建运行时。"""
+    config, runtime, client = runtime_config_client
+
+    response = client.put("/api/v1/config", json={
+        "config": {"api": {"port": 3000}},
+    })
+
+    assert response.status_code == 200
+    assert response.json()["persisted"] is True
+    assert response.json()["applied"] is False
+    assert response.json()["restart_required"] is True
+    assert runtime.reload_configs == []
+    assert Config(config_dir=config.config_dir).get("api.port") == 3000
+
+
+def test_mixed_listener_and_hot_update_applies_hot_part(runtime_config_client):
+    """混合更新需保留监听端口给重启，并仅以热字段重载运行时。"""
+    config, runtime, client = runtime_config_client
+    original_port = config.get("api.port")
+
+    response = client.put("/api/v1/config", json={
+        "config": {"api": {"port": 3000}, "llm": {"temperature": 0.8}},
+    })
+
+    assert response.status_code == 200
+    assert response.json()["applied"] is True
+    assert response.json()["restart_required"] is True
+    assert len(runtime.reload_configs) == 1
+    assert runtime.reload_configs[0].get("api.port") == original_port
+    assert runtime.reload_configs[0].get("llm.temperature") == 0.8
+
+
+def test_reload_failure_is_reported_without_secret(tmp_path: Path, monkeypatch):
+    """重载失败仍保留写盘结果，且错误响应不泄露新密钥。"""
+    monkeypatch.chdir(tmp_path)
+    runtime = RuntimeStub(ReloadResult(applied=False, error="模拟运行时重建失败"))
+    client = TestClient(
+        create_app(push=False, runtime=runtime),
+        client=("127.0.0.1", 43210),
+        raise_server_exceptions=False,
+    )
+
+    response = client.put("/api/v1/config", json={
+        "config": {"llm": {"api_key": "new-secret"}},
+    })
+
+    assert response.status_code == 200
+    assert response.json()["persisted"] is True
+    assert response.json()["applied"] is False
+    assert response.json()["reload_error"] == "模拟运行时重建失败"
+    assert "new-secret" not in response.text
+
+
+def test_update_without_runtime_reports_unavailable_reload(config_client, monkeypatch):
+    """无运行时模式热字段仍可写盘，并返回可恢复的未连接状态。"""
+    config, client = config_client
+    monkeypatch.setattr("api.configuration.Config", lambda: config)
+
+    response = client.put("/api/v1/config", json={
+        "config": {"llm": {"temperature": 0.8}},
+    })
+
+    assert response.status_code == 200
+    assert response.json()["persisted"] is True
+    assert response.json()["applied"] is False
+    assert response.json()["restart_required"] is False
+    assert "reload_error" in response.json()
 
 
 def test_config_update_deep_merges_and_persists_once(tmp_path: Path, monkeypatch):

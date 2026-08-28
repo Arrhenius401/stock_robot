@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from api.runtime import RuntimeManager
 from utils.config import Config
 
 _CREDENTIAL_PATHS = {
@@ -251,12 +252,43 @@ def _restart_required(update: dict[str, Any]) -> bool:
     return bool(update.get("api", {}).keys() & {"host", "port"})
 
 
+def _has_hot_update(update: dict[str, Any]) -> bool:
+    """判断更新中是否包含可在当前进程生效的字段。"""
+    return any(key != "api" for key in update)
+
+
+def _config_for_runtime(
+    config: Config,
+    before_update: dict[str, Any],
+    update: dict[str, Any],
+) -> Config:
+    """为热重载恢复监听字段，避免运行时快照误用待重启的绑定配置。"""
+    runtime_config = Config(config_dir=config.config_dir)
+    runtime_config.data = copy.deepcopy(config.data)
+    for key in update.get("api", {}):
+        runtime_config.data["api"][key] = before_update["api"][key]
+    return runtime_config
+
+
+def _safe_reload_error(error: str | None, config: Config) -> str:
+    """清理重载错误中的已配置凭据，防止错误边界泄露密钥。"""
+    message = error or "运行时热更新失败"
+    for path in _CREDENTIAL_PATH_SET:
+        secret = str(_get_value(config.data, path))
+        if secret:
+            message = message.replace(secret, "***")
+    return message
+
+
 def _is_loopback_client(request: Request) -> bool:
     """完整凭据只交给本机回环请求，防止远程页面读取。"""
     return request.client is not None and request.client.host in {"127.0.0.1", "::1"}
 
 
-def create_configuration_router(config_factory: Callable[[], Config] | None = None) -> APIRouter:
+def create_configuration_router(
+    config_factory: Callable[[], Config] | None = None,
+    runtime: RuntimeManager | None = None,
+) -> APIRouter:
     """创建使用同一份项目配置文件的受控配置路由。"""
     router = APIRouter()
 
@@ -294,14 +326,32 @@ def create_configuration_router(config_factory: Callable[[], Config] | None = No
         config = get_config()
         update = _validate_update(body["config"], _EDITABLE_FIELDS)
         _validate_threshold_relation(config.data, update)
+        before_update = copy.deepcopy(config.data)
         config.update(update)
-        return JSONResponse({
+        restart_required = _restart_required(update)
+        applied = False
+        reload_error: str | None = None
+        if _has_hot_update(update):
+            if runtime is None:
+                reload_error = "运行时未连接，配置将在下次启动时生效"
+            else:
+                result = runtime.reload(_config_for_runtime(config, before_update, update))
+                applied = result.applied
+                if not result.applied:
+                    reload_error = _safe_reload_error(result.error, config)
+
+        response: dict[str, Any] = {
             "config": safe_config(config),
             "paths": {
                 "state_dir": str(config.config_dir),
                 "config_file": str(config.config_dir / "config.yaml"),
             },
-            "restart_required": _restart_required(update),
-        })
+            "persisted": True,
+            "applied": applied,
+            "restart_required": restart_required,
+        }
+        if reload_error is not None:
+            response["reload_error"] = reload_error
+        return JSONResponse(response)
 
     return router
