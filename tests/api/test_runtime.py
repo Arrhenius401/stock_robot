@@ -27,27 +27,40 @@ class _FakeScheduler(PushScheduler):
         self.fail_shutdown_before_stop = False
         self.stop_then_fail_shutdown = False
         self.running = False
+        self.active = False
+        self.activate_calls = 0
 
-    def start(self) -> None:
+    def start(self, *, paused: bool = False) -> None:
         self.start_calls += 1
         if self.start_then_fail:
             self.running = True
+            self.active = not paused
             raise RuntimeError("调度器启动失败")
         if self.fail_start:
             raise RuntimeError("调度器启动失败")
         self.running = True
+        self.active = not paused
+
+    def activate(self) -> None:
+        self.activate_calls += 1
+        self.active = True
 
     def shutdown(self) -> None:
         self.shutdown_calls += 1
         if self.fail_shutdown_before_stop:
             raise RuntimeError("调度器关闭失败")
         self.running = False
+        self.active = False
         if self.stop_then_fail_shutdown:
             raise RuntimeError("调度器关闭失败")
 
     @property
     def is_running(self) -> bool:
         return self.running
+
+    @property
+    def is_active(self) -> bool:
+        return self.active
 
 
 class _FakeCore(AgentCore):
@@ -186,7 +199,7 @@ class TestRuntimeManager:
         assert [scheduler.start_calls for scheduler in schedulers] == [0, 0]
 
     def test_reload_start_failure_keeps_previous_snapshot_and_cleans_candidate(self, tmp_path):
-        """候选调度器启动失败时不得替换快照或遗留候选资源。"""
+        """候选调度器启动失败时必须恢复旧调度器且不提交候选。"""
         config = Config(config_dir=tmp_path)
         schedulers: list[_FakeScheduler] = []
 
@@ -209,7 +222,8 @@ class TestRuntimeManager:
 
         assert result.applied is False
         assert runtime.snapshot() is original_snapshot
-        assert schedulers[0].shutdown_calls == 0
+        assert schedulers[0].shutdown_calls == 1
+        assert schedulers[0].start_calls == 2
         assert schedulers[1].shutdown_calls == 1
 
     def test_reload_keeps_candidate_when_previous_stops_then_raises(self, tmp_path):
@@ -240,6 +254,7 @@ class TestRuntimeManager:
         assert schedulers[0].running is False
         assert schedulers[1].start_calls == 1
         assert schedulers[1].running is True
+        assert schedulers[1].active is True
         assert schedulers[1].shutdown_calls == 0
 
     def test_reload_rolls_back_when_previous_reports_still_running_on_shutdown_error(self, tmp_path):
@@ -297,7 +312,9 @@ class TestRuntimeManager:
         assert result.error == "运行时调度器启动失败"
         assert runtime.snapshot() is original_snapshot
         assert schedulers[0].running is True
+        assert schedulers[0].active is True
         assert schedulers[1].running is True
+        assert schedulers[1].active is False
         assert schedulers[1].shutdown_calls == 1
 
     def test_reload_shutdown_cleanup_failure_keeps_previous_snapshot_and_reports_failure(self, tmp_path):
@@ -325,5 +342,35 @@ class TestRuntimeManager:
         assert result.error == "运行时调度器切换失败"
         assert runtime.snapshot() is original_snapshot
         assert schedulers[0].running is True
-        assert schedulers[1].running is True
+        assert schedulers[1].running is False
+        assert schedulers[1].active is False
         assert schedulers[1].shutdown_calls == 1
+
+    def test_reload_candidate_start_failure_reports_restore_failure_without_activating_candidate(self, tmp_path):
+        """旧调度器恢复失败时也不能让未提交候选执行 cron。"""
+        config = Config(config_dir=tmp_path)
+        schedulers: list[_FakeScheduler] = []
+
+        def scheduler_factory(executor: PushExecutor, store: object, scheduler_config: Config) -> _FakeScheduler:
+            scheduler = _FakeScheduler(executor, store, scheduler_config)
+            if schedulers:
+                scheduler.fail_start = True
+            schedulers.append(scheduler)
+            return scheduler
+
+        runtime = RuntimeManager(
+            config,
+            core_factory=lambda _config: cast(AgentCore, object()),
+            executor_factory=_FakeExecutor,
+            scheduler_factory=scheduler_factory,
+        )
+        original_snapshot = runtime.snapshot()
+        schedulers[0].fail_start = True
+
+        result = runtime.reload(config)
+
+        assert result.applied is False
+        assert result.error == "运行时调度器恢复失败"
+        assert runtime.snapshot() is original_snapshot
+        assert schedulers[0].active is False
+        assert schedulers[1].active is False

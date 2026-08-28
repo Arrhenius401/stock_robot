@@ -41,9 +41,18 @@ class _SchedulerStub:
     def __init__(self):
         self.jobs = []
         self.started = False
+        self.paused = False
 
-    def start(self):
+    @property
+    def running(self):
+        return self.started
+
+    def start(self, paused=False):
         self.started = True
+        self.paused = paused
+
+    def resume(self):
+        self.paused = False
 
     def remove_all_jobs(self):
         self.jobs = []

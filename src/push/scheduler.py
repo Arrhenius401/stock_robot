@@ -15,20 +15,44 @@ class PushScheduler:
         self._store = store
         self._config = config
         self._scheduler: BackgroundScheduler | None = None
+        self._paused = False
 
-    def start(self):
+    def start(self, *, paused: bool = False):
         if not self._config.get("push.enabled", True):
             logger.info("push.enabled=false，跳过推送调度")
             return
-        if self._scheduler is None:
-            self._scheduler = BackgroundScheduler()
-            self._scheduler.start()
+        if self.is_running:
+            return
+        scheduler = BackgroundScheduler()
+        self._scheduler = scheduler
+        self._paused = paused
+        try:
+            scheduler.start(paused=paused)
             self.reload()
+        except Exception:
+            self._scheduler = None
+            self._paused = False
+            try:
+                scheduler.shutdown(wait=False)
+            except Exception:
+                logger.exception("推送调度器启动失败后的清理异常")
+            raise
 
     @property
     def is_running(self) -> bool:
         """供运行时切换确认调度器是否仍持有后台任务。"""
         return bool(self._scheduler is not None and self._scheduler.running)
+
+    @property
+    def is_active(self) -> bool:
+        """仅在未暂停时允许 cron 实际执行。"""
+        return self.is_running and not self._paused
+
+    def activate(self) -> None:
+        """恢复候选调度器，使已注册 cron 可执行。"""
+        if self._scheduler is not None and self._paused:
+            self._scheduler.resume()
+            self._paused = False
 
     def reload(self):
         """重读订阅并重新注册每日 cron 任务"""
@@ -63,5 +87,8 @@ class PushScheduler:
 
     def shutdown(self):
         if self._scheduler is not None:
-            self._scheduler.shutdown(wait=False)
-            self._scheduler = None
+            try:
+                self._scheduler.shutdown(wait=False)
+            finally:
+                self._scheduler = None
+                self._paused = False

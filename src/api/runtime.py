@@ -57,38 +57,45 @@ class RuntimeManager:
             return self._snapshot
 
     def reload(self, config: Config) -> ReloadResult:
-        """构建并原子替换运行时；任一阶段失败均保留原快照。"""
+        """事务式替换运行时，未提交候选不会激活可执行 cron。"""
         try:
             candidate = self._build_snapshot(config)
         except Exception:  # noqa: BLE001 — 运行时依赖构建边界需保留旧快照
             logger.error("运行时快照重建失败，保留当前运行时快照")
             return ReloadResult(applied=False, error="运行时快照重建失败")
 
-        try:
-            self._start_scheduler(candidate)
-        except Exception:
-            logger.exception("候选运行时调度器启动失败，保留当前运行时快照")
-            self._cleanup_scheduler(candidate)
-            return ReloadResult(applied=False, error="运行时调度器启动失败")
-
-        with self._lock:
-            previous = self._snapshot
-            self._snapshot = candidate
-
+        previous = self.snapshot()
         try:
             self._shutdown_scheduler(previous)
         except Exception:
             if self._scheduler_is_running(previous):
-                logger.exception("旧运行时调度器仍在运行，停止候选并回滚快照")
+                logger.exception("旧运行时调度器仍在运行，取消运行时切换")
                 self._cleanup_scheduler(candidate)
-                with self._lock:
-                    if self._snapshot is candidate:
-                        self._snapshot = previous
                 return ReloadResult(applied=False, error="运行时调度器切换失败")
-            else:
-                # 旧调度器可能已完成停止后才抛出异常；候选已启动且已提交，
-                # 保持其为当前快照才能确保 applied 与实际可用运行态一致。
-                logger.exception("旧运行时调度器已停止但关闭异常，继续使用新运行时")
+            logger.exception("旧运行时调度器已停止但关闭异常，继续切换")
+
+        try:
+            self._start_scheduler(candidate, paused=True)
+        except Exception:
+            logger.exception("候选运行时调度器准备失败，恢复旧运行时")
+            self._cleanup_scheduler(candidate)
+            if not self._restore_scheduler(previous):
+                return ReloadResult(applied=False, error="运行时调度器恢复失败")
+            return ReloadResult(applied=False, error="运行时调度器启动失败")
+
+        with self._lock:
+            self._snapshot = candidate
+        try:
+            self._activate_scheduler(candidate)
+        except Exception:
+            logger.exception("候选运行时调度器激活失败，恢复旧运行时")
+            self._cleanup_scheduler(candidate)
+            with self._lock:
+                if self._snapshot is candidate:
+                    self._snapshot = previous
+            if not self._restore_scheduler(previous):
+                return ReloadResult(applied=False, error="运行时调度器恢复失败")
+            return ReloadResult(applied=False, error="运行时调度器激活失败")
 
         return ReloadResult(applied=True)
 
@@ -115,10 +122,16 @@ class RuntimeManager:
         return snapshot_config
 
     @staticmethod
-    def _start_scheduler(snapshot: RuntimeSnapshot) -> None:
-        """仅在推送启用时启动已替换进快照的调度器。"""
+    def _start_scheduler(snapshot: RuntimeSnapshot, *, paused: bool = False) -> None:
+        """仅在推送启用时启动调度器；候选可先暂停以避免提前执行。"""
         if snapshot.push_scheduler is not None and snapshot.config.get("push.enabled", True):
-            snapshot.push_scheduler.start()
+            snapshot.push_scheduler.start(paused=paused)
+
+    @staticmethod
+    def _activate_scheduler(snapshot: RuntimeSnapshot) -> None:
+        """提交候选快照后才激活其已暂停的 cron。"""
+        if snapshot.push_scheduler is not None and snapshot.config.get("push.enabled", True):
+            snapshot.push_scheduler.activate()
 
     @staticmethod
     def _shutdown_scheduler(snapshot: RuntimeSnapshot) -> None:
@@ -131,6 +144,16 @@ class RuntimeManager:
         """读取调度器公开运行状态；未知状态时不将其误判为仍在运行。"""
         scheduler = snapshot.push_scheduler
         return bool(getattr(scheduler, "is_running", False))
+
+    @classmethod
+    def _restore_scheduler(cls, snapshot: RuntimeSnapshot) -> bool:
+        """候选失败后尽力恢复已停止的旧调度器。"""
+        try:
+            cls._start_scheduler(snapshot)
+        except Exception:
+            logger.exception("旧运行时调度器恢复失败")
+            return False
+        return True
 
     @classmethod
     def _cleanup_scheduler(cls, snapshot: RuntimeSnapshot) -> bool:
