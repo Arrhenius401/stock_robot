@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from threading import Event, Lock, Thread
 from typing import cast
 
 from api.bootstrap import AgentCore
@@ -71,6 +72,61 @@ class _FakeCore(AgentCore):
 
 
 class TestRuntimeManager:
+    def test_concurrent_reloads_serialize_transactions_and_leave_one_active_scheduler(self, tmp_path):
+        """并发 reload 必须串行，避免两个候选调度器同时激活。"""
+        config = Config(config_dir=tmp_path)
+        schedulers: list[_FakeScheduler] = []
+
+        def scheduler_factory(executor: PushExecutor, store: object, scheduler_config: Config) -> _FakeScheduler:
+            scheduler = _FakeScheduler(executor, store, scheduler_config)
+            schedulers.append(scheduler)
+            return scheduler
+
+        runtime = RuntimeManager(
+            config,
+            core_factory=lambda _config: cast(AgentCore, object()),
+            executor_factory=_FakeExecutor,
+            scheduler_factory=scheduler_factory,
+        )
+        original_build = runtime._build_snapshot
+        build_started = Event()
+        allow_build = Event()
+        counter_lock = Lock()
+        active_builds = 0
+        max_active_builds = 0
+
+        def blocking_build(config: Config):
+            nonlocal active_builds, max_active_builds
+            with counter_lock:
+                active_builds += 1
+                max_active_builds = max(max_active_builds, active_builds)
+            build_started.set()
+            allow_build.wait(timeout=1)
+            with counter_lock:
+                active_builds -= 1
+            return original_build(config)
+
+        runtime._build_snapshot = blocking_build
+        results = []
+
+        def reload_runtime():
+            results.append(runtime.reload(config))
+
+        first = Thread(target=reload_runtime)
+        second = Thread(target=reload_runtime)
+        first.start()
+        assert build_started.wait(timeout=1)
+        second.start()
+        allow_build.set()
+        first.join(timeout=2)
+        second.join(timeout=2)
+
+        assert not first.is_alive()
+        assert not second.is_alive()
+        assert max_active_builds == 1
+        assert [result.applied for result in results] == [True, True]
+        assert sum(scheduler.active for scheduler in schedulers) == 1
+
     def test_reload_replaces_snapshot_then_starts_new_scheduler_and_stops_old(self, tmp_path):
         """替换顺序或生命周期遗漏会让新旧调度器状态断言失败。"""
         config = Config(config_dir=tmp_path)

@@ -45,6 +45,7 @@ class RuntimeManager:
         scheduler_factory: Callable[[PushExecutor, PushStore, Config], PushScheduler] = PushScheduler,
     ) -> None:
         self._lock = Lock()
+        self._reload_lock = Lock()
         self._core_factory = core_factory
         self._executor_factory = executor_factory
         self._scheduler_factory = scheduler_factory
@@ -57,6 +58,11 @@ class RuntimeManager:
             return self._snapshot
 
     def reload(self, config: Config) -> ReloadResult:
+        """串行执行完整重载事务，避免并发切换产生多个活动调度器。"""
+        with self._reload_lock:
+            return self._reload(config)
+
+    def _reload(self, config: Config) -> ReloadResult:
         """事务式替换运行时，未提交候选不会激活可执行 cron。"""
         try:
             candidate = self._build_snapshot(config)
