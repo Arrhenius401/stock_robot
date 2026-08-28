@@ -6,13 +6,16 @@ from analysis.scorers.base import BaseScorer
 from data.schemas import AnalysisContext
 
 
-def _ema_line(data: list[float], period: int) -> list[float]:
+def _ema_line(data: list[float], period: int) -> list[float | None]:
     if not data:
         return []
+    if len(data) < period:
+        return [None] * len(data)
     multiplier = 2 / (period + 1)
-    ema = data[0]
-    line = [ema]
-    for value in data[1:]:
+    line: list[float | None] = [None] * (period - 1)
+    ema = sum(data[:period]) / period
+    line.append(ema)
+    for value in data[period:]:
         ema = (value - ema) * multiplier + ema
         line.append(ema)
     return line
@@ -35,10 +38,20 @@ def calculate_macd(closes: list[float]) -> MacdValues:
 
     ema12_line = _ema_line(closes, 12)
     ema26_line = _ema_line(closes, 26)
-    dif_line = [ema12 - ema26 for ema12, ema26 in zip(ema12_line, ema26_line)]
-    dea_line = _ema_line(dif_line, 9)
+    dif_line = [
+        ema12 - ema26
+        for ema12, ema26 in zip(ema12_line, ema26_line)
+        if ema12 is not None and ema26 is not None
+    ]
+    if not dif_line:
+        return MacdValues(dif=0.0, dea=0.0, bar=0.0)
     dif = dif_line[-1]
-    dea = dea_line[-1]
+    if len(dif_line) < 9:
+        dea = dif
+    else:
+        dea_line = _ema_line(dif_line, 9)
+        dea_value = dea_line[-1] if dea_line else None
+        dea = dea_value if dea_value is not None else dif
     return MacdValues(dif=dif, dea=dea, bar=2 * (dif - dea))
 
 

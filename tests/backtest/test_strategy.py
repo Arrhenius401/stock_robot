@@ -108,3 +108,14 @@ def test_repository_rejects_duplicate_strategy_id():
 
         with pytest.raises(StrategyConfigError, match="重复"):
             StrategyRepository(strategies_dir).load_all()
+
+
+def test_real_report_technical_strategy_can_be_loaded():
+    strategy = StrategyRepository(Path("config/strategies")).get("report_technical")
+
+    assert strategy.id == "report_technical"
+    assert strategy.name == "报告技术信号策略"
+    assert strategy.signal_source == "technical_score"
+    assert strategy.execution == "next_open"
+    assert strategy.warmup_days == 90
+    assert strategy.thresholds == {"attack": 7.0, "watch": 4.0}
