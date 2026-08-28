@@ -20,7 +20,7 @@ from agent.planner import Planner
 from agent.react import ReActExecutor
 from api.configuration import create_configuration_router
 from api.message_content import normalize_message_content
-from api.runtime import RuntimeManager
+from api.runtime import RuntimeManager, RuntimeSnapshot
 from api.session_titles import SessionTitleRefiner, derive_session_title
 from api.sessions import is_draft_session_id
 from push.models import Channel, Subscription
@@ -230,12 +230,12 @@ async def _agent_fallback(executor, memory, goal: str) -> tuple[str, dict, list[
     )
 
 
-def _build_signal_payload(final_score: float) -> dict:
+def _build_signal_payload(final_score: float, config: Any | None = None) -> dict:
     """从配置加载信号映射并构造 API 信号字段（配置损坏时抛 ValueError 由边界兜底）"""
     from report.signal import SIGNAL_LABELS, derive_signal, load_signal_config
     from utils.config import Config
 
-    cfg = load_signal_config(Config())
+    cfg = load_signal_config(config or Config())
     level = derive_signal(final_score, cfg.thresholds)
     action = cfg.actions[level]
     return {"level": level, "label": SIGNAL_LABELS[level],
@@ -295,10 +295,20 @@ def create_app(
         from utils.config import Config
         sessions = SessionManager(SessionStore(Config().config_dir / "sessions.db"))
 
-    def _build_agent(session_memory):
+    def _runtime_snapshot() -> RuntimeSnapshot | None:
+        """在入口处读取一次运行时快照，后续链路只持有该对象。"""
+        if runtime is None:
+            return None
+        return runtime.snapshot()
+
+    def _snapshot_core(snapshot: RuntimeSnapshot | None):
+        if snapshot is not None:
+            return snapshot.core
+        return core
+
+    def _build_agent(session_memory, agent_core):
         """按会话现建轻量 Planner/Executor/ChatResponder（无状态，构造廉价）"""
-        # 调用方（chat/run_agent）已校验 core 注入，复制到局部变量并断言收窄类型
-        agent_core = core
+        # 调用方已在请求入口冻结快照并校验 core 注入，复制到局部变量并断言收窄类型
         assert agent_core is not None
         planner = Planner(llm=agent_core.llm, registry=agent_core.registry,
                           memory=session_memory)
@@ -318,10 +328,12 @@ def create_app(
 
     @app.get("/api/v1/tools")
     async def list_tools():
-        if core is None:
+        snapshot = _runtime_snapshot()
+        agent_core = _snapshot_core(snapshot)
+        if agent_core is None:
             return JSONResponse({"tools": []})
-        return JSONResponse({"tools": core.registry.list_all_summary(),
-                             "total": len(core.registry.list_all())})
+        return JSONResponse({"tools": agent_core.registry.list_all_summary(),
+                             "total": len(agent_core.registry.list_all())})
 
     @app.post("/api/v1/chat")
     async def chat(request: Request):
@@ -330,13 +342,15 @@ def create_app(
         session_id = _extract_session_id(body, request)
         if not message:
             raise HTTPException(status_code=422, detail="message 不能为空")
-        if core is None or sessions is None:
+        snapshot = _runtime_snapshot()
+        agent_core = _snapshot_core(snapshot)
+        if agent_core is None or sessions is None:
             return JSONResponse({"response": f"[API 模式] 收到消息: {message}（Agent 核心未注入）",
                                  "session_id": session_id or ""})
 
         try:
             sid, memory = sessions.get_or_create_for_message(session_id, message)
-            planner, executor, chat_responder = _build_agent(memory)
+            planner, executor, chat_responder = _build_agent(memory, agent_core)
             plan = await asyncio.to_thread(planner.plan, message)
             if plan.mode == "chat":
                 # 闲聊：ChatResponder 普通会话回复，跳过执行器并写入会话消息
@@ -351,8 +365,8 @@ def create_app(
                 })
             if plan.mode == "agent":
                 # agent 模式：自主循环执行；无模型或异常降级 plan 单步
-                react = ReActExecutor(registry=core.registry, memory=memory,
-                                      model=core.model, session_id=sid,
+                react = ReActExecutor(registry=agent_core.registry, memory=memory,
+                                      model=agent_core.model, session_id=sid,
                                       persist_dir=str(DEFAULT_CHECKPOINT_DIR))
                 msg_snapshot = len(memory.messages)
                 try:
@@ -418,10 +432,13 @@ def create_app(
         message = str(body.get("message", "")).strip()
         if not message:
             raise HTTPException(status_code=422, detail="message 不能为空")
+        snapshot = _runtime_snapshot()
+        agent_core = _snapshot_core(snapshot)
+        stream_core = agent_core
 
         async def event_stream():
             yield f"data: {json.dumps({'type': 'start', 'message': message}, ensure_ascii=False)}\n\n"
-            if core is None or sessions is None:
+            if stream_core is None or sessions is None:
                 yield f"data: {json.dumps({'type': 'text', 'content': '[API 模式] Agent 核心未注入'}, ensure_ascii=False)}\n\n"
                 yield f"data: {json.dumps({'type': 'done'})}\n\n"
                 return
@@ -438,6 +455,8 @@ def create_app(
                     # 事件流入口已校验 sessions 注入，复制到局部变量并断言收窄类型
                     manager = sessions
                     assert manager is not None
+                    current_core = stream_core
+                    assert current_core is not None
                     sid, memory = manager.get_or_create_for_message(session_id, message)
                     local_title = derive_session_title(message)
                     should_refine_title = False
@@ -473,14 +492,12 @@ def create_app(
                     async def finish_title() -> None:
                         if not should_refine_title:
                             return
-                        agent_core = core
-                        assert agent_core is not None
                         await _finish_title_refinement(
                             manager, sid, message, local_title,
-                            agent_core.model, queue,
+                            current_core.model, queue,
                         )
 
-                    planner, executor, chat_responder = _build_agent(memory)
+                    planner, executor, chat_responder = _build_agent(memory, current_core)
                     plan = await asyncio.to_thread(planner.plan, message)
                     if plan.mode == "chat":
                         # 闲聊：模型 token 到达即转成正文增量，避免用户等待整段回复。
@@ -509,12 +526,9 @@ def create_app(
                         # 实时 thinking/tool_call/tool_result 事件，最终 text 事件收尾
                         await queue.put({"type": "plan", "goal": plan.goal,
                                          "steps": [], "session_id": sid})
-                        # 事件流入口已校验 core 注入，复制到局部变量并断言收窄类型
-                        agent_core = core
-                        assert agent_core is not None
                         react = ReActExecutor(
-                            registry=agent_core.registry, memory=memory,
-                            model=agent_core.model,
+                            registry=current_core.registry, memory=memory,
+                            model=current_core.model,
                             session_id=sid, persist_dir=str(DEFAULT_CHECKPOINT_DIR))
                         msg_snapshot = len(memory.messages)
                         try:
@@ -603,7 +617,9 @@ def create_app(
         symbol = str(body.get("symbol", "")).strip()
         if not symbol:
             raise HTTPException(status_code=422, detail="symbol 不能为空")
-        if core is None:
+        snapshot = _runtime_snapshot()
+        agent_core = _snapshot_core(snapshot)
+        if agent_core is None:
             raise HTTPException(status_code=503, detail="Agent 核心未注入")
 
         from utils.symbols import normalize_symbol, resolve_name, validate_symbol
@@ -614,7 +630,7 @@ def create_app(
 
         try:
             results, commentary, ctx = await asyncio.to_thread(
-                core.pipeline.run, symbol, name
+                agent_core.pipeline.run, symbol, name
             )
             from report.scoring import compute_price_info, compute_score_summary
 
@@ -643,7 +659,10 @@ def create_app(
                 "score_rows": summary.score_rows,
                 "dimensions": dimensions,
                 "commentary": commentary.get("bulk", ""),
-                "signal": _build_signal_payload(summary.final_score),
+                "signal": _build_signal_payload(
+                    summary.final_score,
+                    snapshot.config if snapshot is not None else None,
+                ),
                 "generated_at": datetime.now().astimezone().isoformat(),
             }
             return JSONResponse(_json_safe(payload))
@@ -668,7 +687,9 @@ def create_app(
         symbols = [s for s in raw_symbols if s]
         if not symbols:
             raise HTTPException(status_code=422, detail="symbol 不能为空")
-        if core is None:
+        snapshot = _runtime_snapshot()
+        agent_core = _snapshot_core(snapshot)
+        if agent_core is None:
             raise HTTPException(status_code=503, detail="Agent 核心未注入")
 
         from data.index_mapping import IndexMapping
@@ -701,7 +722,7 @@ def create_app(
             raise HTTPException(status_code=422, detail="；".join(errors))
 
         try:
-            result = await asyncio.to_thread(core.index_pipeline.run, targets)
+            result = await asyncio.to_thread(agent_core.index_pipeline.run, targets)
             compare = None
             if result.compare is not None:
                 compare = {"headers": result.compare.headers,
@@ -813,10 +834,11 @@ def create_app(
 
     # ---- 订阅推送管理 ----
 
-    def _require_push():
+    def _require_push(snapshot: RuntimeSnapshot | None = None):
         # store 优先取注入对象的公开属性（测试桩），否则取自动构建的闭包变量
         # （PushScheduler 的 _store 为私有属性不外露）
-        store = getattr(push, "store", None) or push_store
+        store = (snapshot.push_store if snapshot is not None
+                 else getattr(push, "store", None) or push_store)
         if store is None:
             raise HTTPException(status_code=503, detail="推送模块未初始化")
         return store
@@ -835,9 +857,10 @@ def create_app(
         except ValidationError as e:
             raise HTTPException(status_code=422, detail=str(e.errors())) from e
 
-    def _check_symbol_limit(sub: Subscription):
+    def _check_symbol_limit(sub: Subscription, snapshot: RuntimeSnapshot | None = None):
         from utils.config import Config
-        limit = int(Config().get("push.max_symbols_per_subscription", 20))
+        config = snapshot.config if snapshot is not None else Config()
+        limit = int(config.get("push.max_symbols_per_subscription", 20))
         if len(sub.symbols) > limit:
             raise HTTPException(
                 status_code=422,
@@ -845,7 +868,8 @@ def create_app(
 
     @app.get("/api/v1/subscriptions")
     async def list_subscriptions():
-        store = _require_push()
+        snapshot = _runtime_snapshot()
+        store = _require_push(snapshot)
         items = []
         for sub in store.list():
             item = sub.model_dump(mode="json")
@@ -855,19 +879,22 @@ def create_app(
 
     @app.post("/api/v1/subscriptions")
     async def create_subscription(request: Request):
-        store = _require_push()
+        snapshot = _runtime_snapshot()
+        store = _require_push(snapshot)
         body = await request.json()
         sub = _parse_subscription(body)
-        _check_symbol_limit(sub)
+        _check_symbol_limit(sub, snapshot)
         sub.created_at = datetime.now().astimezone().isoformat()
         sub_id = store.create(sub)
-        _reload_push_if_active(push)
+        _reload_push_if_active(
+            snapshot.push_scheduler if snapshot is not None else push)
         # 先展开 model_dump（id 为 None），再覆盖真实 id
         return JSONResponse({**sub.model_dump(mode="json"), "id": sub_id})
 
     @app.get("/api/v1/subscriptions/{subscription_id}")
     async def get_subscription(subscription_id: int):
-        store = _require_push()
+        snapshot = _runtime_snapshot()
+        store = _require_push(snapshot)
         sub = store.get(subscription_id)
         if sub is None:
             raise HTTPException(status_code=404,
@@ -878,35 +905,41 @@ def create_app(
 
     @app.put("/api/v1/subscriptions/{subscription_id}")
     async def update_subscription(subscription_id: int, request: Request):
-        store = _require_push()
+        snapshot = _runtime_snapshot()
+        store = _require_push(snapshot)
         if store.get(subscription_id) is None:
             raise HTTPException(status_code=404,
                                 detail=f"订阅不存在: {subscription_id}")
         body = await request.json()
         sub = _parse_subscription(body)
-        _check_symbol_limit(sub)
+        _check_symbol_limit(sub, snapshot)
         sub.id = subscription_id
         store.update(sub)
-        _reload_push_if_active(push)
+        _reload_push_if_active(
+            snapshot.push_scheduler if snapshot is not None else push)
         return JSONResponse(sub.model_dump(mode="json"))
 
     @app.delete("/api/v1/subscriptions/{subscription_id}")
     async def delete_subscription(subscription_id: int):
-        store = _require_push()
+        snapshot = _runtime_snapshot()
+        store = _require_push(snapshot)
         if not store.delete(subscription_id):
             raise HTTPException(status_code=404,
                                 detail=f"订阅不存在: {subscription_id}")
-        _reload_push_if_active(push)
+        _reload_push_if_active(
+            snapshot.push_scheduler if snapshot is not None else push)
         return JSONResponse({"status": "ok"})
 
     @app.post("/api/v1/subscriptions/{subscription_id}/run")
     async def run_subscription(subscription_id: int):
-        store = _require_push()
+        snapshot = _runtime_snapshot()
+        store = _require_push(snapshot)
         sub = store.get(subscription_id)
         if sub is None:
             raise HTTPException(status_code=404,
                                 detail=f"订阅不存在: {subscription_id}")
-        executor = getattr(push, "executor", None) or push_executor
+        executor = (snapshot.push_executor if snapshot is not None
+                    else getattr(push, "executor", None) or push_executor)
         if executor is None:
             raise HTTPException(status_code=503, detail="推送执行器未初始化")
         # 后台线程触发推送，避免长耗时阻塞 HTTP 请求

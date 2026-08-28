@@ -113,6 +113,23 @@ class TestPushScheduler:
         scheduler._run(1)
         assert executor.runs == [1]
 
+    def test_old_and_new_scheduler_callbacks_keep_their_own_executor(self):
+        """热切换后，滞后的旧 cron 回调不得转用新 executor。"""
+        sub = Subscription(
+            id=1, name="a", symbols=[SubscriptionSymbol(symbol="600519")],
+            channel="email", time="08:00", enabled=True,
+        )
+        old_executor = _Executor()
+        new_executor = _Executor()
+        old_scheduler = PushScheduler(old_executor, _Store([sub]), _Config())
+        new_scheduler = PushScheduler(new_executor, _Store([sub]), _Config())
+
+        old_scheduler._run(1)
+        new_scheduler._run(1)
+
+        assert old_executor.runs == [1]
+        assert new_executor.runs == [1]
+
     def test_shutdown_stops_scheduler(self, mocker):
         stub = _SchedulerStub()
         mocker.patch("push.scheduler.BackgroundScheduler", return_value=stub)

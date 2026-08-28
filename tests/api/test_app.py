@@ -16,6 +16,7 @@ from api.app import (
     create_app,
 )
 from api.bootstrap import AgentCore
+from api.runtime import RuntimeManager
 from api.sessions import SessionManager, SessionStore
 from data.industry_mapping_builder import IndustryMappingError
 from tests.agent.fake_chat_model import FakeChatModel
@@ -370,6 +371,64 @@ class TestToolsEndpoint:
         tools = resp.json()["tools"]
         assert len(tools) == 1
         assert tools[0]["name"] == "echo"
+
+
+class TestRuntimeSnapshotEndpoints:
+    @pytest.mark.asyncio
+    async def test_analyze_uses_one_snapshot_and_next_request_uses_reloaded_core(
+            self, tmp_path, monkeypatch):
+        """运行中的请求固定旧 core，下一请求才读取热更新后的新 core。"""
+        from utils.config import Config
+
+        class LabeledPipeline:
+            def __init__(self, label):
+                self.label = label
+
+            def run(self, symbol, name, market="a-shares"):
+                results, _, context = FakePipeline().run(symbol, name, market)
+                return results, {"bulk": self.label}, context
+
+        def labeled_core(label):
+            from typing import Any, cast
+
+            template = make_core()
+            return AgentCore(
+                registry=template.registry,
+                pipeline=cast(Any, LabeledPipeline(label)),
+                index_pipeline=template.index_pipeline,
+                llm=template.llm,
+            )
+
+        class SnapshotRuntime(RuntimeManager):
+            def __init__(self, current):
+                self.current = current
+                self.calls = 0
+
+            def snapshot(self):
+                self.calls += 1
+                return self.current
+
+        monkeypatch.chdir(tmp_path)
+        config = Config()
+        old_core = labeled_core("旧快照")
+        new_core = labeled_core("新快照")
+        runtime = SnapshotRuntime(SimpleNamespace(core=old_core, config=config))
+        sessions = SessionManager(SessionStore(tmp_path / "snapshot_sessions.db"))
+        app_snapshot = create_app(
+            core=old_core, sessions=sessions, push=False, runtime=runtime)
+
+        monkeypatch.setattr("utils.symbols.resolve_name", lambda _symbol: "平安银行")
+        async with AsyncClient(transport=ASGITransport(app=app_snapshot),
+                               base_url="http://test") as client:
+            first = await client.post("/api/v1/analyze", json={"symbol": "000001"})
+            runtime.current = SimpleNamespace(core=new_core, config=config)
+            second = await client.post("/api/v1/analyze", json={"symbol": "000001"})
+
+        assert first.status_code == 200
+        assert first.json()["commentary"] == "旧快照"
+        assert second.status_code == 200
+        assert second.json()["commentary"] == "新快照"
+        assert runtime.calls == 2
 
 
 class TestChatEndpoint:
