@@ -23,17 +23,27 @@ class _FakeScheduler(PushScheduler):
         self.start_calls = 0
         self.shutdown_calls = 0
         self.fail_start = False
-        self.fail_shutdown = False
+        self.fail_shutdown_before_stop = False
+        self.stop_then_fail_shutdown = False
+        self.running = False
 
     def start(self) -> None:
         self.start_calls += 1
         if self.fail_start:
             raise RuntimeError("调度器启动失败")
+        self.running = True
 
     def shutdown(self) -> None:
         self.shutdown_calls += 1
-        if self.fail_shutdown:
+        if self.fail_shutdown_before_stop:
             raise RuntimeError("调度器关闭失败")
+        self.running = False
+        if self.stop_then_fail_shutdown:
+            raise RuntimeError("调度器关闭失败")
+
+    @property
+    def is_running(self) -> bool:
+        return self.running
 
 
 class _FakeCore(AgentCore):
@@ -198,15 +208,45 @@ class TestRuntimeManager:
         assert schedulers[0].shutdown_calls == 0
         assert schedulers[1].shutdown_calls == 1
 
-    def test_reload_shutdown_failure_restores_previous_snapshot_and_cleans_candidate(self, tmp_path):
-        """旧调度器关闭失败时应回滚快照，并停止已经启动的候选调度器。"""
+    def test_reload_keeps_candidate_when_previous_stops_then_raises(self, tmp_path):
+        """旧调度器停止后抛错时，快照必须保持指向仍在运行的候选调度器。"""
         config = Config(config_dir=tmp_path)
         schedulers: list[_FakeScheduler] = []
 
         def scheduler_factory(executor: PushExecutor, store: object, scheduler_config: Config) -> _FakeScheduler:
             scheduler = _FakeScheduler(executor, store, scheduler_config)
             if not schedulers:
-                scheduler.fail_shutdown = True
+                scheduler.stop_then_fail_shutdown = True
+            schedulers.append(scheduler)
+            return scheduler
+
+        runtime = RuntimeManager(
+            config,
+            core_factory=lambda _config: cast(AgentCore, object()),
+            executor_factory=_FakeExecutor,
+            scheduler_factory=scheduler_factory,
+        )
+        original_snapshot = runtime.snapshot()
+
+        result = runtime.reload(config)
+
+        assert result.applied is True
+        assert runtime.snapshot() is not original_snapshot
+        assert schedulers[0].shutdown_calls == 1
+        assert schedulers[0].running is False
+        assert schedulers[1].start_calls == 1
+        assert schedulers[1].running is True
+        assert schedulers[1].shutdown_calls == 0
+
+    def test_reload_rolls_back_when_previous_reports_still_running_on_shutdown_error(self, tmp_path):
+        """旧调度器明确仍运行时，必须停掉候选并回滚快照以避免重复推送。"""
+        config = Config(config_dir=tmp_path)
+        schedulers: list[_FakeScheduler] = []
+
+        def scheduler_factory(executor: PushExecutor, store: object, scheduler_config: Config) -> _FakeScheduler:
+            scheduler = _FakeScheduler(executor, store, scheduler_config)
+            if not schedulers:
+                scheduler.fail_shutdown_before_stop = True
             schedulers.append(scheduler)
             return scheduler
 
@@ -222,6 +262,6 @@ class TestRuntimeManager:
 
         assert result.applied is False
         assert runtime.snapshot() is original_snapshot
-        assert schedulers[0].shutdown_calls == 1
-        assert schedulers[1].start_calls == 1
+        assert schedulers[0].running is True
         assert schedulers[1].shutdown_calls == 1
+        assert schedulers[1].running is False

@@ -25,6 +25,11 @@ class PushScheduler:
             self._scheduler.start()
             self.reload()
 
+    @property
+    def is_running(self) -> bool:
+        """供运行时切换确认调度器是否仍持有后台任务。"""
+        return bool(self._scheduler is not None and self._scheduler.running)
+
     def reload(self):
         """重读订阅并重新注册每日 cron 任务"""
         if self._scheduler is None:

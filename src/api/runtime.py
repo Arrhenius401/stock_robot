@@ -69,6 +69,10 @@ class RuntimeManager:
         except Exception:
             logger.exception("候选运行时调度器启动失败，保留当前运行时快照")
             self._cleanup_scheduler(candidate)
+            if self._scheduler_is_running(candidate):
+                with self._lock:
+                    self._snapshot = candidate
+                return ReloadResult(applied=True)
             return ReloadResult(applied=False, error="运行时调度器启动失败")
 
         with self._lock:
@@ -78,12 +82,19 @@ class RuntimeManager:
         try:
             self._shutdown_scheduler(previous)
         except Exception:
-            logger.exception("旧运行时调度器关闭失败，回滚运行时快照")
-            with self._lock:
-                if self._snapshot is candidate:
-                    self._snapshot = previous
-            self._cleanup_scheduler(candidate)
-            return ReloadResult(applied=False, error="运行时调度器切换失败")
+            if self._scheduler_is_running(previous):
+                logger.exception("旧运行时调度器仍在运行，停止候选并回滚快照")
+                self._cleanup_scheduler(candidate)
+                if not self._scheduler_is_running(candidate):
+                    with self._lock:
+                        if self._snapshot is candidate:
+                            self._snapshot = previous
+                    return ReloadResult(applied=False, error="运行时调度器切换失败")
+                logger.error("候选调度器未能停止，继续使用已启动的新运行时")
+            else:
+                # 旧调度器可能已完成停止后才抛出异常；候选已启动且已提交，
+                # 保持其为当前快照才能确保 applied 与实际可用运行态一致。
+                logger.exception("旧运行时调度器已停止但关闭异常，继续使用新运行时")
 
         return ReloadResult(applied=True)
 
@@ -121,10 +132,18 @@ class RuntimeManager:
         if snapshot.push_scheduler is not None:
             snapshot.push_scheduler.shutdown()
 
+    @staticmethod
+    def _scheduler_is_running(snapshot: RuntimeSnapshot) -> bool:
+        """读取调度器公开运行状态；未知状态时不将其误判为仍在运行。"""
+        scheduler = snapshot.push_scheduler
+        return bool(getattr(scheduler, "is_running", False))
+
     @classmethod
-    def _cleanup_scheduler(cls, snapshot: RuntimeSnapshot) -> None:
+    def _cleanup_scheduler(cls, snapshot: RuntimeSnapshot) -> bool:
         """尽力回收未提交候选快照的调度器，清理失败不覆盖主错误。"""
         try:
             cls._shutdown_scheduler(snapshot)
         except Exception:
             logger.exception("候选运行时调度器清理失败")
+            return False
+        return True
