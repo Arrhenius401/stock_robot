@@ -58,6 +58,25 @@ DEFAULT_CONFIG = {
             "defend": {"action": "减仓或回避", "position": "0%-20%"},
         },
     },
+    "backtest": {
+        "default_strategy": "report_technical",
+        "default_benchmark": "money_fund",
+        "initial_cash": 100000.0,
+        "cost_profiles": {
+            "a_share_default": {
+                "commission_rate": 0.0003,
+                "minimum_commission": 5.0,
+                "stamp_duty_rate": 0.0005,
+                "transfer_fee_rate": 0.00001,
+                "slippage_rate": 0.001,
+            },
+        },
+        "benchmarks": {
+            "money_fund": {"name": "中证货币型基金指数", "symbol": "H11025"},
+            "csi_300": {"name": "沪深300", "symbol": "000300"},
+            "csi_all_bond": {"name": "中证全债指数", "symbol": "H11001"},
+        },
+    },
 }
 
 

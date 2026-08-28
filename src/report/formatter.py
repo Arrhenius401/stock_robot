@@ -2,6 +2,7 @@
 import re
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 from rich.console import Group
 from rich.markdown import Markdown
@@ -88,12 +89,13 @@ def _parse_table(lines: list[str]) -> Table:
 
 class ReportFormatter:
     @staticmethod
-    def save(report: str, symbol: str, output_dir: Path | None = None) -> Path:
+    def save(report: str, symbol: str, output_dir: Path | None = None,
+             category: Literal["stock", "index"] = "stock") -> Path:
         if output_dir is None:
             output_dir = Path.cwd() / "reports"
         output_dir = Path(output_dir)
         generated_at = datetime.now().astimezone()
-        report_dir = output_dir / symbol / generated_at.strftime("%Y-%m")
+        report_dir = output_dir / category / symbol / generated_at.strftime("%Y-%m")
         report_dir.mkdir(parents=True, exist_ok=True)
         filename = f"{symbol}_{generated_at.strftime('%Y%m%d_%H%M%S')}.md"
         filepath = report_dir / filename

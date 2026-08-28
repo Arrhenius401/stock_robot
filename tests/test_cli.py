@@ -25,10 +25,14 @@ class TestCLI:
         result = runner.invoke(main, ["analyze", "abc"])
         assert result.exit_code != 0
 
-    def test_analyze_with_valid_symbol(self, mocker):
+    def test_analyze_with_valid_symbol(self, mocker, tmp_path):
         mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
         mocker.patch("utils.symbols.resolve_name", return_value="平安银行")
         mock_pipeline = mocker.patch("stock_robot.cli._build_pipeline")
+        mock_save = mocker.patch(
+            "report.formatter.ReportFormatter.save",
+            return_value=tmp_path / "stock" / "000001" / "2026-08" / "000001.md",
+        )
         mock_instance = mock_pipeline.return_value
         from data.schemas import AnalysisContext, AnalysisResult
         ctx = AnalysisContext(symbol="000001", name="平安银行")
@@ -45,6 +49,7 @@ class TestCLI:
         runner = CliRunner()
         result = runner.invoke(main, ["analyze", "000001", "--no-llm"])
         assert result.exit_code == 0
+        assert mock_save.call_args.kwargs["category"] == "stock"
 
     def test_config_set_and_get(self):
         runner = CliRunner()

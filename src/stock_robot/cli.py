@@ -190,7 +190,7 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
                           no_llm=no_llm, market_env=market_env,
                           signal_cfg=load_signal_config(config))
 
-    saved_path = ReportFormatter.save(report, symbol)
+    saved_path = ReportFormatter.save(report, symbol, category="stock")
     console.print(ReportFormatter.to_rich_markdown(report))
     console.print(f"\n[dim]报告已保存至: {saved_path}[/dim]")
 
@@ -354,7 +354,8 @@ def index(symbols, style, output, compare_only):
             elif output == "markdown":
                 saved = ReportFormatter.save(
                     _render_index_report_md(report),
-                    report.code
+                    report.code,
+                    category="index",
                 )
                 console.print(f"[green]报告已保存: {saved}[/green]")
 
