@@ -57,19 +57,34 @@ class RuntimeManager:
             return self._snapshot
 
     def reload(self, config: Config) -> ReloadResult:
-        """构建并原子替换运行时；失败时保留当前可用快照。"""
+        """构建并原子替换运行时；任一阶段失败均保留原快照。"""
         try:
             candidate = self._build_snapshot(config)
         except Exception:  # noqa: BLE001 — 运行时依赖构建边界需保留旧快照
             logger.error("运行时快照重建失败，保留当前运行时快照")
             return ReloadResult(applied=False, error="运行时快照重建失败")
 
+        try:
+            self._start_scheduler(candidate)
+        except Exception:
+            logger.exception("候选运行时调度器启动失败，保留当前运行时快照")
+            self._cleanup_scheduler(candidate)
+            return ReloadResult(applied=False, error="运行时调度器启动失败")
+
         with self._lock:
             previous = self._snapshot
             self._snapshot = candidate
 
-        self._start_scheduler(candidate)
-        self._shutdown_scheduler(previous)
+        try:
+            self._shutdown_scheduler(previous)
+        except Exception:
+            logger.exception("旧运行时调度器关闭失败，回滚运行时快照")
+            with self._lock:
+                if self._snapshot is candidate:
+                    self._snapshot = previous
+            self._cleanup_scheduler(candidate)
+            return ReloadResult(applied=False, error="运行时调度器切换失败")
+
         return ReloadResult(applied=True)
 
     def _build_snapshot(self, config: Config) -> RuntimeSnapshot:
@@ -105,3 +120,11 @@ class RuntimeManager:
         """在替换后停止旧调度器；其实现以 wait=False 关闭后台调度。"""
         if snapshot.push_scheduler is not None:
             snapshot.push_scheduler.shutdown()
+
+    @classmethod
+    def _cleanup_scheduler(cls, snapshot: RuntimeSnapshot) -> None:
+        """尽力回收未提交候选快照的调度器，清理失败不覆盖主错误。"""
+        try:
+            cls._shutdown_scheduler(snapshot)
+        except Exception:
+            logger.exception("候选运行时调度器清理失败")

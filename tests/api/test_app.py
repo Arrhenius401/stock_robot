@@ -2,6 +2,8 @@
 import asyncio
 import json
 import uuid
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -301,6 +303,34 @@ def make_broken_core():
                      pipeline=cast(Any, FakePipeline()),
                      index_pipeline=cast(Any, FakeIndexPipeline()),
                      llm=cast(Any, FakeLLM()))
+
+
+def test_create_app_uses_runtime_as_the_only_initial_push_owner(tmp_path, monkeypatch):
+    """生产 core 注入应复用既有 core，且不得先创建传统推送调度器。"""
+    monkeypatch.chdir(tmp_path)
+    created: list[Any] = []
+
+    class RuntimeRecorder:
+        def __init__(self, config, *, core_factory):
+            self.initial_core = core_factory(config)
+            self._snapshot = SimpleNamespace(
+                push_store=object(), push_executor=object(), push_scheduler=object())
+            created.append(self)
+
+        def snapshot(self):
+            return self._snapshot
+
+    def fail_legacy_push(*_args, **_kwargs):
+        raise AssertionError("不应创建传统 PushExecutor")
+
+    monkeypatch.setattr("api.app.RuntimeManager", RuntimeRecorder)
+    monkeypatch.setattr("push.executor.PushExecutor", fail_legacy_push)
+    core = make_core()
+
+    create_app(core=core, sessions=object())
+
+    assert len(created) == 1
+    assert created[0].initial_core is core
 
 
 @pytest.fixture

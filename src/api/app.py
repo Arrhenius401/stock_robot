@@ -248,30 +248,40 @@ def _reload_push_if_active(push: Any) -> None:
         push.reload()
 
 
+def _initial_core_factory(core: Any):
+    """首个快照复用 CLI 已构建 core，后续热重载再构建新 core。"""
+    initial = True
+
+    def build(config):
+        nonlocal initial
+        if initial:
+            initial = False
+            return core
+        from api.bootstrap import build_agent_core
+
+        return build_agent_core(config)
+
+    return build
+
+
 def create_app(
     core=None,
     sessions=None,
     push: Any = None,
     runtime: RuntimeManager | None = None,
 ):
-    # 推送模块：仅当 core 注入且未显式传 push 时自动构建（测试注入桩时跳过）
-    push_store = None
-    push_executor = None
-    if push is None and core is not None:
-        from push.executor import PushExecutor
-        from push.scheduler import PushScheduler
-        from push.store import PushStore
-        from utils.config import Config
-        config = Config()
-        push_store = PushStore(config.config_dir / "push.db")
-        push_executor = PushExecutor(core, push_store, config)
-        push = PushScheduler(push_executor, push_store, config)
-        push.start()
-
-    if runtime is None and core is not None and push is not False:
+    # 生产路径由 RuntimeManager 独占 core、执行器和推送调度器的初始所有权。
+    # 测试传入 push=False、推送桩或 runtime 桩时保持既有注入行为，不创建真实依赖。
+    push_store: Any = None
+    push_executor: Any = None
+    if runtime is None and core is not None and push is None:
         from utils.config import Config
 
-        runtime = RuntimeManager(Config())
+        runtime = RuntimeManager(Config(), core_factory=_initial_core_factory(core))
+        snapshot = runtime.snapshot()
+        push_store = snapshot.push_store
+        push_executor = snapshot.push_executor
+        push = snapshot.push_scheduler
 
     app = FastAPI(title="Stock Robot API", version="0.1.0",
                   description="AI 驱动的股票分析研报助手 HTTP API")
