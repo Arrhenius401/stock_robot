@@ -20,6 +20,16 @@ class MacdValues:
     bar: float
 
 
+class BenchmarkSpec(BaseModel):
+    """回测基准配置。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str
+    symbol: str
+
+
 class BacktestStrategy(BaseModel):
     """单股回测策略配置。"""
 

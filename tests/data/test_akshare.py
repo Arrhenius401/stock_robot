@@ -185,6 +185,47 @@ def test_fetch_price_computes_change_pct_without_column(mocker):
     assert results[-1].change_pct == pytest.approx(5.0)  # (10.5-10.0)/10.0*100
 
 
+def test_fetch_price_uses_explicit_dates(mocker):
+    """回测场景：显式传入的起止日期必须原样传给数据源"""
+
+    captured: dict[str, str] = {}
+    dates = pd.date_range("2022-01-04", periods=60, freq="B").strftime("%Y-%m-%d").tolist()
+    rows = [
+        {"日期": d, "开盘": "10.0", "最高": "10.6", "最低": "9.8",
+         "收盘": "10.0", "成交量": 1000}
+        for d in dates
+    ]
+
+    def _mock_hist(symbol, period, start_date, end_date, adjust):
+        captured["start_date"] = start_date
+        captured["end_date"] = end_date
+        return pd.DataFrame(rows)
+
+    mocker.patch("akshare.stock_zh_a_hist", side_effect=_mock_hist)
+    # 根 conftest 将腾讯源 patch 成 ConnectionError，会触发重试退避，屏蔽真实 sleep
+    mocker.patch("utils.retry.time.sleep")
+    adapter = AkShareAdapter()
+    results = adapter.fetch("000001", data_type="price", start_date="20220101", end_date="20221231")
+    assert len(results) == 60
+    assert captured["start_date"] == "20220101"
+    assert captured["end_date"] == "20221231"
+
+
+def test_fetch_csindex_passes_dates(mocker):
+    """中证指数公司日线入口透传 symbol 与起止日期"""
+
+    captured: dict[str, str] = {}
+
+    def _mock_csindex(symbol, start_date, end_date):
+        captured.update(symbol=symbol, start_date=start_date, end_date=end_date)
+        return pd.DataFrame({"日期": [], "收盘": []})
+
+    mocker.patch("akshare.stock_zh_index_hist_csindex", side_effect=_mock_csindex)
+    from data.akshare import _ak_csindex
+    _ak_csindex("H11025", "20220101", "20221231")
+    assert captured == {"symbol": "H11025", "start_date": "20220101", "end_date": "20221231"}
+
+
 def test_fetch_valuation_from_tencent_quote(mocker):
     """估值优先腾讯快照（在线，已验证稳定）"""
     # 构造腾讯快照返回：88 个 ~ 分隔字段，[3]=现价 [39]=PE(TTM) [46]=PB

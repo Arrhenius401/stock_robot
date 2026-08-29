@@ -108,6 +108,12 @@ def _ak_daily(symbol, start_date, end_date, adjust):
 
 
 @retry_on_network_error()
+def _ak_csindex(symbol, start_date, end_date):
+    """中证指数公司日线接口（H11025/H11001/000300 等基准指数，返回日期与收盘）"""
+    return ak.stock_zh_index_hist_csindex(symbol=symbol, start_date=start_date, end_date=end_date)
+
+
+@retry_on_network_error()
 def _ak_individual_info_em(symbol):
     """单只股票基本信息接口（轻量，含行业字段）"""
     return ak.stock_individual_info_em(symbol=symbol)
@@ -251,9 +257,14 @@ class AkShareAdapter(DataSource):
             return []
 
     def _fetch_price(self, symbol: str, **kwargs) -> list[PriceData]:
-        days = kwargs.get("days", 250)  # 近一年交易日，覆盖完整行情周期
-        end_date = datetime.now().astimezone().date().strftime("%Y%m%d")
-        start_date = (datetime.now().astimezone().date() - timedelta(days=days)).strftime("%Y%m%d")
+        # 回测等场景可显式指定起止日期（YYYYMMDD）；未完整指定时保持默认近一年（days=250）行为
+        start_date = kwargs.get("start_date")
+        end_date = kwargs.get("end_date")
+        if start_date is None or end_date is None:
+            today = datetime.now().astimezone().date()
+            days = kwargs.get("days", 250)  # 近一年交易日，覆盖完整行情周期
+            start_date = start_date or (today - timedelta(days=days)).strftime("%Y%m%d")
+            end_date = end_date or today.strftime("%Y%m%d")
 
         def _parse(df, source_label: str) -> list[PriceData]:
             results = []
