@@ -82,7 +82,7 @@ class BacktestRunner:
 
         # 自有订单簿：成交明细可精确断言（VectorBT 仅用于净值曲线）
         trades, size, exec_prices, fee_arr = self._build_order_book(
-            prices, weights, costs, request.initial_cash
+            prices, weights, costs, request.initial_cash, request.start_date
         )
 
         # VectorBT 单资产组合仿真：调仓日 size 为 ±股数、其余 0，
@@ -190,9 +190,12 @@ class BacktestRunner:
         weights: pd.DataFrame,
         costs: dict[str, float],
         initial_cash: float,
+        start_date: date,
     ) -> tuple[pd.DataFrame, np.ndarray, np.ndarray, np.ndarray]:
         """按"第 i-1 日信号 → 第 i 日开盘成交"生成订单簿与 VectorBT 输入序列。
 
+        预热期（回测起点前）只用于信号计算，不产生订单；
+        首个可下单日为 start_date（由前一交易日信号决定）。
         调仓数量 = 目标仓位 × 当日总资产 / 执行价，股数取整（int）；
         目标仓位与当前持仓不同才下单。费用精确拆分：
         佣金（每笔不低于最低佣金）+ 过户费双边，印花税仅卖出。
@@ -206,7 +209,10 @@ class BacktestRunner:
         shares = 0
         current_target = 0.0
         slip = float(costs["slippage_rate"])
-        for i in range(1, n):
+        start_idx = next(
+            (i for i, p in enumerate(prices) if p.trade_date >= start_date), n
+        )
+        for i in range(max(start_idx, 1), n):
             # 第 i-1 日的信号决定第 i 日开盘的调仓；第一天无前日信号不下单
             prev = weights.iloc[i - 1]
             target = float(prev["target_weight"])
