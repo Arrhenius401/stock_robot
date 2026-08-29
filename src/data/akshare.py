@@ -28,10 +28,23 @@ logger = logging.getLogger(__name__)
 # 海外指数代码 → 全球指数接口所需的中文名称
 _OVERSEAS_NAME_MAP = {
     "HSI": "恒生指数",
+    "HSTECH": "恒生科技指数",
     "HSCEI": "恒生中国企业指数",
     "SPX": "标普500",
+    "NDX": "纳斯达克100",
     "IXIC": "纳斯达克综合",
     "DJI": "道琼斯工业平均",
+}
+
+# 海外指数新浪源代码：港股直传代码，美股带 "." 前缀
+_OVERSEAS_SINA_SYMBOLS = {
+    "HSI": "HSI",
+    "HSTECH": "HSTECH",
+    "HSCEI": "HSCEI",
+    "SPX": ".INX",
+    "NDX": ".NDX",
+    "IXIC": ".IXIC",
+    "DJI": ".DJI",
 }
 
 
@@ -111,6 +124,21 @@ def _ak_daily(symbol, start_date, end_date, adjust):
 def _ak_csindex(symbol, start_date, end_date):
     """中证指数公司日线接口（H11025/H11001/000300 等基准指数，返回日期与收盘）"""
     return ak.stock_zh_index_hist_csindex(symbol=symbol, start_date=start_date, end_date=end_date)
+
+
+@retry_on_network_error()
+def _fetch_overseas_index_sina(symbol: str):
+    """海外指数新浪源回退：东财全球指数接口失效时的替代日线源。
+
+    港股走 stock_hk_index_daily_sina（代码直传），美股走 index_us_stock_sina
+    （带 "." 前缀）。无映射的符号返回 None，由调用方降级为空数据。
+    """
+    sina_symbol = _OVERSEAS_SINA_SYMBOLS.get(symbol)
+    if sina_symbol is None:
+        return None
+    if sina_symbol.startswith("."):
+        return ak.index_us_stock_sina(symbol=sina_symbol)
+    return ak.stock_hk_index_daily_sina(symbol=sina_symbol)
 
 
 @retry_on_network_error()
@@ -620,8 +648,14 @@ class AkShareAdapter(DataSource):
                 # 行业板块指数使用申万指数接口
                 df: Any = ak.index_hist_sw(symbol=symbol)
             elif index_style == "overseas":
-                # 海外指数用全球指数接口（参数需中文名称）
-                df: Any = ak.index_global_hist_em(symbol=_OVERSEAS_NAME_MAP.get(symbol, symbol))
+                # 海外指数用全球指数接口（参数需中文名称）；东财失效时回退新浪源
+                try:
+                    df: Any = ak.index_global_hist_em(symbol=_OVERSEAS_NAME_MAP.get(symbol, symbol))
+                except Exception:
+                    logger.debug(f"东财全球指数接口失败 {symbol}，回退新浪源")
+                    df = _fetch_overseas_index_sina(symbol)
+                if df is None or df.empty:
+                    df = _fetch_overseas_index_sina(symbol)
             else:
                 return []
 
