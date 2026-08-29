@@ -367,6 +367,86 @@ def index(symbols, style, output, compare_only):
             console.print(f"[yellow]警告: {err}[/yellow]")
 
 
+@main.command()
+@click.argument("symbol")
+@click.option("--strategy", default=None, help="策略 ID（默认读配置 backtest.default_strategy）")
+@click.option("--start", required=True, type=click.DateTime(formats=["%Y-%m-%d"]),
+              help="回测开始日期（YYYY-MM-DD）")
+@click.option("--end", required=True, type=click.DateTime(formats=["%Y-%m-%d"]),
+              help="回测结束日期（YYYY-MM-DD）")
+@click.option("--benchmark", default=None, help="基准 ID（默认读配置 backtest.default_benchmark）")
+def backtest(symbol, strategy, start, end, benchmark):
+    """对单只股票执行技术信号回测并输出可复现产物"""
+    from backtest.artifacts import write_backtest_artifacts
+    from backtest.data import BacktestDataError, HistoricalPriceProvider
+    from backtest.models import BacktestRequest
+    from backtest.runner import BacktestRunner
+    from backtest.strategy import StrategyConfigError, StrategyRepository
+    from data.akshare import AkShareAdapter
+    from utils.symbols import normalize_symbol, validate_symbol
+
+    config = Config()
+    if not _check_disclaimer(config):
+        return
+
+    if not validate_symbol(symbol):
+        console.print(f"[red]✗ 无效的股票代码: {symbol}[/red]")
+        console.print(
+            "请输入 6 位数字代码（如 000001、600036），"
+            "可选前缀 [bold]sh[/bold]（沪市）或 [bold]sz[/bold]（深市）"
+        )
+        sys.exit(1)
+    symbol = normalize_symbol(symbol)
+
+    strategy_id = strategy or config.get("backtest.default_strategy")
+    benchmark_id = benchmark or config.get("backtest.default_benchmark")
+
+    # 基准 ID 必须存在于配置；不存在时提前给出可选列表，避免空跑取数
+    benchmarks = config.get("backtest.benchmarks", {})
+    if not isinstance(benchmarks, dict) or benchmark_id not in benchmarks:
+        available = ", ".join(benchmarks.keys()) if isinstance(benchmarks, dict) else ""
+        console.print(f"[red]✗ 未配置基准: {benchmark_id}（可选: {available}）[/red]")
+        sys.exit(1)
+
+    try:
+        strategies_dir = Path(__file__).parents[2] / "config" / "strategies"
+        strategy_repo = StrategyRepository(strategies_dir)
+        strategy_repo.get(strategy_id)  # 提前校验策略存在，失败时快速红字退出
+
+        request = BacktestRequest(
+            symbol=symbol,
+            start_date=start.date(),
+            end_date=end.date(),
+            strategy_id=strategy_id,
+            benchmark_id=benchmark_id,
+            initial_cash=float(config.get("backtest.initial_cash", 100000.0)),
+        )
+        runner = BacktestRunner(
+            provider=HistoricalPriceProvider(AkShareAdapter()),
+            strategies=strategy_repo,
+            config=config,
+        )
+        result = runner.run(request)
+        output = write_backtest_artifacts(result)
+    except (BacktestDataError, StrategyConfigError, ValueError) as e:
+        console.print(f"[red]✗ 回测失败: {e}[/red]")
+        sys.exit(1)
+    except Exception as e:  # CLI 顶层兜底，数据源/仿真异常类型不可预测（logger.exception 豁免 BLE001）
+        logger.exception("回测失败")
+        console.print(f"[red]✗ 回测失败: {e}[/red]")
+        sys.exit(1)
+
+    table = Table(title=f"回测指标：{symbol}")
+    table.add_column("指标", style="cyan")
+    table.add_column("数值", justify="right", style="green")
+    for key, value in result.metrics.items():
+        table.add_row(key, f"{value:.4f}")
+    console.print(table)
+    for warning in result.warnings:
+        console.print(f"[yellow]⚠ {warning}[/yellow]")
+    console.print(f"[green]报告已保存: {output}[/green]")
+
+
 @main.command("industry-mapping")
 @click.argument("symbol", required=False)
 @click.option("--verbose", "-v", is_flag=True, help="显示抓取明细")
