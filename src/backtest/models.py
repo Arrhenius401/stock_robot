@@ -1,9 +1,11 @@
-"""回测策略实体。"""
+"""回测策略实体、请求与运行结果。"""
 
 import re
 from dataclasses import dataclass
+from datetime import date
 from typing import Literal
 
+import pandas as pd
 from pydantic import BaseModel, ConfigDict, ValidationInfo, field_validator
 
 from report.signal import Signal
@@ -112,3 +114,36 @@ class BacktestStrategy(BaseModel):
         if not 0.0 <= numeric <= 1.0:
             raise ValueError(f"{field_name} 必须在 0 到 1 之间")
         return numeric
+
+
+class BacktestRequest(BaseModel):
+    """单股回测请求参数。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    symbol: str
+    start_date: date
+    end_date: date
+    strategy_id: str
+    benchmark_id: str
+    initial_cash: float = 100000.0
+
+
+@dataclass(slots=True)
+class BacktestResult:
+    """回测运行结果快照。
+
+    含 DataFrame 字段（净值曲线/成交明细），用 dataclass 而非 Pydantic；
+    Task 5 的 manifest 直接消费 equity_curve/trades/metrics/warnings 等字段。
+    """
+
+    equity_curve: pd.DataFrame
+    trades: pd.DataFrame
+    metrics: dict[str, float]
+    warnings: list[str]
+    request: BacktestRequest
+    strategy: BacktestStrategy
+    benchmark: BenchmarkSpec
+    costs: dict
+    data_start: date
+    data_end: date
