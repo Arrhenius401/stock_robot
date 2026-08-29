@@ -149,6 +149,7 @@ class Element {
 class DocumentStub {
   constructor() { this.ids = new Map(); this.listeners = {}; this.activeElement = null; }
   createElement(tagName) { return new Element(tagName, this); }
+  createElementNS(_namespace, tagName) { return new Element(tagName, this); }
   getElementById(id) { return this.ids.get(id) || null; }
   addEventListener(type, handler) {
     (this.listeners[type] = this.listeners[type] || []).push(handler);
@@ -473,6 +474,81 @@ if (globalWrap.querySelector(".entry-error")
   throw new Error("清理全局搜索错误后仍残留提示");
 }
 """.replace("__COMPONENTS_URL__", components_url)
+        _run_node(tmp_path, script)
+
+    def test_report_library_renders_list_detail_and_back_button(self, tmp_path):
+        node = shutil.which("node")
+        if node is None:
+            pytest.skip("Node.js 不可用")
+
+        library_url = json.dumps(_module_url("src/api/static/js/report-library.js"))
+        api_url = json.dumps(_module_url("src/api/static/js/api.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        script = _DOM_STUB + r"""
+const root = makeElement("reportLibraryContent");
+makeElement("currentViewTitle", "h1");
+const { api } = await import(__API_URL__);
+const { bus } = await import(__STATE_URL__);
+const { initReportLibrary } = await import(__LIBRARY_URL__);
+
+api.listReports = async () => ({ total: 1, reports: [{
+  id: "abc", type: "backtest", title: "000001 技术策略回测报告",
+  symbol: "000001", path: "backtests/report_technical/000001/2026-08/run-1/report.md",
+  generated_at: 1787994863, strategy_id: "report_technical",
+  strategy_version: "v1", start_date: "2025-01-02", end_date: "2026-08-28",
+  has_equity_curve: true, has_trades: true, legacy: false,
+}] });
+api.getReport = async () => ({
+  report: { id: "abc", type: "backtest", title: "000001 技术策略回测报告",
+    symbol: "000001", path: "backtests/report_technical/000001/2026-08/run-1/report.md",
+    generated_at: 1787994863, strategy_id: "report_technical" },
+  markdown: "# 回测报告\n\n正文",
+  summary: { metrics: { total_return: 0.1842, max_drawdown: -0.0786, sharpe: 1.21 },
+    trades_count: 26 },
+  equity_curve: { columns: ["净值日期", "策略净值", "基准净值"],
+    rows: [{ "净值日期": "2026-01-01", "策略净值": "1.0", "基准净值": "1.0" },
+           { "净值日期": "2026-01-02", "策略净值": "1.1", "基准净值": "1.02" }] },
+  trades: { columns: ["trade_date", "side", "price", "return_pct"],
+    rows: [{ trade_date: "2026-04-26", side: "sell", price: "11.31", return_pct: "0.0854" }] },
+  missing_artifacts: [],
+});
+api.downloadReportUrl = () => "/api/v1/reports/abc/download";
+
+initReportLibrary();
+const event = new Event("view-change");
+Object.defineProperty(event, "detail", { value: { view: "report-library" } });
+bus.dispatchEvent(event);
+await new Promise((resolve) => setTimeout(resolve, 0));
+
+if (!root.textContent.includes("已保存报告") || !root.textContent.includes("打开详情")) {
+  throw new Error("未渲染报告库列表页");
+}
+await byClass(root, "report-library-open")[0].click();
+await new Promise((resolve) => setTimeout(resolve, 0));
+if (!root.textContent.includes("累计收益") || !root.textContent.includes("+18.42%")
+    || !root.textContent.includes("净值曲线") || !root.textContent.includes("交易明细")) {
+  throw new Error("未渲染报告详情页的摘要与回测页签");
+}
+const buttons = descendants(root).filter((item) => item.tagName === "BUTTON");
+await buttons.find((item) => item.textContent.includes("净值曲线")).click();
+if (!byClass(root, "report-library-curve")[0]) {
+  throw new Error("未渲染净值曲线");
+}
+await descendants(root).filter((item) => item.tagName === "BUTTON")
+  .find((item) => item.textContent.includes("交易明细")).click();
+if (!root.textContent.includes("trade_date") || !root.textContent.includes("sell")) {
+  throw new Error("未渲染交易明细表格");
+}
+const back = byClass(root, "report-library-back")[0];
+if (!back || back.getAttribute("aria-label") !== "返回报告库" || back.textContent.trim()) {
+  throw new Error("返回按钮必须是仅含可访问名称的 Chevron 图标按钮");
+}
+await back.click();
+if (!root.textContent.includes("已保存报告")) {
+  throw new Error("返回按钮未回到列表页");
+}
+""".replace("__LIBRARY_URL__", library_url)
+        script = script.replace("__API_URL__", api_url).replace("__STATE_URL__", state_url)
         _run_node(tmp_path, script)
 
     def test_mobile_modal_isolates_background_focus_and_restores_it(self, tmp_path):
