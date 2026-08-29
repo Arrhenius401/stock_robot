@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from agent.memory import Memory
-from api.message_content import normalize_message_content
+from api.message_content import normalize_message_content, normalize_model_message
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,10 @@ class ChatResponder:
         for msg in memory.get_context_window(n=10):
             if msg["role"] not in ("user", "assistant"):
                 continue
-            messages.append({"role": msg["role"], "content": msg["content"]})
+            content = msg["content"]
+            if msg["role"] == "assistant":
+                content = normalize_message_content(content)["text"]
+            messages.append({"role": msg["role"], "content": content})
         last = messages[-1] if messages else None
         if last is None or last.get("content") != user_input:
             messages.append({"role": "user", "content": user_input})
@@ -58,7 +61,7 @@ class ChatResponder:
         try:
             async for response in self._model.astream(
                     self._messages_for_reply(user_input, memory)):
-                content = normalize_message_content(getattr(response, "content", ""))
+                content = normalize_model_message(response)
                 if not content["text"] and not content.get("thinking"):
                     continue
                 emitted_text = emitted_text or bool(content["text"])
@@ -76,7 +79,7 @@ class ChatResponder:
         try:
             response = await self._model.ainvoke(
                 self._messages_for_reply(user_input, memory))
-            content = normalize_message_content(getattr(response, "content", ""))
+            content = normalize_model_message(response)
             if not content["text"]:
                 return {"text": LLM_ERROR_REPLY.format(error="模型未返回有效回复")}
             return content

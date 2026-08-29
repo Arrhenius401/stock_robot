@@ -84,6 +84,14 @@ class Element {
   addEventListener(type, handler) {
     (this.listeners[type] = this.listeners[type] || []).push(handler);
   }
+  dispatchEvent(event) {
+    const type = typeof event === "string" ? event : event.type;
+    const payload = (event && typeof event === "object")
+      ? { ...event, type, target: event.target || this, currentTarget: this }
+      : { type, target: this, currentTarget: this };
+    for (const handler of (this.listeners[type] || []).slice()) handler(payload);
+    return true;
+  }
   async click() {
     for (const handler of this.listeners.click || []) {
       await handler({ preventDefault() {}, stopPropagation() {} });
@@ -830,12 +838,10 @@ if (orphanGroups.length !== 1 || !orphanGroups[0].textContent.includes("研究�
     || !orphanGroups[0].textContent.includes("旧成果")) {
   throw new Error("无 message_id 的旧成果未放入结尾研究成果区");
 }
-const toolCards = byClass(chatScroll, "card-title")
-  .filter((node) => node.textContent === "工具结果");
-const toolHtml = byClass(chatScroll, "tooltext").map((node) => node.innerHTML).join("\n");
-if (toolCards.length !== 1 || !toolHtml.includes("000001 失败")
-    || toolHtml.includes("000001 成功") || toolHtml.includes("000001 再次成功")) {
-  throw new Error("报告工具 repr 未按具体成果关联去重");
+const internalCards = byClass(chatScroll, "card-title")
+  .filter((node) => ["工具结果", "执行计划"].includes(node.textContent));
+if (internalCards.length !== 0 || chatScroll.textContent.includes("000001 失败")) {
+  throw new Error("历史会话泄露了工具结果或执行计划气泡");
 }
 
 renderMessageHistory([], []);
@@ -1131,8 +1137,8 @@ if (!renderedHtml.includes("切回后最终正文")
   throw new Error("切走再切回后，流式正文或成果仍写入脱离 DOM 的旧节点");
 }
 if (renderedHtml.includes("000001 原始结果")
-    || !renderedHtml.includes("000001 失败结果")) {
-  throw new Error("实时报告工具卡未按当前 run 与成果 symbol 精确去重");
+    || renderedHtml.includes("000001 失败结果")) {
+  throw new Error("实时会话泄露了工具结果气泡");
 }
 streamHandlers.done({});
 finishStream();
@@ -1244,6 +1250,111 @@ api.chatStream = async (_message, _sessionId, handlers) => {
 };
 await sendMessage("流式回答");
 if (!sawLive) throw new Error("流式正文处理器未在结束前完成渲染");
+""".replace("__CHAT_URL__", chat_url).replace("__API_URL__", api_url)
+        script = script.replace("__STATE_URL__", state_url)
+        _run_node(tmp_path, script)
+
+    def test_assistant_thinking_precedes_body_and_can_be_collapsed(self, tmp_path):
+        """历史消息的思考区应位于正文前，默认展开且保留可收起入口。"""
+        chat_url = json.dumps(_module_url("src/api/static/js/chat.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        script = _DOM_STUB + r"""
+const chatScroll = makeElement("chatScroll");
+const { store } = await import(__STATE_URL__);
+const { renderMessageHistory } = await import(__CHAT_URL__);
+store.currentSessionId = "thinking-history";
+renderMessageHistory([{
+  role: "assistant", content: "这是独立的正文。", thinking: "这是可展开的思考。",
+}], []);
+const message = byClass(chatScroll, "assistant-message")[0];
+if (!message || !message.children[0].classList.contains("message-thinking")
+    || !message.children[0].open || !message.children[1].classList.contains("md")
+    || !message.children[0].textContent.includes("已思考")) {
+  throw new Error("思考区没有在正文前默认展开，或缺少已思考入口");
+}
+message.children[0].open = false;
+if (message.children[0].open || !message.children[0].textContent.includes("已思考")
+    || !message.children[1].innerHTML.includes("这是独立的正文。")) {
+  throw new Error("收起思考后未保留入口，或错误隐藏了正文");
+}
+""".replace("__CHAT_URL__", chat_url).replace("__STATE_URL__", state_url)
+        _run_node(tmp_path, script)
+
+    def test_thinking_stream_stays_visible_after_body_and_hides_internal_cards(self, tmp_path):
+        """思考流完成正文后仍可查看，且对象内容不应渲染为 object。"""
+        chat_url = json.dumps(_module_url("src/api/static/js/chat.js"))
+        api_url = json.dumps(_module_url("src/api/static/js/api.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        script = _DOM_STUB + r"""
+const chatScroll = makeElement("chatScroll");
+makeElement("chatInput", "textarea");
+makeElement("sendBtn", "button");
+const { api } = await import(__API_URL__);
+const { store } = await import(__STATE_URL__);
+const { sendMessage } = await import(__CHAT_URL__);
+store.currentSessionId = "s1";
+api.chatStream = async (_message, _sessionId, handlers) => {
+  handlers.session_title({ session_id: "s1", title: "思考流测试" });
+  handlers.plan({ session_id: "s1", steps: ["内部步骤"] });
+  handlers.thinking({ content: { opaque: true } });
+  handlers.thinking({ content: "正在核对数据" });
+  // 用户手动收起思考区（stub 无原生 toggle，手动派发）
+  const thinking = byClass(chatScroll, "message-thinking")[0];
+  thinking.open = false;
+  thinking.dispatchEvent({ type: "toggle", target: thinking });
+  handlers.tool_result({ tool: "analyze_stock", content: "内部工具结果" });
+  handlers.text({ content: "最终正文" });
+  handlers.done({});
+};
+await sendMessage("测试思考流");
+// stub 的 innerHTML 与 textContent 是互斥通道：md 正文走 innerHTML，思考明文走 textContent
+const visibleHtml = descendants(chatScroll).map((item) => item.innerHTML).join("\n");
+const visibleText = chatScroll.textContent;
+const collapsed = byClass(chatScroll, "message-thinking")[0];
+if (!visibleHtml.includes("最终正文")
+    || !visibleText.includes("正在核对数据")
+    || visibleText.includes("[object Object]")
+    || visibleText.includes("内部工具结果")
+    || visibleText.includes("执行计划")
+    || visibleText.includes("思考中...")
+    || collapsed.open) {
+  throw new Error("思考与正文未正确分离、持久展示、折叠状态丢失，或泄露内部气泡");
+}
+""".replace("__CHAT_URL__", chat_url).replace("__API_URL__", api_url)
+        script = script.replace("__STATE_URL__", state_url)
+        _run_node(tmp_path, script)
+
+    def test_thinking_fallback_survives_after_final_body(self, tmp_path):
+        """无法提取明文思考时，正文结束后仍保留可展开的思考占位。"""
+        chat_url = json.dumps(_module_url("src/api/static/js/chat.js"))
+        api_url = json.dumps(_module_url("src/api/static/js/api.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        script = _DOM_STUB + r"""
+const chatScroll = makeElement("chatScroll");
+makeElement("chatInput", "textarea");
+makeElement("sendBtn", "button");
+const { api } = await import(__API_URL__);
+const { store } = await import(__STATE_URL__);
+const { sendMessage } = await import(__CHAT_URL__);
+store.currentSessionId = "s1";
+api.chatStream = async (_message, _sessionId, handlers) => {
+  handlers.session_title({ session_id: "s1", title: "思考占位测试" });
+  handlers.thinking({ content: { opaque: true } });
+  handlers.text({ content: "最终正文" });
+  handlers.done({});
+};
+await sendMessage("测试无明文思考");
+const thinking = byClass(chatScroll, "message-thinking")[0];
+const visibleHtml = descendants(chatScroll).map((item) => item.innerHTML).join("\n");
+if (!thinking || !thinking.open || !thinking.textContent.includes("思考中...")
+    || !visibleHtml.includes("最终正文")) {
+  throw new Error("正文完成后丢失了思考占位或正文");
+}
+thinking.open = false;
+if (thinking.open || !thinking.textContent.includes("思考中...")
+    || !visibleHtml.includes("最终正文")) {
+  throw new Error("收起思考占位后没有保留入口，或错误隐藏了正文");
+}
 """.replace("__CHAT_URL__", chat_url).replace("__API_URL__", api_url)
         script = script.replace("__STATE_URL__", state_url)
         _run_node(tmp_path, script)

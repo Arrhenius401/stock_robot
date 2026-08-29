@@ -190,14 +190,14 @@ class ChatModeLLM:
         }, ensure_ascii=False)
 
 
-def make_chat_core():
+def make_chat_core(model=None):
     from typing import Any, cast
     registry = ToolRegistry()
     registry.register(EchoTool())
     return AgentCore(registry=registry, pipeline=cast(Any, FakePipeline()),
                      index_pipeline=cast(Any, FakeIndexPipeline()),
                      llm=cast(Any, ChatModeLLM()),
-                     model=FakeChatModel(content="你好呀！有什么可以帮你？"))
+                     model=model or FakeChatModel(content="你好呀！有什么可以帮你？"))
 
 
 class TitleAwareModel:
@@ -1033,6 +1033,60 @@ class TestStreamEndpoint:
         assert "你好呀" in text
 
     @pytest.mark.asyncio
+    async def test_stream_chat_mode_emits_deepseek_reasoning(self, tmp_path):
+        """OpenAI 兼容的 reasoning_content 必须透传为 SSE thinking 事件。"""
+        model = FakeChatModel(responses=[SimpleNamespace(
+            content="这是正文。",
+            additional_kwargs={"reasoning_content": "正在核对数据。"},
+        )])
+        sessions = SessionManager(SessionStore(tmp_path / "s_reasoning.db"))
+        app_chat = create_app(core=make_chat_core(model), sessions=sessions, push=False)
+        transport = ASGITransport(app=app_chat)
+        async with (
+            AsyncClient(transport=transport, base_url="http://test") as client,
+            client.stream("POST", "/api/v1/chat/stream", json={"message": "你好"}) as resp,
+        ):
+            events = parse_sse_events((await resp.aread()).decode())
+
+        assert any(
+            event == {"type": "thinking", "content": "正在核对数据。"}
+            for event in events
+        )
+        assert any(
+            event.get("type") == "text"
+            and event.get("thinking") == "正在核对数据。"
+            and event.get("content") == "这是正文。"
+            for event in events
+        )
+
+    @pytest.mark.asyncio
+    async def test_stream_chat_mode_joins_reasoning_deltas_without_blank_lines(
+            self, tmp_path):
+        class ReasoningDeltaModel:
+            async def astream(self, _messages):
+                yield SimpleNamespace(
+                    content="", additional_kwargs={"reasoning_content": "正"})
+                yield SimpleNamespace(
+                    content="", additional_kwargs={"reasoning_content": "在"})
+                yield SimpleNamespace(content="正文", additional_kwargs={})
+
+            async def ainvoke(self, _messages):
+                return SimpleNamespace(content="标题")
+
+        sessions = SessionManager(SessionStore(tmp_path / "reasoning_delta.db"))
+        app_chat = create_app(
+            core=make_chat_core(ReasoningDeltaModel()), sessions=sessions, push=False)
+        transport = ASGITransport(app=app_chat)
+        async with (
+            AsyncClient(transport=transport, base_url="http://test") as client,
+            client.stream("POST", "/api/v1/chat/stream", json={"message": "你好"}) as resp,
+        ):
+            events = parse_sse_events((await resp.aread()).decode())
+
+        final_text = next(event for event in events if event["type"] == "text")
+        assert final_text["thinking"] == "正在"
+
+    @pytest.mark.asyncio
     async def test_stream_agent_mode_emits_tool_events(self, tmp_path):
         sessions = SessionManager(SessionStore(tmp_path / "s_agent2.db"))
         app_agent = create_app(core=make_agent_core(), sessions=sessions, push=False)
@@ -1102,6 +1156,14 @@ class TestStreamEndpoint:
         assert '"type": "error"' not in text
         # 降级后无工具匹配（"对比茅台和宁德时代" 与 echo 描述无关键词交集）→ 0/1 步完成
         assert "完成: 0/1 步骤" in text
+        session_id = next(event["session_id"] for event in parse_sse_events(text)
+                           if event.get("type") == "plan")
+        messages = sessions.get_messages(session_id)
+        assistant = [item for item in messages or []
+                     if item["role"] == "assistant"]
+        assert assistant
+        assert assistant[-1]["content"]
+        assert "思考中..." in assistant[-1]["content"]
 
     @pytest.mark.asyncio
     async def test_stream_agent_fallback_emits_every_report_artifact(
@@ -1381,6 +1443,32 @@ class TestSessionsEndpoints:
         assert "tool" in roles
         assert all("content" in m and "role" in m for m in msgs)
         assert resp.json()["artifacts"] == []
+
+    @pytest.mark.asyncio
+    async def test_get_messages_decodes_assistant_thinking_blocks(self, tmp_path):
+        sessions = SessionManager(SessionStore(tmp_path / "thinking_history.db"))
+        sid, memory = sessions.get_or_create(None, "hello")
+        message_id = memory.add_message(
+            "assistant",
+            "[{\"type\":\"thinking\",\"thinking\":\"先判断意图\","
+            "\"thinking_duration_seconds\":1.4},"
+            "{\"type\":\"text\",\"text\":\"你好，有什么可以帮你？\"}]",
+        )
+        app_history = create_app(core=make_core(), sessions=sessions, push=False)
+
+        async with AsyncClient(transport=ASGITransport(app=app_history),
+                               base_url="http://test") as c:
+            resp = await c.get(f"/api/v1/sessions/{sid}/messages")
+
+        assert resp.status_code == 200
+        assistant = next(
+            message for message in resp.json()["messages"]
+            if message["message_id"] == message_id
+        )
+        assert assistant["content"] == "你好，有什么可以帮你？"
+        assert assistant["thinking"] == "先判断意图"
+        assert assistant["thinking_duration_seconds"] == 1.4
+        assert "text" not in assistant
 
     @pytest.mark.asyncio
     async def test_get_messages_returns_artifacts(self, tmp_path):

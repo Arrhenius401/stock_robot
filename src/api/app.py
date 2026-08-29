@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import threading
+import time
 from datetime import datetime
 from typing import Any, cast
 
@@ -19,7 +20,7 @@ from agent.memory import TaskStatus
 from agent.planner import Planner
 from agent.react import ReActExecutor
 from api.configuration import create_configuration_router
-from api.message_content import normalize_message_content
+from api.message_content import encode_message_content, normalize_message_content
 from api.runtime import RuntimeManager, RuntimeSnapshot
 from api.session_titles import SessionTitleRefiner, derive_session_title
 from api.sessions import is_draft_session_id
@@ -355,9 +356,17 @@ def create_app(
             plan = await asyncio.to_thread(planner.plan, message)
             if plan.mode == "chat":
                 # 闲聊：ChatResponder 普通会话回复，跳过执行器并写入会话消息
+                started_at = time.monotonic()
                 normalized = await chat_responder.reply_content(message, memory)
                 reply = normalized["text"]
-                memory.add_message("assistant", reply)
+                memory.add_message(
+                    "assistant", encode_message_content(
+                        reply,
+                        normalized.get("thinking", ""),
+                        thinking_duration_seconds=(
+                            time.monotonic() - started_at
+                            if normalized.get("thinking") else None
+                        )))
                 return JSONResponse({
                     "response": reply,
                     "plan": {"goal": plan.goal, "mode": "chat", "steps": []},
@@ -399,6 +408,8 @@ def create_app(
                     memory.messages = memory.messages[:msg_snapshot]
                     response, plan_payload, tool_results = await _agent_fallback(
                         executor, memory, message)
+                    memory.add_message(
+                        "assistant", encode_message_content(response, "思考中..."))
                     _persist_artifacts_if_present(
                         sessions, sid, tool_results, memory=memory)
                     return JSONResponse({
@@ -504,6 +515,7 @@ def create_app(
                         # 闲聊：模型 token 到达即转成正文增量，避免用户等待整段回复。
                         reply_parts: list[str] = []
                         thinking_parts: list[str] = []
+                        started_at = time.monotonic()
                         async for chunk in chat_responder.stream_reply_content(message, memory):
                             if chunk["text"]:
                                 reply_parts.append(chunk["text"])
@@ -516,9 +528,19 @@ def create_app(
                         reply = "".join(reply_parts)
                         normalized = {"text": reply}
                         if thinking_parts:
-                            normalized["thinking"] = "\n\n".join(thinking_parts)
-                        memory.add_message("assistant", reply)
-                        await queue.put({"type": "text", **normalized})
+                            normalized["thinking"] = "".join(thinking_parts)
+                        memory.add_message(
+                            "assistant", encode_message_content(
+                                reply,
+                                normalized.get("thinking", ""),
+                                thinking_duration_seconds=(
+                                    time.monotonic() - started_at
+                                    if normalized.get("thinking") else None
+                                )))
+                        event = {"type": "text", "content": reply}
+                        if normalized.get("thinking"):
+                            event["thinking"] = normalized["thinking"]
+                        await queue.put(event)
                         await finish_title()
                         await queue.put({"type": "done"})
                         return
@@ -563,6 +585,11 @@ def create_app(
                             memory.messages = memory.messages[:msg_snapshot]
                             summary, _, tool_results = await _agent_fallback(
                                 executor, memory, message)
+                            # 降级结果也写入会话，确保切换会话后正文与思考占位仍可恢复。
+                            memory.add_message(
+                                "assistant",
+                                encode_message_content(summary, "思考中..."),
+                            )
                             await queue.put({"type": "result",
                                              "summary": summary,
                                              "tool_results": tool_results})
@@ -786,7 +813,14 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"会话不存在: {session_id}")
         for message in detail.get("messages", []):
             if message.get("role") == "assistant":
-                message.update(normalize_message_content(message.get("content", "")))
+                normalized = normalize_message_content(message.get("content", ""))
+                message["content"] = normalized["text"]
+                if normalized.get("thinking"):
+                    message["thinking"] = normalized["thinking"]
+                if normalized.get("thinking_duration_seconds") is not None:
+                    message["thinking_duration_seconds"] = (
+                        normalized["thinking_duration_seconds"]
+                    )
         return JSONResponse(detail)
 
     @app.get("/api/v1/sessions/{session_id}/artifacts/{artifact_id}")

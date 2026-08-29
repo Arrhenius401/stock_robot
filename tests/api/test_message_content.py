@@ -1,6 +1,6 @@
 """消息内容规范化器测试。"""
 
-from api.message_content import normalize_message_content
+from api.message_content import encode_message_content, normalize_message_content
 
 
 def test_normalize_plain_string():
@@ -23,6 +23,27 @@ def test_normalize_json_content_blocks():
 def test_normalize_old_python_literal_content_blocks():
     raw = "[{'thinking': '推理', 'type': 'thinking'}, {'text': '# 正文', 'type': 'text'}]"
     assert normalize_message_content(raw) == {"text": "# 正文", "thinking": "推理"}
+
+
+def test_encode_message_content_round_trips_body_and_thinking():
+    """持久化后的助手消息重新加载时仍须能拆出正文与思考。"""
+    encoded = encode_message_content("最终结论", "先核对估值，再给出建议")
+
+    assert normalize_message_content(encoded) == {
+        "text": "最终结论",
+        "thinking": "先核对估值，再给出建议",
+    }
+
+
+def test_encode_message_content_preserves_thinking_duration():
+    """历史思考区应保留生成耗时，以便前端显示「用时 N 秒」。"""
+    encoded = encode_message_content("最终结论", "推理过程", thinking_duration_seconds=1.4)
+
+    assert normalize_message_content(encoded) == {
+        "text": "最终结论",
+        "thinking": "推理过程",
+        "thinking_duration_seconds": 1.4,
+    }
 
 
 def test_normalize_old_python_literal_with_html_space_suffix():

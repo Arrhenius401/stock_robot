@@ -46,7 +46,34 @@ def _block_thinking(block: dict[str, Any]) -> str:
     return value if isinstance(value, str) else ""
 
 
-def normalize_message_content(value: Any) -> dict[str, str]:
+def _reasoning_text(value: Any) -> str:
+    """提取 OpenAI 兼容端点附加字段中的纯文本推理。"""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return "".join(item for item in value if isinstance(item, str))
+    return ""
+
+
+def encode_message_content(
+    text: str,
+    thinking: str = "",
+    *,
+    thinking_duration_seconds: float | None = None,
+) -> str:
+    """将助手正文及可见思考编码为可持久化、可向后兼容的内容块。"""
+    if not thinking:
+        return text
+    thinking_block: dict[str, Any] = {"type": "thinking", "thinking": thinking}
+    if thinking_duration_seconds is not None and thinking_duration_seconds >= 0:
+        thinking_block["thinking_duration_seconds"] = thinking_duration_seconds
+    return json.dumps([
+        thinking_block,
+        {"type": "text", "text": text},
+    ], ensure_ascii=False)
+
+
+def normalize_message_content(value: Any) -> dict[str, Any]:
     """从字符串、内容块或安全解析的历史字面量提取正文与推理。"""
     blocks = _as_content_blocks(value)
     if blocks is None:
@@ -59,4 +86,31 @@ def normalize_message_content(value: Any) -> dict[str, str]:
         for block in blocks
         if block.get("type") in ("thinking", "reasoning")
     )
-    return {"text": text, **({"thinking": thinking} if thinking else {})}
+    result: dict[str, Any] = {"text": text}
+    if thinking:
+        result["thinking"] = thinking
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            duration = block.get("thinking_duration_seconds")
+            if isinstance(duration, (int, float)) and not isinstance(duration, bool):
+                result["thinking_duration_seconds"] = duration
+                break
+    return result
+
+
+def normalize_model_message(message: Any) -> dict[str, Any]:
+    """从 LangChain 消息读取正文及 OpenAI 兼容端点的推理附加字段。"""
+    content = normalize_message_content(getattr(message, "content", ""))
+    if content.get("thinking"):
+        return content
+
+    additional_kwargs = getattr(message, "additional_kwargs", {})
+    if not isinstance(additional_kwargs, dict):
+        return content
+    thinking = _reasoning_text(
+        additional_kwargs.get("reasoning_content", additional_kwargs.get("thinking"))
+    ).strip()
+    if thinking:
+        content["thinking"] = thinking
+    return content

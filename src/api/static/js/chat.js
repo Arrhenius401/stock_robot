@@ -7,7 +7,6 @@ import {
 import { api } from "./api.js";
 import { renderMarkdown } from "./markdown.js";
 import { el } from "./components.js";
-import { openReport } from "./report.js";
 import { openReportDrawer, closeReportDrawer } from "./report-drawer.js";
 import { renderReportSummary } from "./report-renderer.js";
 
@@ -31,19 +30,38 @@ function mdDiv(text) {
   return div;
 }
 
-function thinkingDetails(text) {
-  if (!text) return null;
+function formatThinkingDuration(seconds) {
+  const value = Number(seconds);
+  return Number.isFinite(value) && value > 0 ? `（用时 ${Math.max(1, Math.round(value))} 秒）` : "";
+}
+
+function thinkingDetails(text, fallback = false, durationSeconds = null,
+    open = true, onToggle = null) {
+  const content = typeof text === "string" && text.trim()
+    ? text : (fallback ? "思考中..." : "");
+  if (!content) return null;
   const details = el("details", "message-thinking");
-  details.appendChild(el("summary", "", "查看分析过程"));
-  details.appendChild(mdDiv(text));
+  details.open = open;
+  const summary = el("summary", "message-thinking-summary");
+  summary.appendChild(el("span", "message-thinking-icon", "✳"));
+  summary.appendChild(el("span", "message-thinking-label",
+    fallback ? "思考中..." : `已思考${formatThinkingDuration(durationSeconds)}`));
+  summary.appendChild(el("span", "message-thinking-chevron", "›"));
+  details.appendChild(summary);
+  // 推理明文不做 markdown 渲染，避免 `**`/反引号等符号干扰阅读
+  const body = el("div", "message-thinking-body");
+  body.textContent = content;
+  details.appendChild(body);
+  if (onToggle) details.addEventListener("toggle", onToggle);
   return details;
 }
 
-function assistantMessage(content, thinking = "") {
+function assistantMessage(content, thinking = "", thinkingDurationSeconds = null) {
   const node = el("div", "assistant-message");
-  node.appendChild(mdDiv(content));
-  const details = thinkingDetails(thinking);
+  const isFallback = typeof thinking === "string" && thinking.trim() === "思考中...";
+  const details = thinkingDetails(thinking, isFallback, thinkingDurationSeconds);
   if (details) node.appendChild(details);
+  node.appendChild(mdDiv(content));
   return node;
 }
 
@@ -145,66 +163,6 @@ function releaseSending(run, focus = false) {
   if (focus && input) input.focus();
 }
 
-// 返回 { card, stepEls }：计划状态随发送闭包持有，不落模块级变量，避免串会话
-function planCard(evt) {
-  const card = el("div", "card");
-  card.appendChild(el("div", "card-title", "执行计划"));
-  card.appendChild(el("div", "goal", `目标：${evt.goal || "执行任务"}`));
-  const plan = { card, stepEls: [] };
-  for (const desc of evt.steps || []) {
-    const row = el("div", "step");
-    const left = el("div", "step-left");
-    const dot = el("span", "dot wait");
-    left.appendChild(dot);
-    left.appendChild(el("span", "step-desc", desc));
-    const status = el("span", "step-status", "等待");
-    row.appendChild(left);
-    row.appendChild(status);
-    card.appendChild(row);
-    plan.stepEls.push({ dot, status });
-  }
-  return plan;
-}
-
-function setStep(step, state, text) {
-  step.dot.className = `dot ${state}`;
-  step.status.textContent = text;
-  step.status.className = `step-status ${state}`;
-}
-
-function updatePlan(plan, evt) {
-  if (!plan) return;
-  const idx = (evt.current || 1) - 1;   // current 从 1 起，步骤索引 = current-1
-  plan.stepEls.forEach((s, i) => {
-    if (i < idx) {
-      setStep(s, "done", "完成");
-    } else if (i === idx && evt.stage !== "complete") {
-      setStep(s, "run", "进行中");
-    }
-  });
-  if (evt.stage === "complete") {
-    plan.stepEls.forEach((s) => setStep(s, "done", "完成"));
-  }
-}
-
-function parseToolMessage(content) {
-  const m = /^\[([^\]]+)\]\s*(.*)$/s.exec(content || "");
-  if (!m) return { tool: "tool", content: content || "" };
-  return { tool: m[1], content: m[2] };
-}
-
-function toolResultCard(t) {
-  const card = el("div", "card");
-  card.appendChild(el("div", "card-title", "工具结果"));
-  card.appendChild(el("span", "chip", t.tool));
-  const body = el("div", "md tooltext");
-  // 流式 result 事件的 content 为原始 memory 消息，含 "[工具名] " 前缀，
-  // 剥离后与历史恢复路径（parseToolMessage 已剥）渲染一致
-  body.innerHTML = renderMarkdown(String(t.content || "").replace(/^\[[^\]]+\]\s*/, ""));
-  card.appendChild(body);
-  return card;
-}
-
 function interruptedCard(retry, message = "连接中断") {
   const card = el("div", "error-card");
   card.appendChild(el("div", "error-title", message));
@@ -215,13 +173,6 @@ function interruptedCard(retry, message = "连接中断") {
   });
   card.appendChild(btn);
   return card;
-}
-
-function toolHasArtifact(tool, artifacts) {
-  const id = messageId(tool);
-  return id != null && artifacts.some(
-    (artifact) => String(artifactMessageId(artifact)) === String(id),
-  );
 }
 
 function runIsValid(run) {
@@ -255,29 +206,13 @@ function buildRunBubble(run) {
   const content = el("div", "content");
   wrap.appendChild(content);
 
-  if (run.plan) {
-    const renderedPlan = planCard(run.plan);
-    if (run.progress) updatePlan(renderedPlan, run.progress);
-    if (run.answers.length) {
-      renderedPlan.stepEls.forEach((step) => setStep(step, "done", "完成"));
-    }
-    content.appendChild(renderedPlan.card);
-  }
-  const details = thinkingDetails(run.thinking === "正在分析…" ? "" : run.thinking);
+  const duration = run.done ? (Date.now() - run.startedAt) / 1000 : null;
+  // 流式重建时保留用户手动折叠状态，避免每次增量强制重新展开
+  const details = thinkingDetails(
+    run.thinking, run.thinkingFallback, duration, run.thinkingOpen !== false,
+    (event) => { run.thinkingOpen = event.target.open; });
   if (details) content.appendChild(details);
   for (const answer of run.answers) content.appendChild(mdDiv(answer));
-
-  const tools = [...Object.values(run.toolCalls), ...run.resultTools];
-  for (const tool of tools) {
-    if (toolHasArtifact(tool, run.artifacts)) continue;
-    const card = toolResultCard(tool);
-    if (tool.symbol && tool.status === "done") {
-      const link = el("span", "link", "查看完整报告 →");
-      link.addEventListener("click", () => openReport(tool.symbol));
-      card.appendChild(link);
-    }
-    content.appendChild(card);
-  }
   for (const artifact of run.artifacts) appendReportSummary(artifact, content);
   if (run.error) {
     const card = el("div", "error-card");
@@ -311,10 +246,6 @@ export function renderSessionRuns(sessionId) {
   }
 }
 
-function isDuplicateReportTool(message, artifacts) {
-  return toolHasArtifact(message, artifacts);
-}
-
 export function renderMessageHistory(messages, artifacts = []) {
   clearChatScroll();
   const activeRuns = (store.sessionRuns[store.currentSessionId] || [])
@@ -342,15 +273,13 @@ export function renderMessageHistory(messages, artifacts = []) {
     } else if (m.role === "tool") {
       const id = messageId(m);
       const matched = id == null ? [] : (linked.get(String(id)) || []);
-      if (!isDuplicateReportTool(m, restoredArtifacts)) {
-        appendBubble("agent", toolResultCard(parseToolMessage(m.content)));
-      }
       for (const artifact of matched) {
         appendReportSummary(artifact);
         rendered.add(artifact);
       }
     } else if (m.role === "assistant") {
-      appendBubble("agent", assistantMessage(m.content, m.thinking || ""));
+      appendBubble("agent", assistantMessage(
+        m.content, m.thinking || "", m.thinking_duration_seconds));
       const id = messageId(m);
       for (const artifact of id == null ? [] : (linked.get(String(id)) || [])) {
         appendReportSummary(artifact);
@@ -386,7 +315,10 @@ export async function sendMessage(text) {
       id: `local-run-${++localRunSequence}`,
       sessionId: null,
       message: msg,
-      thinking: "正在分析…",
+      startedAt: Date.now(),
+      thinking: "",
+      thinkingFallback: true,
+      thinkingOpen: true,
       plan: null,
       progress: null,
       toolCalls: {},
@@ -491,12 +423,16 @@ export async function sendMessage(text) {
       plan: (e) => {
         if (!adoptSession(e.session_id || streamSid)) return;
         run.plan = e;
-        if ((e.steps || []).length) run.thinking = "";
+        // 旧 plan 模式无模型推理，带步骤的 plan 事件不显示思考占位
+        if ((e.steps || []).length) run.thinkingFallback = false;
         renderRun(run);
       },
       thinking: (e) => {
         if (!runIsValid(run)) return;
-        run.thinking += e.content || "";
+        if (typeof e.content === "string" && e.content.trim()) {
+          run.thinking += e.content;
+          run.thinkingFallback = false;
+        }
         renderRun(run);
       },
       tool_call: (e) => {
@@ -530,7 +466,6 @@ export async function sendMessage(text) {
       },
       result: (e) => {
         if (!runIsValid(run)) return;
-        run.thinking = "";
         if (e.summary) run.answers.push(e.summary);
         run.resultTools = e.tool_results || [];
         renderRun(run);
@@ -538,15 +473,16 @@ export async function sendMessage(text) {
       },
       error: (e) => {
         if (!runIsValid(run)) return;
-        run.thinking = "";
         run.error = e.message || "处理请求时出错";
         renderRun(run);
         bus.dispatchEvent(new Event("chat-done"));
       },
       text: (e) => {
         if (!runIsValid(run)) return;
-        run.thinking = "";
-        if (e.thinking) run.thinking = e.thinking;
+        if (typeof e.thinking === "string" && e.thinking.trim()) {
+          run.thinking = e.thinking;
+          run.thinkingFallback = false;
+        }
         if (e.content) {
           // 流式片段已展示时，最终事件携带的是完整正文，替换而非重复追加。
           run.answers = run.answerStreamed ? [e.content] : [...run.answers, e.content];
@@ -556,7 +492,6 @@ export async function sendMessage(text) {
       },
       text_delta: (e) => {
         if (!runIsValid(run) || !e.content) return;
-        run.thinking = "";
         run.answerStreamed = true;
         if (!run.answers.length) run.answers.push("");
         run.answers[run.answers.length - 1] += e.content;
@@ -564,11 +499,15 @@ export async function sendMessage(text) {
       },
       done: () => {
         if (!runIsValid(run)) return;
-        run.thinking = "";
         run.done = true;
         if (streamSid && !run.committed && run.answers.length) {
+          const fallbackThinking = run.thinking || (run.thinkingFallback ? "思考中..." : "");
           (store.sessionMessages[streamSid] = store.sessionMessages[streamSid] || [])
-            .push({ role: "assistant", content: run.answers.join("\n\n") });
+            .push({ role: "assistant", content: run.answers.join("\n\n"),
+              ...(fallbackThinking ? {
+                thinking: fallbackThinking,
+                thinking_duration_seconds: (Date.now() - run.startedAt) / 1000,
+              } : {}) });
           run.committed = true;
         }
         if (streamSid) markSessionDetailStale(streamSid);
@@ -586,7 +525,6 @@ export async function sendMessage(text) {
       if (!runIsValid(run)) {
         // 冷启动时服务可能在 session_title 之前就断开。此前直接返回会让
         // 用户只看到自己的提问，以为 AI 没有回应；此时仍应展示可重试错误。
-        run.thinking = "";
         run.interrupted = true;
         run.interruptedMessage = "连接中断：请检查服务是否已启动后重试";
         if (run.mount && Array.from(scrollEl().children).includes(run.mount)) {
@@ -598,7 +536,6 @@ export async function sendMessage(text) {
         finish();
         return;
       }
-      run.thinking = "";
       run.interrupted = true;
       renderRun(run);
     }
