@@ -1,6 +1,7 @@
 """回测历史行情与基准数据 — 日期裁剪与 DataFrame 标准化。"""
 
-from datetime import date
+import logging
+from datetime import date, timedelta
 
 import pandas as pd
 
@@ -8,9 +9,15 @@ from backtest.models import BenchmarkSpec
 from data.akshare import AkShareAdapter, _ak_csindex
 from data.schemas import PriceData
 
+logger = logging.getLogger(__name__)
+
 # 相邻数据点最大允许间隔（日历日）：覆盖周末（3 天）与中国长假（最长约 9-10 天），
 # 超过即视为行情缺口，无法连续计算净值。
 MAX_GAP_DAYS = 15
+
+# 区间边界容差（自然日）：start/end 可能落在周末或长假，基准首个/末个交易日
+# 略晚/略早于请求日期属正常；超过 7 天说明区间边界数据缺失（如接口从指数基日截断）。
+BOUNDARY_TOLERANCE_DAYS = 7
 
 
 class BacktestDataError(Exception):
@@ -79,7 +86,16 @@ class HistoricalPriceProvider:
                 "trade_date": pd.to_datetime(df[date_col], errors="coerce"),
                 "close": pd.to_numeric(df[close_col], errors="coerce"),
             }
-        ).dropna()
+        )
+        # 非关键缺失产生 warning：非法日期/收盘值在丢弃前记录行数
+        dropped = int(frame.isna().any(axis=1).sum())
+        if dropped:
+            logger.warning(
+                "基准 %s 原始数据含 %d 行无法解析的日期或收盘值，已丢弃",
+                benchmark.id,
+                dropped,
+            )
+        frame = frame.dropna()
         # 提取纯 Python 值：区间裁剪、排序去重与连续性校验在列表上进行，
         # 规避 pandas 类型推断歧义
         dates: list[date] = [ts.date() for ts in frame["trade_date"]]
@@ -89,6 +105,21 @@ class HistoricalPriceProvider:
         rows = sorted(dict(rows).items())  # 按键排序并按日期去重（保留最后值）
         if not rows:
             raise BacktestDataError(f"基准 {benchmark.id} 在 {start} 至 {end} 内无数据")
+
+        # 区间边界校验：基准序列必须覆盖请求区间 [start, end] 两端（含容差）。
+        # 边界判定基准是请求区间本身而非股票数据；H11001/H11025 基日均早于
+        # 一般回测起点，正常请求不会触发。首/末日超出容差说明区间边界数据缺失。
+        first_day, last_day = rows[0][0], rows[-1][0]
+        if first_day - start > timedelta(days=BOUNDARY_TOLERANCE_DAYS):
+            raise BacktestDataError(
+                f"基准 {benchmark.id} 缺少 {start} 至 {first_day} 前的行情"
+                f"（序列始于 {first_day}，晚于回测起点 {BOUNDARY_TOLERANCE_DAYS} 天）"
+            )
+        if end - last_day > timedelta(days=BOUNDARY_TOLERANCE_DAYS):
+            raise BacktestDataError(
+                f"基准 {benchmark.id} 缺少 {last_day} 后至 {end} 的行情"
+                f"（序列止于 {last_day}，早于回测终点 {BOUNDARY_TOLERANCE_DAYS} 天）"
+            )
 
         # 基准交易日缺口：股票有交易日而基准在该日缺失时无法对齐净值日
         trade_dates = [d for d, _ in rows]
