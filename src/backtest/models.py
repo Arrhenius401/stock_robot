@@ -144,6 +144,6 @@ class BacktestResult:
     request: BacktestRequest
     strategy: BacktestStrategy
     benchmark: BenchmarkSpec
-    costs: dict
+    costs: dict[str, float]
     data_start: date
     data_end: date

@@ -237,3 +237,79 @@ def test_missing_cost_profile_raises(tmp_path):
     )
     with pytest.raises(StrategyConfigError, match="成本配置"):
         missing_runner.run(_request())
+
+
+def test_missing_cost_key_raises(tmp_path):
+    # 成本档存在但缺费率键 → StrategyConfigError，消息含成本档名与缺失键名
+    strategies_dir = tmp_path / "strategies"
+    strategies_dir.mkdir()
+    (strategies_dir / "test_strategy.yaml").write_text(_strategy_yaml(), encoding="utf-8")
+    cfg = Config(config_dir=tmp_path / "config")
+    bad_costs = dict(TEST_COSTS)
+    del bad_costs["stamp_duty_rate"]
+    cfg.set("backtest.cost_profiles.test_profile", bad_costs)
+    broken_runner = BacktestRunner(
+        provider=_FixedProvider(_price_series()),
+        strategies=StrategyRepository(strategies_dir),
+        config=cfg,
+    )
+    with pytest.raises(StrategyConfigError, match="成本"):
+        broken_runner.run(_request())
+
+
+def test_negative_cost_rate_raises(tmp_path):
+    # 费率值为负 → 非法成本配置，同样明确失败
+    strategies_dir = tmp_path / "strategies"
+    strategies_dir.mkdir()
+    (strategies_dir / "test_strategy.yaml").write_text(_strategy_yaml(), encoding="utf-8")
+    cfg = Config(config_dir=tmp_path / "config")
+    bad_costs = dict(TEST_COSTS)
+    bad_costs["slippage_rate"] = -0.01
+    cfg.set("backtest.cost_profiles.test_profile", bad_costs)
+    broken_runner = BacktestRunner(
+        provider=_FixedProvider(_price_series()),
+        strategies=StrategyRepository(strategies_dir),
+        config=cfg,
+    )
+    with pytest.raises(StrategyConfigError, match="成本"):
+        broken_runner.run(_request())
+
+
+def test_warmup_insufficient_data_raises(tmp_path):
+    # 次新股：行情仅 60 天 < warmup_days=90 → 预热不足，明确失败
+    strategies_dir = tmp_path / "strategies"
+    strategies_dir.mkdir()
+    (strategies_dir / "test_strategy.yaml").write_text(_strategy_yaml(), encoding="utf-8")
+    cfg = Config(config_dir=tmp_path / "config")
+    cfg.set("backtest.cost_profiles.test_profile", TEST_COSTS)
+    short_runner = BacktestRunner(
+        provider=_FixedProvider(_price_series()[:60]),
+        strategies=StrategyRepository(strategies_dir),
+        config=cfg,
+    )
+    with pytest.raises(BacktestDataError, match="预热"):
+        short_runner.run(_request())
+
+
+def test_warmup_sufficient_data_passes(tmp_path):
+    # 行情覆盖预热期（120 天 ≥ 90）→ 正常通过；正式区间收窄到数据范围内
+    strategies_dir = tmp_path / "strategies"
+    strategies_dir.mkdir()
+    (strategies_dir / "test_strategy.yaml").write_text(_strategy_yaml(), encoding="utf-8")
+    cfg = Config(config_dir=tmp_path / "config")
+    cfg.set("backtest.cost_profiles.test_profile", TEST_COSTS)
+    long_runner = BacktestRunner(
+        provider=_FixedProvider(_price_series()[:120]),
+        strategies=StrategyRepository(strategies_dir),
+        config=cfg,
+    )
+    request = BacktestRequest(
+        symbol="000001",
+        start_date=START,
+        end_date=date(2024, 1, 31),
+        strategy_id="test_strategy",
+        benchmark_id="money_fund",
+        initial_cash=INIT_CASH,
+    )
+    result = long_runner.run(request)
+    assert result.data_start == _price_series()[0].trade_date

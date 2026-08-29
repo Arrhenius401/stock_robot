@@ -15,7 +15,12 @@ from backtest.data import (
     HistoricalPriceProvider,
     validate_price_history,
 )
-from backtest.models import BacktestRequest, BacktestResult, BenchmarkSpec
+from backtest.models import (
+    BacktestRequest,
+    BacktestResult,
+    BacktestStrategy,
+    BenchmarkSpec,
+)
 from backtest.signal import build_target_weights
 from backtest.strategy import StrategyConfigError, StrategyRepository
 from data.schemas import PriceData
@@ -25,6 +30,15 @@ logger = logging.getLogger(__name__)
 
 # 年化交易日基数（A 股日线回测惯例）
 TRADING_DAYS = 252
+
+# 成本档必需的五项费率键（缺失/非法直接失败，避免 _calc_fees 裸 KeyError）
+COST_KEYS = (
+    "commission_rate",
+    "minimum_commission",
+    "stamp_duty_rate",
+    "transfer_fee_rate",
+    "slippage_rate",
+)
 
 
 class BacktestRunner:
@@ -57,6 +71,8 @@ class BacktestRunner:
         prices = self._provider.fetch_stock(request.symbol, fetch_start, request.end_date)
         validate_price_history(prices, fetch_start, request.end_date)
         data_start, data_end = prices[0].trade_date, prices[-1].trade_date
+        # 预热覆盖校验：行情首日至回测起点须足 warmup_days（次新股/上市晚则明确失败）
+        self._validate_warmup_coverage(prices, strategy, request.start_date)
 
         # 技术信号：无未来函数，第 i 日信号仅用截至 i 日数据
         technical_config = self._config_loader.load("")
@@ -125,17 +141,54 @@ class BacktestRunner:
             symbol=str(item["symbol"]),
         )
 
-    def _resolve_costs(self, cost_profile: str) -> dict:
+    def _resolve_costs(self, cost_profile: str) -> dict[str, float]:
+        """一次性校验成本档：目标档位存在且五项费率键齐全、值为非负数字。"""
         costs = self._config.get(f"backtest.cost_profiles.{cost_profile}")
-        if not isinstance(costs, dict) or not costs.get("commission_rate"):
+        if not isinstance(costs, dict) or not costs:
             raise StrategyConfigError(f"成本配置不存在: {cost_profile}")
-        return costs
+        missing = [key for key in COST_KEYS if key not in costs]
+        if missing:
+            raise StrategyConfigError(
+                f"成本配置 {cost_profile} 缺少键: {', '.join(missing)}"
+            )
+        resolved: dict[str, float] = {}
+        for key in COST_KEYS:
+            value = costs[key]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise StrategyConfigError(
+                    f"成本配置 {cost_profile} 的 {key} 必须是数字"
+                )
+            numeric = float(value)
+            if numeric < 0:
+                raise StrategyConfigError(
+                    f"成本配置 {cost_profile} 的 {key} 必须为非负数"
+                )
+            resolved[key] = numeric
+        return resolved
+
+    @staticmethod
+    def _validate_warmup_coverage(
+        prices: list[PriceData], strategy: BacktestStrategy, start_date: date
+    ) -> None:
+        """校验预热覆盖：prices[0] 至 start_date 间的实际交易日数须 ≥ warmup_days。
+
+        次新股/上市晚于取数起点的股票，正式区间前段信号会基于截断历史计算，
+        指标失真，须明确失败并给出原因。prices[0] 可能晚于取数起点
+        （数据源从上市日起返回），校验以实际行情首日为准。
+        """
+        coverage = sum(1 for p in prices if p.trade_date < start_date)
+        if coverage < strategy.warmup_days:
+            raise BacktestDataError(
+                f"股票 {prices[0].symbol} 行情自 {prices[0].trade_date} 起，"
+                f"至回测起点 {start_date} 仅 {coverage} 个交易日，"
+                f"不足要求的预热期 {strategy.warmup_days} 个交易日"
+            )
 
     def _build_order_book(
         self,
         prices: list[PriceData],
         weights: pd.DataFrame,
-        costs: dict,
+        costs: dict[str, float],
         initial_cash: float,
     ) -> tuple[pd.DataFrame, np.ndarray, np.ndarray, np.ndarray]:
         """按"第 i-1 日信号 → 第 i 日开盘成交"生成订单簿与 VectorBT 输入序列。
@@ -211,7 +264,7 @@ class BacktestRunner:
         return trades_df, size, exec_prices, fee_arr
 
     @staticmethod
-    def _calc_fees(notional: float, direction: str, costs: dict) -> float:
+    def _calc_fees(notional: float, direction: str, costs: dict[str, float]) -> float:
         """单笔费用：双边佣金（不低于最低佣金）+ 双边过户费 + 仅卖出印花税。"""
         commission = max(
             notional * float(costs["commission_rate"]),
