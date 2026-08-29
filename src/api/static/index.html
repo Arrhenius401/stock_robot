@@ -13,11 +13,6 @@
           aria-label="打开主要导航" aria-controls="sidebar" aria-expanded="false">☰</button>
   <div class="logo"><span class="dot"></span><span>Stock Robot</span></div>
   <h1 class="workspace-title" id="currentViewTitle">会话研究</h1>
-  <form class="global-stock-search" role="search">
-    <label class="sr-only" for="globalStockSearch">全局股票搜索</label>
-    <div class="entry-input-wrap"><input id="globalStockSearch" inputmode="numeric" autocomplete="off" placeholder="搜索股票代码，如 600519"></div>
-    <button id="globalStockSearchBtn" type="submit">分析</button>
-  </form>
   <div class="conn-status" id="connStatus" role="status" hidden>⚠ 无法连接服务</div>
 </header>
 <button class="workspace-backdrop" id="workspaceBackdrop" type="button" hidden
@@ -41,6 +36,10 @@
       <button class="nav-item" type="button" data-view="index">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M23 6l-9.5 9.5-5-5L1 18"/><path d="M17 6h6v6"/></svg>
         <span>指数分析</span>
+      </button>
+      <button class="nav-item" type="button" data-view="report-library">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5z"/></svg>
+        <span>报告库</span>
       </button>
       <button class="nav-item" type="button" data-view="subscriptions">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 22c5.5 0 10-4.5 10-10S17.5 2 12 2 2 6.5 2 12s4.5 10 10 10z"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
@@ -83,6 +82,9 @@
         </div>
       </div>
       <div id="indexContent" class="report-content"></div>
+    </div>
+    <div class="view" id="view-report-library">
+      <div id="reportLibraryContent" class="report-library-content"></div>
     </div>
     <div class="view" id="view-subscriptions">
       <div class="subs-form panel">

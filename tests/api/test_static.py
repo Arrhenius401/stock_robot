@@ -231,9 +231,30 @@ class TestStaticUI:
 
         assert 'id="appLayout"' in html
         assert 'aria-label="主要导航"' in html
-        assert 'id="globalStockSearch"' in html
         assert 'id="mobileNavToggle"' in html
         assert 'id="workspaceBackdrop"' in html
+
+    @pytest.mark.asyncio
+    async def test_index_contains_report_library_view(self, client):
+        html = (await client.get("/")).text
+
+        assert 'data-view="report-library"' in html
+        assert "<span>报告库</span>" in html
+        assert 'id="view-report-library"' in html
+        assert 'id="reportLibraryContent"' in html
+        assert 'id="globalStockSearch"' not in html
+
+    @pytest.mark.asyncio
+    async def test_report_library_modules_served(self, client):
+        app_js = (await client.get("/js/app.js")).text
+        api_js = (await client.get("/js/api.js")).text
+
+        assert 'import { initReportLibrary } from "./report-library.js";' in app_js
+        assert "initReportLibrary();" in app_js
+        assert "listReports(" in api_js
+        assert "getReport(" in api_js
+        assert "downloadReportUrl(" in api_js
+        assert (await client.get("/js/report-library.js")).status_code == 200
 
     @pytest.mark.asyncio
     async def test_chat_uses_textarea_input(self, client):
@@ -248,7 +269,7 @@ class TestStaticUI:
                      "/js/chat.js", "/js/sessions.js", "/js/components.js",
                      "/js/report.js", "/js/indexview.js", "/js/report-renderer.js",
                      "/js/report-drawer.js", "/js/workspace-modal.js",
-                     "/js/settings.js"):
+                     "/js/settings.js", "/js/report-library.js"):
             resp = await client.get(path)
             assert resp.status_code == 200, path
 

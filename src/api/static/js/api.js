@@ -76,6 +76,19 @@ export const api = {
   index(symbols) {
     return request("/api/v1/index", { method: "POST", body: JSON.stringify({ symbols }) });
   },
+  listReports(params = {}) {
+    const search = new URLSearchParams();
+    if (params.type) search.set("type", params.type);
+    if (params.query) search.set("query", params.query);
+    const suffix = search.toString() ? `?${search.toString()}` : "";
+    return request(`/api/v1/reports${suffix}`);
+  },
+  getReport(id) {
+    return request(`/api/v1/reports/${encodeURIComponent(id)}`);
+  },
+  downloadReportUrl(id) {
+    return `/api/v1/reports/${encodeURIComponent(id)}/download`;
+  },
   listSessions() {
     return request("/api/v1/sessions");
   },
