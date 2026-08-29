@@ -99,7 +99,8 @@ def test_artifact_path_contains_strategy_symbol_month_and_run_id(tmp_path, resul
     output = write_backtest_artifacts(result, tmp_path)
 
     assert output.relative_to(tmp_path).parts[:4] == (
-        "backtests", "report_technical", "000001", "2026-08"
+        "backtests", "report_technical", "000001",
+        datetime.now().astimezone().strftime("%Y-%m"),
     )
     for name in ("report.md", "summary.json", "equity_curve.csv", "trades.csv", "manifest.json"):
         assert (output / name).exists()
