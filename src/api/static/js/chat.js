@@ -267,19 +267,24 @@ export function renderMessageHistory(messages, artifacts = []) {
     linked.set(key, values);
   }
   const rendered = new Set();
+  // 工具消息的报告卡片延迟到同轮 assistant 正文之后渲染（查看入口位于正文下方）
+  const pendingCards = [];
   for (const m of messages) {
     if (m.role === "user") {
       appendUser(m.content);
     } else if (m.role === "tool") {
       const id = messageId(m);
-      const matched = id == null ? [] : (linked.get(String(id)) || []);
-      for (const artifact of matched) {
-        appendReportSummary(artifact);
+      for (const artifact of id == null ? [] : (linked.get(String(id)) || [])) {
+        pendingCards.push(artifact);
         rendered.add(artifact);
       }
     } else if (m.role === "assistant") {
       appendBubble("agent", assistantMessage(
         m.content, m.thinking || "", m.thinking_duration_seconds));
+      for (const artifact of pendingCards) {
+        appendReportSummary(artifact);
+      }
+      pendingCards.length = 0;
       const id = messageId(m);
       for (const artifact of id == null ? [] : (linked.get(String(id)) || [])) {
         appendReportSummary(artifact);
@@ -288,6 +293,7 @@ export function renderMessageHistory(messages, artifacts = []) {
     }
     // system 消息不展示
   }
+  for (const artifact of pendingCards) appendReportSummary(artifact);
   const remaining = restoredArtifacts.filter((artifact) => !rendered.has(artifact));
   if (remaining.length) {
     const section = el("section", "artifact-history-orphans");
