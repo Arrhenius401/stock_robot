@@ -6,11 +6,12 @@ import logging
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any, cast
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import ValidationError
 
 from agent.chat import ChatResponder
@@ -21,6 +22,12 @@ from agent.planner import Planner
 from agent.react import ReActExecutor
 from api.configuration import create_configuration_router
 from api.message_content import encode_message_content, normalize_message_content
+from api.report_library import (
+    ReportLibraryError,
+    get_report_detail,
+    list_reports,
+    resolve_download_path,
+)
 from api.runtime import RuntimeManager, RuntimeSnapshot
 from api.session_titles import SessionTitleRefiner, derive_session_title
 from api.sessions import is_draft_session_id
@@ -336,6 +343,38 @@ def create_app(
             return JSONResponse({"tools": []})
         return JSONResponse({"tools": agent_core.registry.list_all_summary(),
                              "total": len(agent_core.registry.list_all())})
+
+    def _reports_root() -> Path:
+        return Path.cwd() / "reports"
+
+    def _raise_report_error(error: ReportLibraryError) -> None:
+        raise HTTPException(status_code=error.status_code, detail=str(error))
+
+    @app.get("/api/v1/reports")
+    async def reports(
+            report_type: str | None = Query(default=None, alias="type"),
+            query: str | None = None):
+        if report_type not in (None, "stock", "index", "backtest"):
+            raise HTTPException(status_code=422, detail="报告类型无效")
+        items = list_reports(_reports_root(), report_type=report_type, query=query)
+        return JSONResponse({"reports": [item.to_dict() for item in items],
+                             "total": len(items)})
+
+    @app.get("/api/v1/reports/{report_id}")
+    async def report_detail(report_id: str):
+        try:
+            detail = get_report_detail(_reports_root(), report_id)
+        except ReportLibraryError as error:
+            _raise_report_error(error)
+        return JSONResponse(detail.to_dict())
+
+    @app.get("/api/v1/reports/{report_id}/download")
+    async def report_download(report_id: str):
+        try:
+            path = resolve_download_path(_reports_root(), report_id)
+        except ReportLibraryError as error:
+            _raise_report_error(error)
+        return FileResponse(path, media_type="text/markdown", filename=path.name)
 
     @app.post("/api/v1/chat")
     async def chat(request: Request):
