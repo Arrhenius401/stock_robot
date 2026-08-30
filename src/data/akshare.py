@@ -48,6 +48,15 @@ _OVERSEAS_SINA_SYMBOLS = {
 }
 
 
+def _row_get_any(row: Any, *keys: str, default: Any = None) -> Any:
+    """按候选列名读取一行数据，兼容不同 AkShare 接口的中英文列名。"""
+    for key in keys:
+        value = row.get(key)
+        if value is not None:
+            return value
+    return default
+
+
 def get_total_shares(symbol: str, financials: list | None = None) -> float | None:
     """总股本三级链：东财轻量接口 → 腾讯流通股本 → 财报反推（离线兜底）
 
@@ -286,6 +295,7 @@ class AkShareAdapter(DataSource):
 
     def _fetch_price(self, symbol: str, **kwargs) -> list[PriceData]:
         # 回测等场景可显式指定起止日期（YYYYMMDD）；未完整指定时保持默认近一年（days=250）行为
+        results: list[PriceData] = []
         start_date = kwargs.get("start_date")
         end_date = kwargs.get("end_date")
         if start_date is None or end_date is None:
@@ -666,13 +676,24 @@ class AkShareAdapter(DataSource):
             prev_close: float | None = None
             for _, row in df.iterrows():
                 try:
-                    close_f = float(row["close"])
+                    date_val = _row_get_any(row, "date", "日期", "trade_date", "交易日期")
+                    open_val = _row_get_any(row, "open", "开盘", "开盘价")
+                    high_val = _row_get_any(row, "high", "最高", "最高价")
+                    low_val = _row_get_any(row, "low", "最低", "最低价")
+                    close_val = _row_get_any(row, "close", "收盘", "收盘价")
+                    volume_val = _row_get_any(row, "volume", "成交量", default=0)
+                    amount_val = _row_get_any(row, "amount", "成交额")
+
+                    if date_val is None or close_val is None:
+                        raise KeyError("date/close")
+
+                    close_f = float(close_val)
                     # 涨跌幅：优先取源数据列（部分源/旧版 akshare 提供），缺失/坏值按前收盘计算。
                     # 注：安装版 akshare 的 stock_zh_index_daily_em 在返回前丢弃承载涨跌幅
                     # 的 "_" 列，腾讯源亦无涨跌幅列，故实际生效的是按前收盘计算；
                     # "_" 回退仅为防御未来版本保留该列的情况。
                     # 解析隔离在独立 try 中，坏 pct 值不连累整行 OHLCV 数据。
-                    pct_raw = row.get("涨跌幅", row.get("pct_chg", row.get("_")))
+                    pct_raw = _row_get_any(row, "涨跌幅", "pct_chg", "_")
                     change_pct = None
                     if pct_raw is not None and str(pct_raw) not in ("", "nan"):
                         try:
@@ -683,17 +704,17 @@ class AkShareAdapter(DataSource):
                         change_pct = round((close_f - prev_close) / prev_close * 100, 2)
                     results.append(IndexPriceData(
                         symbol=symbol,
-                        trade_date=_parse_date(row["date"]),
-                        open=float(row["open"]),
-                        high=float(row["high"]),
-                        low=float(row["low"]),
+                        trade_date=_parse_date(date_val),
+                        open=float(open_val),
+                        high=float(high_val),
+                        low=float(low_val),
                         close=close_f,
-                        volume=int(row.get("volume", 0)),
-                        turnover=float(row.get("amount", 0)) / 1e8 if row.get("amount") else None,
+                        volume=int(float(volume_val or 0)),
+                        turnover=float(amount_val) / 1e8 if amount_val else None,
                         change_pct=change_pct,
                     ))
                     prev_close = close_f
-                except (ValueError, KeyError) as e:
+                except (ValueError, KeyError, TypeError) as e:
                     logger.warning(f"跳过异常指数行情数据行: {e}")
             return results
         except Exception as e:

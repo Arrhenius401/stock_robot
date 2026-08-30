@@ -44,6 +44,17 @@ class TestAkShareAdapter:
         results = adapter.fetch("000001", data_type="price")
         assert results == []
 
+    def test_fetch_price_returns_empty_when_all_sources_fail(self, mocker):
+        """两条行情源均失败时稳定返回空列表，不触发未初始化变量异常"""
+        mocker.patch("utils.retry.time.sleep")
+        mocker.patch("akshare.stock_zh_a_daily", side_effect=ConnectionError("腾讯失败"))
+        mocker.patch("akshare.stock_zh_a_hist", side_effect=ConnectionError("东财失败"))
+
+        adapter = AkShareAdapter()
+        results = adapter.fetch("000001", data_type="price")
+
+        assert results == []
+
 
 def test_fetch_financial_parses_chinese_units(mocker):
     def _mock(symbol):

@@ -70,6 +70,31 @@ def test_fetch_index_price_uses_pct_column(mocker):
     assert results[1].change_pct == pytest.approx(1.0)
 
 
+def test_fetch_index_price_sector_accepts_chinese_columns(mocker):
+    """申万行业指数接口返回中文列名时，应正常解析而不是整批跳过"""
+
+    def _mock_sw(symbol):
+        return pd.DataFrame([
+            {"日期": "2026-07-01", "开盘": "3000.0", "最高": "3050.0",
+             "最低": "2990.0", "收盘": "3000.0", "成交量": 100000,
+             "成交额": 5.0e8, "涨跌幅": "1.20"},
+            {"日期": "2026-07-02", "开盘": "3010.0", "最高": "3060.0",
+             "最低": "3000.0", "收盘": "3030.0", "成交量": 110000,
+             "成交额": 5.5e8, "涨跌幅": "1.00"},
+        ])
+
+    sw = mocker.patch("akshare.index_hist_sw", side_effect=_mock_sw)
+    adapter = AkShareAdapter()
+    results = adapter.fetch("801010", data_type="index_price", index_style="sector")
+
+    sw.assert_called_once_with(symbol="801010")
+    assert len(results) == 2
+    assert results[0].symbol == "801010"
+    assert results[0].close == pytest.approx(3000.0)
+    assert results[0].turnover == pytest.approx(5.0)
+    assert results[1].change_pct == pytest.approx(1.0)
+
+
 def test_fetch_overseas_index_falls_back_to_sina_hk(mocker):
     """东财全球指数接口失败时回退新浪港股日线源（HSI 走 stock_hk_index_daily_sina）"""
 
