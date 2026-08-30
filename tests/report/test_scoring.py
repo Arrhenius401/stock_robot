@@ -107,3 +107,42 @@ class TestBuildReport:
         assert call_kwargs["industry"] == "未知"
         assert call_kwargs["base_score"] == 8.0
         assert call_kwargs["final_score"] == 8.0
+
+    def test_build_report_adds_neutral_fallback_when_llm_missing(self, mocker):
+        mock_builder_cls = mocker.patch("report.builder.ReportBuilder")
+        mock_builder = mock_builder_cls.return_value
+        mock_builder.build.return_value = "RENDERED_REPORT"
+
+        results = [
+            _result("financial", 7.0, score_detail="财务稳健"),
+            _result("sentiment", None, status="unavailable"),
+        ]
+
+        build_report("000001", "平安银行", results, {}, _ctx(), no_llm=False)
+
+        bulk = mock_builder.build.call_args.kwargs["commentary"]["bulk"]
+        assert "AI 解读当前不可用" in bulk
+        assert "最终综合得分为 7.0/10" in bulk
+        assert "舆情风险" in bulk
+
+    def test_build_report_keeps_existing_ai_commentary(self, mocker):
+        mock_builder_cls = mocker.patch("report.builder.ReportBuilder")
+        mock_builder = mock_builder_cls.return_value
+        mock_builder.build.return_value = "RENDERED_REPORT"
+
+        build_report(
+            "000001", "平安银行", [_result("financial", 8.0)],
+            {"bulk": "真实 AI 解读"}, _ctx(), no_llm=False,
+        )
+
+        assert mock_builder.build.call_args.kwargs["commentary"]["bulk"] == "真实 AI 解读"
+
+    def test_build_report_no_llm_does_not_add_fallback(self, mocker):
+        mock_builder_cls = mocker.patch("report.builder.ReportBuilder")
+        mock_builder = mock_builder_cls.return_value
+        mock_builder.build.return_value = "RENDERED_REPORT"
+
+        build_report("000001", "平安银行", [_result("financial", 8.0)], {}, _ctx(),
+                     no_llm=True)
+
+        assert mock_builder.build.call_args.kwargs["commentary"] == {}
