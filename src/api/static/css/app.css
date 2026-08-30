@@ -796,15 +796,17 @@ body, #appLayout.layout, .main { background: var(--workspace-bg); }
 }
 .report-library-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 14px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
 }
 .report-library-card {
   display: grid;
-  align-content: space-between;
-  gap: 14px;
-  min-height: 128px;
-  padding: 16px;
+  grid-template-columns: minmax(210px, .9fr) minmax(260px, 1.45fr) auto;
+  align-items: center;
+  gap: 18px;
+  height: 96px;
+  min-height: 96px;
+  padding: 14px 16px;
   border: 1px solid var(--border);
   border-radius: 14px;
   background: #fff;
@@ -819,21 +821,36 @@ body, #appLayout.layout, .main { background: var(--workspace-bg); }
   align-items: flex-start;
   gap: 10px;
 }
-.report-library-card-head { justify-content: space-between; }
+.report-library-card-head {
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-start;
+}
 .report-library-card-title {
   margin: 0;
   color: var(--text);
   font-size: 15px;
   line-height: 1.35;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.report-library-card > .report-library-card-meta {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 .report-library-open {
-  justify-self: start;
+  justify-self: end;
   border: 0;
   padding: 0;
   background: transparent;
   color: var(--accent);
   font-size: 12px;
   font-weight: 720;
+  white-space: nowrap;
 }
 .report-library-open:hover { color: #0b4cb3; }
 .report-library-badge-stock { color: #155fb8; background: #eaf3ff; }
@@ -986,6 +1003,13 @@ body, #appLayout.layout, .main { background: var(--workspace-bg); }
   .report-library-heading, .report-library-detail-head { align-items: stretch; flex-direction: column; }
   .report-library-toolbar input, .primary-btn { width: 100%; }
   .report-library-filters, .report-library-heading-tools { width: 100%; }
+  .report-library-card {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+    min-height: 118px;
+    align-items: start;
+  }
+  .report-library-open { justify-self: start; }
   .report-library-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .report-library-detail-body { padding: 14px; }
 }

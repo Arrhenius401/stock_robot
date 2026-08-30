@@ -258,6 +258,15 @@ class TestStaticUI:
         assert (await client.get("/js/report-library.js")).status_code == 200
 
     @pytest.mark.asyncio
+    async def test_report_library_list_uses_single_equal_height_rows(self, client):
+        css = (await client.get("/css/app.css")).text
+
+        assert ".report-library-grid {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr);" in css
+        assert "height: 96px;\n  min-height: 96px;" in css
+        assert ".report-library-card > .report-library-card-meta" in css
+        assert "-webkit-line-clamp: 2;" in css
+
+    @pytest.mark.asyncio
     async def test_chat_uses_textarea_input(self, client):
         resp = await client.get("/")
 
