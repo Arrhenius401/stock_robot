@@ -1215,6 +1215,41 @@ class TestAnalyzeEndpoint:
         assert data["overview"]["change_pct"] is None  # FakePipeline 无价格数据
 
     @pytest.mark.asyncio
+    async def test_analyze_adds_commentary_fallback_when_llm_empty(self, tmp_path, mocker):
+        """API 分析路径也应在 LLM 空输出时返回量化兜底摘要"""
+        mocker.patch("utils.symbols.resolve_name", return_value="平安银行")
+
+        class EmptyCommentaryPipeline:
+            def run(self, symbol, name, market="a-shares"):
+                from data.schemas import AnalysisContext, AnalysisResult
+                results = [AnalysisResult(
+                    dimension="financial", status="ok", summary="财务健康",
+                    score=8.0, score_detail="财务稳健",
+                )]
+                return results, {"bulk": ""}, AnalysisContext(
+                    symbol=symbol, name=name, market=market,
+                )
+
+        from typing import cast
+        core = AgentCore(
+            registry=make_core().registry,
+            pipeline=cast(Any, EmptyCommentaryPipeline()),
+            index_pipeline=cast(Any, FakeIndexPipeline()),
+            llm=cast(Any, FakeLLM()),
+        )
+        sessions = SessionManager(SessionStore(tmp_path / "sessions_analyze_fb.db"))
+        app_fb = create_app(core=core, sessions=sessions, push=False)
+        async with AsyncClient(
+            transport=ASGITransport(app=app_fb), base_url="http://test",
+        ) as c:
+            resp = await c.post("/api/v1/analyze", json={"symbol": "000001"})
+
+        assert resp.status_code == 200
+        commentary = resp.json()["commentary"]
+        assert "AI 解读当前不可用" in commentary
+        assert "最终综合得分为 8.0/10" in commentary
+
+    @pytest.mark.asyncio
     async def test_analyze_invalid_symbol_returns_422(self, client):
         resp = await client.post("/api/v1/analyze", json={"symbol": "abc"})
         assert resp.status_code == 422

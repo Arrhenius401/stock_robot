@@ -699,9 +699,16 @@ def create_app(
             results, commentary, ctx = await asyncio.to_thread(
                 agent_core.pipeline.run, symbol, name
             )
-            from report.scoring import compute_price_info, compute_score_summary
+            from report.scoring import (
+                compute_price_info,
+                compute_score_summary,
+                with_commentary_fallback,
+            )
 
             summary = compute_score_summary(results)
+            commentary = with_commentary_fallback(
+                commentary, summary, no_llm=agent_core.llm is None,
+            )
             price_info = compute_price_info(ctx)
             dimensions = {}
             for r in results:

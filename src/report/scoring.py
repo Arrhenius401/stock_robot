@@ -114,7 +114,7 @@ def _fallback_neutral_commentary(summary: ScoreSummary) -> str:
     return "\n".join(lines)
 
 
-def _with_commentary_fallback(
+def with_commentary_fallback(
     commentary: dict[str, str],
     summary: ScoreSummary,
     no_llm: bool,
@@ -135,7 +135,7 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
     from report.builder import ReportBuilder
 
     summary = compute_score_summary(results)
-    commentary = _with_commentary_fallback(commentary, summary, no_llm)
+    commentary = with_commentary_fallback(commentary, summary, no_llm)
     price_info = compute_price_info(ctx)
     industry = ctx.industry_data.industry if ctx.industry_data else "未知"
 
