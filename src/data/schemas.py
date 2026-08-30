@@ -94,6 +94,7 @@ class RawSentimentData(BaseModel):
     symbol: str
     fetch_date: date
     items: list[RawSentimentItem] = Field(default_factory=list)
+    _from_stale_cache: bool = PrivateAttr(default=False)
 
 
 class SentimentItem(BaseModel):
@@ -180,8 +181,8 @@ class NewsData(BaseModel):
     symbol: str
     date: date
     headlines: list[str] = Field(default_factory=list)
-    # 采集层扩展字段（不参与序列化）
-    _raw_sentiment: Any = PrivateAttr(default=None)
+    _raw_sentiment: RawSentimentData | None = PrivateAttr(default=None)
+    _from_stale_cache: bool = PrivateAttr(default=False)
 
 
 class AnalysisResult(BaseModel):

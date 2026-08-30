@@ -7,13 +7,17 @@ from data.base import DataSource
 from data.schemas import (
     AnalysisContext,
     AnalysisResult,
+    DataSufficiency,
     FinancialData,
     IndustryData,
     NewsData,
     PriceData,
+    RawSentimentData,
+    RawSentimentItem,
     ValuationData,
 )
 from llm.base import LLMBackend
+from utils.config import Config
 
 
 def make_test_registry():
@@ -237,6 +241,87 @@ class TestCacheHealth:
         fin = FinancialData(symbol="000001", fiscal_quarter=date(2026, 6, 30))
         pipe._set_cache("000001", "financial", [fin])
         assert pipe._get_cached("000001", "financial") is None
+
+    def test_empty_news_not_cached_as_healthy(self, tmp_path, mocker):
+        """空舆情结果视为退化数据，避免覆盖可用旧缓存"""
+        pipe = self._make_pipeline(tmp_path, mocker)
+        news = NewsData(symbol="000001", date=date(2026, 8, 30), headlines=[])
+        news._raw_sentiment = RawSentimentData(
+            symbol="000001", fetch_date=date(2026, 8, 30), items=[],
+        )
+
+        pipe._set_cache("000001", "news", [news])
+
+        assert pipe._get_cached("000001", "news") is None
+
+    def test_legacy_empty_news_cache_is_ignored(self, tmp_path, mocker):
+        """历史版本写入的空舆情缓存读取时应视为未命中"""
+        pipe = self._make_pipeline(tmp_path, mocker)
+        pipe._cache.put(
+            "news", "000001", "latest",
+            '[{"symbol": "000001", "date": "2026-08-30", "headlines": []}]',
+        )
+
+        assert pipe._get_cached("000001", "news") is None
+
+    def test_news_uses_stale_cache_when_live_result_degraded(self, tmp_path, mocker):
+        """实时舆情为空时，使用过期旧缓存兜底并标注来源"""
+        class EmptyNewsSource(DataSource):
+            def supports(self, market, data_type):
+                return data_type == "news"
+
+            def fetch(self, symbol, **kwargs):
+                news = NewsData(symbol=symbol, date=date(2026, 8, 30), headlines=[])
+                news._raw_sentiment = RawSentimentData(
+                    symbol=symbol, fetch_date=date(2026, 8, 30), items=[],
+                )
+                return [news]
+
+        reg = Registry()
+        reg.register_data_source(EmptyNewsSource())
+        pipe = Pipeline(registry=reg, config=Config(config_dir=tmp_path), llm_enabled=False)
+
+        cached = NewsData(
+            symbol="000001", date=date(2026, 8, 1),
+            headlines=["旧新闻1", "旧新闻2", "旧公告"],
+        )
+        cached._raw_sentiment = RawSentimentData(
+            symbol="000001",
+            fetch_date=date(2026, 8, 1),
+            items=[
+                RawSentimentItem(
+                    title="旧新闻1", source="news",
+                    publish_date=date(2026, 8, 1),
+                ),
+                RawSentimentItem(
+                    title="旧新闻2", source="news",
+                    publish_date=date(2026, 8, 1),
+                ),
+                RawSentimentItem(
+                    title="旧公告", source="announcement",
+                    publish_date=date(2026, 8, 1),
+                ),
+            ],
+        )
+        pipe._set_cache("000001", "news", [cached])
+        stale_value = pipe._cache.get_stale("news", "000001", "latest") or "[]"
+        pipe._cache.put(
+            "news", "000001", "latest", stale_value, ttl_seconds=0,
+        )
+
+        ctx = pipe.collect("000001", "平安银行", data_types=["news"])
+        assert ctx.raw_sentiment is not None
+        assert len(ctx.raw_sentiment.items) == 3
+        assert ctx.raw_sentiment._from_stale_cache is True
+
+        from data.enrichers.sentiment_enricher import SentimentEnricher
+
+        enriched = SentimentEnricher().enrich(AnalysisContext(
+            symbol="000001", name="平安银行", raw_sentiment=ctx.raw_sentiment,
+            sufficiency=DataSufficiency(),
+        ))
+        assert enriched.sufficiency is not None
+        assert "过期缓存兜底" in enriched.sufficiency.sentiment.reason
 
     def test_cache_served_when_breaker_open(self, tmp_path, mocker):
         """断路器打开时，collect 仍从本地缓存返回健康数据"""

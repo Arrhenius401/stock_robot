@@ -67,6 +67,8 @@ class SentimentEnricher(DataEnricher):
             level = SufficiencyLevel.INSUFFICIENT
             weight = 0.0
             reason = f"有效新闻公告仅 {count} 条（<3），舆情分析不可用"
+        if getattr(raw, "_from_stale_cache", False):
+            reason = f"{reason}；实时舆情源失败，使用过期缓存兜底"
 
         enriched = EnrichedSentiment(total_count=count)
         if self._llm and count >= 3:

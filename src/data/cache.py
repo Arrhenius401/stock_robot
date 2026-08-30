@@ -51,6 +51,17 @@ class CacheManager:
                 return None
             return value
 
+    def get_stale(self, data_type: str, symbol: str, date_key: str) -> str | None:
+        """读取缓存原始值，忽略 TTL；用于短时效数据源失败时的降级兜底。"""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT value FROM cache WHERE data_type=? AND symbol=? AND date_key=?",
+                (data_type, symbol, date_key),
+            ).fetchone()
+            if row is None:
+                return None
+            return row[0]
+
     def put(self, data_type: str, symbol: str, date_key: str, value: str, ttl_seconds: int | None = None):
         if ttl_seconds is None:
             ttl_seconds = self._default_ttls.get(data_type, 86400)
