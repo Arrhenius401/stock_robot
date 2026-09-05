@@ -229,10 +229,26 @@ class TestCacheHealth:
         """健康数据正常缓存"""
         from data.schemas import IndustryData
         pipe = self._make_pipeline(tmp_path, mocker)
-        ind = IndustryData(symbol="000001", industry="银行", sector="金融", peers=["600000"], top_peers=[])
+        ind = IndustryData(
+            symbol="000001", industry="银行", sector="金融", peers=["600000"],
+            peer_scope="申万二级", peer_industry="银行", top_peers=[],
+        )
         pipe._set_cache("000001", "industry", [ind])
         cached = pipe._get_cached("000001", "industry")
         assert cached is not None and cached[0].industry == "银行"
+
+    def test_industry_cache_without_sw_scope_is_invalidated(self, tmp_path, mocker):
+        """旧版东财口径缓存不得进入新的申万同业比较。"""
+        from data.schemas import IndustryData
+
+        pipe = self._make_pipeline(tmp_path, mocker)
+        old_data = IndustryData(
+            symbol="000001", industry="银行", sector="金融", peers=["600000"],
+        )
+        pipe._set_cache("000001", "industry", [old_data])
+
+        assert pipe._get_cached("000001", "industry") is None
+        assert pipe._cache.get("industry", "000001", "latest") is None
 
     def test_financial_all_equity_missing_not_cached(self, tmp_path, mocker):
         """财务 equity 全缺失不写缓存"""
@@ -242,8 +258,8 @@ class TestCacheHealth:
         pipe._set_cache("000001", "financial", [fin])
         assert pipe._get_cached("000001", "financial") is None
 
-    def test_legacy_financial_cache_is_bypassed_after_metric_fix(self, tmp_path, mocker):
-        """旧口径财务缓存不应参与修正后的指标计算。"""
+    def test_financial_cache_uses_current_latest_key(self, tmp_path, mocker):
+        """财务缓存统一使用 latest 键；历史数据由显式清理命令处理。"""
         pipe = self._make_pipeline(tmp_path, mocker)
         pipe._cache.put(
             "financial", "000001", "latest",
@@ -251,7 +267,9 @@ class TestCacheHealth:
             '"total_assets":100,"total_equity":50,"roe":-7.48}]',
         )
 
-        assert pipe._get_cached("000001", "financial") is None
+        cached = pipe._get_cached("000001", "financial")
+        assert cached is not None
+        assert cached[0].roe == -7.48
 
     def test_empty_news_not_cached_as_healthy(self, tmp_path, mocker):
         """空舆情结果视为退化数据，避免覆盖可用旧缓存"""
@@ -339,8 +357,10 @@ class TestCacheHealth:
         from data.schemas import IndustryData
         pipe = self._make_pipeline(tmp_path, mocker)
         # 先写入健康缓存
-        ind = IndustryData(symbol="000001", industry="银行", sector="金融",
-                           peers=["600000"], top_peers=[])
+        ind = IndustryData(
+            symbol="000001", industry="银行", sector="金融", peers=["600000"],
+            peer_scope="申万二级", peer_industry="银行", top_peers=[],
+        )
         pipe._set_cache("000001", "industry", [ind])
         assert pipe._get_cached("000001", "industry") is not None
         # 手动打开断路器

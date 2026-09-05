@@ -189,49 +189,46 @@ def _parse_date(value) -> date:
     raise ValueError(f"无法解析日期: {value}")
 
 
-def _fetch_sw_peers(industry_name: str) -> list[dict[str, Any]]:
-    """通过申万行业分类获取同行股票（含 PE/PB/市值，来源 legulegu.com）
-    返回 list[dict]，每个 dict 包含: symbol, name, market_cap, pe_ttm, pb
+def _fetch_sw_peers(sw_level2: str, sw_level1: str) -> tuple[list[dict[str, Any]], str]:
+    """按申万二级优先、一级回退获取完整同行池。
+
+    行业树的一级、二级节点都能直接返回完整成分表。一次分析最多请求二级和
+    一级各一次，避免旧实现按模糊名称遍历多个三级行业导致的慢、错配和限流。
     """
-    from data.industry_mapping_builder import fetch_constituents, fetch_taxonomy
+    from data.industry_mapping_builder import fetch_constituents, fetch_taxonomy_codes
 
-    # 第一步：申万行业树（新版页面解析，旧版 id="level3Items" 结构已移除）
     try:
-        _, level3_map = fetch_taxonomy()
+        level1_codes, level2_codes = fetch_taxonomy_codes()
     except Exception as e:
-        logger.warning("无法获取申万行业列表: %s", e)
-        return []
+        logger.warning("无法获取申万行业代码: %s", e)
+        return [], ""
 
-    # 三级行业名/二级名模糊匹配（level3_map 含名称与归属）
-    matched_codes = []
-    for code, (name, parent) in level3_map.items():
-        if industry_name in name or industry_name in parent or name in industry_name:
-            matched_codes.append(code)
-    matched_codes = list(set(matched_codes))
-
-    if not matched_codes:
-        logger.info("未找到与 '%s' 匹配的申万行业", industry_name)
-        return []
-
-    # 第二步：成分股（含 PE/PB/市值，市值单位亿元 → 元）
-    peers: list[dict[str, Any]] = []
-    for sw_code in matched_codes:
-        try:
-            stocks = fetch_constituents(sw_code)
-        except Exception as e:
-            logger.warning("获取申万行业成分股失败 %s: %s", sw_code, e)
+    candidates = [
+        (level2_codes.get(sw_level2), "申万二级"),
+        (level1_codes.get(sw_level1), "申万一级"),
+    ]
+    for industry_code, scope in candidates:
+        if not industry_code:
             continue
-        for s in stocks:
-            if s["market_cap"] is None:
-                continue
-            peers.append({
-                "symbol": s["symbol"],
-                "name": s["name"],
-                "market_cap": s["market_cap"] * 1e8,
-                "pe_ttm": s["pe_ttm"],
-                "pb": s["pb"],
-            })
-    return peers
+        try:
+            stocks = fetch_constituents(industry_code)
+        except Exception as e:
+            logger.warning("获取%s成分股失败 %s: %s", scope, industry_code, e)
+            continue
+        peers = [
+            {
+                "symbol": stock["symbol"],
+                "name": stock["name"],
+                "market_cap": stock["market_cap"] * 1e8,
+                "pe_ttm": stock["pe_ttm"],
+                "pb": stock["pb"],
+            }
+            for stock in stocks
+            if stock["market_cap"] is not None and stock["market_cap"] > 0
+        ]
+        if peers:
+            return peers, scope
+    return [], ""
 
 
 def _parse_debt_new(bs_df: Any) -> dict[str, tuple[float | None, float | None, float | None]]:
@@ -494,82 +491,48 @@ class AkShareAdapter(DataSource):
     def _fetch_industry(self, symbol: str, **kwargs) -> list[IndustryData]:
         from data.schemas import PeerBasicInfo
 
-        # 行业名两级链：东财轻量接口 → 本地映射表（离线兜底）
-        industry = _get_industry_name(symbol)
-        sector = ""
+        # 申万二级优先构建同业池；东财行业仅在申万缺失时作展示级降级，绝不参与评分。
+        sw_level1 = str(kwargs.get("sw_level1", "")).strip()
+        sw_level2 = str(kwargs.get("sw_level2", "")).strip()
+        industry = sw_level2 or sw_level1 or _get_industry_name(symbol)
+        sector = sw_level1
         top_peers = []
         all_peer_symbols: list[str] = []
         target_mcap: float | None = None
         target_rank: int | None = None
+        peer_scope = ""
+        peer_industry = ""
 
-        if industry:
-            sw_peers = _fetch_sw_peers(industry)
+        if sw_level1 or sw_level2:
+            sw_peers, peer_scope = _fetch_sw_peers(sw_level2, sw_level1)
             if sw_peers:
                 # 过滤无效市值，按市值排序
                 valid_peers = [p for p in sw_peers if p.get("market_cap")]
                 valid_peers.sort(key=lambda x: x.get("market_cap", 0), reverse=True)
 
-                all_peer_symbols = [p["symbol"] for p in valid_peers]
-
-                # 查找目标排名
+                # 目标排名使用完整行业池；同行池排除目标自身，避免自比较污染中位数。
                 for i, p in enumerate(valid_peers):
                     if p["symbol"] == symbol:
                         target_mcap = p.get("market_cap")
                         target_rank = i + 1
                         break
 
-                for p in valid_peers[:5]:
+                comparable_peers = [p for p in valid_peers if p["symbol"] != symbol]
+                all_peer_symbols = [p["symbol"] for p in comparable_peers]
+                peer_industry = sw_level2 if peer_scope == "申万二级" else sw_level1
+
+                for p in comparable_peers[:5]:
                     top_peers.append(PeerBasicInfo(
                         symbol=p["symbol"], name=p["name"],
                         market_cap=p.get("market_cap"),
                         pe_ttm=p.get("pe_ttm"),
                         pb=p.get("pb"),
                     ))
-            else:
-                # 回退：东方财富端点
-                try:
-                    board_df: Any = _ak_board_industry_cons_em(industry)
-                    if board_df is not None and len(board_df) > 0:
-                        # ...（保留旧逻辑作为回退）
-                        cols = list(board_df.columns)
-                        code_col = "代码" if "代码" in cols else cols[0]
-                        name_col = "名称" if "名称" in cols else (cols[1] if len(cols) > 1 else code_col)
-                        mcap_col = None
-                        for c in cols:
-                            if "市值" in str(c) or "总市值" in str(c):
-                                mcap_col = c
-                                break
-                        valid_rows = []
-                        for _, row in board_df.iterrows():
-                            code = str(row[code_col])
-                            name = str(row.get(name_col, ""))
-                            if any(tag in name for tag in ("ST", "退市", "PT")):
-                                continue
-                            mcap = None
-                            if mcap_col:
-                                try:
-                                    mcap = float(row[mcap_col])
-                                except (ValueError, TypeError):
-                                    pass
-                            if mcap is not None and mcap > 0:
-                                valid_rows.append((code, name, mcap))
-                        all_peer_symbols = [code for code, _, _ in valid_rows]
-                        valid_rows.sort(key=lambda x: x[2], reverse=True)
-                        for i, (code, name, mcap) in enumerate(valid_rows):
-                            if code == symbol:
-                                target_mcap = mcap
-                                target_rank = i + 1
-                                break
-                        for code, name, mcap in valid_rows[:5]:
-                            top_peers.append(PeerBasicInfo(
-                                symbol=code, name=name, market_cap=mcap,
-                            ))
-                except Exception:
-                    logger.warning(f"获取行业成分股失败: {industry}")
 
         result = IndustryData(
             symbol=symbol, industry=industry or "未知", sector=sector or "",
-            peers=all_peer_symbols, top_peers=top_peers,
+            peers=all_peer_symbols, peer_scope=peer_scope, peer_industry=peer_industry,
+            top_peers=top_peers,
         )
         if target_mcap is not None:
             result._target_mcap = target_mcap

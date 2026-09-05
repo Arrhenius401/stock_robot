@@ -170,6 +170,8 @@ class IndustryData(BaseModel):
     industry: str
     sector: str
     peers: list[str] = Field(default_factory=list)
+    peer_scope: str = ""  # "申万二级" / "申万一级"；空值表示仅有展示级行业信息
+    peer_industry: str = ""
     # 新增：头部同行详细数据
     top_peers: list[PeerBasicInfo] = Field(default_factory=list)
     # 采集层扩展字段（不参与序列化）
@@ -230,6 +232,7 @@ class AnalysisContext(BaseModel):
 
     # 新增 — 行业分类信息
     sw_industry: str = ""
+    sw_industry_level2: str = ""
     style_category: str = ""
 
     # 大盘环境快照（由 IndexContextEnricher 填充）

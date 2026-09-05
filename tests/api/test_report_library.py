@@ -68,6 +68,10 @@ def test_detail_reads_backtest_payload_and_missing_csv_is_nonfatal(tmp_path):
 
     detail = get_report_detail(reports, summary.id)
 
+    assert detail is not None
+    assert detail.summary is not None
+    assert detail.equity_curve is not None
+    assert detail.trades is not None
     assert detail.markdown.startswith("# 回测报告")
     assert detail.summary["symbol"] == "000001"
     assert detail.equity_curve["columns"] == ["净值日期", "策略净值", "基准净值"]

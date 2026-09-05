@@ -32,8 +32,10 @@ def test_pipeline_collect_healthy_cache_and_breaker(tmp_path, mocker):
     # 跳过错峰/重试 sleep，加速测试
     mocker.patch("core.pipeline.time.sleep")
 
-    ind = IndustryData(symbol="000001", industry="银行", sector="金融",
-                       peers=[], top_peers=[])
+    ind = IndustryData(
+        symbol="000001", industry="银行", sector="金融", peers=[],
+        peer_scope="申万二级", peer_industry="银行", top_peers=[],
+    )
     prices = [PriceData(symbol="000001", trade_date=date(2025, 7, 1) + timedelta(days=i),
                         open=10, high=10.1, low=9.9, close=10, volume=1000)
               for i in range(250)]
@@ -113,8 +115,10 @@ def test_pipeline_updates_missing_classification_from_sw_source(tmp_path, mocker
         "style_category": "大金融", "action": "updated",
     })
 
-    ind = IndustryData(symbol="000001", industry="银行", sector="金融",
-                       peers=[], top_peers=[])
+    ind = IndustryData(
+        symbol="000001", industry="银行", sector="金融", peers=[],
+        peer_scope="申万二级", peer_industry="银行", top_peers=[],
+    )
     source = FakeSource({"industry": [ind], "price": [], "financial": [],
                          "valuation": [], "news": []})
     reg = Registry()
@@ -125,3 +129,37 @@ def test_pipeline_updates_missing_classification_from_sw_source(tmp_path, mocker
     assert ctx.sw_industry == "银行"
     assert ctx.style_category == "大金融"
     update.assert_called_once_with("000001", retries=1, timeout=5)
+
+
+def test_pipeline_passes_sw_levels_to_industry_source(tmp_path, mocker):
+    """行业采集前已完成申万分类，数据源只能按该口径构建同行池。"""
+    from data.industry_classifier import IndustryClassification
+
+    mocker.patch("core.pipeline.time.sleep")
+    fake_cls = mocker.patch("data.industry_classifier.IndustryClassifier").return_value
+    fake_cls.lookup.return_value = IndustryClassification(
+        symbol="002714", sw_level1="农林牧渔", sw_level2="养殖业",
+        style_category="必选消费", mapping_status="verified",
+    )
+
+    captured: dict[str, str] = {}
+
+    class IndustrySource(FakeSource):
+        def fetch(self, symbol: str, **kwargs) -> list:
+            captured.update(kwargs)
+            return [IndustryData(
+                symbol=symbol, industry="养殖业", sector="农林牧渔",
+                peers=["002157"], peer_scope="申万二级", peer_industry="养殖业",
+            )]
+
+    reg = Registry()
+    reg.register_data_source(IndustrySource({"industry": []}))
+    pipe = Pipeline(registry=reg, config=Config(config_dir=tmp_path), llm_enabled=False)
+
+    ctx = pipe.collect("002714", "牧原股份", data_types=["industry"])
+
+    assert captured == {
+        "data_type": "industry", "sw_level1": "农林牧渔", "sw_level2": "养殖业",
+    }
+    assert ctx.sw_industry == "农林牧渔"
+    assert ctx.sw_industry_level2 == "养殖业"

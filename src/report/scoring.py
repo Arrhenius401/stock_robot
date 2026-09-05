@@ -100,8 +100,10 @@ def _fallback_neutral_commentary(summary: ScoreSummary) -> str:
     lines = [
         "> AI 解读当前不可用，以下为基于量化结果自动生成的中性摘要。",
         "",
-        f"1. 综合数据表现{tendency}。当前可用维度：{available_text}；"
-        f"缺失或未计分维度：{missing_text}。最终综合得分为 {summary.final_score}/10。",
+        (
+            f"1. 综合数据表现{tendency}。当前可用维度：{available_text}；"
+            f"缺失或未计分维度：{missing_text}。最终综合得分为 {summary.final_score}/10。"
+        ),
     ]
     if summary.risk_deduction > 0:
         lines.append(

@@ -300,6 +300,77 @@ def test_fetch_industry_falls_back_to_local_mapping(mocker):
     assert results[0].industry == "银行"
 
 
+def test_fetch_sw_peers_prefers_exact_level2(mocker):
+    """同行池直接请求申万二级代码，不再按模糊名称遍历三级行业。"""
+    from data.akshare import _fetch_sw_peers
+
+    mocker.patch(
+        "data.industry_mapping_builder.fetch_taxonomy_codes",
+        return_value=({"农林牧渔": "801010.SI"}, {"养殖业": "801017.SI"}),
+    )
+    fetch = mocker.patch(
+        "data.industry_mapping_builder.fetch_constituents",
+        return_value=[{
+            "symbol": "002714", "name": "牧原股份", "market_cap": 2000.0,
+            "pe_ttm": 10.0, "pb": 2.0,
+        }],
+    )
+
+    peers, scope = _fetch_sw_peers("养殖业", "农林牧渔")
+
+    assert scope == "申万二级"
+    assert fetch.call_args.args == ("801017.SI",)
+    assert peers == [{
+        "symbol": "002714", "name": "牧原股份", "market_cap": 2000e8,
+        "pe_ttm": 10.0, "pb": 2.0,
+    }]
+
+
+def test_fetch_sw_peers_falls_back_to_level1_once(mocker):
+    """二级成分股为空时仅请求一次申万一级，不扇出三级行业请求。"""
+    from data.akshare import _fetch_sw_peers
+
+    mocker.patch(
+        "data.industry_mapping_builder.fetch_taxonomy_codes",
+        return_value=({"农林牧渔": "801010.SI"}, {"养殖业": "801017.SI"}),
+    )
+    fetch = mocker.patch(
+        "data.industry_mapping_builder.fetch_constituents",
+        side_effect=[[], [{
+            "symbol": "000998", "name": "隆平高科", "market_cap": 100.0,
+            "pe_ttm": 20.0, "pb": 3.0,
+        }]],
+    )
+
+    peers, scope = _fetch_sw_peers("养殖业", "农林牧渔")
+
+    assert scope == "申万一级"
+    assert [call.args for call in fetch.call_args_list] == [("801017.SI",), ("801010.SI",)]
+    assert peers[0]["symbol"] == "000998"
+
+
+def test_fetch_industry_excludes_target_from_comparable_peers(mocker):
+    """目标公司保留行业市值排名，但不能成为自身的同行样本或前五展示项。"""
+    peers = [
+        {"symbol": "002714", "name": "牧原股份", "market_cap": 2000e8, "pe_ttm": 10.0, "pb": 2.0},
+        {"symbol": "002157", "name": "正邦科技", "market_cap": 500e8, "pe_ttm": 12.0, "pb": 1.5},
+    ]
+    mocker.patch("data.akshare._fetch_sw_peers", return_value=(peers, "申万二级"))
+    from data.akshare import AkShareAdapter
+
+    result = AkShareAdapter()._fetch_industry(
+        "002714", sw_level1="农林牧渔", sw_level2="养殖业",
+    )[0]
+
+    assert result.industry == "养殖业"
+    assert result.sector == "农林牧渔"
+    assert result.peer_scope == "申万二级"
+    assert result.peer_industry == "养殖业"
+    assert result.peers == ["002157"]
+    assert [peer.symbol for peer in result.top_peers] == ["002157"]
+    assert result._target_rank == 1
+
+
 def test_fetch_financial_fills_basic_eps(mocker):
     """采集层应填充 basic_eps，供总股本财报反推使用"""
     import pandas as pd
@@ -447,6 +518,7 @@ def test_fetch_news_uses_individual_notice(mocker):
 
     results = AkShareAdapter()._fetch_news("000001")
     raw = results[0]._raw_sentiment
+    assert raw is not None
     sources = {item.source for item in raw.items}
     assert "news" in sources and "announcement" in sources
     assert any("职工董事" in item.title for item in raw.items)
@@ -467,6 +539,7 @@ def test_fetch_news_notice_fail_keeps_news(mocker):
 
     results = AkShareAdapter()._fetch_news("000001")
     raw = results[0]._raw_sentiment
+    assert raw is not None
     assert {item.source for item in raw.items} == {"news"}
 
 
@@ -474,12 +547,8 @@ class TestFetchSwPeers:
     def test_returns_peers(self, mocker):
         from data.akshare import _fetch_sw_peers
 
-        mocker.patch("data.industry_mapping_builder.fetch_taxonomy",
-                     return_value=(
-                         {"种植业": "农林牧渔"},
-                         {"850111.SI": ("种子", "种植业"),
-                          "850121.SI": ("海洋捕捞", "渔业")},
-                     ))
+        mocker.patch("data.industry_mapping_builder.fetch_taxonomy_codes",
+                     return_value=({"农林牧渔": "801010.SI"}, {"种植业": "801011.SI"}))
         mocker.patch("data.industry_mapping_builder.fetch_constituents",
                      return_value=[
                          {"symbol": "000998", "name": "隆平高科", "level2": "种植业",
@@ -487,8 +556,9 @@ class TestFetchSwPeers:
                          {"symbol": "600097", "name": "开创国际", "level2": "渔业",
                           "pe_ttm": None, "pb": None, "market_cap": None},
                      ])
-        peers = _fetch_sw_peers("种植业")
+        peers, scope = _fetch_sw_peers("种植业", "农林牧渔")
         assert len(peers) == 1  # 无市值的开创国际被过滤
+        assert scope == "申万二级"
         assert peers[0]["symbol"] == "000998"
         assert peers[0]["market_cap"] == pytest.approx(310.4e8)  # 亿元 → 元
         assert peers[0]["pe_ttm"] == 88.5
@@ -496,6 +566,6 @@ class TestFetchSwPeers:
     def test_no_match_returns_empty(self, mocker):
         from data.akshare import _fetch_sw_peers
 
-        mocker.patch("data.industry_mapping_builder.fetch_taxonomy",
-                     return_value=({"种植业": "农林牧渔"}, {}))
-        assert _fetch_sw_peers("量子计算") == []
+        mocker.patch("data.industry_mapping_builder.fetch_taxonomy_codes",
+                     return_value=({"农林牧渔": "801010.SI"}, {"种植业": "801011.SI"}))
+        assert _fetch_sw_peers("量子计算", "食品饮料") == ([], "")

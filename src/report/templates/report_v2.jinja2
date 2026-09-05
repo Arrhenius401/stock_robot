@@ -39,6 +39,11 @@
 - {{ headline }}
 {% endfor %}
 {% endif %}
+{% if r.metrics.get("top_peers") %}
+
+**市值前五可比公司（不含本公司）：**
+{{ r.metrics["top_peers"] | md_table({"代码": "symbol", "名称": "name", "市值": "market_cap", "PE(TTM)": "pe_ttm", "PB": "pb"}) }}
+{% endif %}
 {% else %}
 > 该维度数据不足，已跳过
 {% endif %}

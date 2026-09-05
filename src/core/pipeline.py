@@ -94,6 +94,22 @@ class Pipeline:
                 refresh_cache: bool = False, data_types: list[str] | None = None,
                 on_progress: ProgressCallback = None) -> AnalysisContext:
         ctx = AnalysisContext(symbol=symbol, name=name, market=market)
+
+        # 申万分类必须先于行业成分股采集确定，保证同业池与报告口径一致。
+        classification = self._classifier.lookup(symbol)
+        ctx.sw_industry = classification.sw_level1
+        ctx.sw_industry_level2 = classification.sw_level2
+        ctx.style_category = classification.style_category
+        if not classification.is_verified:
+            try:
+                from data.industry_mapping_builder import update_symbol
+                updated = update_symbol(symbol, retries=1, timeout=5)
+                ctx.sw_industry = updated["sw_level1"]
+                ctx.sw_industry_level2 = updated["sw_level2"]
+                ctx.style_category = updated["style_category"]
+            except Exception:  # noqa: BLE001 — 回填失败不阻断分析流程
+                logger.debug("申万行业映射反查失败 %s", symbol)
+
         types_to_fetch = data_types or DATA_TYPES
         total = len(types_to_fetch)
         completed = 0
@@ -121,7 +137,13 @@ class Pipeline:
             for source in sources:
                 for attempt in range(2):
                     try:
-                        result = source.fetch(symbol, data_type=data_type)
+                        fetch_kwargs = {"data_type": data_type}
+                        if data_type == "industry":
+                            fetch_kwargs.update(
+                                sw_level1=ctx.sw_industry,
+                                sw_level2=ctx.sw_industry_level2,
+                            )
+                        result = source.fetch(symbol, **fetch_kwargs)
                         if result:
                             if self._is_healthy(data_type, result):
                                 self._set_cache(symbol, data_type, result)
@@ -160,21 +182,6 @@ class Pipeline:
                 if on_progress:
                     on_progress("collect", completed, total,
                                DATA_TYPE_LABELS.get(data_type) or data_type)
-
-        # 新增：行业分类查询
-        classification = self._classifier.lookup(symbol)
-        ctx.sw_industry = classification.sw_level1
-        ctx.style_category = classification.style_category
-
-        # 缺失映射时仅向申万口径数据源反查，禁止将东财观测行业写入正式表。
-        if not classification.is_verified:
-            try:
-                from data.industry_mapping_builder import update_symbol
-                updated = update_symbol(symbol, retries=1, timeout=5)
-                ctx.sw_industry = updated["sw_level1"]
-                ctx.style_category = updated["style_category"]
-            except Exception:  # noqa: BLE001 — 回填失败不阻断分析流程
-                logger.debug("申万行业映射反查失败 %s", symbol)
 
         return ctx
 
@@ -357,6 +364,11 @@ class Pipeline:
             results = self._deserialize_cache(data_type, symbol, data_list)
             if not self._is_healthy(data_type, results):
                 logger.info(f"缓存 {data_type}/{symbol} 数据退化，视为未命中")
+                return None
+            if (data_type == "industry" and results
+                    and not getattr(results[0], "peer_scope", "")):
+                # 旧缓存使用东财行业构建同业池，不能进入申万口径评分。
+                self._cache.invalidate(data_type, symbol, "latest")
                 return None
             return results
         except Exception:  # noqa: BLE001 — 缓存损坏视为未命中

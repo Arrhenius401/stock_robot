@@ -38,6 +38,7 @@ CHECKPOINT_VERSION = 1
 
 # 行业树日级稳定，模块级缓存避免每次分析重复抓取 1MB 页面
 _TAXONOMY_CACHE: tuple | None = None
+_TAXONOMY_CODES_CACHE: tuple[dict[str, str], dict[str, str]] | None = None
 
 # 结构退化的最低门槛：容器数 / 二级数 / 三级数低于阈值即中止（页面改版保护）
 MIN_TAXONOMY_COUNT = 400
@@ -103,7 +104,7 @@ def fetch_taxonomy(refresh: bool = False, retries: int = 3,
     overview 页平铺 497 个行业容器（31 一级无 parent span + 131 二级 + 335 三级）。
     解析失败（容器数或分层数异常）立即抛 IndustryMappingError——结构变了全量数据不可信。
     """
-    global _TAXONOMY_CACHE
+    global _TAXONOMY_CACHE, _TAXONOMY_CODES_CACHE
     if not refresh and _TAXONOMY_CACHE is not None:
         return _TAXONOMY_CACHE
 
@@ -128,13 +129,17 @@ def fetch_taxonomy(refresh: bool = False, retries: int = 3,
         )
 
     level1_names = {name for _, name, parent in records if parent is None}
+    level1_codes: dict[str, str] = {}
     level2_map: dict[str, str] = {}
+    level2_codes: dict[str, str] = {}
     level3_map: dict[str, tuple[str, str]] = {}
     for code, name, parent in records:
         if parent is None:
+            level1_codes[name] = code
             continue
         if parent in level1_names:
             level2_map[name] = parent
+            level2_codes[name] = code
         else:
             level3_map[code] = (name, parent)
 
@@ -145,7 +150,22 @@ def fetch_taxonomy(refresh: bool = False, retries: int = 3,
 
     result = (level2_map, level3_map)
     _TAXONOMY_CACHE = result
+    _TAXONOMY_CODES_CACHE = (level1_codes, level2_codes)
     return result
+
+
+def fetch_taxonomy_codes(refresh: bool = False, retries: int = 3,
+                         timeout: float = 15) -> tuple[dict[str, str], dict[str, str]]:
+    """返回申万一级、二级行业名到指数代码的映射。
+
+    保持 ``fetch_taxonomy`` 的既有返回契约，额外暴露同一行业树页面中已解析的
+    节点代码，供同业比较一次请求完整一级或二级成分股。
+    """
+    if refresh or _TAXONOMY_CODES_CACHE is None:
+        fetch_taxonomy(refresh=refresh, retries=retries, timeout=timeout)
+    if _TAXONOMY_CODES_CACHE is None:
+        raise IndustryMappingError("申万行业代码缓存未初始化")
+    return _TAXONOMY_CODES_CACHE
 
 
 def _parse_composition_table(html: str) -> list[dict[str, Any]]:

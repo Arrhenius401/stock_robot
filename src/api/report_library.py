@@ -236,9 +236,7 @@ def _matches(summary: ReportSummary, query: str | None) -> bool:
         summary.end_date or "",
         summary.heading or "",
     ]
-    if any(needle in field.casefold() for field in fields):
-        return True
-    return False
+    return any(needle in field.casefold() for field in fields)
 
 
 def list_reports(
