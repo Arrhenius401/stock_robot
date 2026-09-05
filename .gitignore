@@ -8,7 +8,11 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
+.tmp/
 *.egg-info/
 dist/
 build/
 reports/
+data/industry_mapping.lock
+data/industry_mapping.candidate.csv
+data/industry_mapping.candidate.state.json
