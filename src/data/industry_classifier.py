@@ -5,11 +5,18 @@ from pathlib import Path
 
 class IndustryClassification:
     """行业分类结果"""
-    def __init__(self, symbol: str, sw_level1: str, sw_level2: str, style_category: str):
+    def __init__(self, symbol: str, sw_level1: str, sw_level2: str, style_category: str,
+                 mapping_status: str = "verified"):
         self.symbol = symbol
         self.sw_level1 = sw_level1
         self.sw_level2 = sw_level2
         self.style_category = style_category
+        self.mapping_status = mapping_status
+
+    @property
+    def is_verified(self) -> bool:
+        """是否为已核验的申万分类。"""
+        return self.mapping_status == "verified" and bool(self.sw_level1)
 
     def __repr__(self):
         return f"IndustryClassification(symbol={self.symbol}, sw={self.sw_level1}, style={self.style_category})"
@@ -32,22 +39,32 @@ class IndustryClassifier:
             reader = csv.DictReader(f)
             for row in reader:
                 symbol = row["symbol"]
+                mapping_status = row.get("mapping_status")
+                if not mapping_status:
+                    is_placeholder = (
+                        row["sw_level1"] == "综合"
+                        and not row.get("sw_level2", "")
+                        and row["style_category"] == "高端制造"
+                    )
+                    mapping_status = "missing" if is_placeholder else "verified"
                 self._mapping[symbol] = IndustryClassification(
                     symbol=symbol,
                     sw_level1=row["sw_level1"],
                     sw_level2=row.get("sw_level2", ""),
                     style_category=row["style_category"],
+                    mapping_status=mapping_status,
                 )
 
     def lookup(self, symbol: str) -> IndustryClassification:
-        """查询股票行业分类。未命中时返回默认未知行业（高端制造兜底）。"""
+        """查询股票行业分类。未命中时返回显式缺失分类。"""
         if symbol in self._mapping:
             return self._mapping[symbol]
         return IndustryClassification(
             symbol=symbol,
-            sw_level1="综合",
+            sw_level1="",
             sw_level2="",
-            style_category="高端制造",
+            style_category="",
+            mapping_status="missing",
         )
 
     @property

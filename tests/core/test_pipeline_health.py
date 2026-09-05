@@ -98,18 +98,20 @@ def test_degenerate_result_counts_as_failure(tmp_path, mocker):
     assert pipe._get_cached("000001", "industry") is None
 
 
-def test_pipeline_backfills_placeholder_industry(tmp_path, mocker):
-    """占位行业 + 采集层真实行业 → 在线回填映射表；非占位不触发"""
+def test_pipeline_updates_missing_classification_from_sw_source(tmp_path, mocker):
+    """显式缺失分类只通过申万来源更新，东财观测值不参与写回。"""
     from data.industry_classifier import IndustryClassification
 
     mocker.patch("core.pipeline.time.sleep")
-    # 分类器返回占位"综合"（模拟重建前映射表状态）
+    # 分类器返回显式缺失状态。
     fake_cls = mocker.patch("data.industry_classifier.IndustryClassifier").return_value
     fake_cls.lookup.return_value = IndustryClassification(
-        symbol="000001", sw_level1="综合", sw_level2="", style_category="高端制造")
-    # backfill 模块 mock 掉，避免真实写 data/industry_mapping.csv
-    backfill = mocker.patch("data.industry_mapping_builder.backfill_symbol",
-                            return_value=True)
+        symbol="000001", sw_level1="", sw_level2="", style_category="",
+        mapping_status="missing")
+    update = mocker.patch("data.industry_mapping_builder.update_symbol", return_value={
+        "symbol": "000001", "sw_level1": "银行", "sw_level2": "银行",
+        "style_category": "大金融", "action": "updated",
+    })
 
     ind = IndustryData(symbol="000001", industry="银行", sector="金融",
                        peers=[], top_peers=[])
@@ -122,4 +124,4 @@ def test_pipeline_backfills_placeholder_industry(tmp_path, mocker):
     ctx = pipe.collect("000001", "平安银行")
     assert ctx.sw_industry == "银行"
     assert ctx.style_category == "大金融"
-    backfill.assert_called_once_with("000001", "银行")
+    update.assert_called_once_with("000001", retries=1, timeout=5)

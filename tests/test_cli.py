@@ -430,6 +430,19 @@ class TestIndustryMappingCommand:
         assert result.exit_code == 0
         assert "候选映射已发布" in result.output
 
+    def test_migrate_placeholders(self, mocker):
+        from click.testing import CliRunner
+
+        from stock_robot.cli import main
+
+        mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
+        migrate = mocker.patch("data.industry_mapping_builder.migrate_placeholder_rows",
+                               return_value={"stock_count": 5534, "migrated_count": 5512})
+        result = CliRunner().invoke(main, ["industry-mapping", "migrate-placeholders"])
+        assert result.exit_code == 0
+        assert "5512" in result.output
+        migrate.assert_called_once()
+
     def test_validate_sample(self, mocker):
         from click.testing import CliRunner
 

@@ -14,6 +14,7 @@ from typing import Any
 
 import requests
 import yaml
+from filelock import FileLock, Timeout
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ _HEADERS = {
     "Referer": "https://legulegu.com/",
 }
 
-MAPPING_COLUMNS = ["symbol", "sw_level1", "sw_level2", "style_category"]
+MAPPING_COLUMNS = ["symbol", "sw_level1", "sw_level2", "style_category", "mapping_status"]
 MIN_VALID_CLASSIFICATION_RATE = 0.95
 MIN_COVERAGE_RATE = 0.95
 CHECKPOINT_VERSION = 1
@@ -71,11 +72,11 @@ def _load_style_mapping() -> dict[str, str]:
         return yaml.safe_load(f) or {}
 
 
-def _get_with_retry(url: str, retries: int = 3) -> str:
+def _get_with_retry(url: str, retries: int = 3, timeout: float = 15) -> str:
     """GET 带指数退避重试（网络/5xx 边界），返回响应文本"""
     for attempt in range(retries):
         try:
-            resp = requests.get(url, headers=_HEADERS, timeout=15)
+            resp = requests.get(url, headers=_HEADERS, timeout=timeout)
             resp.raise_for_status()
             return resp.text
         except (requests.RequestException, OSError) as e:
@@ -95,7 +96,8 @@ def _to_float(raw: str) -> float | None:
         return None
 
 
-def fetch_taxonomy(refresh: bool = False) -> tuple[dict[str, str], dict[str, tuple[str, str]]]:
+def fetch_taxonomy(refresh: bool = False, retries: int = 3,
+                   timeout: float = 15) -> tuple[dict[str, str], dict[str, tuple[str, str]]]:
     """抓取申万行业树 → (二级名→一级名, 三级码→(三级名, 二级名))
 
     overview 页平铺 497 个行业容器（31 一级无 parent span + 131 二级 + 335 三级）。
@@ -105,7 +107,7 @@ def fetch_taxonomy(refresh: bool = False) -> tuple[dict[str, str], dict[str, tup
     if not refresh and _TAXONOMY_CACHE is not None:
         return _TAXONOMY_CACHE
 
-    html = _get_with_retry(OVERVIEW_URL)
+    html = _get_with_retry(OVERVIEW_URL, retries=retries, timeout=timeout)
     pattern = re.compile(
         r'<div id="(\d{6}\.SI)" class="lg-industries-item[^"]*">(.*?)(?=<div id="\d{6}\.SI"|$)',
         re.DOTALL,
@@ -186,7 +188,7 @@ def _write_rows(path: Path, rows: list[dict]) -> None:
     with open(tmp, "w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=MAPPING_COLUMNS)
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(_normalized_row(row) for row in rows)
     os.replace(tmp, path)
 
 
@@ -195,11 +197,54 @@ def _write_csv(rows: list[dict]) -> None:
     _write_rows(_csv_path(), rows)
 
 
+def _formal_mapping_lock() -> FileLock:
+    """返回正式映射表的跨进程锁，避免并发读改写丢失更新。"""
+    return FileLock(str(_csv_path().with_suffix(".lock")), timeout=10)
+
+
 def _read_rows(path: Path) -> list[dict[str, str]]:
     if not path.exists():
         return []
     with open(path, encoding="utf-8") as f:
-        return list(csv.DictReader(f))
+        return [_normalized_row(row) for row in csv.DictReader(f)]
+
+
+def _normalized_row(row: dict[str, str]) -> dict[str, str]:
+    """兼容旧四列表，并为每行补齐行业映射状态。"""
+    normalized = {column: row.get(column, "") for column in MAPPING_COLUMNS}
+    if not normalized["mapping_status"]:
+        is_placeholder = (
+            normalized["sw_level1"] == "综合"
+            and not normalized["sw_level2"]
+            and normalized["style_category"] == "高端制造"
+        )
+        normalized["mapping_status"] = "missing" if is_placeholder else "verified"
+    return normalized
+
+
+def migrate_placeholder_rows() -> dict[str, int]:
+    """将旧版“综合/高端制造”占位行迁移为显式缺失状态。"""
+    try:
+        with _formal_mapping_lock():
+            rows = _read_rows(_csv_path())
+            migrated = 0
+            for row in rows:
+                is_placeholder = (
+                    row["sw_level1"] == "综合"
+                    and not row["sw_level2"]
+                    and row["style_category"] == "高端制造"
+                )
+                if is_placeholder:
+                    row["sw_level1"] = ""
+                    row["sw_level2"] = ""
+                    row["style_category"] = ""
+                    row["mapping_status"] = "missing"
+                    migrated += 1
+            _write_csv(rows)
+    except Timeout as e:
+        raise IndustryMappingError("行业映射表正被其他任务更新，请稍后重试") from e
+    logger.info("行业映射占位迁移完成: %d/%d", migrated, len(rows))
+    return {"stock_count": len(rows), "migrated_count": migrated}
 
 
 def _write_checkpoint(completed: set[str], failed: set[str], expected_codes: set[str],
@@ -298,7 +343,7 @@ def validate_sample(sample_size: int = 5, delay: float = DEFAULT_DELAY) -> dict:
             rows.append({"symbol": stock["symbol"],
                          "sw_level1": level2_map.get(row_level2, "综合"),
                          "sw_level2": row_level2,
-                         "style_category": ""})
+                         "style_category": "", "mapping_status": "verified"})
         if delay:
             time.sleep(delay)
     if failed:
@@ -360,6 +405,7 @@ def rebuild_all(delay: float = DEFAULT_DELAY, on_progress=None, resume: bool = F
                         "sw_level1": row_level1,
                         "sw_level2": row_level2,
                         "style_category": style_map.get(row_level1, "高端制造"),
+                        "mapping_status": "verified",
                     }
             completed.add(code)
             failed.discard(code)
@@ -402,9 +448,13 @@ def publish_candidate() -> dict:
     if failed:
         raise IndustryMappingError(
             f"候选构建仍有 {len(failed)} 个失败行业，完成续跑后才能发布")
-    validation = validate_rows(rows, known_total=len(_read_rows(_csv_path())),
-                               level2_map=state["level2_map"])
-    _write_csv(rows)
+    try:
+        with _formal_mapping_lock():
+            validation = validate_rows(rows, known_total=len(_read_rows(_csv_path())),
+                                       level2_map=state["level2_map"])
+            _write_csv(rows)
+    except Timeout as e:
+        raise IndustryMappingError("行业映射表正被其他任务更新，请稍后重试") from e
     return {**validation, "published_path": str(_csv_path())}
 
 
@@ -423,61 +473,36 @@ def _parse_stock_industry(html: str) -> tuple[str, str]:
     return levels[1], levels[2]
 
 
-def update_symbol(symbol: str) -> dict:
+def update_symbol(symbol: str, retries: int = 3, timeout: float = 15) -> dict:
     """单只更新行业分类（个股页秒级反查），返回 {symbol, sw_level1, sw_level2,
     style_category, action}。symbol 不在表中则追加。"""
-    html = _get_with_retry(STOCK_URL.format(symbol=symbol))
+    html = _get_with_retry(
+        STOCK_URL.format(symbol=symbol), retries=retries, timeout=timeout)
     level1, level2 = _parse_stock_industry(html)
+    level2_map, _ = fetch_taxonomy(retries=retries, timeout=timeout)
+    if level2_map.get(level2) != level1:
+        raise IndustryMappingError(f"个股页行业层级无效: {level1}/{level2}")
     style_map = _load_style_mapping()
     style = style_map.get(level1, "高端制造")
 
-    path = _csv_path()
-    rows: list[dict] = []
-    updated = False
-    if path.exists():
-        with open(path, "r", encoding="utf-8") as f:
-            for row in csv.DictReader(f):
+    try:
+        with _formal_mapping_lock():
+            rows = _read_rows(_csv_path())
+            updated = False
+            for row in rows:
                 if row["symbol"] == symbol:
                     row["sw_level1"], row["sw_level2"], row["style_category"] = level1, level2, style
+                    row["mapping_status"] = "verified"
                     updated = True
-                rows.append(row)
-    if not updated:
-        rows.append({"symbol": symbol, "sw_level1": level1,
-                     "sw_level2": level2, "style_category": style})
-    _write_csv(rows)
+            if not updated:
+                rows.append({"symbol": symbol, "sw_level1": level1,
+                             "sw_level2": level2, "style_category": style,
+                             "mapping_status": "verified"})
+            _write_csv(rows)
+    except Timeout as e:
+        raise IndustryMappingError("行业映射表正被其他任务更新，请稍后重试") from e
 
     logger.info("行业映射单只更新 %s: %s/%s (%s)", symbol, level1, level2,
                 "更新" if updated else "新增")
     return {"symbol": symbol, "sw_level1": level1, "sw_level2": level2,
             "style_category": style, "action": "updated" if updated else "inserted"}
-
-
-def backfill_symbol(symbol: str, industry: str) -> bool:
-    """在线回填：把采集层观测到的行业名写入映射表占位行
-
-    仅覆盖"综合"/空占位行或追加不存在行（新股）；已有申万分类的行不动，
-    防止东财口径污染 legulegu 官方口径。返回是否发生更新。
-    """
-    if not industry or industry == "未知":
-        return False
-    style_map = _load_style_mapping()
-    style = style_map.get(industry, "高端制造")
-
-    path = _csv_path()
-    rows: list[dict] = []
-    updated = False
-    if path.exists():
-        with open(path, "r", encoding="utf-8") as f:
-            for row in csv.DictReader(f):
-                if row["symbol"] == symbol and row["sw_level1"] in ("", "综合"):
-                    row["sw_level1"], row["style_category"] = industry, style
-                    updated = True
-                rows.append(row)
-    if not updated and not any(r["symbol"] == symbol for r in rows):
-        rows.append({"symbol": symbol, "sw_level1": industry,
-                     "sw_level2": "", "style_category": style})
-        updated = True
-    if updated:
-        _write_csv(rows)
-        logger.info("行业映射在线回填 %s → %s", symbol, industry)
-    return updated

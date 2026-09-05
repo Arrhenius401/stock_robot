@@ -1632,10 +1632,12 @@ class TestIndustryMappingEndpoint:
         mocker.patch("data.industry_classifier.IndustryClassifier.lookup",
                      return_value=type("C", (), {"sw_level1": "农林牧渔",
                                                  "sw_level2": "渔业",
-                                                 "style_category": "必选消费"})())
+                                                 "style_category": "必选消费",
+                                                 "mapping_status": "verified"})())
         sessions = SessionManager(SessionStore(tmp_path / "lookup_sessions.db"))
         app = create_app(core=make_core(), sessions=sessions, push=False)
         client = TestClient(app)
         resp = client.get("/api/v1/industry-mapping/600097")
         assert resp.status_code == 200
         assert resp.json()["sw_level1"] == "农林牧渔"
+        assert resp.json()["mapping_status"] == "verified"

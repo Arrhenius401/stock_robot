@@ -459,10 +459,12 @@ def industry_mapping(action_or_symbol, resume, delay, verbose):
     validate → 抽样校验上游页面与解析规则；
     rebuild → 构建候选文件（可配合 --resume 续跑）；
     publish → 校验后原子发布候选文件；
+    migrate-placeholders → 将旧占位分类迁移为显式缺失；
     股票代码 → 单只秒级更新。
     """
     from data.industry_mapping_builder import (
         IndustryMappingError,
+        migrate_placeholder_rows,
         publish_candidate,
         rebuild_all,
         update_symbol,
@@ -488,6 +490,12 @@ def industry_mapping(action_or_symbol, resume, delay, verbose):
             console.print(
                 f"[green]✓ 候选映射已发布：{result['stock_count']} 只股票，"
                 f"有效分类率 {result['valid_classification_rate']}%[/green]"
+            )
+        elif action == "migrate-placeholders":
+            result = migrate_placeholder_rows()
+            console.print(
+                f"[green]✓ 已迁移 {result['migrated_count']} 条占位记录，"
+                f"映射表共 {result['stock_count']} 条[/green]"
             )
         elif action != "rebuild":
             if not validate_symbol(action):

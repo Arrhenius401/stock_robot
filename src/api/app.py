@@ -840,6 +840,7 @@ def create_app(
             "sw_level1": classification.sw_level1,
             "sw_level2": classification.sw_level2,
             "style_category": classification.style_category,
+            "mapping_status": classification.mapping_status,
         })
 
     @app.get("/api/v1/sessions")

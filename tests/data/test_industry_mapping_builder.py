@@ -6,6 +6,7 @@ from data.industry_mapping_builder import (
     _get_with_retry,
     fetch_constituents,
     fetch_taxonomy,
+    migrate_placeholder_rows,
     publish_candidate,
     rebuild_all,
     update_symbol,
@@ -421,8 +422,10 @@ class TestUpdateSymbol:
             "000001,银行,,大金融\n",
             encoding="utf-8",
         )
-        mocker.patch("data.industry_mapping_builder._get_with_retry",
-                     return_value=STOCK_PAGE_HTML)
+        fetch = mocker.patch("data.industry_mapping_builder._get_with_retry",
+                             return_value=STOCK_PAGE_HTML)
+        mocker.patch("data.industry_mapping_builder.fetch_taxonomy",
+                     return_value=({"渔业": "农林牧渔"}, {}))
         mocker.patch("data.industry_mapping_builder._csv_path",
                      return_value=old_csv)
 
@@ -431,6 +434,7 @@ class TestUpdateSymbol:
         assert result["sw_level1"] == "农林牧渔"
         assert result["sw_level2"] == "渔业"
         assert result["style_category"] == "必选消费"
+        assert fetch.call_args.kwargs == {"retries": 3, "timeout": 15}
 
         import csv as _csv
         with open(old_csv, encoding="utf-8") as f:
@@ -446,6 +450,8 @@ class TestUpdateSymbol:
                            encoding="utf-8")
         mocker.patch("data.industry_mapping_builder._get_with_retry",
                      return_value=STOCK_PAGE_HTML)
+        mocker.patch("data.industry_mapping_builder.fetch_taxonomy",
+                     return_value=({"渔业": "农林牧渔"}, {}))
         mocker.patch("data.industry_mapping_builder._csv_path",
                      return_value=old_csv)
 
@@ -467,66 +473,43 @@ class TestUpdateSymbol:
         with pytest.raises(IndustryMappingError):
             update_symbol("600097")
 
+    def test_rejects_invalid_industry_hierarchy_without_writing(self, mocker, tmp_path):
+        csv_path = tmp_path / "industry_mapping.csv"
+        original = "symbol,sw_level1,sw_level2,style_category\n600097,综合,,高端制造\n"
+        csv_path.write_text(original, encoding="utf-8")
+        mocker.patch("data.industry_mapping_builder._get_with_retry",
+                     return_value=STOCK_PAGE_HTML)
+        mocker.patch("data.industry_mapping_builder.fetch_taxonomy",
+                     return_value=({"渔业": "银行"}, {}))
+        mocker.patch("data.industry_mapping_builder._csv_path", return_value=csv_path)
 
-class TestBackfillSymbol:
+        with pytest.raises(IndustryMappingError, match="行业层级无效"):
+            update_symbol("600097")
+
+        assert csv_path.read_text(encoding="utf-8") == original
+
+
+class TestPlaceholderMigration:
     PLACEHOLDER_CSV = (
         "symbol,sw_level1,sw_level2,style_category\n"
         "600097,综合,,高端制造\n"
         "000001,银行,,大金融\n"
     )
 
-    def test_backfill_placeholder_row(self, mocker, tmp_path):
-        """占位行被观测行业名回填，style 按 yaml 映射"""
+    def test_migrate_placeholder_rows(self, mocker, tmp_path):
+        """旧版占位行迁移为显式缺失，已确认申万分类不变。"""
         csv_path = tmp_path / "industry_mapping.csv"
         csv_path.write_text(self.PLACEHOLDER_CSV, encoding="utf-8")
         mocker.patch("data.industry_mapping_builder._csv_path", return_value=csv_path)
 
-        from data.industry_mapping_builder import backfill_symbol
-        assert backfill_symbol("600097", "农林牧渔") is True
+        result = migrate_placeholder_rows()
+        assert result == {"stock_count": 2, "migrated_count": 1}
 
         import csv as _csv
         with open(csv_path, encoding="utf-8") as f:
             rows = {r["symbol"]: r for r in _csv.DictReader(f)}
-        assert rows["600097"]["sw_level1"] == "农林牧渔"
-        assert rows["600097"]["style_category"] == "必选消费"
+        assert rows["600097"]["sw_level1"] == ""
+        assert rows["600097"]["sw_level2"] == ""
+        assert rows["600097"]["style_category"] == ""
+        assert rows["600097"]["mapping_status"] == "missing"
         assert rows["000001"]["sw_level1"] == "银行"  # 其他行不受影响
-
-    def test_backfill_skips_non_placeholder(self, mocker, tmp_path):
-        """已有申万分类的行不被东财口径覆盖（防污染）"""
-        csv_path = tmp_path / "industry_mapping.csv"
-        csv_path.write_text(self.PLACEHOLDER_CSV, encoding="utf-8")
-        mocker.patch("data.industry_mapping_builder._csv_path", return_value=csv_path)
-
-        from data.industry_mapping_builder import backfill_symbol
-        assert backfill_symbol("000001", "农林牧渔") is False
-
-        import csv as _csv
-        with open(csv_path, encoding="utf-8") as f:
-            rows = {r["symbol"]: r for r in _csv.DictReader(f)}
-        assert rows["000001"]["sw_level1"] == "银行"
-
-    def test_backfill_appends_new_row(self, mocker, tmp_path):
-        """行不存在（新股）→ 追加"""
-        csv_path = tmp_path / "industry_mapping.csv"
-        csv_path.write_text("symbol,sw_level1,sw_level2,style_category\n000001,银行,,大金融\n",
-                            encoding="utf-8")
-        mocker.patch("data.industry_mapping_builder._csv_path", return_value=csv_path)
-
-        from data.industry_mapping_builder import backfill_symbol
-        assert backfill_symbol("600097", "农林牧渔") is True
-
-        import csv as _csv
-        with open(csv_path, encoding="utf-8") as f:
-            rows = list(_csv.DictReader(f))
-        assert len(rows) == 2
-        assert rows[1]["symbol"] == "600097"
-        assert rows[1]["sw_level1"] == "农林牧渔"
-
-    def test_backfill_ignores_unknown(self, mocker, tmp_path):
-        """"未知"行业不回填"""
-        csv_path = tmp_path / "industry_mapping.csv"
-        csv_path.write_text(self.PLACEHOLDER_CSV, encoding="utf-8")
-        mocker.patch("data.industry_mapping_builder._csv_path", return_value=csv_path)
-
-        from data.industry_mapping_builder import backfill_symbol
-        assert backfill_symbol("600097", "未知") is False

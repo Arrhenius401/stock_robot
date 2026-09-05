@@ -166,21 +166,15 @@ class Pipeline:
         ctx.sw_industry = classification.sw_level1
         ctx.style_category = classification.style_category
 
-        # 若 CSV 分类为兜底值"综合"，尝试从实时行业数据中获取
-        if ctx.sw_industry == "综合" and ctx.industry_data and ctx.industry_data.industry:
-            real_industry = ctx.industry_data.industry
-            ctx.sw_industry = real_industry
-            # 从 申万→大类 映射重新推导 style_category
-            mapping = self._config_loader._load_yaml(
-                self._config_loader.config_dir / "申万_大类_映射.yaml"
-            )
-            ctx.style_category = mapping.get(real_industry, "高端制造")
-            # 在线回填：把观测沉淀到映射表占位行（失败不影响分析）
+        # 缺失映射时仅向申万口径数据源反查，禁止将东财观测行业写入正式表。
+        if not classification.is_verified:
             try:
-                from data.industry_mapping_builder import backfill_symbol
-                backfill_symbol(symbol, real_industry)
+                from data.industry_mapping_builder import update_symbol
+                updated = update_symbol(symbol, retries=1, timeout=5)
+                ctx.sw_industry = updated["sw_level1"]
+                ctx.style_category = updated["style_category"]
             except Exception:  # noqa: BLE001 — 回填失败不阻断分析流程
-                logger.debug("行业映射在线回填失败 %s", symbol)
+                logger.debug("申万行业映射反查失败 %s", symbol)
 
         return ctx
 
