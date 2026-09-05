@@ -356,6 +356,7 @@ def test_fetch_industry_excludes_target_from_comparable_peers(mocker):
         {"symbol": "002157", "name": "正邦科技", "market_cap": 500e8, "pe_ttm": 12.0, "pb": 1.5},
     ]
     mocker.patch("data.akshare._fetch_sw_peers", return_value=(peers, "申万二级"))
+    backfill = mocker.patch("data.industry_mapping_builder.backfill_peer_pool", return_value=2)
     from data.akshare import AkShareAdapter
 
     result = AkShareAdapter()._fetch_industry(
@@ -369,6 +370,7 @@ def test_fetch_industry_excludes_target_from_comparable_peers(mocker):
     assert result.peers == ["002157"]
     assert [peer.symbol for peer in result.top_peers] == ["002157"]
     assert result._target_rank == 1
+    backfill.assert_called_once_with(["002714", "002157"], "农林牧渔", "养殖业")
 
 
 def test_fetch_financial_fills_basic_eps(mocker):

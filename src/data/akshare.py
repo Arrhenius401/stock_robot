@@ -506,6 +506,12 @@ class AkShareAdapter(DataSource):
         if sw_level1 or sw_level2:
             sw_peers, peer_scope = _fetch_sw_peers(sw_level2, sw_level1)
             if sw_peers:
+                if peer_scope == "申万二级":
+                    try:
+                        from data.industry_mapping_builder import backfill_peer_pool
+                        backfill_peer_pool([peer["symbol"] for peer in sw_peers], sw_level1, sw_level2)
+                    except Exception as e:
+                        logger.warning("申万同行池回填失败 %s/%s: %s", sw_level1, sw_level2, e)
                 # 过滤无效市值，按市值排序
                 valid_peers = [p for p in sw_peers if p.get("market_cap")]
                 valid_peers.sort(key=lambda x: x.get("market_cap", 0), reverse=True)

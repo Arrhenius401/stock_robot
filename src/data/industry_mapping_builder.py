@@ -526,3 +526,38 @@ def update_symbol(symbol: str, retries: int = 3, timeout: float = 15) -> dict:
                 "更新" if updated else "新增")
     return {"symbol": symbol, "sw_level1": level1, "sw_level2": level2,
             "style_category": style, "action": "updated" if updated else "inserted"}
+
+
+def backfill_peer_pool(symbols: list[str], sw_level1: str, sw_level2: str) -> int:
+    """将已校验申万二级同行池中的缺失股票补入正式映射表。
+
+    仅补 ``missing`` 或不存在的行，绝不覆盖已核验分类；调用方必须保证成分股
+    来自该二级行业的直接成分表。
+    """
+    level2_map, _ = fetch_taxonomy()
+    if level2_map.get(sw_level2) != sw_level1:
+        raise IndustryMappingError(f"同行池行业层级无效: {sw_level1}/{sw_level2}")
+    style = _load_style_mapping().get(sw_level1, "高端制造")
+    symbols = sorted({symbol for symbol in symbols if re.fullmatch(r"\d{6}", symbol)})
+    try:
+        with _formal_mapping_lock():
+            rows = _read_rows(_csv_path())
+            existing = {row["symbol"]: row for row in rows}
+            changed = 0
+            for symbol in symbols:
+                row = existing.get(symbol)
+                if row is not None and row["mapping_status"] != "missing":
+                    continue
+                replacement = {"symbol": symbol, "sw_level1": sw_level1,
+                               "sw_level2": sw_level2, "style_category": style,
+                               "mapping_status": "verified"}
+                if row is None:
+                    rows.append(replacement)
+                else:
+                    row.update(replacement)
+                changed += 1
+            if changed:
+                _write_csv(rows)
+    except Timeout as e:
+        raise IndustryMappingError("行业映射表正被其他任务更新，请稍后重试") from e
+    return changed
