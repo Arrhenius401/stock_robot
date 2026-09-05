@@ -66,6 +66,11 @@ TTL_KEY_MAP = {
     "news": "news",
 }
 
+# 财务字段口径修正后升级缓存键，避免旧缓存以错误单位参与评分。
+CACHE_DATE_KEYS = {
+    "financial": "latest:v2",
+}
+
 # Schema 类型映射（用于反序列化缓存）
 SCHEMA_CLASS_MAP = {}
 
@@ -349,7 +354,7 @@ class Pipeline:
         return commentary
 
     def _get_cached(self, symbol: str, data_type: str) -> list | None:
-        raw = self._cache.get(data_type, symbol, "latest")
+        raw = self._cache.get(data_type, symbol, self._cache_date_key(data_type))
         if raw is None:
             return None
         try:
@@ -364,7 +369,7 @@ class Pipeline:
 
     def _get_stale_cached(self, symbol: str, data_type: str) -> list | None:
         """读取过期缓存；仅用于外部短时效数据源失败后的兜底。"""
-        raw = self._cache.get_stale(data_type, symbol, "latest")
+        raw = self._cache.get_stale(data_type, symbol, self._cache_date_key(data_type))
         if raw is None:
             return None
         try:
@@ -411,7 +416,7 @@ class Pipeline:
         if not self._is_healthy(data_type, data):
             logger.info(f"缓存 {data_type}/{symbol} 数据退化，跳过持久化")
             return
-        date_key = "latest"
+        date_key = self._cache_date_key(data_type)
         try:
             dicts = []
             for item in data:
@@ -430,6 +435,11 @@ class Pipeline:
             self._cache.cleanup_old_entries(data_type, symbol, date_key)
         except Exception as e:  # noqa: BLE001 — 缓存写入失败不影响分析结果
             logger.warning(f"缓存 {data_type} 失败: {e}")
+
+    @staticmethod
+    def _cache_date_key(data_type: str) -> str:
+        """返回数据类型对应的缓存版本键。"""
+        return CACHE_DATE_KEYS.get(data_type, "latest")
 
     def _deserialize_cache(self, data_type: str, symbol: str, data_list: list) -> list:
         from data.schemas import (

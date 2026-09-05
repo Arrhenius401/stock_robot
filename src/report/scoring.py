@@ -137,7 +137,12 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
     summary = compute_score_summary(results)
     commentary = with_commentary_fallback(commentary, summary, no_llm)
     price_info = compute_price_info(ctx)
-    industry = ctx.industry_data.industry if ctx.industry_data else "未知"
+    if ctx.sw_industry:
+        industry = ctx.sw_industry
+    elif ctx.industry_data and ctx.industry_data.industry:
+        industry = f"{ctx.industry_data.industry}（东财口径，申万待补全）"
+    else:
+        industry = "申万行业待补全（数据源不可用）"
 
     signal = None
     if signal_cfg is not None:

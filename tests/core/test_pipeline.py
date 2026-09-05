@@ -242,6 +242,17 @@ class TestCacheHealth:
         pipe._set_cache("000001", "financial", [fin])
         assert pipe._get_cached("000001", "financial") is None
 
+    def test_legacy_financial_cache_is_bypassed_after_metric_fix(self, tmp_path, mocker):
+        """旧口径财务缓存不应参与修正后的指标计算。"""
+        pipe = self._make_pipeline(tmp_path, mocker)
+        pipe._cache.put(
+            "financial", "000001", "latest",
+            '[{"symbol":"000001","fiscal_quarter":"2026-06-30",'
+            '"total_assets":100,"total_equity":50,"roe":-7.48}]',
+        )
+
+        assert pipe._get_cached("000001", "financial") is None
+
     def test_empty_news_not_cached_as_healthy(self, tmp_path, mocker):
         """空舆情结果视为退化数据，避免覆盖可用旧缓存"""
         pipe = self._make_pipeline(tmp_path, mocker)

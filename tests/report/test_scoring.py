@@ -104,9 +104,20 @@ class TestBuildReport:
         assert report == "RENDERED_REPORT"
         call_kwargs = mock_builder.build.call_args.kwargs
         assert call_kwargs["symbol"] == "000001"
-        assert call_kwargs["industry"] == "未知"
+        assert call_kwargs["industry"] == "申万行业待补全（数据源不可用）"
         assert call_kwargs["base_score"] == 8.0
         assert call_kwargs["final_score"] == 8.0
+
+    def test_build_report_prefers_sw_industry(self, mocker):
+        mock_builder_cls = mocker.patch("report.builder.ReportBuilder")
+        mock_builder = mock_builder_cls.return_value
+        mock_builder.build.return_value = "RENDERED_REPORT"
+        ctx = AnalysisContext(symbol="000001", name="测试股票", sw_industry="农林牧渔")
+
+        build_report("000001", "平安银行", [_result("financial", 8.0)],
+                     {"bulk": "解读"}, ctx)
+
+        assert mock_builder.build.call_args.kwargs["industry"] == "农林牧渔"
 
     def test_build_report_adds_neutral_fallback_when_llm_missing(self, mocker):
         mock_builder_cls = mocker.patch("report.builder.ReportBuilder")
