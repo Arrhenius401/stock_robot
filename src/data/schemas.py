@@ -172,6 +172,8 @@ class IndustryData(BaseModel):
     peers: list[str] = Field(default_factory=list)
     peer_scope: str = ""  # "申万二级" / "申万一级"；空值表示仅有展示级行业信息
     peer_industry: str = ""
+    resolved_sw_level1: str = ""
+    resolved_sw_level2: str = ""
     # 新增：头部同行详细数据
     top_peers: list[PeerBasicInfo] = Field(default_factory=list)
     # 采集层扩展字段（不参与序列化）

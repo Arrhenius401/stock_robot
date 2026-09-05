@@ -561,3 +561,11 @@ def backfill_peer_pool(symbols: list[str], sw_level1: str, sw_level2: str) -> in
     except Timeout as e:
         raise IndustryMappingError("行业映射表正被其他任务更新，请稍后重试") from e
     return changed
+
+
+def backfill_verified_symbol(symbol: str, sw_level1: str, sw_level2: str) -> bool:
+    """将已验证的唯一映射补入正式表，不覆盖已核验行。"""
+    level2_map, _ = fetch_taxonomy()
+    if level2_map.get(sw_level2) != sw_level1:
+        raise IndustryMappingError(f"行业层级无效: {sw_level1}/{sw_level2}")
+    return bool(backfill_peer_pool([symbol], sw_level1, sw_level2))

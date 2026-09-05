@@ -178,6 +178,9 @@ class Pipeline:
                 data_type, result = future.result()
                 if result is not None:
                     self._assign_to_context(ctx, data_type, result)
+                    if data_type == "industry" and not ctx.sw_industry:
+                        ctx.sw_industry = result[0].resolved_sw_level1
+                        ctx.sw_industry_level2 = result[0].resolved_sw_level2
                 completed += 1
                 if on_progress:
                     on_progress("collect", completed, total,

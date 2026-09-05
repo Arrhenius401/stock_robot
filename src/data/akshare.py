@@ -1,6 +1,8 @@
 """AkShare 数据源适配器 — A 股数据采集"""
+import csv
 import logging
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Any, cast
 
 import akshare as ak
@@ -24,6 +26,19 @@ from utils.numbers import parse_cn_number
 from utils.retry import retry_on_network_error
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_eastmoney_to_sw(industry: str) -> tuple[str, str] | None:
+    """仅解析本地人工核验的高置信东财→申万唯一映射。"""
+    path = Path(__file__).parent.parent.parent / "data" / "eastmoney_sw_mapping.csv"
+    try:
+        with open(path, encoding="utf-8") as file:
+            for row in csv.DictReader(file):
+                if row.get("eastmoney_industry") == industry and row.get("confidence") == "high":
+                    return row.get("sw_level1", ""), row.get("sw_level2", "")
+    except OSError:
+        logger.warning("无法读取东财申万映射表")
+    return None
 
 # 海外指数代码 → 全球指数接口所需的中文名称
 _OVERSEAS_NAME_MAP = {
@@ -494,7 +509,16 @@ class AkShareAdapter(DataSource):
         # 申万二级优先构建同业池；东财行业仅在申万缺失时作展示级降级，绝不参与评分。
         sw_level1 = str(kwargs.get("sw_level1", "")).strip()
         sw_level2 = str(kwargs.get("sw_level2", "")).strip()
-        industry = sw_level2 or sw_level1 or _get_industry_name(symbol)
+        eastmoney_industry = "" if (sw_level1 or sw_level2) else _get_industry_name(symbol)
+        resolved = _resolve_eastmoney_to_sw(eastmoney_industry) if eastmoney_industry else None
+        if resolved:
+            sw_level1, sw_level2 = resolved
+            try:
+                from data.industry_mapping_builder import backfill_verified_symbol
+                backfill_verified_symbol(symbol, sw_level1, sw_level2)
+            except Exception as e:
+                logger.warning("东财申万映射回填失败 %s: %s", symbol, e)
+        industry = sw_level2 or sw_level1 or eastmoney_industry
         sector = sw_level1
         top_peers = []
         all_peer_symbols: list[str] = []
@@ -538,6 +562,7 @@ class AkShareAdapter(DataSource):
         result = IndustryData(
             symbol=symbol, industry=industry or "未知", sector=sector or "",
             peers=all_peer_symbols, peer_scope=peer_scope, peer_industry=peer_industry,
+            resolved_sw_level1=sw_level1, resolved_sw_level2=sw_level2,
             top_peers=top_peers,
         )
         if target_mcap is not None:
