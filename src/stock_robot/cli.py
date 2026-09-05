@@ -448,18 +448,25 @@ def backtest(symbol, strategy, start, end, benchmark):
 
 
 @main.command("industry-mapping")
-@click.argument("symbol", required=False)
+@click.argument("action_or_symbol", required=False)
+@click.option("--resume", is_flag=True, help="从候选文件的断点继续全量构建")
+@click.option("--delay", type=click.FloatRange(min=0.5, max=30.0), default=1.5,
+              show_default=True, help="行业请求基础间隔（秒）；限流时建议 6 秒以上")
 @click.option("--verbose", "-v", is_flag=True, help="显示抓取明细")
-def industry_mapping(symbol, verbose):
+def industry_mapping(action_or_symbol, resume, delay, verbose):
     """重建/更新行业映射表。
 
-    无参数 → 全量重建（遍历 335 个申万三级行业，约 8-10 分钟）；
-    带股票代码 → 单只秒级更新。
+    validate → 抽样校验上游页面与解析规则；
+    rebuild → 构建候选文件（可配合 --resume 续跑）；
+    publish → 校验后原子发布候选文件；
+    股票代码 → 单只秒级更新。
     """
     from data.industry_mapping_builder import (
         IndustryMappingError,
+        publish_candidate,
         rebuild_all,
         update_symbol,
+        validate_sample,
     )
     from utils.config import Config
     from utils.symbols import normalize_symbol, validate_symbol
@@ -469,11 +476,24 @@ def industry_mapping(symbol, verbose):
         return
 
     try:
-        if symbol:
-            if not validate_symbol(symbol):
-                console.print(f"[red]无效的股票代码: {symbol}[/red]")
+        action = action_or_symbol or "rebuild"
+        if action == "validate":
+            result = validate_sample()
+            console.print(
+                f"[green]✓ 抽样校验通过：{result['stock_count']} 只股票，"
+                f"有效分类率 {result['valid_classification_rate']}%[/green]"
+            )
+        elif action == "publish":
+            result = publish_candidate()
+            console.print(
+                f"[green]✓ 候选映射已发布：{result['stock_count']} 只股票，"
+                f"有效分类率 {result['valid_classification_rate']}%[/green]"
+            )
+        elif action != "rebuild":
+            if not validate_symbol(action):
+                console.print(f"[red]无效的股票代码或操作: {action}[/red]")
                 sys.exit(1)
-            symbol = normalize_symbol(symbol)
+            symbol = normalize_symbol(action)
             result = update_symbol(symbol)
             console.print(
                 f"[green]✓ {result['symbol']} → {result['sw_level1']}"
@@ -497,15 +517,15 @@ def industry_mapping(symbol, verbose):
                     progress.update(task_id, completed=current, total=total,
                                     description=f"[{current}/{total}] {label}")
 
-                result = rebuild_all(on_progress=on_progress)
+                result = rebuild_all(on_progress=on_progress, resume=resume, delay=delay)
                 progress.update(task_id, visible=False)
 
             coverage = result["coverage_pct"]
-            color = "green" if coverage >= 95 else "red"
             console.print(
-                f"[{color}]✓ 行业映射表重建完成：{result['stock_count']} 只股票，"
-                f"覆盖率 {coverage}%[/{color}]"
+                f"[green]✓ 行业映射候选构建完成：{result['stock_count']} 只股票，"
+                f"覆盖率 {coverage}%，有效分类率 {result['valid_classification_rate']}%[/green]"
             )
+            console.print(f"[dim]候选文件：{result['candidate_path']}；确认后执行 industry-mapping publish[/dim]")
             if result["failed_industries"]:
                 console.print(
                     f"[yellow]⚠ 失败行业 {len(result['failed_industries'])} 个: "

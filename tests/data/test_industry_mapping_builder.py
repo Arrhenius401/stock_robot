@@ -6,8 +6,10 @@ from data.industry_mapping_builder import (
     _get_with_retry,
     fetch_constituents,
     fetch_taxonomy,
+    publish_candidate,
     rebuild_all,
     update_symbol,
+    validate_sample,
 )
 
 # 真实页面结构精简 fixture（一级无 parent，二级/三级带 parent span）
@@ -178,13 +180,18 @@ class TestRebuildAll:
                      return_value=old_csv)
         mocker.patch("data.industry_mapping_builder.time.sleep")
 
+        mocker.patch("data.industry_mapping_builder._candidate_path",
+                     return_value=tmp_path / "industry_mapping.candidate.csv")
+        mocker.patch("data.industry_mapping_builder._checkpoint_path",
+                     return_value=tmp_path / "industry_mapping.candidate.state.json")
         result = rebuild_all(delay=0.0)
         assert result["stock_count"] == 2
         assert result["failed_industries"] == []
         assert result["coverage_pct"] == 100.0
 
         import csv as _csv
-        with open(old_csv, encoding="utf-8") as f:
+        assert old_csv.read_text(encoding="utf-8") == OLD_CSV
+        with open(tmp_path / "industry_mapping.candidate.csv", encoding="utf-8") as f:
             rows = list(_csv.DictReader(f))
         assert len(rows) == 2
         by_symbol = {r["symbol"]: r for r in rows}
@@ -194,8 +201,7 @@ class TestRebuildAll:
         # level2 缺失 → 容器 parent（渔业）兜底
         assert by_symbol["600097"]["sw_level1"] == "农林牧渔"
         assert by_symbol["600097"]["sw_level2"] == "渔业"
-        # 临时文件已清理
-        assert not (tmp_path / "industry_mapping.csv.tmp").exists()
+        assert result["valid_classification_rate"] == 100.0
 
     def test_rebuild_skips_failed_industry(self, mocker, tmp_path):
         old_csv = tmp_path / "industry_mapping.csv"
@@ -206,12 +212,14 @@ class TestRebuildAll:
                      side_effect=IndustryMappingError("网络失败"))
         mocker.patch("data.industry_mapping_builder._csv_path",
                      return_value=old_csv)
+        mocker.patch("data.industry_mapping_builder._candidate_path",
+                     return_value=tmp_path / "industry_mapping.candidate.csv")
+        mocker.patch("data.industry_mapping_builder._checkpoint_path",
+                     return_value=tmp_path / "industry_mapping.candidate.state.json")
         mocker.patch("data.industry_mapping_builder.time.sleep")
 
-        result = rebuild_all(delay=0.0)
-        assert result["failed_industries"] == ["850111.SI", "850121.SI"]
-        assert result["stock_count"] == 0
-        assert result["coverage_pct"] == 0.0
+        with pytest.raises(IndustryMappingError, match="候选映射为空"):
+            rebuild_all(delay=0.0)
 
     def test_progress_callback(self, mocker, tmp_path):
         seen = []
@@ -223,10 +231,171 @@ class TestRebuildAll:
                      side_effect=[[STOCK_A], [STOCK_B]])
         mocker.patch("data.industry_mapping_builder._csv_path",
                      return_value=old_csv)
+        mocker.patch("data.industry_mapping_builder._candidate_path",
+                     return_value=tmp_path / "industry_mapping.candidate.csv")
+        mocker.patch("data.industry_mapping_builder._checkpoint_path",
+                     return_value=tmp_path / "industry_mapping.candidate.state.json")
         mocker.patch("data.industry_mapping_builder.time.sleep")
 
         rebuild_all(delay=0.0, on_progress=lambda i, t, n: seen.append((i, t, n)))
         assert seen == [(1, 2, "种子"), (2, 2, "海洋捕捞")]
+
+    def test_invalid_reported_level2_falls_back_to_container(self, mocker, tmp_path):
+        old_csv = tmp_path / "industry_mapping.csv"
+        old_csv.write_text(
+            "symbol,sw_level1,sw_level2,style_category\n000998,农林牧渔,种植业,必选消费\n",
+            encoding="utf-8",
+        )
+        mocker.patch("data.industry_mapping_builder.fetch_taxonomy",
+                     return_value=(LEVEL2_MAP, {"850111.SI": ("种子", "种植业")}))
+        malformed = {**STOCK_A, "level2": "种植业（旧口径）"}
+        mocker.patch("data.industry_mapping_builder.fetch_constituents", return_value=[malformed])
+        mocker.patch("data.industry_mapping_builder._csv_path", return_value=old_csv)
+        mocker.patch("data.industry_mapping_builder._candidate_path",
+                     return_value=tmp_path / "industry_mapping.candidate.csv")
+        mocker.patch("data.industry_mapping_builder._checkpoint_path",
+                     return_value=tmp_path / "industry_mapping.candidate.state.json")
+        result = rebuild_all(delay=0.0)
+        assert result["level2_fallback_count"] == 1
+        rows = _read_csv(tmp_path / "industry_mapping.candidate.csv")
+        assert rows["000998"]["sw_level1"] == "农林牧渔"
+
+    def test_publish_rejects_placeholder_candidate(self, mocker, tmp_path):
+        current = tmp_path / "industry_mapping.csv"
+        candidate = tmp_path / "industry_mapping.candidate.csv"
+        state = tmp_path / "industry_mapping.candidate.state.json"
+        current.write_text(OLD_CSV, encoding="utf-8")
+        candidate.write_text(OLD_CSV, encoding="utf-8")
+        state.write_text(
+            '{"version": 1, "completed": ["850111.SI"], "failed": [], '
+            '"expected_codes": ["850111.SI"], "level2_map": {"种植业": "农林牧渔"}}',
+            encoding="utf-8",
+        )
+        mocker.patch("data.industry_mapping_builder._csv_path", return_value=current)
+        mocker.patch("data.industry_mapping_builder._candidate_path", return_value=candidate)
+        mocker.patch("data.industry_mapping_builder._checkpoint_path", return_value=state)
+        with pytest.raises(IndustryMappingError, match="有效分类率"):
+            publish_candidate()
+
+    def test_publish_rejects_unresolved_failed_industries(self, mocker, tmp_path):
+        current = tmp_path / "industry_mapping.csv"
+        candidate = tmp_path / "industry_mapping.candidate.csv"
+        state = tmp_path / "industry_mapping.candidate.state.json"
+        current.write_text(OLD_CSV, encoding="utf-8")
+        candidate.write_text(
+            "symbol,sw_level1,sw_level2,style_category\n"
+            "000998,农林牧渔,种植业,必选消费\n"
+            "600097,农林牧渔,渔业,必选消费\n",
+            encoding="utf-8",
+        )
+        state.write_text(
+            '{"version": 1, "completed": ["850111.SI", "850121.SI"], '
+            '"failed": ["850121.SI"], "expected_codes": ["850111.SI", "850121.SI"], '
+            '"level2_map": {"种植业": "农林牧渔", "渔业": "农林牧渔"}}',
+            encoding="utf-8",
+        )
+        mocker.patch("data.industry_mapping_builder._csv_path", return_value=current)
+        mocker.patch("data.industry_mapping_builder._candidate_path", return_value=candidate)
+        mocker.patch("data.industry_mapping_builder._checkpoint_path", return_value=state)
+        with pytest.raises(IndustryMappingError, match="失败行业"):
+            publish_candidate()
+
+    def test_publish_rejects_candidate_without_complete_checkpoint(self, mocker, tmp_path):
+        current = tmp_path / "industry_mapping.csv"
+        candidate = tmp_path / "industry_mapping.candidate.csv"
+        current.write_text(OLD_CSV, encoding="utf-8")
+        candidate.write_text(
+            "symbol,sw_level1,sw_level2,style_category\n000998,农林牧渔,种植业,必选消费\n",
+            encoding="utf-8",
+        )
+        mocker.patch("data.industry_mapping_builder._csv_path", return_value=current)
+        mocker.patch("data.industry_mapping_builder._candidate_path", return_value=candidate)
+        mocker.patch("data.industry_mapping_builder._checkpoint_path",
+                     return_value=tmp_path / "missing.state.json")
+        with pytest.raises(IndustryMappingError, match="状态文件不存在"):
+            publish_candidate()
+
+    def test_publish_rejects_invalid_hierarchy(self, mocker, tmp_path):
+        current = tmp_path / "industry_mapping.csv"
+        candidate = tmp_path / "industry_mapping.candidate.csv"
+        state = tmp_path / "industry_mapping.candidate.state.json"
+        current.write_text("symbol,sw_level1,sw_level2,style_category\n000998,农林牧渔,种植业,必选消费\n",
+                           encoding="utf-8")
+        candidate.write_text("symbol,sw_level1,sw_level2,style_category\n000998,错误行业,种植业,必选消费\n",
+                             encoding="utf-8")
+        state.write_text(
+            '{"version": 1, "completed": ["850111.SI"], "failed": [], '
+            '"expected_codes": ["850111.SI"], "level2_map": {"种植业": "农林牧渔"}}',
+            encoding="utf-8",
+        )
+        mocker.patch("data.industry_mapping_builder._csv_path", return_value=current)
+        mocker.patch("data.industry_mapping_builder._candidate_path", return_value=candidate)
+        mocker.patch("data.industry_mapping_builder._checkpoint_path", return_value=state)
+        with pytest.raises(IndustryMappingError, match="非法行业层级"):
+            publish_candidate()
+
+    def test_publish_rejects_incomplete_checkpoint(self, mocker, tmp_path):
+        current = tmp_path / "industry_mapping.csv"
+        candidate = tmp_path / "industry_mapping.candidate.csv"
+        state = tmp_path / "industry_mapping.candidate.state.json"
+        current.write_text("symbol,sw_level1,sw_level2,style_category\n000998,农林牧渔,种植业,必选消费\n",
+                           encoding="utf-8")
+        candidate.write_text("symbol,sw_level1,sw_level2,style_category\n000998,农林牧渔,种植业,必选消费\n",
+                             encoding="utf-8")
+        state.write_text(
+            '{"version": 1, "completed": ["850111.SI"], "failed": [], '
+            '"expected_codes": ["850111.SI", "850121.SI"], '
+            '"level2_map": {"种植业": "农林牧渔"}}', encoding="utf-8")
+        mocker.patch("data.industry_mapping_builder._csv_path", return_value=current)
+        mocker.patch("data.industry_mapping_builder._candidate_path", return_value=candidate)
+        mocker.patch("data.industry_mapping_builder._checkpoint_path", return_value=state)
+        with pytest.raises(IndustryMappingError, match="尚未完成"):
+            publish_candidate()
+
+    def test_publish_rejects_low_coverage_candidate(self, mocker, tmp_path):
+        current = tmp_path / "industry_mapping.csv"
+        candidate = tmp_path / "industry_mapping.candidate.csv"
+        state = tmp_path / "industry_mapping.candidate.state.json"
+        current.write_text(OLD_CSV, encoding="utf-8")
+        candidate.write_text("symbol,sw_level1,sw_level2,style_category\n000998,农林牧渔,种植业,必选消费\n",
+                             encoding="utf-8")
+        state.write_text(
+            '{"version": 1, "completed": ["850111.SI"], "failed": [], '
+            '"expected_codes": ["850111.SI"], "level2_map": {"种植业": "农林牧渔"}}',
+            encoding="utf-8",
+        )
+        mocker.patch("data.industry_mapping_builder._csv_path", return_value=current)
+        mocker.patch("data.industry_mapping_builder._candidate_path", return_value=candidate)
+        mocker.patch("data.industry_mapping_builder._checkpoint_path", return_value=state)
+        with pytest.raises(IndustryMappingError, match="覆盖率"):
+            publish_candidate()
+
+    def test_resume_requires_candidate_and_checkpoint_pair(self, mocker, tmp_path):
+        current = tmp_path / "industry_mapping.csv"
+        current.write_text(OLD_CSV, encoding="utf-8")
+        mocker.patch("data.industry_mapping_builder.fetch_taxonomy",
+                     return_value=(LEVEL2_MAP, LEVEL3_MAP))
+        mocker.patch("data.industry_mapping_builder._csv_path", return_value=current)
+        mocker.patch("data.industry_mapping_builder._candidate_path",
+                     return_value=tmp_path / "missing.candidate.csv")
+        mocker.patch("data.industry_mapping_builder._checkpoint_path",
+                     return_value=tmp_path / "missing.state.json")
+        with pytest.raises(IndustryMappingError, match="配套"):
+            rebuild_all(delay=0.0, resume=True)
+
+    def test_validate_sample_rejects_partial_failure(self, mocker):
+        mocker.patch("data.industry_mapping_builder.fetch_taxonomy",
+                     return_value=(LEVEL2_MAP, LEVEL3_MAP))
+        mocker.patch("data.industry_mapping_builder.fetch_constituents",
+                     side_effect=[[STOCK_A], IndustryMappingError("网络失败")])
+        with pytest.raises(IndustryMappingError, match="抓取失败"):
+            validate_sample(sample_size=2, delay=0.0)
+
+
+def _read_csv(path):
+    import csv as _csv
+    with open(path, encoding="utf-8") as f:
+        return {row["symbol"]: row for row in _csv.DictReader(f)}
 
 
 # 真实个股页行业区块结构（I/II/III 前缀标记层级）

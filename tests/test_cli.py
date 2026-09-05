@@ -393,12 +393,54 @@ class TestIndustryMappingCommand:
 
         mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
         mocker.patch("data.industry_mapping_builder.rebuild_all",
-                     return_value={"total_industries": 335, "failed_industries": [],
-                                   "stock_count": 5534, "coverage_pct": 98.2})
+                      return_value={"total_industries": 335, "failed_industries": [],
+                                    "stock_count": 5534, "coverage_pct": 98.2,
+                                    "valid_classification_rate": 99.1,
+                                    "candidate_path": "candidate.csv"})
         result = CliRunner().invoke(main, ["industry-mapping"])
         assert result.exit_code == 0
         assert "5534" in result.output
         assert "98.2%" in result.output
+
+    def test_rebuild_forwards_custom_delay_and_resume(self, mocker):
+        from click.testing import CliRunner
+
+        from stock_robot.cli import main
+
+        mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
+        rebuild = mocker.patch("data.industry_mapping_builder.rebuild_all", return_value={
+            "total_industries": 335, "failed_industries": [], "stock_count": 5534,
+            "coverage_pct": 98.2, "valid_classification_rate": 99.1,
+            "candidate_path": "candidate.csv",
+        })
+        result = CliRunner().invoke(main, ["industry-mapping", "rebuild", "--resume", "--delay", "6"])
+        assert result.exit_code == 0
+        assert rebuild.call_args.kwargs["resume"] is True
+        assert rebuild.call_args.kwargs["delay"] == 6.0
+
+    def test_publish_candidate(self, mocker):
+        from click.testing import CliRunner
+
+        from stock_robot.cli import main
+
+        mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
+        mocker.patch("data.industry_mapping_builder.publish_candidate",
+                     return_value={"stock_count": 5534, "valid_classification_rate": 99.1})
+        result = CliRunner().invoke(main, ["industry-mapping", "publish"])
+        assert result.exit_code == 0
+        assert "候选映射已发布" in result.output
+
+    def test_validate_sample(self, mocker):
+        from click.testing import CliRunner
+
+        from stock_robot.cli import main
+
+        mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
+        mocker.patch("data.industry_mapping_builder.validate_sample",
+                     return_value={"stock_count": 21, "valid_classification_rate": 100.0})
+        result = CliRunner().invoke(main, ["industry-mapping", "validate"])
+        assert result.exit_code == 0
+        assert "抽样校验通过" in result.output
 
     def test_invalid_symbol(self, mocker):
         from click.testing import CliRunner
