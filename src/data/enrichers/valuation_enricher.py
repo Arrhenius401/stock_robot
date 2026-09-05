@@ -75,9 +75,8 @@ def _compute_ttm(financials: list) -> tuple[float | None, float | None]:
                 and same_q_prev.revenue is not None):
             ttm_profit = latest.net_profit + prev_year_q4.net_profit - same_q_prev.net_profit
             ttm_revenue = latest.revenue + prev_year_q4.revenue - same_q_prev.revenue
-            if ttm_profit > 0:
-                return ttm_profit, ttm_revenue
-            return None, None  # 对齐 TTM 非正：财务异常，交由调用方判 INSUFFICIENT
+            # 非正 TTM 仍是有效财务事实：后续由充实器禁用 PE、保留可计算的 PB。
+            return ttm_profit, ttm_revenue
 
     # 单季数据：最近 4 期求和
     return (sum(f.net_profit for f in recent_4 if f.net_profit is not None),
@@ -120,16 +119,16 @@ class ValuationEnricher(DataEnricher):
         latest_fin = max(financials, key=lambda x: x.fiscal_quarter)
         ttm_equity = latest_fin.common_equity or latest_fin.total_equity
 
-        if ttm_profit <= 0 or ttm_equity is None or ttm_equity <= 0:
+        if ttm_equity is None or ttm_equity <= 0:
             ctx.sufficiency.valuation = DimensionSufficiency(
                 level=SufficiencyLevel.INSUFFICIENT,
-                reason="TTM 净利润为负或净资产数据缺失，无法计算有效估值",
+                reason="净资产数据缺失，无法计算 PB 估值",
                 sample_count=0, score_weight=0.0,
             )
             return ctx
 
         # 获取总股本（实测锚定优先，TTM 口径复用去累积逻辑）
-        total_shares = self._get_total_shares(ctx, ttm_profit)
+        total_shares = self._get_total_shares(ctx, ttm_profit, ttm_equity)
 
         # 逐日推导估值
         sorted_prices = sorted(prices, key=lambda x: x.trade_date)
@@ -154,9 +153,14 @@ class ValuationEnricher(DataEnricher):
 
         # 统计有效点
         valid_pe = [d for d in daily_points if d.pe is not None]
-        valid_count = len(valid_pe)
+        valid_pb = [d for d in daily_points if d.pb is not None]
+        valid_count = max(len(valid_pe), len(valid_pb))
 
-        if valid_count >= 120:
+        if ttm_profit <= 0 and valid_pb:
+            level = SufficiencyLevel.PARTIAL
+            weight = 0.5
+            reason = f"TTM 净利润非正，PE 不适用；PB 有效点数 {len(valid_pb)}"
+        elif valid_count >= 120:
             level = SufficiencyLevel.SUFFICIENT
             weight = 1.0
             reason = f"有效估值点数 {valid_count}（≥120），可计算完整历史分位"
@@ -186,7 +190,6 @@ class ValuationEnricher(DataEnricher):
                 pe_zone = "高估"
 
         # PB 分位
-        valid_pb = [d for d in daily_points if d.pb is not None]
         pb_values = sorted([d.pb for d in valid_pb])
         pb_current = valid_pb[-1].pb if valid_pb else None
         if pb_current is not None and len(pb_values) >= 120:
@@ -213,8 +216,9 @@ class ValuationEnricher(DataEnricher):
         )
         return ctx
 
-    def _get_total_shares(self, ctx: AnalysisContext, ttm_profit: float) -> float | None:
-        """总股本：实测 PE 反推锚点优先，其次三级链"""
+    def _get_total_shares(self, ctx: AnalysisContext, ttm_profit: float,
+                          ttm_equity: float) -> float | None:
+        """总股本：实测 PE/PB 反推锚点优先，其次三级链。"""
         # 实测锚定：估值数据来自腾讯快照（独立口径），锚定计算只用内存数据
         measured_pe = ctx.valuation_data.pe_ttm if ctx.valuation_data else None
         if measured_pe is not None and measured_pe > 0:
@@ -231,5 +235,10 @@ class ValuationEnricher(DataEnricher):
                                 f"{ctx.symbol} 总股本估算偏差 >15%: 估算 {estimated:.2e} vs 锚定 {anchor:.2e}"
                             )
                         return anchor
+        measured_pb = ctx.valuation_data.pb if ctx.valuation_data else None
+        if measured_pb is not None and measured_pb > 0:
+            sorted_prices = sorted(ctx.price_data or [], key=lambda x: x.trade_date)
+            if sorted_prices and sorted_prices[-1].close > 0:
+                return measured_pb * ttm_equity / sorted_prices[-1].close
         # 无实测 PE（快照失败）：三级链估算
         return get_total_shares(ctx.symbol, ctx.financial_data)

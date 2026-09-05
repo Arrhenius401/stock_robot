@@ -65,6 +65,7 @@ def test_fetch_financial_parses_chinese_units(mocker):
             "扣非净利润": ["7000万", "1.95亿"],
             "净资产收益率": ["12.5", "11.8"],
             "销售净利率": ["15.2", "14.8"],
+            "销售毛利率": ["25.2", "24.8"],
             "每股经营现金流": ["1.2", "-0.35"],
         })
     mocker.patch("akshare.stock_financial_abstract_ths", side_effect=_mock)
@@ -81,8 +82,25 @@ def test_fetch_financial_parses_chinese_units(mocker):
     assert results[0].deducted_net_profit == pytest.approx(7.0e7)
     assert results[0].total_assets is None  # 此 API 不提供资产总计
     assert results[0].roe == pytest.approx(0.125)  # 12.5% → 0.125
-    assert results[0].gross_margin == pytest.approx(0.152)  # 15.2% → 0.152（销售净利率）
-    assert results[1].operating_cash_flow == pytest.approx(-0.35)  # 每股经营现金流
+    assert results[0].gross_margin == pytest.approx(0.252)
+    assert results[1].operating_cash_flow is None
+    assert results[1].operating_cash_flow_per_share == pytest.approx(-0.35)
+
+
+def test_fetch_financial_normalizes_negative_percentage_and_uses_gross_margin(mocker):
+    mocker.patch("akshare.stock_financial_abstract_ths", return_value=pd.DataFrame({
+        "报告期": ["2026-06-30"], "营业总收入": ["594.10亿"], "净利润": ["-60.78亿"],
+        "扣非净利润": ["-58.95亿"], "基本每股收益": ["-1.10"],
+        "净资产收益率": ["-1.00%"], "销售净利率": ["-10.24%"],
+        "销售毛利率": ["-1.58%"], "每股经营现金流": ["-0.39"],
+    }))
+    mocker.patch("akshare.stock_financial_debt_new_ths", return_value=pd.DataFrame())
+    mocker.patch("akshare.stock_financial_debt_ths", return_value=pd.DataFrame())
+    result = AkShareAdapter().fetch("002714", data_type="financial")[0]
+    assert result.roe == pytest.approx(-0.01)
+    assert result.gross_margin == pytest.approx(-0.0158)
+    assert result.operating_cash_flow is None
+    assert result.operating_cash_flow_per_share == pytest.approx(-0.39)
 
 
 def test_fetch_financial_unparseable_becomes_none(mocker):

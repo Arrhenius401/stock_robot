@@ -164,6 +164,46 @@ class TestValuationEnricher:
         assert len(ctx.enriched_valuation.daily_points) > 0
         assert ctx.enriched_valuation.pe_percentile is not None
 
+    def test_loss_makes_pe_unavailable_but_keeps_pb(self):
+        prices = make_price_series(200, close=10.0)
+        financials = make_financial_data(4)
+        for item in financials:
+            item.net_profit = -1e8
+        financials[-1].total_equity = 100e8
+        ctx = AnalysisContext(symbol="002714", name="牧原股份", price_data=prices, financial_data=financials,
+                              valuation_data=ValuationData(symbol="002714", date=datetime.now().astimezone().date(),
+                                                           pe_ttm=-226.48, pb=3.21))
+        ctx = PriceEnricher().enrich(ctx)
+        ctx = FinancialEnricher().enrich(ctx)
+        ctx = ValuationEnricher().enrich(ctx)
+        assert ctx.sufficiency.valuation.level == SufficiencyLevel.PARTIAL
+        assert ctx.enriched_valuation is not None
+        assert all(point.pe is None for point in ctx.enriched_valuation.daily_points)
+        assert any(point.pb is not None for point in ctx.enriched_valuation.daily_points)
+
+    def test_cross_year_cumulative_loss_keeps_pb(self):
+        prices = make_price_series(200, close=10.0)
+        financials = [
+            FinancialData(symbol="002714", fiscal_quarter=date(2025, 6, 30), revenue=764.63e8,
+                          net_profit=105.30e8),
+            FinancialData(symbol="002714", fiscal_quarter=date(2025, 9, 30), revenue=1117.90e8,
+                          net_profit=147.79e8),
+            FinancialData(symbol="002714", fiscal_quarter=date(2025, 12, 31), revenue=1441.45e8,
+                          net_profit=154.87e8),
+            FinancialData(symbol="002714", fiscal_quarter=date(2026, 3, 31), revenue=298.94e8,
+                          net_profit=-12.15e8),
+            FinancialData(symbol="002714", fiscal_quarter=date(2026, 6, 30), revenue=594.10e8,
+                          net_profit=-60.78e8, total_equity=100e8),
+        ]
+        ctx = AnalysisContext(symbol="002714", name="牧原股份", price_data=prices, financial_data=financials,
+                              valuation_data=ValuationData(symbol="002714", date=datetime.now().astimezone().date(),
+                                                           pe_ttm=-226.48, pb=3.21))
+        ctx = PriceEnricher().enrich(ctx)
+        ctx = ValuationEnricher().enrich(ctx)
+        assert ctx.sufficiency.valuation.level == SufficiencyLevel.PARTIAL
+        assert ctx.enriched_valuation is not None
+        assert ctx.enriched_valuation.pb_percentile is not None
+
 
 class TestIndustryEnricher:
     def test_sufficient_with_5_peers(self):
@@ -402,8 +442,8 @@ class TestTTMCumulative:
         assert ctx.enriched_valuation is not None
         assert ctx.enriched_valuation.daily_points[0].pb == pytest.approx(32e8 * 10.0 / 5482.14e8)
 
-    def test_negative_aligned_ttm_returns_none(self):
-        """跨年对齐 TTM 非正时返回 None（财务异常交由调用方判 INSUFFICIENT）"""
+    def test_negative_aligned_ttm_is_preserved_for_pb_valuation(self):
+        """跨年对齐 TTM 非正时保留真实值，由调用方禁用 PE、保留 PB。"""
         from data.enrichers.valuation_enricher import _compute_ttm
         financials = [
             FinancialData(symbol="000001", fiscal_quarter=date(2025, 6, 30),
@@ -420,8 +460,8 @@ class TestTTMCumulative:
         # 对齐 TTM = 130 + 50 − 100 = 80 亿（正，正常路径）
         ttm_profit, _ = _compute_ttm(financials)
         assert ttm_profit == pytest.approx(80e8)
-        # 最新期净利骤降 → 对齐 TTM = 40 + 50 − 100 = −10 亿（非正 → None）
+        # 最新期净利骤降 → 对齐 TTM = 40 + 50 − 100 = −10 亿。
         financials[2].net_profit = 50e8
         financials[-1].net_profit = 40e8
         ttm_profit, _ = _compute_ttm(financials)
-        assert ttm_profit is None
+        assert ttm_profit == pytest.approx(-10e8)

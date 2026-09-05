@@ -1,5 +1,7 @@
 from datetime import date
 
+import pytest
+
 from analysis.financial import FinancialAnalyzer
 from data.schemas import (
     AnalysisContext,
@@ -70,3 +72,17 @@ class TestFinancialAnalyzer:
         assert result.status in ("ok", "partial")
         assert "revenue_growth_yoy" not in result.metrics
         assert "profit_growth_yoy" in result.metrics
+
+    def test_yoy_uses_same_period_last_year_and_labels_per_share_cashflow(self):
+        financials = [
+            FinancialData(symbol="002714", fiscal_quarter=date(2026, 6, 30), revenue=594.10e8,
+                          net_profit=-60.78e8, operating_cash_flow_per_share=-0.39, roe=-0.0748),
+            FinancialData(symbol="002714", fiscal_quarter=date(2026, 3, 31), revenue=298.94e8),
+            FinancialData(symbol="002714", fiscal_quarter=date(2025, 12, 31), revenue=1441.45e8),
+            FinancialData(symbol="002714", fiscal_quarter=date(2025, 9, 30), revenue=1117.90e8),
+            FinancialData(symbol="002714", fiscal_quarter=date(2025, 6, 30), revenue=764.63e8),
+        ]
+        result = FinancialAnalyzer().analyze(make_ctx(symbol="002714", name="牧原股份", financial_data=financials))
+        assert result.metrics["revenue_growth_yoy"] == pytest.approx(-0.2230)
+        assert result.metrics["operating_cash_flow_per_share"] == pytest.approx(-0.39)
+        assert "operating_cash_flow" not in result.metrics

@@ -114,6 +114,13 @@ def _get_industry_name(symbol: str) -> str:
     return ""
 
 
+def _normalize_percentage(value: float | None) -> float | None:
+    """将同花顺百分比字段转为小数，负百分比同样按绝对值判断单位。"""
+    if value is not None and abs(value) >= 1:
+        return value / 100.0
+    return value
+
+
 @retry_on_network_error()
 def _ak_hist(**kwargs):
     return ak.stock_zh_a_hist(**kwargs)
@@ -404,7 +411,7 @@ class AkShareAdapter(DataSource):
         profits = df.get("净利润", [])
         deducted_profits = df.get("扣非净利润", [])
         roe_list = df.get("净资产收益率", [])  # ROE（%）
-        net_margins = df.get("销售净利率", [])  # 销售净利率（%）
+        gross_margins = df.get("销售毛利率", [])  # 销售毛利率（%）
         cash_flow_per_share = df.get("每股经营现金流", [])
         basic_eps_list = df.get("基本每股收益", [])  # 用于反推总股本
 
@@ -423,13 +430,13 @@ class AkShareAdapter(DataSource):
                 net_profit = parse_cn_number(profits.iloc[idx] if hasattr(profits, 'iloc') else profits[idx]) if idx < len(profits) else None
                 deducted = parse_cn_number(deducted_profits.iloc[idx] if hasattr(deducted_profits, 'iloc') else deducted_profits[idx]) if idx < len(deducted_profits) else None
 
-                # 净资产收益率 — 源数据为百分比（如 12.5），> 1 时除以 100 转为小数
+                # 净资产收益率 — 源数据为百分比（如 -7.48 / 12.5），转为小数
                 roe_raw = parse_cn_number(roe_list.iloc[idx] if hasattr(roe_list, 'iloc') else roe_list[idx]) if idx < len(roe_list) else None
-                roe = roe_raw / 100.0 if roe_raw is not None and roe_raw > 1 else roe_raw
+                roe = _normalize_percentage(roe_raw)
 
-                # 销售净利率 — 源数据为百分比（如 12.5），> 1 时除以 100 转为小数
-                nm_raw = parse_cn_number(net_margins.iloc[idx] if hasattr(net_margins, 'iloc') else net_margins[idx]) if idx < len(net_margins) else None
-                net_margin = nm_raw / 100.0 if nm_raw is not None and nm_raw > 1 else nm_raw
+                # 销售毛利率 — 源数据为百分比，不能误用销售净利率。
+                gm_raw = parse_cn_number(gross_margins.iloc[idx] if hasattr(gross_margins, 'iloc') else gross_margins[idx]) if idx < len(gross_margins) else None
+                gross_margin = _normalize_percentage(gm_raw)
 
                 # 每股经营现金流 × 总股本 → 经营现金流总额
                 ocf_per_share = parse_cn_number(cash_flow_per_share.iloc[idx] if hasattr(cash_flow_per_share, 'iloc') else cash_flow_per_share[idx]) if idx < len(cash_flow_per_share) else None
@@ -438,8 +445,6 @@ class AkShareAdapter(DataSource):
                 if ocf_per_share is not None and net_profit is not None and basic_eps is not None and basic_eps > 0:
                     total_shares = net_profit / basic_eps
                     ocf = ocf_per_share * total_shares
-                elif ocf_per_share is not None:
-                    ocf = ocf_per_share  # 降级：无法反推总股本时保留 per-share 值
 
                 # 从资产负债表映射中获取净资产、普通股东权益和总资产
                 date_key = fiscal_date.isoformat()
@@ -456,8 +461,9 @@ class AkShareAdapter(DataSource):
                     total_equity=total_equity,
                     common_equity=common_equity,
                     operating_cash_flow=ocf,
+                    operating_cash_flow_per_share=ocf_per_share,
                     roe=roe,
-                    gross_margin=net_margin,
+                    gross_margin=gross_margin,
                     basic_eps=basic_eps,
                 ))
             except (ValueError, IndexError, TypeError) as e:
