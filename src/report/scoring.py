@@ -139,7 +139,8 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
     price_info = compute_price_info(ctx)
     if ctx.sw_industry:
         industry = ctx.sw_industry
-    elif ctx.industry_data and ctx.industry_data.industry:
+    elif (ctx.industry_data and ctx.industry_data.industry
+          and ctx.industry_data.industry != "未知"):
         industry = f"{ctx.industry_data.industry}（东财口径，申万待补全）"
     else:
         industry = "申万行业待补全（数据源不可用）"
