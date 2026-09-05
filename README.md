@@ -8,10 +8,25 @@ AI 驱动的股票/指数分析研报助手。支持 A 股 + 指数分析、AI A
 
 ## 安装
 
-```bash
-git clone <repo-url> && cd stock_robot
-pip install -e ".[dev]"
+建议每个工作副本使用独立的 `.venv`，避免 Anaconda、用户级 Python 或其他项目的依赖相互影响。无需手动激活虚拟环境，详见 [运行环境说明](docs/运行环境.md)。
+
+```powershell
+# Windows PowerShell
+git clone <repo-url>; cd stock_robot
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\scripts\stock-robot.ps1 --help
 ```
+
+```sh
+# Linux
+git clone <repo-url> && cd stock_robot
+python3 -m venv .venv
+./.venv/bin/python -m pip install -e ".[dev]"
+./scripts/stock-robot.sh --help
+```
+
+后续示例中的 `stock-robot` 假定已使用 `direnv` 自动加入项目虚拟环境；不使用 `direnv` 时，将其替换为 Windows 的 `.\scripts\stock-robot.ps1` 或 Linux 的 `./scripts/stock-robot.sh`。
 
 ## 首次使用
 
