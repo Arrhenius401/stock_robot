@@ -82,6 +82,12 @@ class CacheManager:
         with self._get_conn() as conn:
             conn.execute("DELETE FROM cache WHERE symbol=?", (symbol,))
 
+    def invalidate_data_type(self, data_type: str) -> int:
+        """删除指定数据类型的全部缓存，返回删除条数。"""
+        with self._get_conn() as conn:
+            cursor = conn.execute("DELETE FROM cache WHERE data_type=?", (data_type,))
+        return cursor.rowcount
+
     def clear(self):
         with self._get_conn() as conn:
             conn.execute("DELETE FROM cache")

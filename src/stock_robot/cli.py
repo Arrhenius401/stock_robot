@@ -579,11 +579,18 @@ def cache():
 
 
 @cache.command("clear")
-def cache_clear():
-    """清空所有缓存"""
+@click.option("--data-type", type=click.Choice(
+    ["price", "financial", "valuation", "industry", "news"]),
+    help="仅清空指定数据类型的缓存")
+def cache_clear(data_type):
+    """清空全部或指定类型的缓存"""
     c = _get_cache()
-    c.clear()
-    console.print("[green]✓ 缓存已清空[/green]")
+    if data_type:
+        count = c.invalidate_data_type(data_type)
+        console.print(f"[green]✓ 已清空 {data_type} 缓存（{count} 条）[/green]")
+    else:
+        c.clear()
+        console.print("[green]✓ 缓存已清空[/green]")
 
 
 @cache.command("status")

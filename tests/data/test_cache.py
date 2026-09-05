@@ -58,6 +58,16 @@ class TestCacheManager:
         assert cache.get("price", "000001", "2026-07-02") is None
         assert cache.get("price", "000002", "2026-07-01") is not None
 
+    def test_invalidate_by_data_type(self, tmp_path):
+        cache = CacheManager(db_path=tmp_path / "cache.db")
+        cache.put("financial", "000001", "latest", '{"a": 1}')
+        cache.put("financial", "000002", "latest", '{"a": 2}')
+        cache.put("price", "000001", "latest", '{"a": 3}')
+
+        assert cache.invalidate_data_type("financial") == 2
+        assert cache.get("financial", "000001", "latest") is None
+        assert cache.get("price", "000001", "latest") is not None
+
     def test_clear_all(self, tmp_path):
         cache = CacheManager(db_path=tmp_path / "cache.db")
         cache.put("price", "000001", "2026-07-01", '{"a": 1}')
