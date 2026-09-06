@@ -500,3 +500,17 @@ stock-robot analyze 000001 --no-llm
 **Q: 如何暴露更多本地工具给外部 MCP 客户端？**
 
 通过 `MCPGateway.register_local_tool()` 注册任意 `ToolProtocol` 实例，然后调用 `gateway.serve_stdio()` 以 stdio MCP Server 模式运行。工具会自动通过 MCP 协议的 `tools/list` 和 `tools/call` 暴露。
+
+## 配置雷达（ETF）
+
+配置雷达使用人工审核的标的池、本地完成态快照和低频研究评分。国内及港股敞口与海外敞口分别维护，不能混合排名。
+
+```powershell
+stock-robot radar universe list
+stock-robot radar refresh --universe cn_hk_etf
+stock-robot radar refresh --universe cn_hk_etf --full --as-of 2026-09-04
+stock-robot radar show --universe cn_hk_etf
+stock-robot radar backtest --universe overseas_etf --start 2022-01-01 --end 2025-12-31
+```
+
+仅 `refresh` 与 `backtest` 会访问数据源，展示和 API 只读取 `.stock_robot/radar.db` 的完成态快照。`refresh` 默认仅获取有限评分窗口，`--full` 将窗口扩展为完整修订窗口；`--as-of` 用于回放指定数据日期。回测以月末可得日线评分、下一交易日开盘成交、各类别冠军等权为约束，产物包含策略指纹、池版本、调仓日、费用和数据范围。评分与回测均为研究用途，不构成投资建议；历史结果不代表未来收益，海外 QDII ETF 还可能存在时差、溢价与申赎限制。

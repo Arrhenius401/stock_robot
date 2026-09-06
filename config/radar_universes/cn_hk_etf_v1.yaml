@@ -1,0 +1,24 @@
+id: cn_hk_etf
+name: 国内及港股 ETF 池
+version: 1
+asset_type: etf
+score_profile: core_rotation_v1
+description: >-
+  面向中国内地与香港市场敞口的人工审核 ETF 白名单；A 股、港股类别独立排名，
+  不与海外 ETF 混排。仅作研究筛选，不构成投资建议。
+instruments:
+  - {symbol: '510050', name: 上证50ETF, asset_type: etf, category: cn_equity, market: SSE, exposure_region: CN, effective_from: 2010-01-01, min_avg_amount: 10000000}
+  - {symbol: '510300', name: 沪深300ETF, asset_type: etf, category: cn_equity, market: SSE, exposure_region: CN, effective_from: 2012-01-01, min_avg_amount: 10000000}
+  - {symbol: '510500', name: 中证500ETF, asset_type: etf, category: cn_equity, market: SSE, exposure_region: CN, effective_from: 2013-01-01, min_avg_amount: 5000000}
+  - {symbol: '512100', name: 中证1000ETF, asset_type: etf, category: cn_equity, market: SSE, exposure_region: CN, effective_from: 2017-01-01, min_avg_amount: 3000000}
+  - {symbol: '588000', name: 科创50ETF, asset_type: etf, category: cn_equity, market: SSE, exposure_region: CN, effective_from: 2020-10-01, min_avg_amount: 10000000}
+  - {symbol: '159915', name: 创业板ETF, asset_type: etf, category: cn_equity, market: SZSE, exposure_region: CN, effective_from: 2011-01-01, min_avg_amount: 10000000}
+  - {symbol: '510880', name: 红利ETF, asset_type: etf, category: cn_equity, market: SSE, exposure_region: CN, effective_from: 2007-01-01, min_avg_amount: 3000000}
+  - {symbol: '515300', name: 红利低波ETF, asset_type: etf, category: cn_equity, market: SSE, exposure_region: CN, effective_from: 2019-01-01, min_avg_amount: 3000000}
+  - {symbol: '512480', name: 半导体ETF, asset_type: etf, category: cn_equity, market: SSE, exposure_region: CN, effective_from: 2019-06-01, min_avg_amount: 5000000}
+  - {symbol: '512010', name: 医药ETF, asset_type: etf, category: cn_equity, market: SSE, exposure_region: CN, effective_from: 2013-01-01, min_avg_amount: 3000000}
+  - {symbol: '510900', name: H股ETF, asset_type: etf, category: hk_equity, market: SSE, exposure_region: HK, effective_from: 2012-01-01, min_avg_amount: 3000000}
+  - {symbol: '513550', name: 港股通50ETF, asset_type: etf, category: hk_equity, market: SSE, exposure_region: HK, effective_from: 2021-01-01, min_avg_amount: 3000000}
+  - {symbol: '513130', name: 恒生科技ETF, asset_type: etf, category: hk_equity, market: SSE, exposure_region: HK, effective_from: 2021-01-01, min_avg_amount: 5000000}
+  - {symbol: '513050', name: 中概互联网ETF, asset_type: etf, category: hk_equity, market: SSE, exposure_region: HK, effective_from: 2017-01-01, min_avg_amount: 5000000}
+  - {symbol: '513060', name: 恒生医疗ETF, asset_type: etf, category: hk_equity, market: SSE, exposure_region: HK, effective_from: 2021-01-01, min_avg_amount: 3000000}

@@ -298,6 +298,8 @@ def create_app(
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
                        allow_headers=["*"])
     app.include_router(create_configuration_router(runtime=runtime))
+    from api.radar import create_radar_router
+    app.include_router(create_radar_router())
 
     if sessions is None and core is not None:
         from api.sessions import SessionManager, SessionStore

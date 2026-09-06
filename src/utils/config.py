@@ -77,6 +77,10 @@ DEFAULT_CONFIG = {
             "csi_all_bond": {"name": "中证全债指数", "symbol": "H11001"},
         },
     },
+    "radar": {
+        "history_days": 400,
+        "minimum_interval_seconds": 1.0,
+    },
 }
 
 

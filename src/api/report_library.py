@@ -222,6 +222,29 @@ def _backtest_summary(reports_root: Path, report_path: Path) -> ReportSummary | 
     )
 
 
+def _radar_backtest_summary(reports_root: Path, report_path: Path) -> ReportSummary | None:
+    """识别完整的雷达回测产物，不影响既有单标的回测目录。"""
+    relative = _safe_relative(reports_root, report_path)
+    if relative is None or len(relative.parts) != 7 or relative.parts[0] != "radar_backtests":
+        return None
+    run_dir = report_path.parent
+    if not (run_dir / "summary.json").exists():
+        return None
+    manifest = _read_optional_json(run_dir / "manifest.json")
+    strategy_id = str(manifest.get("strategy_id") or relative.parts[2])
+    universe_id = str(manifest.get("universe_id") or relative.parts[3])
+    return ReportSummary(
+        id=_encode_id(relative), type="backtest", title=f"{universe_id} {strategy_id}雷达回测报告",
+        symbol=universe_id, path=relative.as_posix(),
+        generated_at=_generated_at_from_path(relative, report_path, allow_month=False, fallback_day=True),
+        strategy_id=strategy_id,
+        strategy_version=str(manifest["strategy_fingerprint"]) if manifest.get("strategy_fingerprint") else None,
+        start_date=str(manifest["start_date"]) if manifest.get("start_date") else None,
+        end_date=str(manifest["end_date"]) if manifest.get("end_date") else None,
+        has_equity_curve=(run_dir / "equity_curve.csv").exists(), has_trades=(run_dir / "trades.csv").exists(),
+    )
+
+
 def _matches(summary: ReportSummary, query: str | None) -> bool:
     if not query:
         return True
@@ -262,6 +285,10 @@ def list_reports(
             summary = _backtest_summary(reports_root, path)
             if summary is not None:
                 items.append(summary)
+        for path in sorted((reports_root / "radar_backtests").glob("*/*/*/*/*/report.md")):
+            summary = _radar_backtest_summary(reports_root, path)
+            if summary is not None:
+                items.append(summary)
     if report_type in (None, "stock"):
         for path in sorted(reports_root.glob("[0-9][0-9][0-9][0-9][0-9][0-9]/*/*.md")):
             summary = _summary_for_markdown(reports_root, path, "stock", legacy=True)
@@ -286,6 +313,8 @@ def _summary_from_relative(reports_root: Path, relative: Path) -> ReportSummary:
         summary = _summary_for_markdown(reports_root, path, "stock", legacy=True)
     elif len(relative.parts) >= 6 and relative.parts[0] == "backtests":
         summary = _backtest_summary(reports_root, path)
+    elif len(relative.parts) == 7 and relative.parts[0] == "radar_backtests":
+        summary = _radar_backtest_summary(reports_root, path)
     else:
         summary = None
     if summary is None:

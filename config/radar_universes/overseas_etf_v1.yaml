@@ -1,0 +1,16 @@
+id: overseas_etf
+name: 海外市场 ETF 池
+version: 1
+asset_type: etf
+score_profile: core_rotation_v1
+description: >-
+  面向非中国内地、非香港市场敞口的 QDII ETF 白名单；各地区类别独立排名，
+  不与国内及港股 ETF 混排。须额外关注 QDII 申赎限制、溢价及交易时差。
+instruments:
+  - {symbol: '513500', name: 标普500ETF, asset_type: etf, category: overseas_developed, market: SSE, exposure_region: US, effective_from: 2014-01-01, min_avg_amount: 5000000}
+  - {symbol: '513100', name: 纳指ETF, asset_type: etf, category: overseas_developed, market: SSE, exposure_region: US, effective_from: 2013-01-01, min_avg_amount: 5000000}
+  - {symbol: '513350', name: 油气ETF, asset_type: etf, category: overseas_developed, market: SSE, exposure_region: US, effective_from: 2023-12-01, min_avg_amount: 3000000}
+  - {symbol: '513520', name: 日经ETF, asset_type: etf, category: overseas_developed, market: SSE, exposure_region: JP, effective_from: 2021-01-01, min_avg_amount: 3000000}
+  - {symbol: '513880', name: 日经225ETF, asset_type: etf, category: overseas_developed, market: SSE, exposure_region: JP, effective_from: 2021-01-01, min_avg_amount: 3000000}
+  - {symbol: '513030', name: 德国ETF, asset_type: etf, category: overseas_developed, market: SSE, exposure_region: DE, effective_from: 2014-01-01, min_avg_amount: 2000000}
+  - {symbol: '513080', name: 法国CAC40ETF, asset_type: etf, category: overseas_developed, market: SSE, exposure_region: FR, effective_from: 2014-01-01, min_avg_amount: 2000000}

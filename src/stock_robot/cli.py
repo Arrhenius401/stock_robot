@@ -1,6 +1,7 @@
 """Stock Robot CLI — AI 驱动的股票分析研报助手"""
 import logging
 import os
+from datetime import timedelta
 
 os.environ["TQDM_DISABLE"] = "1"
 
@@ -1091,6 +1092,153 @@ def subscribe_run(sub_id):
     console.print(f"[green]推送完成: {result['ok']}/{result['total']} 成功[/green]")
     for failure in result["failures"]:
         console.print(f"[yellow]失败: {failure}[/yellow]")
+
+
+def _radar_services():
+    """构建配置雷达的本地服务。"""
+    from radar.data import (
+        AkShareETFDataProvider,
+        FallbackETFDataProvider,
+        OfficialExchangeETFDataProvider,
+        RequestPacer,
+        SinaETFDataProvider,
+    )
+    from radar.refresh import RadarRefresher
+    from radar.store import RadarStore
+    from radar.universe import UniverseRepository
+
+    config = Config()
+    root = Path(__file__).parents[2]
+    repository = UniverseRepository(root / "config" / "radar_universes")
+    provider = FallbackETFDataProvider((
+        AkShareETFDataProvider(pacer=RequestPacer(config.get("radar.minimum_interval_seconds", 1.0))),
+        SinaETFDataProvider(),
+        OfficialExchangeETFDataProvider(),
+    ))
+    store = RadarStore(config.config_dir / "radar.db")
+    return config, repository, store, RadarRefresher(repository, provider, store)
+
+
+@main.group()
+def radar():
+    """管理版本化 ETF/股票池的本地配置雷达。"""
+
+
+@radar.group("universe")
+def radar_universe():
+    """查看已配置的标的池。"""
+
+
+@radar_universe.command("list")
+def radar_universe_list():
+    """列出可刷新、不可混排的标的池。"""
+    _, repository, _, _ = _radar_services()
+    table = Table(title="配置雷达标的池")
+    table.add_column("ID")
+    table.add_column("名称")
+    table.add_column("类型")
+    table.add_column("版本", justify="right")
+    for universe in repository.load_all():
+        table.add_row(universe.id, universe.name, universe.asset_type, str(universe.version))
+    console.print(table)
+
+
+@radar.command("refresh")
+@click.option("--universe", "universe_id", required=True, help="标的池 ID")
+@click.option("--full", is_flag=True, help="扩展至完整历史窗口后重新生成快照")
+@click.option("--as-of", type=click.DateTime(formats=["%Y-%m-%d"]), help="数据截至日期")
+def radar_refresh(universe_id, full, as_of):
+    """手动刷新一个标的池的本地快照。"""
+    config, _, _, refresher = _radar_services()
+    if not _check_disclaimer(config):
+        return
+    try:
+        run_id = refresher.refresh(universe_id, full=full, as_of=as_of.date() if as_of else None)
+    except (RuntimeError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    console.print(f"[green]快照已完成: {run_id}[/green]")
+
+
+@radar.command("status")
+@click.option("--universe", "universe_id", required=True, help="标的池 ID")
+def radar_status(universe_id):
+    """显示最近完成快照的状态汇总。"""
+    _, _, store, _ = _radar_services()
+    summary = store.status_summary(universe_id)
+    if summary is None:
+        raise click.ClickException("尚无完成快照，请先执行 radar refresh")
+    console.print(summary)
+
+
+@radar.command("show")
+@click.option("--universe", "universe_id", required=True, help="标的池 ID")
+@click.option("--run-id", help="已完成快照 ID，省略时取最新")
+@click.option("--category", help="仅显示指定类别")
+def radar_show(universe_id, run_id, category):
+    """显示最近完成快照的研究评分。"""
+    _, _, store, _ = _radar_services()
+    snapshot = store.get_snapshot(run_id) if run_id else store.latest_completed(universe_id)
+    if snapshot is None:
+        raise click.ClickException("尚无完成快照，请先执行 radar refresh")
+    table = Table(title=f"配置雷达：{universe_id}（{snapshot['as_of_date']}）")
+    for column in ("代码", "名称", "类别", "评分", "排名", "状态", "等级"):
+        table.add_column(column)
+    if snapshot["universe_id"] != universe_id:
+        raise click.ClickException("快照不属于指定标的池")
+    for item in snapshot["items"]:
+        if category and item["category"] != category:
+            continue
+        score = "-" if item["score"] is None else f"{item['score']:.1f}"
+        table.add_row(item["symbol"], item["name"], item["category"], score, str(item["rank"] or "-"), item["status"], item["grade"])
+    console.print(table)
+
+
+@radar.command("backtest")
+@click.option("--universe", "universe_id", required=True, help="标的池 ID")
+@click.option("--start", required=True, type=click.DateTime(formats=["%Y-%m-%d"]))
+@click.option("--end", required=True, type=click.DateTime(formats=["%Y-%m-%d"]))
+@click.option("--strategy", default="core_rotation_v1", show_default=True)
+@click.option("--benchmark", help="可选的 ETF 基准代码")
+def radar_backtest(universe_id, start, end, strategy, benchmark):
+    """运行 ETF 月度轮动研究回测并写入可审计产物。"""
+    from radar.artifacts import write_radar_backtest_artifacts
+    from radar.backtest import run_monthly_rotation
+    from radar.data import (
+        AkShareETFDataProvider,
+        FallbackETFDataProvider,
+        RequestPacer,
+        SinaETFDataProvider,
+    )
+    from radar.strategy import StrategyConfigError, StrategyRepository
+    from radar.universe import UniverseRepository
+
+    config = Config()
+    if not _check_disclaimer(config):
+        return
+    if start.date() >= end.date():
+        raise click.ClickException("start 必须早于 end")
+    root = Path(__file__).parents[2]
+    universe = UniverseRepository(root / "config" / "radar_universes").active_on(universe_id, end.date())
+    try:
+        selected_strategy = StrategyRepository(root / "config" / "radar_strategies").get(strategy)
+    except StrategyConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if selected_strategy.asset_type != universe.asset_type:
+        raise click.ClickException("策略与标的池资产类型不一致")
+    provider = FallbackETFDataProvider((
+        AkShareETFDataProvider(pacer=RequestPacer(config.get("radar.minimum_interval_seconds", 1.0))),
+        SinaETFDataProvider(),
+    ))
+    data_start = start.date() - timedelta(days=500)
+    histories = {item.symbol: provider.fetch_daily(item.symbol, data_start, end.date()) for item in universe.instruments}
+    if benchmark:
+        try:
+            provider.fetch_daily(benchmark, data_start, end.date())
+        except Exception as exc:  # 基准数据源错误需在写入产物前失败
+            raise click.ClickException(f"基准数据不可用: {benchmark}") from exc
+    result = run_monthly_rotation(histories, {item.symbol: item.category for item in universe.instruments}, start.date(), end.date(), weights=selected_strategy.weights)
+    output = write_radar_backtest_artifacts(result, universe_id=universe.id, universe_version=universe.version, strategy_id=strategy, strategy_fingerprint=selected_strategy.fingerprint, start_date=start.date(), end_date=end.date(), benchmark=benchmark)
+    console.print(f"[green]回测产物已保存: {output}[/green]")
 
 
 if __name__ == "__main__":
