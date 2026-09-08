@@ -1102,6 +1102,7 @@ def _radar_services():
         OfficialExchangeETFDataProvider,
         RequestPacer,
         SinaETFDataProvider,
+        TencentETFDataProvider,
     )
     from radar.refresh import RadarRefresher
     from radar.store import RadarStore
@@ -1112,6 +1113,7 @@ def _radar_services():
     repository = UniverseRepository(root / "config" / "radar_universes")
     provider = FallbackETFDataProvider((
         AkShareETFDataProvider(pacer=RequestPacer(config.get("radar.minimum_interval_seconds", 1.0))),
+        TencentETFDataProvider(),
         SinaETFDataProvider(),
         OfficialExchangeETFDataProvider(),
     ))
@@ -1206,8 +1208,11 @@ def radar_backtest(universe_id, start, end, strategy, benchmark):
     from radar.data import (
         AkShareETFDataProvider,
         FallbackETFDataProvider,
+        OfficialExchangeETFDataProvider,
+        RadarDataError,
         RequestPacer,
         SinaETFDataProvider,
+        TencentETFDataProvider,
     )
     from radar.strategy import StrategyConfigError, StrategyRepository
     from radar.universe import UniverseRepository
@@ -1227,10 +1232,15 @@ def radar_backtest(universe_id, start, end, strategy, benchmark):
         raise click.ClickException("策略与标的池资产类型不一致")
     provider = FallbackETFDataProvider((
         AkShareETFDataProvider(pacer=RequestPacer(config.get("radar.minimum_interval_seconds", 1.0))),
+        TencentETFDataProvider(),
         SinaETFDataProvider(),
+        OfficialExchangeETFDataProvider(),
     ))
     data_start = start.date() - timedelta(days=500)
-    histories = {item.symbol: provider.fetch_daily(item.symbol, data_start, end.date()) for item in universe.instruments}
+    try:
+        histories = {item.symbol: provider.fetch_daily(item.symbol, data_start, end.date()) for item in universe.instruments}
+    except RadarDataError as exc:
+        raise click.ClickException(f"回测历史数据不可用: {exc}") from exc
     if benchmark:
         try:
             provider.fetch_daily(benchmark, data_start, end.date())

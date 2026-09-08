@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 from datetime import date, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -104,6 +104,28 @@ class RadarStrategy(BaseModel):
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
+class RadarScoreProfile(BaseModel):
+    """版本化评分依据，供刷新、回测与界面详情共同引用。"""
+
+    id: str
+    name: str = Field(min_length=1)
+    version: int = Field(ge=1)
+    asset_type: Literal["etf", "stock"]
+    weights: dict[str, float]
+    windows: dict[str, int]
+    minimum_category_size: int = Field(ge=2, default=3)
+
+    @model_validator(mode="after")
+    def validate_profile(self) -> RadarScoreProfile:
+        """保证因子、窗口和权重可被确定性回放。"""
+        factors = {"trend", "drawdown", "volatility", "liquidity"}
+        if set(self.weights) != factors or any(value < 0 for value in self.weights.values()):
+            raise ValueError("评分权重必须完整覆盖四个 ETF 因子且非负")
+        if sum(self.weights.values()) <= 0 or any(value <= 0 for value in self.windows.values()):
+            raise ValueError("评分权重和窗口必须为正")
+        return self
+
+
 class SnapshotItem(BaseModel):
     """一个快照中某标的的可展示观测。"""
 
@@ -118,4 +140,5 @@ class SnapshotItem(BaseModel):
     score: float | None = None
     rank: int | None = None
     grade: Literal["偏好", "观察", "谨慎", "unavailable"] = "unavailable"
+    factors: dict[str, Any] | None = None
     error_summary: str | None = None

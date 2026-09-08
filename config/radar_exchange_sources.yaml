@@ -1,0 +1,12 @@
+# 交易所公开日终 CSV 下载源。仅允许填写已人工核验的官方 HTTPS 下载模板。
+# 模板变量：{symbol}（六位代码）、{start} 和 {end}（YYYYMMDD）。
+# 官方页面与导出格式可能调整；未填写或未启用时，适配器会明确跳过，继续由上游备源处理。
+sources:
+  sse:
+    enabled: false
+    url_template: ""
+    encoding: utf-8
+  szse:
+    enabled: false
+    url_template: ""
+    encoding: utf-8

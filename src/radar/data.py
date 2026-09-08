@@ -4,10 +4,17 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from datetime import date
+from io import BytesIO
+from pathlib import Path
 from time import monotonic, sleep
 from typing import Any, ClassVar, Protocol, cast
+from urllib.error import URLError
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 import pandas as pd
+import requests
+import yaml
 
 
 class RadarDataError(Exception):
@@ -206,15 +213,82 @@ class SinaETFDataProvider:
         return frame
 
 
+class TencentETFDataProvider:
+    """腾讯免费复权日线适配器，用于 AkShare 不可用时的独立备源。"""
+
+    def __init__(self, *, fetcher: Callable[[str, date, date], pd.DataFrame] | None = None):
+        self._fetcher = fetcher or self._tencent_daily
+
+    def supports(self, asset_type: str) -> bool:
+        """首期仅支持 ETF。"""
+        return asset_type == "etf"
+
+    def fetch_spot(self) -> pd.DataFrame:
+        """该适配器只提供历史日线。"""
+        raise RadarDataError("腾讯 ETF 历史接口不提供统一现货快照")
+
+    def fetch_daily(self, symbol: str, start: date, end: date) -> pd.DataFrame:
+        """取得前复权日线，并以收盘价乘成交量估算成交额。"""
+        if start > end:
+            raise ValueError("start 不能晚于 end")
+        try:
+            frame = self._fetcher(symbol, start, end)
+        except (requests.RequestException, KeyError, TypeError, ValueError) as exc:
+            raise RadarDataError("腾讯 ETF 日线请求失败") from exc
+        required = {"date", "open", "high", "low", "close", "volume"}
+        missing = required - set(frame.columns)
+        if missing:
+            raise RadarDataError(f"腾讯 ETF 日线缺少字段: {', '.join(sorted(missing))}")
+        normalized = frame.copy()
+        normalized["date"] = pd.to_datetime(normalized["date"], errors="raise").dt.date
+        for column in ("open", "high", "low", "close", "volume"):
+            normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
+        normalized["amount"] = normalized["close"] * normalized["volume"]
+        result = normalized[(normalized["date"] >= start) & (normalized["date"] <= end)]
+        if result.empty:
+            raise RadarDataError("腾讯 ETF 日线在请求区间没有数据")
+        return cast(pd.DataFrame, result[["date", "open", "high", "low", "close", "volume", "amount"]])
+
+    @staticmethod
+    def _tencent_daily(symbol: str, start: date, end: date) -> pd.DataFrame:
+        """调用腾讯公开复权 K 线接口。"""
+        market_symbol = _tencent_symbol(symbol)
+        response = requests.get(
+            "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
+            params={
+                "param": f"{market_symbol},day,{start.isoformat()},{end.isoformat()},1000,qfq",
+            },
+            timeout=20,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        rows = payload["data"][market_symbol]["qfqday"]
+        return pd.DataFrame(rows, columns=["date", "open", "close", "high", "low", "volume"])
+
+
 class OfficialExchangeETFDataProvider:
-    """交易所公开日终文件适配器的接入点。
+    """按受审计配置下载并解析上交所、深交所 ETF 日终 CSV 文件。"""
 
-    交易所公开页面的下载格式与地址会调整，首期不把未验证 URL 硬编码进运行时；
-    调用方可注入已下载且审核过的日终文件读取器，作为第三层兜底。
-    """
+    _DAILY_COLUMNS: ClassVar[dict[str, str]] = {
+        "日期": "date", "交易日期": "date", "date": "date", "Date": "date",
+        "开盘": "open", "开盘价": "open", "open": "open", "Open": "open",
+        "最高": "high", "最高价": "high", "high": "high", "High": "high",
+        "最低": "low", "最低价": "low", "low": "low", "Low": "low",
+        "收盘": "close", "收盘价": "close", "close": "close", "Close": "close",
+        "成交量": "volume", "volume": "volume", "Volume": "volume",
+        "成交额": "amount", "成交金额": "amount", "amount": "amount", "Amount": "amount",
+    }
 
-    def __init__(self, *, daily_fetcher: Callable[[str, date, date], pd.DataFrame] | None = None):
+    def __init__(
+        self,
+        *,
+        config_path: Path | None = None,
+        daily_fetcher: Callable[[str, date, date], pd.DataFrame] | None = None,
+        downloader: Callable[[str], bytes] | None = None,
+    ):
+        self._config_path = config_path or Path(__file__).parents[2] / "config" / "radar_exchange_sources.yaml"
         self._daily_fetcher = daily_fetcher
+        self._downloader = downloader or self._download
 
     def supports(self, asset_type: str) -> bool:
         return asset_type == "etf"
@@ -223,14 +297,51 @@ class OfficialExchangeETFDataProvider:
         raise RadarDataError("交易所日终文件不提供盘中现货")
 
     def fetch_daily(self, symbol: str, start: date, end: date) -> pd.DataFrame:
-        if self._daily_fetcher is None:
-            raise RadarDataError("交易所公开日终文件尚未配置")
-        frame = self._daily_fetcher(symbol, start, end)
+        if start > end:
+            raise ValueError("start 不能晚于 end")
+        frame = self._daily_fetcher(symbol, start, end) if self._daily_fetcher else self._fetch_official(symbol, start, end)
         required = {"date", "open", "high", "low", "close", "amount"}
+        frame = frame.rename(columns=self._DAILY_COLUMNS).copy()
         missing = required - set(frame.columns)
         if missing:
             raise RadarDataError(f"交易所日终文件缺少字段: {', '.join(sorted(missing))}")
-        return frame
+        if "volume" not in frame:
+            frame["volume"] = pd.NA
+        frame["date"] = pd.to_datetime(frame["date"], errors="raise").dt.date
+        for column in required - {"date"}:
+            frame[column] = pd.to_numeric(frame[column], errors="coerce")
+        result = frame[(frame["date"] >= start) & (frame["date"] <= end)]
+        if result.empty:
+            raise RadarDataError("交易所日终文件在请求区间没有数据")
+        return cast(pd.DataFrame, result[["date", "open", "high", "low", "close", "volume", "amount"]])
+
+    def _fetch_official(self, symbol: str, start: date, end: date) -> pd.DataFrame:
+        """从版本化配置取得对应市场的官方 CSV 下载模板。"""
+        source = "szse" if symbol.startswith(("15", "16")) else "sse"
+        try:
+            payload = yaml.safe_load(self._config_path.read_text(encoding="utf-8")) or {}
+            settings = payload["sources"][source]
+        except (OSError, TypeError, KeyError, yaml.YAMLError) as exc:
+            raise RadarDataError("交易所日终数据源配置不可用") from exc
+        template = settings.get("url_template") if isinstance(settings, dict) else None
+        if not settings.get("enabled") or not isinstance(template, str) or not template:
+            raise RadarDataError(f"{source.upper()} 官方日终下载尚未启用")
+        url = template.format(symbol=symbol, start=start.strftime("%Y%m%d"), end=end.strftime("%Y%m%d"))
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or not parsed.hostname or not parsed.hostname.endswith(("sse.com.cn", "szse.cn")):
+            raise RadarDataError("交易所日终下载地址必须为上交所或深交所 HTTPS 域名")
+        try:
+            content = self._downloader(url)
+            return pd.read_csv(BytesIO(content), encoding=str(settings.get("encoding", "utf-8")))
+        except (OSError, UnicodeDecodeError, URLError, ValueError, pd.errors.ParserError) as exc:
+            raise RadarDataError(f"{source.upper()} 官方日终文件下载或解析失败") from exc
+
+    @staticmethod
+    def _download(url: str) -> bytes:
+        """下载公开 CSV，设置标识以兼容交易所的基础反爬规则。"""
+        request = Request(url, headers={"User-Agent": "Stock-Robot/0.1 (research)"})
+        with urlopen(request, timeout=20) as response:
+            return response.read()
 
 
 class FallbackETFDataProvider:
@@ -266,3 +377,8 @@ class FallbackETFDataProvider:
 def _sina_symbol(symbol: str) -> str:
     """根据现行池代码推断新浪所需的沪深交易所前缀。"""
     return f"sz{symbol}" if symbol.startswith(("15", "16")) else f"sh{symbol}"
+
+
+def _tencent_symbol(symbol: str) -> str:
+    """根据 ETF 代码推断腾讯行情接口的交易所前缀。"""
+    return _sina_symbol(symbol)

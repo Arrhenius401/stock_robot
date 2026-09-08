@@ -134,4 +134,22 @@ export const api = {
   triggerSubscription(id) {
     return request(`/api/v1/subscriptions/${id}/run`, { method: "POST" });
   },
+  listRadarUniverses() {
+    return request("/api/v1/radar/universes");
+  },
+  radarScoreProfile(profileId) {
+    return request(`/api/v1/radar/score-profiles/${encodeURIComponent(profileId)}`);
+  },
+  latestRadarSnapshot(universeId) {
+    return request(`/api/v1/radar/snapshots/latest?universe_id=${encodeURIComponent(universeId)}`);
+  },
+  refreshRadar(universeId) {
+    return request("/api/v1/radar/refresh", { method: "POST", body: JSON.stringify({ universe_id: universeId }) });
+  },
+  radarRefreshStatus(taskId) {
+    return request(`/api/v1/radar/refresh/${encodeURIComponent(taskId)}`);
+  },
+  latestRadarBacktest(universeId) {
+    return request(`/api/v1/radar/backtests/latest?universe_id=${encodeURIComponent(universeId)}`);
+  },
 };

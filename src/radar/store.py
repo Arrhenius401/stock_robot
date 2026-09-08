@@ -52,9 +52,9 @@ class RadarStore:
                 """
                 INSERT INTO snapshot_items(
                     run_id, symbol, name, category, status, observed_at, source_run_id,
-                    close, amount, score, rank, grade, error_summary
+                    close, amount, score, rank, grade, factors_json, error_summary
                 )
-                SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 WHERE EXISTS (
                     SELECT 1 FROM snapshot_runs WHERE run_id = ? AND status = 'running'
                 )
@@ -72,6 +72,7 @@ class RadarStore:
                     item.score,
                     item.rank,
                     item.grade,
+                    json.dumps(item.factors, ensure_ascii=False) if item.factors is not None else None,
                     item.error_summary,
                     run_id,
                 ),
@@ -186,11 +187,15 @@ class RadarStore:
                     score REAL,
                     rank INTEGER,
                     grade TEXT NOT NULL,
+                    factors_json TEXT,
                     error_summary TEXT,
                     PRIMARY KEY(run_id, symbol)
                 );
                 """
             )
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(snapshot_items)")}
+            if "factors_json" not in columns:
+                conn.execute("ALTER TABLE snapshot_items ADD COLUMN factors_json TEXT")
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
@@ -203,7 +208,10 @@ class RadarStore:
         items = conn.execute(
             "SELECT * FROM snapshot_items WHERE run_id = ? ORDER BY category, rank, symbol", (row["run_id"],)
         ).fetchall()
-        payload["items"] = [dict(item) for item in items]
+        payload["items"] = [
+            {**dict(item), "factors": json.loads(item["factors_json"]) if item["factors_json"] else None}
+            for item in items
+        ]
         return json.loads(json.dumps(payload, ensure_ascii=False))
 
 

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Any, Literal, cast
 
 import pandas as pd
 
 from radar.data import RadarDataProvider
 from radar.models import SnapshotItem
+from radar.score_profile import ScoreProfileRepository
 from radar.scoring import score_etfs
 from radar.store import RadarStore
 from radar.universe import UniverseRepository
@@ -50,7 +52,8 @@ class RadarRefresher:
             self.store.fail_run(run_id, "所有标的日线获取失败")
             raise RuntimeError("所有标的日线获取失败，未发布新快照")
         categories = {item.symbol: item.category for item in universe.instruments if item.symbol in histories}
-        scores = score_etfs(histories, categories).set_index("symbol")
+        profile = ScoreProfileRepository(Path(__file__).parents[2] / "config" / "radar_score_profiles").get(universe.score_profile)
+        scores = score_etfs(histories, categories, profile.weights, profile).set_index("symbol")
         for instrument in universe.instruments:
             if instrument.symbol in failures:
                 previous = self.store.copy_latest_healthy_item(universe.id, instrument.symbol)
@@ -65,6 +68,11 @@ class RadarRefresher:
             grade = cast(Literal["偏好", "观察", "谨慎", "unavailable"], str(row["grade"]))
             score = None if pd.isna(row["score"]) else float(row["score"])
             rank = None if pd.isna(row["rank"]) else int(row["rank"])
-            self.store.add_item(run_id, SnapshotItem(symbol=instrument.symbol, name=instrument.name, category=instrument.category, status="fresh", observed_at=datetime.now().astimezone(), source_run_id=run_id, close=float(last["close"]), amount=float(last["amount"]), score=score, rank=rank, grade=grade))
+            factors = {
+                field: None if pd.isna(row[field]) else float(row[field])
+                for key in profile.weights
+                for field in (key, f"{key}_percentile", f"{key}_contribution")
+            }
+            self.store.add_item(run_id, SnapshotItem(symbol=instrument.symbol, name=instrument.name, category=instrument.category, status="fresh", observed_at=datetime.now().astimezone(), source_run_id=run_id, close=float(last["close"]), amount=float(last["amount"]), score=score, rank=rank, grade=grade, factors=factors))
         self.store.complete_run(run_id)
         return run_id

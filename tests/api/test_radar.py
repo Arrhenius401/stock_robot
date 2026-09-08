@@ -17,6 +17,14 @@ def test_radar_universes_are_available_without_upstream_request():
 def test_radar_snapshot_requires_completed_local_snapshot():
     client = TestClient(create_app(core=None, push=False))
 
-    response = client.get("/api/v1/radar/snapshots/latest", params={"universe_id": "cn_hk_etf"})
+    response = client.get("/api/v1/radar/snapshots/latest", params={"universe_id": "missing_universe"})
+
+    assert response.status_code == 404
+
+
+def test_radar_backtest_requires_existing_artifact():
+    client = TestClient(create_app(core=None, push=False))
+
+    response = client.get("/api/v1/radar/backtests/latest", params={"universe_id": "missing_universe"})
 
     assert response.status_code == 404
