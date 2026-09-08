@@ -1,4 +1,6 @@
 """ChatResponder 单元测试"""
+from types import SimpleNamespace
+
 import pytest
 
 from agent.chat import (
@@ -44,6 +46,26 @@ class TestChatResponder:
         assert chunks == [{"text": "实时回复"}]
 
     @pytest.mark.asyncio
+    async def test_stream_reply_emits_deepseek_reasoning_content(self):
+        """DeepSeek 的 reasoning_content 增量必须成为独立思考事件。"""
+        class ReasoningStreamModel(FakeChatModel):
+            async def astream(self, messages, config=None, **kwargs):
+                yield SimpleNamespace(
+                    content="",
+                    additional_kwargs={"reasoning_content": "正在核对数据。"},
+                )
+                yield SimpleNamespace(content="这是正文。", additional_kwargs={})
+
+        responder = ChatResponder(model=ReasoningStreamModel())
+
+        chunks = [chunk async for chunk in responder.stream_reply_content("你好", Memory())]
+
+        assert chunks == [
+            {"text": "", "thinking": "正在核对数据。"},
+            {"text": "这是正文。"},
+        ]
+
+    @pytest.mark.asyncio
     async def test_reply_returns_model_content(self):
         model = FakeChatModel(content="你好呀！有什么可以帮你？")
         responder = ChatResponder(model=model)
@@ -51,6 +73,22 @@ class TestChatResponder:
         reply = await responder.reply("你好", Memory())
 
         assert reply == "你好呀！有什么可以帮你？"
+
+    @pytest.mark.asyncio
+    async def test_reply_content_reads_deepseek_reasoning_content(self):
+        """DeepSeek 兼容响应将推理放在 additional_kwargs，而非 content。"""
+        response = SimpleNamespace(
+            content="这是正文。",
+            additional_kwargs={"reasoning_content": "先核对数据，再给出结论。"},
+        )
+        responder = ChatResponder(model=FakeChatModel(responses=[response]))
+
+        result = await responder.reply_content("帮我看看", Memory())
+
+        assert result == {
+            "text": "这是正文。",
+            "thinking": "先核对数据，再给出结论。",
+        }
 
     @pytest.mark.asyncio
     async def test_reply_includes_conversation_history(self):

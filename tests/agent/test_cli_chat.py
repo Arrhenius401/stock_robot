@@ -1,4 +1,6 @@
 """CLI chat 命令集成测试"""
+from types import SimpleNamespace
+
 import pytest
 from click.testing import CliRunner
 
@@ -17,6 +19,13 @@ class TestChatCommand:
 
     def test_chat_ask_single_shot(self, runner, mocker):
         """单次对话模式 —— 验证 --ask 选项被接受"""
+        mocker.patch(
+            "api.bootstrap.build_agent_core",
+            return_value=SimpleNamespace(llm=None, registry=object(), model=None),
+        )
+        mocker.patch("agent.planner.Planner")
+        mocker.patch("agent.executor.Executor")
+        mocker.patch("agent.chat.ChatResponder")
         mock_run = mocker.patch("stock_robot.cli._run_agent_query")
         result = runner.invoke(main, ["chat", "--ask", "什么是PE"])
 

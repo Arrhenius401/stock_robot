@@ -84,6 +84,14 @@ class Element {
   addEventListener(type, handler) {
     (this.listeners[type] = this.listeners[type] || []).push(handler);
   }
+  dispatchEvent(event) {
+    const type = typeof event === "string" ? event : event.type;
+    const payload = (event && typeof event === "object")
+      ? { ...event, type, target: event.target || this, currentTarget: this }
+      : { type, target: this, currentTarget: this };
+    for (const handler of (this.listeners[type] || []).slice()) handler(payload);
+    return true;
+  }
   async click() {
     for (const handler of this.listeners.click || []) {
       await handler({ preventDefault() {}, stopPropagation() {} });
@@ -127,6 +135,8 @@ class Element {
       for (const child of node.children) {
         if (selector === "section[id]" && child.tagName === "SECTION" && child.id) all.push(child);
         if (selector.startsWith(".") && child.classList.contains(selector.slice(1))) all.push(child);
+        const attr = selector.match(/^\[data-([a-z-]+)=([a-z0-9_-]+)\]$/);
+        if (attr && child.dataset[attr[1]] === attr[2]) all.push(child);
         visit(child);
       }
     };
@@ -139,6 +149,7 @@ class Element {
 class DocumentStub {
   constructor() { this.ids = new Map(); this.listeners = {}; this.activeElement = null; }
   createElement(tagName) { return new Element(tagName, this); }
+  createElementNS(_namespace, tagName) { return new Element(tagName, this); }
   getElementById(id) { return this.ids.get(id) || null; }
   addEventListener(type, handler) {
     (this.listeners[type] = this.listeners[type] || []).push(handler);
@@ -221,9 +232,39 @@ class TestStaticUI:
 
         assert 'id="appLayout"' in html
         assert 'aria-label="主要导航"' in html
-        assert 'id="globalStockSearch"' in html
         assert 'id="mobileNavToggle"' in html
         assert 'id="workspaceBackdrop"' in html
+
+    @pytest.mark.asyncio
+    async def test_index_contains_report_library_view(self, client):
+        html = (await client.get("/")).text
+
+        assert 'data-view="report-library"' in html
+        assert "<span>报告库</span>" in html
+        assert 'id="view-report-library"' in html
+        assert 'id="reportLibraryContent"' in html
+        assert 'id="globalStockSearch"' not in html
+
+    @pytest.mark.asyncio
+    async def test_report_library_modules_served(self, client):
+        app_js = (await client.get("/js/app.js")).text
+        api_js = (await client.get("/js/api.js")).text
+
+        assert 'import { initReportLibrary } from "./report-library.js";' in app_js
+        assert "initReportLibrary();" in app_js
+        assert "listReports(" in api_js
+        assert "getReport(" in api_js
+        assert "downloadReportUrl(" in api_js
+        assert (await client.get("/js/report-library.js")).status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_report_library_list_uses_single_equal_height_rows(self, client):
+        css = (await client.get("/css/app.css")).text
+
+        assert ".report-library-grid {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr);" in css
+        assert "height: 96px;\n  min-height: 96px;" in css
+        assert ".report-library-card > .report-library-card-meta" in css
+        assert "-webkit-line-clamp: 2;" in css
 
     @pytest.mark.asyncio
     async def test_chat_uses_textarea_input(self, client):
@@ -238,7 +279,7 @@ class TestStaticUI:
                      "/js/chat.js", "/js/sessions.js", "/js/components.js",
                      "/js/report.js", "/js/indexview.js", "/js/report-renderer.js",
                      "/js/report-drawer.js", "/js/workspace-modal.js",
-                     "/js/settings.js"):
+                     "/js/settings.js", "/js/report-library.js"):
             resp = await client.get(path)
             assert resp.status_code == 200, path
 
@@ -442,6 +483,81 @@ if (globalWrap.querySelector(".entry-error")
   throw new Error("清理全局搜索错误后仍残留提示");
 }
 """.replace("__COMPONENTS_URL__", components_url)
+        _run_node(tmp_path, script)
+
+    def test_report_library_renders_list_detail_and_back_button(self, tmp_path):
+        node = shutil.which("node")
+        if node is None:
+            pytest.skip("Node.js 不可用")
+
+        library_url = json.dumps(_module_url("src/api/static/js/report-library.js"))
+        api_url = json.dumps(_module_url("src/api/static/js/api.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        script = _DOM_STUB + r"""
+const root = makeElement("reportLibraryContent");
+makeElement("currentViewTitle", "h1");
+const { api } = await import(__API_URL__);
+const { bus } = await import(__STATE_URL__);
+const { initReportLibrary } = await import(__LIBRARY_URL__);
+
+api.listReports = async () => ({ total: 1, reports: [{
+  id: "abc", type: "backtest", title: "000001 技术策略回测报告",
+  symbol: "000001", path: "backtests/report_technical/000001/2026-08/run-1/report.md",
+  generated_at: 1787994863, strategy_id: "report_technical",
+  strategy_version: "v1", start_date: "2025-01-02", end_date: "2026-08-28",
+  has_equity_curve: true, has_trades: true, legacy: false,
+}] });
+api.getReport = async () => ({
+  report: { id: "abc", type: "backtest", title: "000001 技术策略回测报告",
+    symbol: "000001", path: "backtests/report_technical/000001/2026-08/run-1/report.md",
+    generated_at: 1787994863, strategy_id: "report_technical" },
+  markdown: "# 回测报告\n\n正文",
+  summary: { metrics: { total_return: 0.1842, max_drawdown: -0.0786, sharpe: 1.21 },
+    trades_count: 26 },
+  equity_curve: { columns: ["净值日期", "策略净值", "基准净值"],
+    rows: [{ "净值日期": "2026-01-01", "策略净值": "1.0", "基准净值": "1.0" },
+           { "净值日期": "2026-01-02", "策略净值": "1.1", "基准净值": "1.02" }] },
+  trades: { columns: ["trade_date", "side", "price", "return_pct"],
+    rows: [{ trade_date: "2026-04-26", side: "sell", price: "11.31", return_pct: "0.0854" }] },
+  missing_artifacts: [],
+});
+api.downloadReportUrl = () => "/api/v1/reports/abc/download";
+
+initReportLibrary();
+const event = new Event("view-change");
+Object.defineProperty(event, "detail", { value: { view: "report-library" } });
+bus.dispatchEvent(event);
+await new Promise((resolve) => setTimeout(resolve, 0));
+
+if (!root.textContent.includes("已保存报告") || !root.textContent.includes("打开详情")) {
+  throw new Error("未渲染报告库列表页");
+}
+await byClass(root, "report-library-open")[0].click();
+await new Promise((resolve) => setTimeout(resolve, 0));
+if (!root.textContent.includes("累计收益") || !root.textContent.includes("+18.42%")
+    || !root.textContent.includes("净值曲线") || !root.textContent.includes("交易明细")) {
+  throw new Error("未渲染报告详情页的摘要与回测页签");
+}
+const buttons = descendants(root).filter((item) => item.tagName === "BUTTON");
+await buttons.find((item) => item.textContent.includes("净值曲线")).click();
+if (!byClass(root, "report-library-curve")[0]) {
+  throw new Error("未渲染净值曲线");
+}
+await descendants(root).filter((item) => item.tagName === "BUTTON")
+  .find((item) => item.textContent.includes("交易明细")).click();
+if (!root.textContent.includes("trade_date") || !root.textContent.includes("sell")) {
+  throw new Error("未渲染交易明细表格");
+}
+const back = byClass(root, "report-library-back")[0];
+if (!back || back.getAttribute("aria-label") !== "返回报告库" || back.textContent.trim()) {
+  throw new Error("返回按钮必须是仅含可访问名称的 Chevron 图标按钮");
+}
+await back.click();
+if (!root.textContent.includes("已保存报告")) {
+  throw new Error("返回按钮未回到列表页");
+}
+""".replace("__LIBRARY_URL__", library_url)
+        script = script.replace("__API_URL__", api_url).replace("__STATE_URL__", state_url)
         _run_node(tmp_path, script)
 
     def test_mobile_modal_isolates_background_focus_and_restores_it(self, tmp_path):
@@ -828,12 +944,10 @@ if (orphanGroups.length !== 1 || !orphanGroups[0].textContent.includes("研究�
     || !orphanGroups[0].textContent.includes("旧成果")) {
   throw new Error("无 message_id 的旧成果未放入结尾研究成果区");
 }
-const toolCards = byClass(chatScroll, "card-title")
-  .filter((node) => node.textContent === "工具结果");
-const toolHtml = byClass(chatScroll, "tooltext").map((node) => node.innerHTML).join("\n");
-if (toolCards.length !== 1 || !toolHtml.includes("000001 失败")
-    || toolHtml.includes("000001 成功") || toolHtml.includes("000001 再次成功")) {
-  throw new Error("报告工具 repr 未按具体成果关联去重");
+const internalCards = byClass(chatScroll, "card-title")
+  .filter((node) => ["工具结果", "执行计划"].includes(node.textContent));
+if (internalCards.length !== 0 || chatScroll.textContent.includes("000001 失败")) {
+  throw new Error("历史会话泄露了工具结果或执行计划气泡");
 }
 
 renderMessageHistory([], []);
@@ -1129,8 +1243,8 @@ if (!renderedHtml.includes("切回后最终正文")
   throw new Error("切走再切回后，流式正文或成果仍写入脱离 DOM 的旧节点");
 }
 if (renderedHtml.includes("000001 原始结果")
-    || !renderedHtml.includes("000001 失败结果")) {
-  throw new Error("实时报告工具卡未按当前 run 与成果 symbol 精确去重");
+    || renderedHtml.includes("000001 失败结果")) {
+  throw new Error("实时会话泄露了工具结果气泡");
 }
 streamHandlers.done({});
 finishStream();
@@ -1242,6 +1356,111 @@ api.chatStream = async (_message, _sessionId, handlers) => {
 };
 await sendMessage("流式回答");
 if (!sawLive) throw new Error("流式正文处理器未在结束前完成渲染");
+""".replace("__CHAT_URL__", chat_url).replace("__API_URL__", api_url)
+        script = script.replace("__STATE_URL__", state_url)
+        _run_node(tmp_path, script)
+
+    def test_assistant_thinking_precedes_body_and_can_be_collapsed(self, tmp_path):
+        """历史消息的思考区应位于正文前，默认展开且保留可收起入口。"""
+        chat_url = json.dumps(_module_url("src/api/static/js/chat.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        script = _DOM_STUB + r"""
+const chatScroll = makeElement("chatScroll");
+const { store } = await import(__STATE_URL__);
+const { renderMessageHistory } = await import(__CHAT_URL__);
+store.currentSessionId = "thinking-history";
+renderMessageHistory([{
+  role: "assistant", content: "这是独立的正文。", thinking: "这是可展开的思考。",
+}], []);
+const message = byClass(chatScroll, "assistant-message")[0];
+if (!message || !message.children[0].classList.contains("message-thinking")
+    || !message.children[0].open || !message.children[1].classList.contains("md")
+    || !message.children[0].textContent.includes("已思考")) {
+  throw new Error("思考区没有在正文前默认展开，或缺少已思考入口");
+}
+message.children[0].open = false;
+if (message.children[0].open || !message.children[0].textContent.includes("已思考")
+    || !message.children[1].innerHTML.includes("这是独立的正文。")) {
+  throw new Error("收起思考后未保留入口，或错误隐藏了正文");
+}
+""".replace("__CHAT_URL__", chat_url).replace("__STATE_URL__", state_url)
+        _run_node(tmp_path, script)
+
+    def test_thinking_stream_stays_visible_after_body_and_hides_internal_cards(self, tmp_path):
+        """思考流完成正文后仍可查看，且对象内容不应渲染为 object。"""
+        chat_url = json.dumps(_module_url("src/api/static/js/chat.js"))
+        api_url = json.dumps(_module_url("src/api/static/js/api.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        script = _DOM_STUB + r"""
+const chatScroll = makeElement("chatScroll");
+makeElement("chatInput", "textarea");
+makeElement("sendBtn", "button");
+const { api } = await import(__API_URL__);
+const { store } = await import(__STATE_URL__);
+const { sendMessage } = await import(__CHAT_URL__);
+store.currentSessionId = "s1";
+api.chatStream = async (_message, _sessionId, handlers) => {
+  handlers.session_title({ session_id: "s1", title: "思考流测试" });
+  handlers.plan({ session_id: "s1", steps: ["内部步骤"] });
+  handlers.thinking({ content: { opaque: true } });
+  handlers.thinking({ content: "正在核对数据" });
+  // 用户手动收起思考区（stub 无原生 toggle，手动派发）
+  const thinking = byClass(chatScroll, "message-thinking")[0];
+  thinking.open = false;
+  thinking.dispatchEvent({ type: "toggle", target: thinking });
+  handlers.tool_result({ tool: "analyze_stock", content: "内部工具结果" });
+  handlers.text({ content: "最终正文" });
+  handlers.done({});
+};
+await sendMessage("测试思考流");
+// stub 的 innerHTML 与 textContent 是互斥通道：md 正文走 innerHTML，思考明文走 textContent
+const visibleHtml = descendants(chatScroll).map((item) => item.innerHTML).join("\n");
+const visibleText = chatScroll.textContent;
+const collapsed = byClass(chatScroll, "message-thinking")[0];
+if (!visibleHtml.includes("最终正文")
+    || !visibleText.includes("正在核对数据")
+    || visibleText.includes("[object Object]")
+    || visibleText.includes("内部工具结果")
+    || visibleText.includes("执行计划")
+    || visibleText.includes("思考中...")
+    || collapsed.open) {
+  throw new Error("思考与正文未正确分离、持久展示、折叠状态丢失，或泄露内部气泡");
+}
+""".replace("__CHAT_URL__", chat_url).replace("__API_URL__", api_url)
+        script = script.replace("__STATE_URL__", state_url)
+        _run_node(tmp_path, script)
+
+    def test_thinking_fallback_survives_after_final_body(self, tmp_path):
+        """无法提取明文思考时，正文结束后仍保留可展开的思考占位。"""
+        chat_url = json.dumps(_module_url("src/api/static/js/chat.js"))
+        api_url = json.dumps(_module_url("src/api/static/js/api.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        script = _DOM_STUB + r"""
+const chatScroll = makeElement("chatScroll");
+makeElement("chatInput", "textarea");
+makeElement("sendBtn", "button");
+const { api } = await import(__API_URL__);
+const { store } = await import(__STATE_URL__);
+const { sendMessage } = await import(__CHAT_URL__);
+store.currentSessionId = "s1";
+api.chatStream = async (_message, _sessionId, handlers) => {
+  handlers.session_title({ session_id: "s1", title: "思考占位测试" });
+  handlers.thinking({ content: { opaque: true } });
+  handlers.text({ content: "最终正文" });
+  handlers.done({});
+};
+await sendMessage("测试无明文思考");
+const thinking = byClass(chatScroll, "message-thinking")[0];
+const visibleHtml = descendants(chatScroll).map((item) => item.innerHTML).join("\n");
+if (!thinking || !thinking.open || !thinking.textContent.includes("思考中...")
+    || !visibleHtml.includes("最终正文")) {
+  throw new Error("正文完成后丢失了思考占位或正文");
+}
+thinking.open = false;
+if (thinking.open || !thinking.textContent.includes("思考中...")
+    || !visibleHtml.includes("最终正文")) {
+  throw new Error("收起思考占位后没有保留入口，或错误隐藏了正文");
+}
 """.replace("__CHAT_URL__", chat_url).replace("__API_URL__", api_url)
         script = script.replace("__STATE_URL__", state_url)
         _run_node(tmp_path, script)
@@ -1397,7 +1616,7 @@ await pending;
         assert "clearSession(" not in api_source
 
     def test_settings_renders_configuration_and_handles_secrets_and_save(self, tmp_path):
-        """设置页应按需读取密钥、保留编辑值，并只提交实际修改的字段。"""
+        """设置页应维护本地草稿，编辑只更新提示条计数，保存时才提交变更。"""
         settings_url = json.dumps(_module_url("src/api/static/js/settings.js"))
         api_url = json.dumps(_module_url("src/api/static/js/api.js"))
         state_url = json.dumps(_module_url("src/api/static/js/state.js"))
@@ -1431,6 +1650,7 @@ const payload = {
 };
 let credentialCalls = 0;
 let putBody = null;
+let putResult = { persisted: true, applied: true, restart_required: false };
 api.getConfig = async () => payload;
 api.getCredential = async (key) => {
   credentialCalls += 1;
@@ -1439,7 +1659,7 @@ api.getCredential = async (key) => {
 };
 api.updateConfig = async (config) => {
   putBody = config;
-  return { ...payload, restart_required: true };
+  return { ...payload, ...putResult };
 };
 store.currentView = "settings";
 initSettings();
@@ -1447,45 +1667,102 @@ renderSettings(payload);
 for (const heading of ["LLM 设置", "数据与缓存", "服务设置", "推送设置", "信号策略"]) {
   if (!settingsContent.textContent.includes(heading)) throw new Error(`缺少分区: ${heading}`);
 }
-if (!settingsContent.textContent.includes("D:/project/.stock_robot")
-    || !settingsContent.textContent.includes("sk-ab*****wxyz")) {
-  throw new Error("未显示只读路径或默认掩码");
+if (!settingsContent.textContent.includes("D:/project/.stock_robot")) {
+  throw new Error("未显示只读路径");
+}
+if (!document.getElementById("settingsDirtyBar").hidden) {
+  throw new Error("未编辑时不应显示全局未保存提示");
+}
+const apiKey = document.getElementById("settings-llm-api_key");
+if (byClass(settingsContent, "settings-secret-value").length
+    || apiKey.value || apiKey.placeholder !== "sk-ab*****wxyz"
+    || apiKey.type !== "password") {
+  throw new Error("密钥应使用单一输入框展示掩码，且不保留额外展示列");
 }
 const toggle = byClass(settingsContent, "settings-secret-toggle")[0];
 if (toggle.getAttribute("aria-label") !== "显示完整密钥") {
   throw new Error("密钥默认未使用显示按钮语义");
 }
 await toggle.click();
-if (credentialCalls !== 1 || !settingsContent.textContent.includes("sk-actual-secret-wxyz")
+if (credentialCalls !== 1 || apiKey.value !== "sk-actual-secret-wxyz" || apiKey.type !== "text"
     || toggle.getAttribute("aria-label") !== "隐藏完整密钥") {
   throw new Error("睁眼未按需读取或展示完整密钥");
 }
 await toggle.click();
-if (credentialCalls !== 1 || settingsContent.textContent.includes("sk-actual-secret-wxyz")
-    || !settingsContent.textContent.includes("sk-ab*****wxyz")
+if (credentialCalls !== 1 || apiKey.value || apiKey.placeholder !== "sk-ab*****wxyz"
+    || apiKey.type !== "password"
     || toggle.getAttribute("aria-label") !== "显示完整密钥") {
   throw new Error("闭眼未擦除完整密钥并恢复掩码");
 }
 const model = document.getElementById("settings-llm-model");
 model.value = "gpt-5";
 await model.dispatch("input");
-const apiKey = document.getElementById("settings-llm-api_key");
-apiKey.value = "sk-ab*****wxyz";
-await apiKey.dispatch("input");
-await document.getElementById("settingsSaveBtn").click();
-if (putBody?.llm?.model !== "gpt-5" || Object.hasOwn(putBody.llm, "api_key")) {
-  throw new Error("保存未形成最小更新，或空密钥覆盖了旧值");
+if (putBody !== null || document.getElementById("settingsDirtyBar").hidden
+    || !settingsContent.textContent.includes("有 1 项配置尚未保存")) {
+  throw new Error("编辑配置不应立即保存，且必须显示全局未保存提示");
 }
-if (!settingsContent.textContent.includes("服务地址或端口已保存，重启 stock-robot run 后生效")) {
+apiKey.value = "sk-new-secret-wxyz";
+await apiKey.dispatch("input");
+if (putBody !== null || document.getElementById("settingsDirtyBar").hidden
+    || !settingsContent.textContent.includes("有 2 项配置尚未保存")) {
+  throw new Error("多字段编辑未显示 N=2 计数，或编辑时不应触发保存");
+}
+await document.getElementById("settingsSaveBtn").click();
+if (putBody?.llm?.model !== "gpt-5" || putBody?.llm?.api_key !== "sk-new-secret-wxyz") {
+  throw new Error("保存未提交草稿，或密钥未在保存时才进入 PUT body");
+}
+if (!document.getElementById("settingsDirtyBar").hidden
+    || !settingsContent.textContent.includes("配置已保存并应用")) {
+  throw new Error("热更新成功未隐藏提示条或未显示已保存并应用");
+}
+const host = document.getElementById("settings-api-host");
+const port = document.getElementById("settings-api-port");
+host.value = "0.0.0.0";
+await host.dispatch("input");
+port.value = "8080";
+await port.dispatch("input");
+if (document.getElementById("settingsDirtyBar").hidden
+    || !settingsContent.textContent.includes("有 2 项配置尚未保存")) {
+  throw new Error("监听地址与端口编辑未显示 N=2 未保存计数");
+}
+putResult = { persisted: true, applied: false, restart_required: true };
+await document.getElementById("settingsSaveBtn").click();
+if (putBody?.api?.host !== "0.0.0.0" || putBody?.api?.port !== 8080) {
+  throw new Error("保存未提交监听地址与端口");
+}
+if (!settingsContent.textContent.includes("配置已保存；监听地址或端口在重启 stock-robot run 后生效")) {
   throw new Error("缺少服务配置重启提示");
 }
-const updatedModel = document.getElementById("settings-llm-model");
-updatedModel.value = "保留编辑值";
-await updatedModel.dispatch("input");
+const model2 = document.getElementById("settings-llm-model");
+model2.value = "gpt-6";
+await model2.dispatch("input");
+putResult = {
+  persisted: true, applied: false, restart_required: false,
+  reload_error: "运行时未连接，配置将在下次启动时生效",
+};
+await document.getElementById("settingsSaveBtn").click();
+if (model2.value !== "gpt-6" || document.getElementById("settingsDirtyBar").hidden
+    || !settingsContent.textContent.includes("有 1 项配置尚未保存")
+    || !settingsContent.textContent.includes("运行时未连接，配置将在下次启动时生效")
+    || document.getElementById("settingsSaveBtn").textContent !== "保存并应用") {
+  throw new Error("运行时应用失败应保留输入与提示条，并显示 reload_error");
+}
+putResult = {
+  persisted: true, applied: false, restart_required: true,
+  reload_error: "LLM 后端初始化失败",
+};
+await document.getElementById("settingsSaveBtn").click();
+if (model2.value !== "gpt-6" || document.getElementById("settingsDirtyBar").hidden
+    || !settingsContent.textContent.includes("有 1 项配置尚未保存")
+    || !settingsContent.textContent.includes("监听地址或端口已保存，重启后生效")
+    || !settingsContent.textContent.includes("LLM 后端初始化失败")) {
+  throw new Error("混合更新失败应保留草稿，并同时提示重启与 reload_error");
+}
 api.updateConfig = async () => { const error = new Error("llm.model: 不允许"); error.status = 422; throw error; };
 await document.getElementById("settingsSaveBtn").click();
-if (updatedModel.value !== "保留编辑值" || !settingsContent.textContent.includes("llm.model: 不允许")) {
-  throw new Error("保存失败覆盖了编辑值，或未显示校验错误");
+if (model2.value !== "gpt-6" || document.getElementById("settingsDirtyBar").hidden
+    || !settingsContent.textContent.includes("llm.model: 不允许")) {
+  throw new Error("保存失败覆盖了编辑值，或未显示校验错误，或未保留未保存提示");
 }
 """.replace("__SETTINGS_URL__", settings_url).replace("__API_URL__", api_url)
         script = script.replace("__STATE_URL__", state_url)
@@ -1562,7 +1839,7 @@ const second = toggle.click();
 if (calls !== 1) throw new Error("连续睁眼不应重复读取完整密钥");
 resolvers.shift()({ value: "first-complete-secret" });
 await Promise.all([first, second]);
-if (settingsContent.textContent.includes("first-complete-secret")) {
+if (document.getElementById("settings-llm-api_key").value === "first-complete-secret") {
   throw new Error("第二次点击闭眼后迟到响应不应显示完整密钥");
 }
 
@@ -1576,7 +1853,7 @@ replacement.value = "new-secret";
 await replacement.dispatch("input");
 resolvers.shift()({ value: "late-after-edit" });
 await afterEdit;
-if (settingsContent.textContent.includes("late-after-edit")) {
+if (replacement.value === "late-after-edit") {
   throw new Error("编辑新密钥后迟到响应泄露了完整值");
 }
 
@@ -1592,7 +1869,7 @@ settingsView.classList.remove("active");
 bus.dispatchEvent(leave);
 resolvers.shift()({ value: "late-after-leave" });
 await afterLeave;
-if (settingsContent.textContent.includes("late-after-leave")) {
+if (document.getElementById("settings-llm-api_key").value === "late-after-leave") {
   throw new Error("离开设置页后迟到响应泄露了完整值");
 }
 """.replace("__SETTINGS_URL__", settings_url).replace("__API_URL__", api_url)

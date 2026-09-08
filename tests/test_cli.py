@@ -1,5 +1,14 @@
+from datetime import date
+
+import pandas as pd
 from click.testing import CliRunner
 
+from backtest.models import (
+    BacktestRequest,
+    BacktestResult,
+    BacktestStrategy,
+    BenchmarkSpec,
+)
 from stock_robot.cli import main
 
 
@@ -25,10 +34,14 @@ class TestCLI:
         result = runner.invoke(main, ["analyze", "abc"])
         assert result.exit_code != 0
 
-    def test_analyze_with_valid_symbol(self, mocker):
+    def test_analyze_with_valid_symbol(self, mocker, tmp_path):
         mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
         mocker.patch("utils.symbols.resolve_name", return_value="平安银行")
         mock_pipeline = mocker.patch("stock_robot.cli._build_pipeline")
+        mock_save = mocker.patch(
+            "report.formatter.ReportFormatter.save",
+            return_value=tmp_path / "stock" / "000001" / "2026-08" / "000001.md",
+        )
         mock_instance = mock_pipeline.return_value
         from data.schemas import AnalysisContext, AnalysisResult
         ctx = AnalysisContext(symbol="000001", name="平安银行")
@@ -45,6 +58,7 @@ class TestCLI:
         runner = CliRunner()
         result = runner.invoke(main, ["analyze", "000001", "--no-llm"])
         assert result.exit_code == 0
+        assert mock_save.call_args.kwargs["category"] == "stock"
 
     def test_config_set_and_get(self):
         runner = CliRunner()
@@ -76,6 +90,129 @@ class TestCLI:
         runner = CliRunner()
         result = runner.invoke(main, ["analyze", "000001", "--no-llm"])
         assert result.exit_code == 0
+
+
+class TestBacktest:
+    """回测 CLI 命令测试。"""
+
+    @staticmethod
+    def _fake_result() -> BacktestResult:
+        """构造可完整通过产物写入的最小回测结果。"""
+        idx = pd.DatetimeIndex(["2024-01-02", "2024-01-03"], name="trade_date")
+        return BacktestResult(
+            equity_curve=pd.DataFrame(
+                {
+                    "策略净值": [1.0, 1.01],
+                    "基准净值": [1.0, 1.0],
+                    "目标仓位": [0.0, 0.7],
+                    "当日信号": ["defend", "attack"],
+                },
+                index=idx,
+            ),
+            trades=pd.DataFrame(
+                {
+                    "signal_date": [date(2024, 1, 2)],
+                    "trade_date": [date(2024, 1, 3)],
+                    "reason": ["attack"],
+                    "direction": ["buy"],
+                    "price": [10.0],
+                    "quantity": [7000],
+                    "fees": [12.0],
+                    "notional": [70000.0],
+                }
+            ),
+            metrics={
+                "累计收益": 0.01,
+                "年化收益": 0.2,
+                "最大回撤": -0.01,
+                "年化波动率": 0.1,
+                "夏普比率": 1.0,
+                "交易次数": 1.0,
+                "超额收益": 0.01,
+            },
+            warnings=[],
+            request=BacktestRequest(
+                symbol="000001",
+                start_date=date(2024, 1, 2),
+                end_date=date(2024, 12, 31),
+                strategy_id="report_technical",
+                benchmark_id="money_fund",
+                initial_cash=100000.0,
+            ),
+            strategy=BacktestStrategy(
+                id="report_technical",
+                name="报告技术信号策略",
+                version=1,
+                signal_source="technical_score",
+                thresholds={"attack": 7, "watch": 4},
+                target_positions={"attack": 0.7, "watch": 0.4, "defend": 0.0},
+                execution="next_open",
+                warmup_days=90,
+                cost_profile="a_share_default",
+            ),
+            benchmark=BenchmarkSpec(id="money_fund", name="中证货币型基金指数", symbol="H11025"),
+            costs={
+                "commission_rate": 0.0003,
+                "minimum_commission": 5.0,
+                "stamp_duty_rate": 0.0005,
+                "transfer_fee_rate": 0.00001,
+                "slippage_rate": 0.001,
+            },
+            data_start=date(2023, 9, 1),
+            data_end=date(2024, 12, 31),
+        )
+
+    def test_backtest_cli_forwards_benchmark_override(self, mocker, tmp_path):
+        mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
+        fake_result = self._fake_result()
+        mock_run = mocker.patch("backtest.runner.BacktestRunner.run", return_value=fake_result)
+        mock_write = mocker.patch(
+            "backtest.artifacts.write_backtest_artifacts",
+            return_value=tmp_path / "reports" / "run_dir",
+        )
+
+        result = CliRunner().invoke(
+            main,
+            [
+                "backtest", "000001",
+                "--start", "2024-01-01",
+                "--end", "2024-12-31",
+                "--benchmark", "csi_300",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert mock_run.call_args.args[0].benchmark_id == "csi_300"
+        mock_write.assert_called_once_with(fake_result)
+
+    def test_backtest_cli_invalid_date_exits_without_output(self, mocker, tmp_path):
+        mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
+
+        result = CliRunner().invoke(
+            main, ["backtest", "000001", "--start", "bad", "--end", "2024-12-31"]
+        )
+
+        assert result.exit_code != 0
+
+    def test_backtest_cli_invalid_symbol_exits(self, mocker):
+        mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
+
+        result = CliRunner().invoke(
+            main, ["backtest", "abc", "--start", "2024-01-01", "--end", "2024-12-31"]
+        )
+
+        assert result.exit_code != 0
+
+    def test_backtest_cli_unaccepted_disclaimer_returns(self, mocker):
+        mocker.patch("stock_robot.cli._check_disclaimer", return_value=False)
+        mock_run = mocker.patch("backtest.runner.BacktestRunner.run")
+
+        result = CliRunner().invoke(
+            main, ["backtest", "000001", "--start", "2024-01-01", "--end", "2024-12-31"]
+        )
+
+        assert result.exit_code == 0
+        mock_run.assert_not_called()
 
 
 def test_run_command_help_is_available_and_api_is_unknown():
@@ -256,12 +393,67 @@ class TestIndustryMappingCommand:
 
         mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
         mocker.patch("data.industry_mapping_builder.rebuild_all",
-                     return_value={"total_industries": 335, "failed_industries": [],
-                                   "stock_count": 5534, "coverage_pct": 98.2})
+                      return_value={"total_industries": 335, "failed_industries": [],
+                                    "stock_count": 5534, "coverage_pct": 98.2,
+                                    "valid_classification_rate": 99.1,
+                                    "candidate_path": "candidate.csv"})
         result = CliRunner().invoke(main, ["industry-mapping"])
         assert result.exit_code == 0
         assert "5534" in result.output
         assert "98.2%" in result.output
+
+    def test_rebuild_forwards_custom_delay_and_resume(self, mocker):
+        from click.testing import CliRunner
+
+        from stock_robot.cli import main
+
+        mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
+        rebuild = mocker.patch("data.industry_mapping_builder.rebuild_all", return_value={
+            "total_industries": 335, "failed_industries": [], "stock_count": 5534,
+            "coverage_pct": 98.2, "valid_classification_rate": 99.1,
+            "candidate_path": "candidate.csv",
+        })
+        result = CliRunner().invoke(main, ["industry-mapping", "rebuild", "--resume", "--delay", "6"])
+        assert result.exit_code == 0
+        assert rebuild.call_args.kwargs["resume"] is True
+        assert rebuild.call_args.kwargs["delay"] == 6.0
+
+    def test_publish_candidate(self, mocker):
+        from click.testing import CliRunner
+
+        from stock_robot.cli import main
+
+        mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
+        mocker.patch("data.industry_mapping_builder.publish_candidate",
+                     return_value={"stock_count": 5534, "valid_classification_rate": 99.1})
+        result = CliRunner().invoke(main, ["industry-mapping", "publish"])
+        assert result.exit_code == 0
+        assert "候选映射已发布" in result.output
+
+    def test_migrate_placeholders(self, mocker):
+        from click.testing import CliRunner
+
+        from stock_robot.cli import main
+
+        mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
+        migrate = mocker.patch("data.industry_mapping_builder.migrate_placeholder_rows",
+                               return_value={"stock_count": 5534, "migrated_count": 5512})
+        result = CliRunner().invoke(main, ["industry-mapping", "migrate-placeholders"])
+        assert result.exit_code == 0
+        assert "5512" in result.output
+        migrate.assert_called_once()
+
+    def test_validate_sample(self, mocker):
+        from click.testing import CliRunner
+
+        from stock_robot.cli import main
+
+        mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
+        mocker.patch("data.industry_mapping_builder.validate_sample",
+                     return_value={"stock_count": 21, "valid_classification_rate": 100.0})
+        result = CliRunner().invoke(main, ["industry-mapping", "validate"])
+        assert result.exit_code == 0
+        assert "抽样校验通过" in result.output
 
     def test_invalid_symbol(self, mocker):
         from click.testing import CliRunner

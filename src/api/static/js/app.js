@@ -6,14 +6,18 @@ import { initReportDrawer } from "./report-drawer.js";
 import { closeReportDrawer } from "./report-drawer.js";
 import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js";
 import { initIndexView } from "./indexview.js";
+import { initReportLibrary } from "./report-library.js";
 import { initSessions, initSessionStartup } from "./sessions.js";
 import { initSubscriptions } from "./subscriptions.js";
 import { initSettings } from "./settings.js";
+import { initRadar } from "./radar.js";
 
 const VIEW_TITLES = {
   chat: "会话研究",
   report: "个股报告",
   index: "指数分析",
+  radar: "配置雷达",
+  "report-library": "报告库",
   subscriptions: "订阅推送",
   settings: "配置",
 };
@@ -137,6 +141,8 @@ function init() {
   initReportView();
   initReportDrawer();
   initIndexView();
+  initRadar();
+  initReportLibrary();
   initSessions();
   initSubscriptions();
   initSettings();

@@ -86,12 +86,13 @@ class TestPlanner:
         assert planner._is_simple_query("帮我找3只被低估的新能源龙头") is False
         assert planner._is_simple_query("大盘现在适合入场吗") is False
 
-    def test_plan_simple_query_returns_single_step(self, registry, memory):
+    def test_plan_simple_query_returns_agent(self, registry, memory):
+        """简单查询免 LLM 规划，直接 agent 自主执行以保证产出正文"""
         planner = Planner(llm=FakeLLM(), registry=registry, memory=memory)
         plan = planner.plan("什么是PE")
 
-        assert len(plan.steps) == 1
-        assert plan.steps[0].description != ""
+        assert plan.mode == "agent"
+        assert plan.steps == []
 
     def test_plan_complex_query_calls_llm(self, registry, memory):
         llm = FakeLLM(fixed_response=make_multi_step_response())
@@ -144,8 +145,8 @@ class TestPlanner:
         planner = Planner(llm=FailingLLM(), registry=registry, memory=memory)
         plan = planner.plan("复杂分析任务")
 
-        assert len(plan.steps) == 1  # 降级为单步
-        assert plan.steps[0].description != ""
+        assert plan.mode == "agent"  # 降级走自主循环，保证模型产出正文
+        assert plan.steps == []
 
     def test_plan_handles_malformed_json_response(self, registry, memory):
         llm = FakeLLM(fixed_response="这不是有效的 JSON 格式")
@@ -153,14 +154,16 @@ class TestPlanner:
 
         plan = planner.plan("分析市场")
 
-        assert len(plan.steps) == 1  # 降级为单步
+        assert plan.mode == "agent"  # 降级走自主循环，保证模型产出正文
+        assert plan.steps == []
 
-    def test_plan_simple_query_short_text(self, registry, memory):
-        """短文本自动判定为简单查询"""
+    def test_plan_llm_empty_response_falls_back_to_agent(self, registry, memory):
+        """LLM 无有效规划响应时降级 agent 自主循环，保证产出正文"""
         planner = Planner(llm=FakeLLM(), registry=registry, memory=memory)
         plan = planner.plan("茅台")
 
-        assert len(plan.steps) == 1
+        assert plan.mode == "agent"
+        assert plan.steps == []
 
 
 class TestChatDetection:

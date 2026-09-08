@@ -20,27 +20,33 @@ class FinancialAnalyzer(AnalysisModule):
         sorted_data = sorted(financials, key=lambda x: x.fiscal_quarter, reverse=True)
         latest = sorted_data[0]
 
-        metrics = {
+        metrics: dict[str, object] = {
             "latest_quarter": latest.fiscal_quarter.isoformat(),
             "revenue": latest.revenue,
             "net_profit": latest.net_profit,
             "total_assets": latest.total_assets,
             "total_equity": latest.total_equity,
-            "operating_cash_flow": latest.operating_cash_flow,
             "roe": latest.roe,
             "gross_margin": latest.gross_margin,
         }
+        if latest.operating_cash_flow is not None:
+            metrics["operating_cash_flow"] = latest.operating_cash_flow
+        elif latest.operating_cash_flow_per_share is not None:
+            metrics["operating_cash_flow_per_share"] = latest.operating_cash_flow_per_share
 
         if len(sorted_data) >= 2:
-            prev_year = sorted_data[-1] if len(sorted_data) >= 5 else sorted_data[1]
-            if (latest.revenue is not None and prev_year.revenue is not None
-                    and prev_year.revenue > 0):
-                metrics["revenue_growth_yoy"] = round(
-                    (latest.revenue - prev_year.revenue) / prev_year.revenue, 4)
-            if (latest.net_profit is not None and prev_year.net_profit is not None
-                    and prev_year.net_profit > 0):
-                metrics["profit_growth_yoy"] = round(
-                    (latest.net_profit - prev_year.net_profit) / prev_year.net_profit, 4)
+            previous_period = latest.fiscal_quarter.replace(year=latest.fiscal_quarter.year - 1)
+            prev_year = next(
+                (item for item in sorted_data if item.fiscal_quarter == previous_period), None)
+            if prev_year is not None:
+                if (latest.revenue is not None and prev_year.revenue is not None
+                        and prev_year.revenue > 0):
+                    metrics["revenue_growth_yoy"] = round(
+                        (latest.revenue - prev_year.revenue) / prev_year.revenue, 4)
+                if (latest.net_profit is not None and prev_year.net_profit is not None
+                        and prev_year.net_profit > 0):
+                    metrics["profit_growth_yoy"] = round(
+                        (latest.net_profit - prev_year.net_profit) / prev_year.net_profit, 4)
 
         roe_trend = []
         for d in sorted_data[:8]:

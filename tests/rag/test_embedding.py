@@ -1,4 +1,6 @@
 """Embedding 提供者抽象与实现单元测试"""
+import pytest
+
 from rag.embedding import (
     EmbeddingProvider,
     KeywordFallbackProvider,
@@ -59,6 +61,11 @@ class TestKeywordFallbackProvider:
 
 
 class TestCreateEmbeddingProvider:
+    @pytest.fixture(autouse=True)
+    def _reset_shared_provider(self, monkeypatch):
+        """每次测试前清空共享缓存，避免用例间相互污染。"""
+        monkeypatch.setattr("rag.embedding._shared_provider", None)
+
     def test_returns_provider_on_success(self, mocker):
         mock_instance = mocker.MagicMock()
         mock_instance.name = "bge-small-zh"
@@ -77,3 +84,42 @@ class TestCreateEmbeddingProvider:
         )
         provider = create_embedding_provider()
         assert isinstance(provider, KeywordFallbackProvider)
+
+    def test_reuses_shared_provider_across_calls(self, mocker):
+        """模型加载约 30 秒，热重载重建 RAG 时不得重复加载。"""
+        mock_instance = mocker.MagicMock()
+        mock_instance.name = "bge-small-zh"
+        mocker.patch(
+            "rag.embedding.SentenceTransformersProvider",
+            return_value=mock_instance,
+        )
+        first = create_embedding_provider()
+        second = create_embedding_provider()
+        assert first is second
+
+    def test_model_loaded_once_across_calls(self, mocker):
+        constructions: list[str] = []
+
+        def fake_model(name: str):
+            constructions.append(name)
+            return mocker.MagicMock()
+
+        mocker.patch("rag.embedding.SentenceTransformer", side_effect=fake_model)
+        create_embedding_provider()
+        create_embedding_provider()
+        assert constructions == ["BAAI/bge-small-zh"]
+
+    def test_concurrent_calls_load_model_once(self, mocker):
+        from concurrent.futures import ThreadPoolExecutor
+
+        constructions: list[str] = []
+
+        def fake_model(name: str):
+            constructions.append(name)
+            return mocker.MagicMock()
+
+        mocker.patch("rag.embedding.SentenceTransformer", side_effect=fake_model)
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            providers = list(pool.map(lambda _: create_embedding_provider(), range(4)))
+        assert len({id(p) for p in providers}) == 1
+        assert len(constructions) == 1

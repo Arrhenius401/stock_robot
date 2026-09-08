@@ -1,0 +1,16 @@
+id: core_rotation_v1
+name: 核心 ETF 轮动评分
+version: 1
+asset_type: etf
+weights:
+  trend: 0.35
+  drawdown: 0.25
+  volatility: 0.20
+  liquidity: 0.20
+windows:
+  short_return_days: 20
+  medium_return_days: 60
+  drawdown_days: 60
+  volatility_days: 20
+  liquidity_days: 20
+minimum_category_size: 3

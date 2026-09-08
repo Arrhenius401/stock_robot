@@ -76,6 +76,19 @@ export const api = {
   index(symbols) {
     return request("/api/v1/index", { method: "POST", body: JSON.stringify({ symbols }) });
   },
+  listReports(params = {}) {
+    const search = new URLSearchParams();
+    if (params.type) search.set("type", params.type);
+    if (params.query) search.set("query", params.query);
+    const suffix = search.toString() ? `?${search.toString()}` : "";
+    return request(`/api/v1/reports${suffix}`);
+  },
+  getReport(id) {
+    return request(`/api/v1/reports/${encodeURIComponent(id)}`);
+  },
+  downloadReportUrl(id) {
+    return `/api/v1/reports/${encodeURIComponent(id)}/download`;
+  },
   listSessions() {
     return request("/api/v1/sessions");
   },
@@ -100,6 +113,7 @@ export const api = {
     return request(`/api/v1/config/credentials/${key}`);
   },
   updateConfig(config) {
+    // PUT 响应含 persisted/applied/restart_required 与可选 reload_error，由设置页决定是否重绘
     return request("/api/v1/config", { method: "PUT", body: JSON.stringify({ config }) });
   },
   listTools() {
@@ -119,5 +133,23 @@ export const api = {
   },
   triggerSubscription(id) {
     return request(`/api/v1/subscriptions/${id}/run`, { method: "POST" });
+  },
+  listRadarUniverses() {
+    return request("/api/v1/radar/universes");
+  },
+  radarScoreProfile(profileId) {
+    return request(`/api/v1/radar/score-profiles/${encodeURIComponent(profileId)}`);
+  },
+  latestRadarSnapshot(universeId) {
+    return request(`/api/v1/radar/snapshots/latest?universe_id=${encodeURIComponent(universeId)}`);
+  },
+  refreshRadar(universeId) {
+    return request("/api/v1/radar/refresh", { method: "POST", body: JSON.stringify({ universe_id: universeId }) });
+  },
+  radarRefreshStatus(taskId) {
+    return request(`/api/v1/radar/refresh/${encodeURIComponent(taskId)}`);
+  },
+  latestRadarBacktest(universeId) {
+    return request(`/api/v1/radar/backtests/latest?universe_id=${encodeURIComponent(universeId)}`);
   },
 };

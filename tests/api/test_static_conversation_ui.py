@@ -14,7 +14,9 @@ def test_chat_hides_suggestions_after_first_user_message():
 def test_chat_renders_collapsed_thinking_details():
     source = CHAT_JS.read_text(encoding="utf-8")
     assert 'el("details", "message-thinking")' in source
-    assert "查看分析过程" in source
+    assert 'el("summary", "message-thinking-summary")' in source
+    assert "details.open = open" in source
+    assert "已思考" in source
 
 
 def test_workspace_uses_light_research_workbench_surface():

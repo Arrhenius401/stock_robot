@@ -1,8 +1,12 @@
+import threading
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
 
 from api.app import create_app
+from api.runtime import RuntimeManager
+from push.models import Subscription, SubscriptionSymbol
 
 
 class _PushStub:
@@ -29,6 +33,21 @@ class _Executor:
 
     def run_subscription(self, sub):
         self.ran.append(sub.id)
+        return {"total": 1, "ok": 1, "failures": []}
+
+
+class _BlockingExecutor(_Executor):
+    """让测试可在第一个后台推送执行期间切换运行时快照。"""
+
+    def __init__(self):
+        super().__init__()
+        self.started = threading.Event()
+        self.release = threading.Event()
+
+    def run_subscription(self, sub):
+        self.ran.append(sub.id)
+        self.started.set()
+        self.release.wait(timeout=2)
         return {"total": 1, "ok": 1, "failures": []}
 
 
@@ -151,3 +170,50 @@ class TestSubscriptionsAPI:
         assert resp.status_code == 200
         assert resp.json()["status"] == "triggered"
         assert len(push.executor.ran) == 1
+
+    def test_manual_run_keeps_executor_snapshot_after_runtime_reload(self, tmp_path):
+        """已启动的手动推送继续使用旧 executor，下一次才使用新 executor。"""
+        from push.store import PushStore
+
+        store = PushStore(tmp_path / "push_snapshot.db")
+        sub_id = store.create(Subscription(
+            name="a", symbols=[SubscriptionSymbol(symbol="600519")],
+            channel="email", time="08:00"))
+        old_executor = _BlockingExecutor()
+        new_executor = _Executor()
+
+        class SnapshotRuntime(RuntimeManager):
+            def __init__(self):
+                self.current = SimpleNamespace(
+                    push_store=store, push_executor=old_executor,
+                    push_scheduler=SimpleNamespace(reload=lambda: None),
+                )
+                self.calls = 0
+
+            def snapshot(self):
+                self.calls += 1
+                return self.current
+
+        runtime = SnapshotRuntime()
+        app = create_app(core=MagicMock(), push=False, runtime=runtime)
+        client = TestClient(app)
+
+        first = client.post(f"/api/v1/subscriptions/{sub_id}/run")
+        assert first.status_code == 200
+        assert old_executor.started.wait(timeout=1)
+        runtime.current = SimpleNamespace(
+            push_store=store, push_executor=new_executor,
+            push_scheduler=SimpleNamespace(reload=lambda: None),
+        )
+        old_executor.release.set()
+
+        second = client.post(f"/api/v1/subscriptions/{sub_id}/run")
+        assert second.status_code == 200
+        for _ in range(20):
+            if new_executor.ran:
+                break
+            threading.Event().wait(0.01)
+
+        assert old_executor.ran == [sub_id]
+        assert new_executor.ran == [sub_id]
+        assert runtime.calls == 2

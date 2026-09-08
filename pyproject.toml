@@ -15,6 +15,8 @@ dependencies = [
     "akshare>=1.14",
     "pandas>=2.0",
     "jinja2>=3.1",
+    "vectorbt>=1.1,<2",
+    "plotly<7",  # vectorbt 1.1.0 与 plotly 7 不兼容，固化 6.x 约束
     "openai>=1.0",
     "anthropic>=0.30",
     "chromadb>=0.5",
@@ -26,6 +28,7 @@ dependencies = [
     "langchain-anthropic>=0.2",
     "apscheduler>=3.10",
     "markdown>=3.5",
+    "filelock>=3.0",
 ]
 
 [project.scripts]

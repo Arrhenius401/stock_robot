@@ -68,6 +68,22 @@ data:
         assert cfg.data["signal"]["actions"]["watch"] == {"action": "持有观察，等待明确方向", "position": "30%-50%"}
         assert cfg.data["signal"]["actions"]["defend"] == {"action": "减仓或回避", "position": "0%-20%"}
 
+    def test_default_config_has_backtest_section(self):
+        cfg = Config(config_dir=Path("/nonexistent"))
+        assert cfg.get("backtest.default_strategy") == "report_technical"
+        assert cfg.get("backtest.default_benchmark") == "money_fund"
+        assert cfg.get("backtest.initial_cash") == 100000.0
+        assert cfg.get("backtest.cost_profiles.a_share_default") == {
+            "commission_rate": 0.0003,
+            "minimum_commission": 5.0,
+            "stamp_duty_rate": 0.0005,
+            "transfer_fee_rate": 0.00001,
+            "slippage_rate": 0.001,
+        }
+        assert cfg.get("backtest.benchmarks.money_fund.symbol") == "H11025"
+        assert cfg.get("backtest.benchmarks.csi_300.symbol") == "000300"
+        assert cfg.get("backtest.benchmarks.csi_all_bond.symbol") == "H11001"
+
 
 class TestPushConfig:
     def test_default_push_section(self, tmp_path):

@@ -123,6 +123,25 @@ async def test_run_emits_live_events():
 
 
 @pytest.mark.asyncio
+async def test_run_preserves_reasoning_content_from_final_message():
+    """Agent 最终消息的 OpenAI 兼容推理字段也要写入会话记录。"""
+    model = make_model([
+        AIMessage(
+            content="最终回答。",
+            additional_kwargs={"reasoning_content": "正在推演可行方案。"},
+            tool_calls=[],
+        ),
+    ])
+    events = []
+    executor = ReActExecutor(registry=make_registry(), memory=Memory(),
+                             model=model, session_id="test-reasoning")
+
+    outcome = await executor.run("请分析", on_event=events.append)
+
+    assert outcome.thinking == "正在推演可行方案。"
+
+
+@pytest.mark.asyncio
 async def test_run_includes_history():
     """Memory 最近消息拼接进初始 messages"""
     model = make_model([AIMessage(content="直接回答", tool_calls=[])])

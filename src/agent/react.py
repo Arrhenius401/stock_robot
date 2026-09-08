@@ -5,6 +5,7 @@
 """
 import json
 import logging
+import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -18,7 +19,11 @@ from langgraph.prebuilt import create_react_agent
 
 from agent.memory import Memory
 from agent.tools import ToolProtocol, ToolRegistry
-from api.message_content import normalize_message_content
+from api.message_content import (
+    encode_message_content,
+    normalize_message_content,
+    normalize_model_message,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +94,7 @@ def _role_to_message(role: str, content: str) -> BaseMessage:
     if role == "user":
         return HumanMessage(content=content)
     if role == "assistant":
-        return AIMessage(content=content)
+        return AIMessage(content=normalize_message_content(content)["text"])
     return SystemMessage(content=content)  # system / tool 历史无 tool_call_id，统一降级
 
 
@@ -146,6 +151,7 @@ class ReActExecutor:
         final_reply = ""
         thinking = ""
         final_reply_streamed = False
+        started_at = time.monotonic()
         try:
             async for event in agent.astream_events(
                     {"messages": history}, config=config, version="v2"):
@@ -153,15 +159,22 @@ class ReActExecutor:
                 run_id = str(event.get("run_id", ""))
                 if etype == "on_chat_model_stream":
                     chunk = event.get("data", {}).get("chunk")
-                    content = getattr(chunk, "content", "") if chunk else ""
-                    # 工具调用参数流不当作推理文本；空内容跳过（节流）
-                    if content and not getattr(chunk, "tool_call_chunks", None) and on_event:
+                    # 工具调用参数流不当作推理文本。DeepSeek 的 reasoning_content
+                    # 常位于 additional_kwargs 且正文 content 为空，不能据 content
+                    # 是否为空决定跳过。
+                    if chunk and not getattr(chunk, "tool_call_chunks", None) and on_event:
                         # 工具完成后紧接的模型输出是面向用户的最终回答，必须
                         # 作为正文增量推送；此前统一标为 thinking 导致正文只能
                         # 在整个 agent 结束、重载历史后才出现。
+                        normalized = normalize_model_message(chunk)
                         event_type = "text_delta" if tool_calls else "thinking"
-                        on_event({"type": event_type, "content": content})
-                        final_reply_streamed = final_reply_streamed or event_type == "text_delta"
+                        if event_type == "thinking":
+                            stream_content = normalized.get("thinking") or normalized["text"]
+                        else:
+                            stream_content = normalized["text"]
+                        if stream_content:
+                            on_event({"type": event_type, "content": stream_content})
+                            final_reply_streamed = final_reply_streamed or event_type == "text_delta"
                 elif etype == "on_tool_start":
                     data = event.get("data", {})
                     args = data.get("input", {})
@@ -196,7 +209,7 @@ class ReActExecutor:
             state = await agent.aget_state(config)
             for msg in reversed(state.values.get("messages", [])):
                 if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
-                    normalized = normalize_message_content(msg.content)
+                    normalized = normalize_model_message(msg)
                     final_reply = normalized["text"]
                     thinking = normalized.get("thinking", "")
                     break
@@ -208,6 +221,11 @@ class ReActExecutor:
         # 补发一次正文增量，保证前端无需等待切换会话才能显示回答。
         if on_event and not final_reply_streamed:
             on_event({"type": "text_delta", "content": final_reply})
-        self._memory.add_message("assistant", final_reply)
+        self._memory.add_message(
+            "assistant", encode_message_content(
+                final_reply,
+                thinking,
+                thinking_duration_seconds=time.monotonic() - started_at if thinking else None,
+            ))
         return AgentOutcome(final_reply=final_reply, thinking=thinking,
                             tool_calls=tool_calls)

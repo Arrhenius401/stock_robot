@@ -1,8 +1,58 @@
 """通用计分器 — 纯 YAML 驱动，无硬编码阈值"""
+from dataclasses import dataclass
 from statistics import mean
 
 from analysis.scorers.base import BaseScorer
 from data.schemas import AnalysisContext
+
+
+def _ema_line(data: list[float], period: int) -> list[float | None]:
+    if not data:
+        return []
+    if len(data) < period:
+        return [None] * len(data)
+    multiplier = 2 / (period + 1)
+    line: list[float | None] = [None] * (period - 1)
+    ema = sum(data[:period]) / period
+    line.append(ema)
+    for value in data[period:]:
+        ema = (value - ema) * multiplier + ema
+        line.append(ema)
+    return line
+
+
+@dataclass(frozen=True, slots=True)
+class MacdValues:
+    """MACD 结果值对象。"""
+
+    dif: float
+    dea: float
+    bar: float
+
+
+def calculate_macd(closes: list[float]) -> MacdValues:
+    """根据完整收盘价序列计算 MACD。"""
+
+    if not closes:
+        return MacdValues(dif=0.0, dea=0.0, bar=0.0)
+
+    ema12_line = _ema_line(closes, 12)
+    ema26_line = _ema_line(closes, 26)
+    dif_line = [
+        ema12 - ema26
+        for ema12, ema26 in zip(ema12_line, ema26_line)
+        if ema12 is not None and ema26 is not None
+    ]
+    if not dif_line:
+        return MacdValues(dif=0.0, dea=0.0, bar=0.0)
+    dif = dif_line[-1]
+    if len(dif_line) < 9:
+        dea = dif
+    else:
+        dea_line = _ema_line(dif_line, 9)
+        dea_value = dea_line[-1] if dea_line else None
+        dea = dea_value if dea_value is not None else dif
+    return MacdValues(dif=dif, dea=dea, bar=2 * (dif - dea))
 
 
 class GeneralScorer(BaseScorer):
@@ -262,11 +312,10 @@ class GeneralScorer(BaseScorer):
         # MACD
         macd_cfg = cfg.get("macd", {})
         if macd_cfg.get("enabled", True) and len(closes) >= 26:
-            ema12 = self._ema(closes, 12)
-            ema26 = self._ema(closes, 26)
-            dif = ema12 - ema26
-            dea = self._ema_from_values([dif], 9, dif) if dif else 0
-            macd_bar = 2 * (dif - dea)
+            macd = calculate_macd(closes)
+            dif = macd.dif
+            dea = macd.dea
+            macd_bar = macd.bar
             max_s = macd_cfg.get("max_score", 3)
             if dif > dea and macd_bar > 0:
                 s = 3; total += s; details.append(f"MACD 多头，得 {s}/{max_s} 分")
@@ -318,21 +367,3 @@ class GeneralScorer(BaseScorer):
 
         score = round(max(0.0, min(10.0, score)), 1)
         return score, "；".join(details), risks
-
-    @staticmethod
-    def _ema(data: list[float], period: int) -> float:
-        if len(data) < period:
-            return data[-1] if data else 0
-        multiplier = 2 / (period + 1)
-        ema = sum(data[:period]) / period
-        for price in data[period:]:
-            ema = (price - ema) * multiplier + ema
-        return ema
-
-    @staticmethod
-    def _ema_from_values(data: list[float], period: int, initial: float) -> float:
-        multiplier = 2 / (period + 1)
-        ema = initial
-        for value in data:
-            ema = (value - ema) * multiplier + ema
-        return ema

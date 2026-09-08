@@ -1,6 +1,8 @@
 """AkShare 数据源适配器 — A 股数据采集"""
+import csv
 import logging
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Any, cast
 
 import akshare as ak
@@ -25,14 +27,49 @@ from utils.retry import retry_on_network_error
 
 logger = logging.getLogger(__name__)
 
+
+def _resolve_eastmoney_to_sw(industry: str) -> tuple[str, str] | None:
+    """仅解析本地人工核验的高置信东财→申万唯一映射。"""
+    path = Path(__file__).parent.parent.parent / "data" / "eastmoney_sw_mapping.csv"
+    try:
+        with open(path, encoding="utf-8") as file:
+            for row in csv.DictReader(file):
+                if row.get("eastmoney_industry") == industry and row.get("confidence") == "high":
+                    return row.get("sw_level1", ""), row.get("sw_level2", "")
+    except OSError:
+        logger.warning("无法读取东财申万映射表")
+    return None
+
 # 海外指数代码 → 全球指数接口所需的中文名称
 _OVERSEAS_NAME_MAP = {
     "HSI": "恒生指数",
+    "HSTECH": "恒生科技指数",
     "HSCEI": "恒生中国企业指数",
     "SPX": "标普500",
+    "NDX": "纳斯达克100",
     "IXIC": "纳斯达克综合",
     "DJI": "道琼斯工业平均",
 }
+
+# 海外指数新浪源代码：港股直传代码，美股带 "." 前缀
+_OVERSEAS_SINA_SYMBOLS = {
+    "HSI": "HSI",
+    "HSTECH": "HSTECH",
+    "HSCEI": "HSCEI",
+    "SPX": ".INX",
+    "NDX": ".NDX",
+    "IXIC": ".IXIC",
+    "DJI": ".DJI",
+}
+
+
+def _row_get_any(row: Any, *keys: str, default: Any = None) -> Any:
+    """按候选列名读取一行数据，兼容不同 AkShare 接口的中英文列名。"""
+    for key in keys:
+        value = row.get(key)
+        if value is not None:
+            return value
+    return default
 
 
 def get_total_shares(symbol: str, financials: list | None = None) -> float | None:
@@ -92,6 +129,13 @@ def _get_industry_name(symbol: str) -> str:
     return ""
 
 
+def _normalize_percentage(value: float | None) -> float | None:
+    """将同花顺百分比字段转为小数，负百分比同样按绝对值判断单位。"""
+    if value is not None and abs(value) >= 1:
+        return value / 100.0
+    return value
+
+
 @retry_on_network_error()
 def _ak_hist(**kwargs):
     return ak.stock_zh_a_hist(**kwargs)
@@ -105,6 +149,27 @@ def _ak_daily(symbol, start_date, end_date, adjust):
     else:
         tx_symbol = f"sz{symbol}"
     return ak.stock_zh_a_daily(symbol=tx_symbol, start_date=start_date, end_date=end_date, adjust=adjust)
+
+
+@retry_on_network_error()
+def _ak_csindex(symbol, start_date, end_date):
+    """中证指数公司日线接口（H11025/H11001/000300 等基准指数，返回日期与收盘）"""
+    return ak.stock_zh_index_hist_csindex(symbol=symbol, start_date=start_date, end_date=end_date)
+
+
+@retry_on_network_error()
+def _fetch_overseas_index_sina(symbol: str):
+    """海外指数新浪源回退：东财全球指数接口失效时的替代日线源。
+
+    港股走 stock_hk_index_daily_sina（代码直传），美股走 index_us_stock_sina
+    （带 "." 前缀）。无映射的符号返回 None，由调用方降级为空数据。
+    """
+    sina_symbol = _OVERSEAS_SINA_SYMBOLS.get(symbol)
+    if sina_symbol is None:
+        return None
+    if sina_symbol.startswith("."):
+        return ak.index_us_stock_sina(symbol=sina_symbol)
+    return ak.stock_hk_index_daily_sina(symbol=sina_symbol)
 
 
 @retry_on_network_error()
@@ -139,49 +204,46 @@ def _parse_date(value) -> date:
     raise ValueError(f"无法解析日期: {value}")
 
 
-def _fetch_sw_peers(industry_name: str) -> list[dict[str, Any]]:
-    """通过申万行业分类获取同行股票（含 PE/PB/市值，来源 legulegu.com）
-    返回 list[dict]，每个 dict 包含: symbol, name, market_cap, pe_ttm, pb
+def _fetch_sw_peers(sw_level2: str, sw_level1: str) -> tuple[list[dict[str, Any]], str]:
+    """按申万二级优先、一级回退获取完整同行池。
+
+    行业树的一级、二级节点都能直接返回完整成分表。一次分析最多请求二级和
+    一级各一次，避免旧实现按模糊名称遍历多个三级行业导致的慢、错配和限流。
     """
-    from data.industry_mapping_builder import fetch_constituents, fetch_taxonomy
+    from data.industry_mapping_builder import fetch_constituents, fetch_taxonomy_codes
 
-    # 第一步：申万行业树（新版页面解析，旧版 id="level3Items" 结构已移除）
     try:
-        _, level3_map = fetch_taxonomy()
+        level1_codes, level2_codes = fetch_taxonomy_codes()
     except Exception as e:
-        logger.warning("无法获取申万行业列表: %s", e)
-        return []
+        logger.warning("无法获取申万行业代码: %s", e)
+        return [], ""
 
-    # 三级行业名/二级名模糊匹配（level3_map 含名称与归属）
-    matched_codes = []
-    for code, (name, parent) in level3_map.items():
-        if industry_name in name or industry_name in parent or name in industry_name:
-            matched_codes.append(code)
-    matched_codes = list(set(matched_codes))
-
-    if not matched_codes:
-        logger.info("未找到与 '%s' 匹配的申万行业", industry_name)
-        return []
-
-    # 第二步：成分股（含 PE/PB/市值，市值单位亿元 → 元）
-    peers: list[dict[str, Any]] = []
-    for sw_code in matched_codes:
-        try:
-            stocks = fetch_constituents(sw_code)
-        except Exception as e:
-            logger.warning("获取申万行业成分股失败 %s: %s", sw_code, e)
+    candidates = [
+        (level2_codes.get(sw_level2), "申万二级"),
+        (level1_codes.get(sw_level1), "申万一级"),
+    ]
+    for industry_code, scope in candidates:
+        if not industry_code:
             continue
-        for s in stocks:
-            if s["market_cap"] is None:
-                continue
-            peers.append({
-                "symbol": s["symbol"],
-                "name": s["name"],
-                "market_cap": s["market_cap"] * 1e8,
-                "pe_ttm": s["pe_ttm"],
-                "pb": s["pb"],
-            })
-    return peers
+        try:
+            stocks = fetch_constituents(industry_code)
+        except Exception as e:
+            logger.warning("获取%s成分股失败 %s: %s", scope, industry_code, e)
+            continue
+        peers = [
+            {
+                "symbol": stock["symbol"],
+                "name": stock["name"],
+                "market_cap": stock["market_cap"] * 1e8,
+                "pe_ttm": stock["pe_ttm"],
+                "pb": stock["pb"],
+            }
+            for stock in stocks
+            if stock["market_cap"] is not None and stock["market_cap"] > 0
+        ]
+        if peers:
+            return peers, scope
+    return [], ""
 
 
 def _parse_debt_new(bs_df: Any) -> dict[str, tuple[float | None, float | None, float | None]]:
@@ -251,9 +313,15 @@ class AkShareAdapter(DataSource):
             return []
 
     def _fetch_price(self, symbol: str, **kwargs) -> list[PriceData]:
-        days = kwargs.get("days", 250)  # 近一年交易日，覆盖完整行情周期
-        end_date = datetime.now().astimezone().date().strftime("%Y%m%d")
-        start_date = (datetime.now().astimezone().date() - timedelta(days=days)).strftime("%Y%m%d")
+        # 回测等场景可显式指定起止日期（YYYYMMDD）；未完整指定时保持默认近一年（days=250）行为
+        results: list[PriceData] = []
+        start_date = kwargs.get("start_date")
+        end_date = kwargs.get("end_date")
+        if start_date is None or end_date is None:
+            today = datetime.now().astimezone().date()
+            days = kwargs.get("days", 250)  # 近一年交易日，覆盖完整行情周期
+            start_date = start_date or (today - timedelta(days=days)).strftime("%Y%m%d")
+            end_date = end_date or today.strftime("%Y%m%d")
 
         def _parse(df, source_label: str) -> list[PriceData]:
             results = []
@@ -355,7 +423,7 @@ class AkShareAdapter(DataSource):
         profits = df.get("净利润", [])
         deducted_profits = df.get("扣非净利润", [])
         roe_list = df.get("净资产收益率", [])  # ROE（%）
-        net_margins = df.get("销售净利率", [])  # 销售净利率（%）
+        gross_margins = df.get("销售毛利率", [])  # 销售毛利率（%）
         cash_flow_per_share = df.get("每股经营现金流", [])
         basic_eps_list = df.get("基本每股收益", [])  # 用于反推总股本
 
@@ -374,13 +442,13 @@ class AkShareAdapter(DataSource):
                 net_profit = parse_cn_number(profits.iloc[idx] if hasattr(profits, 'iloc') else profits[idx]) if idx < len(profits) else None
                 deducted = parse_cn_number(deducted_profits.iloc[idx] if hasattr(deducted_profits, 'iloc') else deducted_profits[idx]) if idx < len(deducted_profits) else None
 
-                # 净资产收益率 — 源数据为百分比（如 12.5），> 1 时除以 100 转为小数
+                # 净资产收益率 — 源数据为百分比（如 -7.48 / 12.5），转为小数
                 roe_raw = parse_cn_number(roe_list.iloc[idx] if hasattr(roe_list, 'iloc') else roe_list[idx]) if idx < len(roe_list) else None
-                roe = roe_raw / 100.0 if roe_raw is not None and roe_raw > 1 else roe_raw
+                roe = _normalize_percentage(roe_raw)
 
-                # 销售净利率 — 源数据为百分比（如 12.5），> 1 时除以 100 转为小数
-                nm_raw = parse_cn_number(net_margins.iloc[idx] if hasattr(net_margins, 'iloc') else net_margins[idx]) if idx < len(net_margins) else None
-                net_margin = nm_raw / 100.0 if nm_raw is not None and nm_raw > 1 else nm_raw
+                # 销售毛利率 — 源数据为百分比，不能误用销售净利率。
+                gm_raw = parse_cn_number(gross_margins.iloc[idx] if hasattr(gross_margins, 'iloc') else gross_margins[idx]) if idx < len(gross_margins) else None
+                gross_margin = _normalize_percentage(gm_raw)
 
                 # 每股经营现金流 × 总股本 → 经营现金流总额
                 ocf_per_share = parse_cn_number(cash_flow_per_share.iloc[idx] if hasattr(cash_flow_per_share, 'iloc') else cash_flow_per_share[idx]) if idx < len(cash_flow_per_share) else None
@@ -389,8 +457,6 @@ class AkShareAdapter(DataSource):
                 if ocf_per_share is not None and net_profit is not None and basic_eps is not None and basic_eps > 0:
                     total_shares = net_profit / basic_eps
                     ocf = ocf_per_share * total_shares
-                elif ocf_per_share is not None:
-                    ocf = ocf_per_share  # 降级：无法反推总股本时保留 per-share 值
 
                 # 从资产负债表映射中获取净资产、普通股东权益和总资产
                 date_key = fiscal_date.isoformat()
@@ -407,8 +473,9 @@ class AkShareAdapter(DataSource):
                     total_equity=total_equity,
                     common_equity=common_equity,
                     operating_cash_flow=ocf,
+                    operating_cash_flow_per_share=ocf_per_share,
                     roe=roe,
-                    gross_margin=net_margin,
+                    gross_margin=gross_margin,
                     basic_eps=basic_eps,
                 ))
             except (ValueError, IndexError, TypeError) as e:
@@ -439,82 +506,64 @@ class AkShareAdapter(DataSource):
     def _fetch_industry(self, symbol: str, **kwargs) -> list[IndustryData]:
         from data.schemas import PeerBasicInfo
 
-        # 行业名两级链：东财轻量接口 → 本地映射表（离线兜底）
-        industry = _get_industry_name(symbol)
-        sector = ""
+        # 申万二级优先构建同业池；东财行业仅在申万缺失时作展示级降级，绝不参与评分。
+        sw_level1 = str(kwargs.get("sw_level1", "")).strip()
+        sw_level2 = str(kwargs.get("sw_level2", "")).strip()
+        eastmoney_industry = "" if (sw_level1 or sw_level2) else _get_industry_name(symbol)
+        resolved = _resolve_eastmoney_to_sw(eastmoney_industry) if eastmoney_industry else None
+        if resolved:
+            sw_level1, sw_level2 = resolved
+            try:
+                from data.industry_mapping_builder import backfill_verified_symbol
+                backfill_verified_symbol(symbol, sw_level1, sw_level2)
+            except Exception as e:
+                logger.warning("东财申万映射回填失败 %s: %s", symbol, e)
+        industry = sw_level2 or sw_level1 or eastmoney_industry
+        sector = sw_level1
         top_peers = []
         all_peer_symbols: list[str] = []
         target_mcap: float | None = None
         target_rank: int | None = None
+        peer_scope = ""
+        peer_industry = ""
 
-        if industry:
-            sw_peers = _fetch_sw_peers(industry)
+        if sw_level1 or sw_level2:
+            sw_peers, peer_scope = _fetch_sw_peers(sw_level2, sw_level1)
             if sw_peers:
+                if peer_scope == "申万二级":
+                    try:
+                        from data.industry_mapping_builder import backfill_peer_pool
+                        backfill_peer_pool([peer["symbol"] for peer in sw_peers], sw_level1, sw_level2)
+                    except Exception as e:
+                        logger.warning("申万同行池回填失败 %s/%s: %s", sw_level1, sw_level2, e)
                 # 过滤无效市值，按市值排序
                 valid_peers = [p for p in sw_peers if p.get("market_cap")]
                 valid_peers.sort(key=lambda x: x.get("market_cap", 0), reverse=True)
 
-                all_peer_symbols = [p["symbol"] for p in valid_peers]
-
-                # 查找目标排名
+                # 目标排名使用完整行业池；同行池排除目标自身，避免自比较污染中位数。
                 for i, p in enumerate(valid_peers):
                     if p["symbol"] == symbol:
                         target_mcap = p.get("market_cap")
                         target_rank = i + 1
                         break
 
-                for p in valid_peers[:5]:
+                comparable_peers = [p for p in valid_peers if p["symbol"] != symbol]
+                all_peer_symbols = [p["symbol"] for p in comparable_peers]
+                peer_industry = sw_level2 if peer_scope == "申万二级" else sw_level1
+
+                for p in comparable_peers[:5]:
                     top_peers.append(PeerBasicInfo(
                         symbol=p["symbol"], name=p["name"],
                         market_cap=p.get("market_cap"),
                         pe_ttm=p.get("pe_ttm"),
                         pb=p.get("pb"),
                     ))
-            else:
-                # 回退：东方财富端点
-                try:
-                    board_df: Any = _ak_board_industry_cons_em(industry)
-                    if board_df is not None and len(board_df) > 0:
-                        # ...（保留旧逻辑作为回退）
-                        cols = list(board_df.columns)
-                        code_col = "代码" if "代码" in cols else cols[0]
-                        name_col = "名称" if "名称" in cols else (cols[1] if len(cols) > 1 else code_col)
-                        mcap_col = None
-                        for c in cols:
-                            if "市值" in str(c) or "总市值" in str(c):
-                                mcap_col = c
-                                break
-                        valid_rows = []
-                        for _, row in board_df.iterrows():
-                            code = str(row[code_col])
-                            name = str(row.get(name_col, ""))
-                            if any(tag in name for tag in ("ST", "退市", "PT")):
-                                continue
-                            mcap = None
-                            if mcap_col:
-                                try:
-                                    mcap = float(row[mcap_col])
-                                except (ValueError, TypeError):
-                                    pass
-                            if mcap is not None and mcap > 0:
-                                valid_rows.append((code, name, mcap))
-                        all_peer_symbols = [code for code, _, _ in valid_rows]
-                        valid_rows.sort(key=lambda x: x[2], reverse=True)
-                        for i, (code, name, mcap) in enumerate(valid_rows):
-                            if code == symbol:
-                                target_mcap = mcap
-                                target_rank = i + 1
-                                break
-                        for code, name, mcap in valid_rows[:5]:
-                            top_peers.append(PeerBasicInfo(
-                                symbol=code, name=name, market_cap=mcap,
-                            ))
-                except Exception:
-                    logger.warning(f"获取行业成分股失败: {industry}")
 
         result = IndustryData(
             symbol=symbol, industry=industry or "未知", sector=sector or "",
-            peers=all_peer_symbols, top_peers=top_peers,
+            peers=all_peer_symbols, peer_scope=peer_scope, peer_industry=peer_industry,
+            resolved_sw_level1=sw_level1, resolved_sw_level2=sw_level2,
+            top_peers=top_peers,
         )
         if target_mcap is not None:
             result._target_mcap = target_mcap
@@ -609,8 +658,14 @@ class AkShareAdapter(DataSource):
                 # 行业板块指数使用申万指数接口
                 df: Any = ak.index_hist_sw(symbol=symbol)
             elif index_style == "overseas":
-                # 海外指数用全球指数接口（参数需中文名称）
-                df: Any = ak.index_global_hist_em(symbol=_OVERSEAS_NAME_MAP.get(symbol, symbol))
+                # 海外指数用全球指数接口（参数需中文名称）；东财失效时回退新浪源
+                try:
+                    df: Any = ak.index_global_hist_em(symbol=_OVERSEAS_NAME_MAP.get(symbol, symbol))
+                except Exception:
+                    logger.debug(f"东财全球指数接口失败 {symbol}，回退新浪源")
+                    df = _fetch_overseas_index_sina(symbol)
+                if df is None or df.empty:
+                    df = _fetch_overseas_index_sina(symbol)
             else:
                 return []
 
@@ -621,13 +676,24 @@ class AkShareAdapter(DataSource):
             prev_close: float | None = None
             for _, row in df.iterrows():
                 try:
-                    close_f = float(row["close"])
+                    date_val = _row_get_any(row, "date", "日期", "trade_date", "交易日期")
+                    open_val = _row_get_any(row, "open", "开盘", "开盘价")
+                    high_val = _row_get_any(row, "high", "最高", "最高价")
+                    low_val = _row_get_any(row, "low", "最低", "最低价")
+                    close_val = _row_get_any(row, "close", "收盘", "收盘价")
+                    volume_val = _row_get_any(row, "volume", "成交量", default=0)
+                    amount_val = _row_get_any(row, "amount", "成交额")
+
+                    if date_val is None or close_val is None:
+                        raise KeyError("date/close")
+
+                    close_f = float(close_val)
                     # 涨跌幅：优先取源数据列（部分源/旧版 akshare 提供），缺失/坏值按前收盘计算。
                     # 注：安装版 akshare 的 stock_zh_index_daily_em 在返回前丢弃承载涨跌幅
                     # 的 "_" 列，腾讯源亦无涨跌幅列，故实际生效的是按前收盘计算；
                     # "_" 回退仅为防御未来版本保留该列的情况。
                     # 解析隔离在独立 try 中，坏 pct 值不连累整行 OHLCV 数据。
-                    pct_raw = row.get("涨跌幅", row.get("pct_chg", row.get("_")))
+                    pct_raw = _row_get_any(row, "涨跌幅", "pct_chg", "_")
                     change_pct = None
                     if pct_raw is not None and str(pct_raw) not in ("", "nan"):
                         try:
@@ -638,17 +704,17 @@ class AkShareAdapter(DataSource):
                         change_pct = round((close_f - prev_close) / prev_close * 100, 2)
                     results.append(IndexPriceData(
                         symbol=symbol,
-                        trade_date=_parse_date(row["date"]),
-                        open=float(row["open"]),
-                        high=float(row["high"]),
-                        low=float(row["low"]),
+                        trade_date=_parse_date(date_val),
+                        open=float(open_val),
+                        high=float(high_val),
+                        low=float(low_val),
                         close=close_f,
-                        volume=int(row.get("volume", 0)),
-                        turnover=float(row.get("amount", 0)) / 1e8 if row.get("amount") else None,
+                        volume=int(float(volume_val or 0)),
+                        turnover=float(amount_val) / 1e8 if amount_val else None,
                         change_pct=change_pct,
                     ))
                     prev_close = close_f
-                except (ValueError, KeyError) as e:
+                except (ValueError, KeyError, TypeError) as e:
                     logger.warning(f"跳过异常指数行情数据行: {e}")
             return results
         except Exception as e:

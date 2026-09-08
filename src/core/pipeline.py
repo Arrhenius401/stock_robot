@@ -94,6 +94,22 @@ class Pipeline:
                 refresh_cache: bool = False, data_types: list[str] | None = None,
                 on_progress: ProgressCallback = None) -> AnalysisContext:
         ctx = AnalysisContext(symbol=symbol, name=name, market=market)
+
+        # 申万分类必须先于行业成分股采集确定，保证同业池与报告口径一致。
+        classification = self._classifier.lookup(symbol)
+        ctx.sw_industry = classification.sw_level1
+        ctx.sw_industry_level2 = classification.sw_level2
+        ctx.style_category = classification.style_category
+        if not classification.is_verified:
+            try:
+                from data.industry_mapping_builder import update_symbol
+                updated = update_symbol(symbol, retries=1, timeout=5)
+                ctx.sw_industry = updated["sw_level1"]
+                ctx.sw_industry_level2 = updated["sw_level2"]
+                ctx.style_category = updated["style_category"]
+            except Exception:  # noqa: BLE001 — 回填失败不阻断分析流程
+                logger.debug("申万行业映射反查失败 %s", symbol)
+
         types_to_fetch = data_types or DATA_TYPES
         total = len(types_to_fetch)
         completed = 0
@@ -101,6 +117,9 @@ class Pipeline:
         def fetch_one(data_type: str, stagger_index: int):
             # 递增错峰：第 n 个线程延迟 n*0.15s，减轻上游瞬时压力
             time.sleep(stagger_index * 0.15)
+            stale_cached = None
+            if data_type == "news" and not refresh_cache:
+                stale_cached = self._get_stale_cached(symbol, data_type)
             # 本地缓存读取不触达上游，优先于断路器——断路器打开期间缓存健康数据仍可用
             if not refresh_cache:
                 cached = self._get_cached(symbol, data_type)
@@ -109,13 +128,22 @@ class Pipeline:
                     return data_type, cached
             if self._breaker.is_open(symbol, data_type):
                 logger.warning(f"断路器打开: {symbol}/{data_type}，跳过源头请求")
+                if stale_cached is not None:
+                    logger.warning(f"{symbol}/{data_type} 断路器打开，使用过期缓存兜底")
+                    return data_type, stale_cached
                 return data_type, None
 
             sources = self._registry.get_data_sources(market, data_type)
             for source in sources:
                 for attempt in range(2):
                     try:
-                        result = source.fetch(symbol, data_type=data_type)
+                        fetch_kwargs = {"data_type": data_type}
+                        if data_type == "industry":
+                            fetch_kwargs.update(
+                                sw_level1=ctx.sw_industry,
+                                sw_level2=ctx.sw_industry_level2,
+                            )
+                        result = source.fetch(symbol, **fetch_kwargs)
                         if result:
                             if self._is_healthy(data_type, result):
                                 self._set_cache(symbol, data_type, result)
@@ -124,12 +152,20 @@ class Pipeline:
                                 # 退化结果：不落库（_set_cache 门控双保险），计失败促断路器
                                 self._set_cache(symbol, data_type, result)
                                 self._breaker.record_failure(symbol, data_type)
+                                if data_type == "news" and stale_cached is not None:
+                                    logger.warning(f"{symbol}/{data_type} 实时数据退化，使用过期缓存兜底")
+                                    self._breaker.record_success(symbol, data_type)
+                                    return data_type, stale_cached
                             return data_type, result
                     except Exception as e:  # noqa: BLE001 — 多数据源逐个尝试，单源失败降级
                         logger.warning(f"数据源 {source.__class__.__name__} 获取 {data_type} 失败: {e}")
                     if attempt == 0:
                         time.sleep(1)  # 重试前等待 1 秒
             self._breaker.record_failure(symbol, data_type)
+            if stale_cached is not None:
+                logger.warning(f"{symbol}/{data_type} 实时采集失败，使用过期缓存兜底")
+                self._breaker.record_success(symbol, data_type)
+                return data_type, stale_cached
             return data_type, None
 
         stagger_counter = 0
@@ -142,31 +178,13 @@ class Pipeline:
                 data_type, result = future.result()
                 if result is not None:
                     self._assign_to_context(ctx, data_type, result)
+                    if data_type == "industry" and not ctx.sw_industry:
+                        ctx.sw_industry = result[0].resolved_sw_level1
+                        ctx.sw_industry_level2 = result[0].resolved_sw_level2
                 completed += 1
                 if on_progress:
                     on_progress("collect", completed, total,
                                DATA_TYPE_LABELS.get(data_type) or data_type)
-
-        # 新增：行业分类查询
-        classification = self._classifier.lookup(symbol)
-        ctx.sw_industry = classification.sw_level1
-        ctx.style_category = classification.style_category
-
-        # 若 CSV 分类为兜底值"综合"，尝试从实时行业数据中获取
-        if ctx.sw_industry == "综合" and ctx.industry_data and ctx.industry_data.industry:
-            real_industry = ctx.industry_data.industry
-            ctx.sw_industry = real_industry
-            # 从 申万→大类 映射重新推导 style_category
-            mapping = self._config_loader._load_yaml(
-                self._config_loader.config_dir / "申万_大类_映射.yaml"
-            )
-            ctx.style_category = mapping.get(real_industry, "高端制造")
-            # 在线回填：把观测沉淀到映射表占位行（失败不影响分析）
-            try:
-                from data.industry_mapping_builder import backfill_symbol
-                backfill_symbol(symbol, real_industry)
-            except Exception:  # noqa: BLE001 — 回填失败不阻断分析流程
-                logger.debug("行业映射在线回填失败 %s", symbol)
 
         return ctx
 
@@ -346,8 +364,37 @@ class Pipeline:
             return None
         try:
             data_list = json.loads(raw)
-            return self._deserialize_cache(data_type, symbol, data_list)
+            results = self._deserialize_cache(data_type, symbol, data_list)
+            if not self._is_healthy(data_type, results):
+                logger.info(f"缓存 {data_type}/{symbol} 数据退化，视为未命中")
+                return None
+            if (data_type == "industry" and results
+                    and not getattr(results[0], "peer_scope", "")):
+                # 旧缓存使用东财行业构建同业池，不能进入申万口径评分。
+                self._cache.invalidate(data_type, symbol, "latest")
+                return None
+            return results
         except Exception:  # noqa: BLE001 — 缓存损坏视为未命中
+            return None
+
+    def _get_stale_cached(self, symbol: str, data_type: str) -> list | None:
+        """读取过期缓存；仅用于外部短时效数据源失败后的兜底。"""
+        raw = self._cache.get_stale(data_type, symbol, "latest")
+        if raw is None:
+            return None
+        try:
+            data_list = json.loads(raw)
+            results = self._deserialize_cache(data_type, symbol, data_list)
+            if not self._is_healthy(data_type, results):
+                return None
+            for item in results:
+                if data_type == "news":
+                    item._from_stale_cache = True
+                    raw_sentiment = getattr(item, "_raw_sentiment", None)
+                    if raw_sentiment is not None:
+                        raw_sentiment._from_stale_cache = True
+            return results
+        except Exception:  # noqa: BLE001 — 缓存损坏视为无兜底
             return None
 
     def _is_healthy(self, data_type: str, data: list) -> bool:
@@ -367,6 +414,12 @@ class Pipeline:
         elif data_type == "valuation":
             if all(v.pe_ttm is None and v.pb is None for v in data):
                 return False
+        elif data_type == "news":
+            news = data[0]
+            raw_sentiment = getattr(news, "_raw_sentiment", None)
+            if raw_sentiment is not None:
+                return len(raw_sentiment.items) >= 3
+            return len(getattr(news, "headlines", []) or []) >= 3
         return True
 
     def _set_cache(self, symbol: str, data_type: str, data: list):

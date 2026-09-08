@@ -94,6 +94,7 @@ class RawSentimentData(BaseModel):
     symbol: str
     fetch_date: date
     items: list[RawSentimentItem] = Field(default_factory=list)
+    _from_stale_cache: bool = PrivateAttr(default=False)
 
 
 class SentimentItem(BaseModel):
@@ -127,6 +128,7 @@ class FinancialData(BaseModel):
     total_equity: float | None = None
     common_equity: float | None = None  # 普通股东权益（剔除永续债/优先股），PB 口径对齐市场惯例
     operating_cash_flow: float | None = None
+    operating_cash_flow_per_share: float | None = None
     roe: float | None = None
     gross_margin: float | None = None
     basic_eps: float | None = None  # 基本每股收益，用于总股本反推
@@ -168,6 +170,10 @@ class IndustryData(BaseModel):
     industry: str
     sector: str
     peers: list[str] = Field(default_factory=list)
+    peer_scope: str = ""  # "申万二级" / "申万一级"；空值表示仅有展示级行业信息
+    peer_industry: str = ""
+    resolved_sw_level1: str = ""
+    resolved_sw_level2: str = ""
     # 新增：头部同行详细数据
     top_peers: list[PeerBasicInfo] = Field(default_factory=list)
     # 采集层扩展字段（不参与序列化）
@@ -180,8 +186,8 @@ class NewsData(BaseModel):
     symbol: str
     date: date
     headlines: list[str] = Field(default_factory=list)
-    # 采集层扩展字段（不参与序列化）
-    _raw_sentiment: Any = PrivateAttr(default=None)
+    _raw_sentiment: RawSentimentData | None = PrivateAttr(default=None)
+    _from_stale_cache: bool = PrivateAttr(default=False)
 
 
 class AnalysisResult(BaseModel):
@@ -228,6 +234,7 @@ class AnalysisContext(BaseModel):
 
     # 新增 — 行业分类信息
     sw_industry: str = ""
+    sw_industry_level2: str = ""
     style_category: str = ""
 
     # 大盘环境快照（由 IndexContextEnricher 填充）

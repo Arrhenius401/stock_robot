@@ -8,10 +8,25 @@ AI 驱动的股票/指数分析研报助手。支持 A 股 + 指数分析、AI A
 
 ## 安装
 
-```bash
-git clone <repo-url> && cd stock_robot
-pip install -e ".[dev]"
+建议每个工作副本使用独立的 `.venv`，避免 Anaconda、用户级 Python 或其他项目的依赖相互影响。无需手动激活虚拟环境，详见 [运行环境说明](docs/运行环境.md)。
+
+```powershell
+# Windows PowerShell
+git clone <repo-url>; cd stock_robot
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\scripts\stock-robot.ps1 --help
 ```
+
+```sh
+# Linux
+git clone <repo-url> && cd stock_robot
+python3 -m venv .venv
+./.venv/bin/python -m pip install -e ".[dev]"
+./scripts/stock-robot.sh --help
+```
+
+后续示例中的 `stock-robot` 假定已使用 `direnv` 自动加入项目虚拟环境；不使用 `direnv` 时，将其替换为 Windows 的 `.\scripts\stock-robot.ps1` 或 Linux 的 `./scripts/stock-robot.sh`。
 
 ## 首次使用
 
@@ -152,6 +167,47 @@ stock-robot index HSI SPX NDX                        # 海外指数
 
 ---
 
+### backtest — 单股信号回测（新增）
+
+对单只 A 股的历史日线重算技术信号，按目标仓位在下一交易日开盘模拟调仓，输出可复现的运行产物。仅供个人研究，**历史表现不代表未来收益**。
+
+```bash
+stock-robot backtest 000001 \
+    --start 2022-01-01 --end 2025-12-31
+```
+
+| 选项 | 说明 |
+|------|------|
+| `--strategy` | 策略 ID，默认 `report_technical` |
+| `--start` / `--end` | 回测区间（`YYYY-MM-DD`），必填 |
+| `--benchmark` | 基准 ID，默认 `money_fund`（可选 `csi_300` / `csi_all_bond`） |
+
+**策略文件**位于 `config/strategies/`，YAML 定义信号阈值、目标仓位与预热期：
+
+```yaml
+id: report_technical        # 仅小写字母、数字、下划线
+thresholds: {attack: 7, watch: 4}
+target_positions: {attack: 0.7, watch: 0.4, defend: 0.0}
+warmup_days: 90             # 预热交易日数，确保 MA60/MACD 可用
+cost_profile: a_share_default
+```
+
+**成本与基准**可用 `config set` 修改（`backtest.cost_profiles.<档位>` 的佣金/最低佣金/印花税/过户费/滑点，`backtest.benchmarks.<ID>` 的指数代码）。
+
+**每次成功运行写入 5 类产物**到 `reports/backtests/<策略>/<股票代码>/<年月>/<运行ID>/`：
+
+- `report.md` — 面向人的完整说明与指标（含免责声明）
+- `summary.json` — 稳定机器可读摘要（收益/回撤/夏普/交易次数等）
+- `equity_curve.csv` — 每日策略/基准净值、目标仓位与信号
+- `trades.csv` — 每笔调仓的日期、方向、数量、成交价、费用与原因
+- `manifest.json` — 完整运行快照（策略配置、成本、基准、数据范围、版本与警告）
+
+运行 ID 形如 `20260829_103000_v1_a13c9b2f`，其中 `v1` 为策略版本、`a13c9b2f` 为策略配置短哈希，用于精确复现任意历史运行。
+
+**使用边界**：仅支持单只 A 股日线；仅使用历史价格重算的技术信号（不引入当前财务/估值/舆情/LLM 数据）；AkShare 免费公共数据仅供个人研究，不保证商业级完整性。
+
+---
+
 ### rag — 知识库管理（新增）
 
 管理 RAG 知识库的文档摄入、清理和统计。知识库包含 6 个分区：券商研报、财报/公告、政策/宏观、学术文献、历史分析报告、系统规则。
@@ -263,6 +319,8 @@ stock-robot run --host 127.0.0.1 --port 8000
 - `GET /api/v1/sessions`、`DELETE /api/v1/sessions/{id}`、`GET /api/v1/sessions/{id}/messages` — 会话管理（会话在发送首条消息时创建）
 - `GET /api/v1/config`、`PUT /api/v1/config`、`GET /api/v1/config/credentials/{key}` — 配置读取、局部更新和按需读取凭据
 - `GET /api/v1/tools` — 工具列表
+
+> **配置热更新：** `PUT /api/v1/config` 响应包含三个固定状态字段——`persisted`（是否已写盘）、`applied`（是否已应用于运行时）、`restart_required`（是否需重启），以及 `applied=false` 且非监听配置时的 `reload_error`（不含敏感信息）。LLM、缓存 TTL、推送、信号等字段保存后立即对**后续新建**的聊天、分析、指数分析和推送任务生效；已开始的任务继续使用其启动时的配置快照。`api.host` 与 `api.port` 例外：只写入配置文件，必须重启 `stock-robot run` 后生效。
 
 > 无 Agent 模式（仅调试静态页）：`PYTHONPATH=src python -m uvicorn api.app:app`，
 > 该模式下 chat 返回"Agent 核心未注入"提示，analyze/index 返回 503。
@@ -384,15 +442,25 @@ stock-robot cache clear      # 清空所有缓存
 
 ```
 reports/
-├── 000001/
-│   └── 2026-07/
-│       └── 000001_20260705_143021.md
-└── 600036/
-    └── 2026-07/
-        └── 600036_20260705_150532.md
+├── stock/
+│   ├── 000001/
+│   │   └── 2026-07/
+│   │       └── 000001_20260705_143021.md
+│   └── 600036/
+│       └── 2026-07/
+│           └── 600036_20260705_150532.md
+├── index/
+│   └── 000300/
+│       └── 2026-07/
+│           └── 000300_20260705_143521.md
+└── backtests/
+    └── report_technical/
+        └── 000001/
+            └── 2026-08/
+                └── 20260829_103000_v1_a13c9b2f/   # 回测运行产物
 ```
 
-目录格式：`{股票或指数代码}/{年份-月份}/{代码}_{日期}_{时间}.md`
+股票报告保存到 `reports/stock/`，指数报告保存到 `reports/index/`，回测产物保存到 `reports/backtests/`。分析报告目录格式：`{类别}/{代码}/{年份-月份}/{代码}_{日期}_{时间}.md`；历史旧目录下的报告不自动迁移。
 
 ## LLM 成本
 
@@ -432,3 +500,17 @@ stock-robot analyze 000001 --no-llm
 **Q: 如何暴露更多本地工具给外部 MCP 客户端？**
 
 通过 `MCPGateway.register_local_tool()` 注册任意 `ToolProtocol` 实例，然后调用 `gateway.serve_stdio()` 以 stdio MCP Server 模式运行。工具会自动通过 MCP 协议的 `tools/list` 和 `tools/call` 暴露。
+
+## 配置雷达（ETF）
+
+配置雷达使用人工审核的标的池、本地完成态快照和低频研究评分。国内及港股敞口与海外敞口分别维护，不能混合排名。
+
+```powershell
+stock-robot radar universe list
+stock-robot radar refresh --universe cn_hk_etf
+stock-robot radar refresh --universe cn_hk_etf --full --as-of 2026-09-04
+stock-robot radar show --universe cn_hk_etf
+stock-robot radar backtest --universe overseas_etf --start 2022-01-01 --end 2025-12-31
+```
+
+仅 `refresh` 与 `backtest` 会访问数据源，展示和 API 只读取 `.stock_robot/radar.db` 的完成态快照。`refresh` 默认仅获取有限评分窗口，`--full` 将窗口扩展为完整修订窗口；`--as-of` 用于回放指定数据日期。回测以月末可得日线评分、下一交易日开盘成交、各类别冠军等权为约束，产物包含策略指纹、池版本、调仓日、费用和数据范围。评分与回测均为研究用途，不构成投资建议；历史结果不代表未来收益，海外 QDII ETF 还可能存在时差、溢价与申赎限制。

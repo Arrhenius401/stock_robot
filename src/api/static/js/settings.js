@@ -105,21 +105,27 @@ function displaySecret(path) {
   if (!state) return;
   const value = revealedSecrets.get(path);
   const visible = value !== undefined;
-  state.value.textContent = visible ? value : (state.masked || "未配置");
+  state.input.type = visible ? "text" : "password";
+  state.input.placeholder = visible ? "" : (state.masked || "未配置");
   state.button.setAttribute("aria-label", visible ? "隐藏完整密钥" : "显示完整密钥");
   state.button.innerHTML = visible
     ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 10.7a3 3 0 0 0 4.2 4.2M9.9 4.2A10.8 10.8 0 0 1 12 4c5.5 0 9.5 4.5 10 8-.2 1.3-1 3-2.3 4.4M6.2 6.2C3.9 7.8 2.4 10.2 2 12c.5 3.5 4.5 8 10 8 1.2 0 2.3-.2 3.3-.6"/></svg>'
     : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
 }
 
-function invalidateSecret(path) {
+function invalidateSecret(path, clearRevealedInput = false) {
+  const state = secretDisplays.get(path);
+  if (clearRevealedInput && state && state.input.value === state.revealedValue) {
+    state.input.value = "";
+  }
+  if (state) state.revealedValue = undefined;
   revealedSecrets.delete(path);
   revealGenerations.set(path, (revealGenerations.get(path) || 0) + 1);
   displaySecret(path);
 }
 
 function hideAllSecrets() {
-  for (const path of secretPaths) invalidateSecret(path);
+  for (const path of secretPaths) invalidateSecret(path, true);
 }
 
 function isCurrentSettingsView(state) {
@@ -150,6 +156,7 @@ function addLabeledField(container, field, value) {
     const next = field.type === "checkbox" ? Boolean(input.checked) : input.value;
     if (next === originals.get(field.path)) changed.delete(field.path);
     else changed.add(field.path);
+    refreshDirtyBar();
   };
   input.addEventListener("input", markChanged);
   input.addEventListener("change", markChanged);
@@ -174,6 +181,7 @@ function addSelectField(container, field, value) {
   const markChanged = () => {
     if (select.value === originals.get(field.path)) changed.delete(field.path);
     else changed.add(field.path);
+    refreshDirtyBar();
   };
   select.addEventListener("input", markChanged);
   select.addEventListener("change", markChanged);
@@ -189,26 +197,30 @@ function addSecretField(container, field, secret) {
   label.id = `${inputId(field.path)}-label`;
   row.appendChild(label);
   const control = el("div", "settings-control settings-secret-control");
-  const current = el("span", "settings-secret-value", secret.masked || "未配置");
   const toggle = el("button", "settings-secret-toggle");
   toggle.type = "button";
-  const replacement = document.createElement("input");
-  replacement.id = inputId(field.path);
-  replacement.type = "password";
-  replacement.placeholder = "输入新值以覆盖";
-  replacement.autocomplete = "new-password";
-  replacement.setAttribute("aria-labelledby", label.id);
+  const input = document.createElement("input");
+  input.id = inputId(field.path);
+  input.type = "password";
+  input.autocomplete = "new-password";
+  input.setAttribute("aria-labelledby", label.id);
   originals.set(field.path, "");
-  const state = { path: field.path, value: current, button: toggle, masked: secret.masked || "" };
+  const state = {
+    path: field.path,
+    input,
+    button: toggle,
+    masked: secret.masked || "",
+    revealedValue: undefined,
+  };
   secretDisplays.set(field.path, state);
   displaySecret(field.path);
   toggle.addEventListener("click", async () => {
     if (revealedSecrets.has(field.path)) {
-      invalidateSecret(field.path);
+      invalidateSecret(field.path, true);
       return;
     }
     if (pendingReveals.has(field.path)) {
-      invalidateSecret(field.path);
+      invalidateSecret(field.path, true);
       return;
     }
     const generation = revealGenerations.get(field.path) || 0;
@@ -221,6 +233,8 @@ function addSecretField(container, field, secret) {
           || revealGenerations.get(field.path) !== generation
           || !isCurrentSettingsView(state)) return;
       revealedSecrets.set(field.path, response.value);
+      state.revealedValue = response.value;
+      input.value = response.value;
       displaySecret(field.path);
     } catch (error) {
       if (pendingReveals.get(field.path) === request
@@ -233,14 +247,14 @@ function addSecretField(container, field, secret) {
       if (secretDisplays.get(field.path) === state) toggle.disabled = false;
     }
   });
-  replacement.addEventListener("input", () => {
+  input.addEventListener("input", () => {
     invalidateSecret(field.path);
-    if (replacement.value && replacement.value !== secret.masked) changed.add(field.path);
+    if (input.value && input.value !== secret.masked) changed.add(field.path);
     else changed.delete(field.path);
+    refreshDirtyBar();
   });
-  control.appendChild(current);
+  control.appendChild(input);
   control.appendChild(toggle);
-  control.appendChild(replacement);
   row.appendChild(control);
   container.appendChild(row);
 }
@@ -286,6 +300,21 @@ function clearMessage() {
   }
 }
 
+function refreshDirtyBar() {
+  const bar = document.getElementById("settingsDirtyBar");
+  if (!bar) return;
+  const count = changed.size;
+  bar.hidden = count === 0;
+  bar.querySelector("[data-role=message]").textContent = `有 ${count} 项配置尚未保存`;
+}
+
+function restoreSaveButton() {
+  const saveBtn = document.getElementById("settingsSaveBtn");
+  if (!saveBtn) return;
+  saveBtn.disabled = false;
+  saveBtn.textContent = "保存并应用";
+}
+
 function collectUpdate() {
   const update = {};
   for (const path of changed) {
@@ -304,22 +333,44 @@ function collectUpdate() {
 }
 
 async function saveSettings() {
+  const saveBtn = document.getElementById("settingsSaveBtn");
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = "正在保存…";
+  }
   clearMessage();
   const update = collectUpdate();
   if (!Object.keys(update).length) {
+    restoreSaveButton();
     showMessage("没有需要保存的更改", "info");
     return;
   }
   try {
     const result = await api.updateConfig(update);
-    const payload = await api.getConfig();
-    renderSettings(payload);
-    showMessage(
-      result.restart_required
-        ? "服务地址或端口已保存，重启 stock-robot run 后生效"
-        : "配置已保存",
-    );
+    if (result.applied) {
+      // 热更新已应用：重新读取并重绘，草稿已落盘；同时含监听字段时附加重启提示
+      const payload = await api.getConfig();
+      renderSettings(payload);
+      showMessage(
+        result.restart_required
+          ? "配置已保存并应用；监听地址或端口在重启 stock-robot run 后生效"
+          : "配置已保存并应用",
+        "success",
+      );
+    } else if (result.restart_required && !result.reload_error) {
+      // 仅监听地址/端口变更：已落盘，重启后生效
+      const payload = await api.getConfig();
+      renderSettings(payload);
+      showMessage("配置已保存；监听地址或端口在重启 stock-robot run 后生效", "success");
+    } else {
+      // 已落盘但热更新未应用（含监听字段与热字段混合提交失败）：保留草稿，展示可读错误
+      restoreSaveButton();
+      const restartNote = result.restart_required ? "监听地址或端口已保存，重启后生效；" : "";
+      showMessage(restartNote + (result.reload_error || "配置已保存但运行时应用失败"), "error");
+    }
   } catch (error) {
+    // 网络/422 校验失败：保留草稿与输入，仅展示错误
+    restoreSaveButton();
     showMessage(error.message, "error");
   }
 }
@@ -336,19 +387,25 @@ export function renderSettings(payload) {
   paths.appendChild(el("div", "settings-path", `项目状态目录：${payload.paths.state_dir}`));
   paths.appendChild(el("div", "settings-path", `配置文件：${payload.paths.config_file}`));
   box.appendChild(paths);
+  const dirtyBar = el("div", "settings-dirty-bar");
+  dirtyBar.id = "settingsDirtyBar";
+  dirtyBar.hidden = true;
+  const dirtyMessage = el("span", "settings-dirty-message", "有 0 项配置尚未保存");
+  dirtyMessage.setAttribute("role", "status");
+  dirtyMessage.dataset.role = "message";
+  const save = el("button", "settings-save", "保存并应用");
+  save.id = "settingsSaveBtn";
+  save.type = "button";
+  save.addEventListener("click", saveSettings);
+  dirtyBar.appendChild(dirtyMessage);
+  dirtyBar.appendChild(save);
+  box.appendChild(dirtyBar);
   const message = el("div", "settings-message");
   message.id = "settingsMessage";
   message.setAttribute("role", "status");
   message.hidden = true;
   box.appendChild(message);
   for (const section of SECTIONS) addSection(box, section, payload.config);
-  const actions = el("div", "settings-actions");
-  const save = el("button", "settings-save", "保存配置");
-  save.id = "settingsSaveBtn";
-  save.type = "button";
-  save.addEventListener("click", saveSettings);
-  actions.appendChild(save);
-  box.appendChild(actions);
 }
 
 async function loadSettings() {

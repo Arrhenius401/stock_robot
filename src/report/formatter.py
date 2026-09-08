@@ -2,6 +2,7 @@
 import re
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 from rich.console import Group
 from rich.markdown import Markdown
@@ -16,6 +17,7 @@ METRIC_DISPLAY_NAMES = {
     "total_assets": "总资产",
     "total_equity": "股东权益",
     "operating_cash_flow": "经营活动现金流",
+    "operating_cash_flow_per_share": "每股经营现金流",
     "revenue_growth_yoy": "营收同比增长",
     "profit_growth_yoy": "净利润同比增长",
     "roe": "ROE",
@@ -38,6 +40,13 @@ METRIC_DISPLAY_NAMES = {
     "sample_end": "样本结束日期",
     "industry": "所属行业",
     "sector": "所属板块",
+    "peer_scope": "同业口径",
+    "peer_industry": "可比行业",
+    "peer_count": "有效同行数（不含本公司）",
+    "industry_median_pe": "行业 PE(TTM) 中位数",
+    "industry_median_pb": "行业 PB 中位数",
+    "target_pe_premium": "相对行业 PE 溢价",
+    "target_market_cap_rank": "行业市值排名",
     "headline_count": "新闻数量",
     "date": "数据日期",
     "north_bound": "北向资金净流入",
@@ -88,12 +97,13 @@ def _parse_table(lines: list[str]) -> Table:
 
 class ReportFormatter:
     @staticmethod
-    def save(report: str, symbol: str, output_dir: Path | None = None) -> Path:
+    def save(report: str, symbol: str, output_dir: Path | None = None,
+             category: Literal["stock", "index"] = "stock") -> Path:
         if output_dir is None:
             output_dir = Path.cwd() / "reports"
         output_dir = Path(output_dir)
         generated_at = datetime.now().astimezone()
-        report_dir = output_dir / symbol / generated_at.strftime("%Y-%m")
+        report_dir = output_dir / category / symbol / generated_at.strftime("%Y-%m")
         report_dir.mkdir(parents=True, exist_ok=True)
         filename = f"{symbol}_{generated_at.strftime('%Y%m%d_%H%M%S')}.md"
         filepath = report_dir / filename

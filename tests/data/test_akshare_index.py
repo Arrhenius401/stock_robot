@@ -68,3 +68,75 @@ def test_fetch_index_price_uses_pct_column(mocker):
     assert len(results) == 2
     assert results[0].change_pct == pytest.approx(1.2)
     assert results[1].change_pct == pytest.approx(1.0)
+
+
+def test_fetch_index_price_sector_accepts_chinese_columns(mocker):
+    """申万行业指数接口返回中文列名时，应正常解析而不是整批跳过"""
+
+    def _mock_sw(symbol):
+        return pd.DataFrame([
+            {"日期": "2026-07-01", "开盘": "3000.0", "最高": "3050.0",
+             "最低": "2990.0", "收盘": "3000.0", "成交量": 100000,
+             "成交额": 5.0e8, "涨跌幅": "1.20"},
+            {"日期": "2026-07-02", "开盘": "3010.0", "最高": "3060.0",
+             "最低": "3000.0", "收盘": "3030.0", "成交量": 110000,
+             "成交额": 5.5e8, "涨跌幅": "1.00"},
+        ])
+
+    sw = mocker.patch("akshare.index_hist_sw", side_effect=_mock_sw)
+    adapter = AkShareAdapter()
+    results = adapter.fetch("801010", data_type="index_price", index_style="sector")
+
+    sw.assert_called_once_with(symbol="801010")
+    assert len(results) == 2
+    assert results[0].symbol == "801010"
+    assert results[0].close == pytest.approx(3000.0)
+    assert results[0].turnover == pytest.approx(5.0)
+    assert results[1].change_pct == pytest.approx(1.0)
+
+
+def test_fetch_overseas_index_falls_back_to_sina_hk(mocker):
+    """东财全球指数接口失败时回退新浪港股日线源（HSI 走 stock_hk_index_daily_sina）"""
+
+    def _mock_sina(symbol):
+        return pd.DataFrame([
+            {"date": "2026-07-01", "open": 25000.0, "high": 25200.0,
+             "low": 24900.0, "close": 25100.0, "volume": 1000},
+            {"date": "2026-07-02", "open": 25100.0, "high": 25300.0,
+             "low": 25000.0, "close": 25200.0, "volume": 1200},
+        ])
+
+    mocker.patch("akshare.index_global_hist_em", side_effect=ConnectionError("东财失效"))
+    sina = mocker.patch("akshare.stock_hk_index_daily_sina", side_effect=_mock_sina)
+    adapter = AkShareAdapter()
+    results = adapter.fetch("HSI", data_type="index_price", index_style="overseas")
+    sina.assert_called_once_with(symbol="HSI")
+    assert len(results) == 2
+    assert results[0].close == pytest.approx(25100.0)
+    assert results[1].change_pct == pytest.approx(0.4)
+
+
+def test_fetch_overseas_index_falls_back_to_sina_us(mocker):
+    """东财主源返回空时回退新浪美股日线源（SPX 映射 .INX）"""
+
+    def _mock_us(symbol):
+        return pd.DataFrame([
+            {"date": "2026-07-01", "open": 5000.0, "high": 5050.0,
+             "low": 4980.0, "close": 5020.0, "volume": 1000},
+        ])
+
+    mocker.patch("akshare.index_global_hist_em", return_value=pd.DataFrame())
+    us = mocker.patch("akshare.index_us_stock_sina", side_effect=_mock_us)
+    adapter = AkShareAdapter()
+    results = adapter.fetch("SPX", data_type="index_price", index_style="overseas")
+    us.assert_called_once_with(symbol=".INX")
+    assert len(results) == 1
+    assert results[0].close == pytest.approx(5020.0)
+
+
+def test_fetch_overseas_index_unknown_symbol_returns_empty(mocker):
+    """无新浪映射的海外符号且东财失败时返回空列表而非崩溃"""
+    mocker.patch("akshare.index_global_hist_em", side_effect=ConnectionError("东财失效"))
+    adapter = AkShareAdapter()
+    results = adapter.fetch("UNKNOWN_INDEX", data_type="index_price", index_style="overseas")
+    assert results == []

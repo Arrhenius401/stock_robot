@@ -34,6 +34,14 @@ class TestCacheManager:
         time.sleep(0.1)
         assert cache.get("price", "000001", "2026-07-01") is None
 
+    def test_get_stale_ignores_ttl(self, tmp_path):
+        """短时效数据源失败时可读取过期缓存作为降级兜底"""
+        cache = CacheManager(db_path=tmp_path / "cache.db")
+        cache.put("news", "000001", "latest", '{"headlines": ["旧新闻"]}', ttl_seconds=0)
+        time.sleep(0.1)
+
+        assert cache.get_stale("news", "000001", "latest") is not None
+
     def test_invalidate_removes_entry(self, tmp_path):
         cache = CacheManager(db_path=tmp_path / "cache.db")
         cache.put("price", "000001", "2026-07-01", '{"test": true}')
@@ -49,6 +57,16 @@ class TestCacheManager:
         assert cache.get("price", "000001", "2026-07-01") is None
         assert cache.get("price", "000001", "2026-07-02") is None
         assert cache.get("price", "000002", "2026-07-01") is not None
+
+    def test_invalidate_by_data_type(self, tmp_path):
+        cache = CacheManager(db_path=tmp_path / "cache.db")
+        cache.put("financial", "000001", "latest", '{"a": 1}')
+        cache.put("financial", "000002", "latest", '{"a": 2}')
+        cache.put("price", "000001", "latest", '{"a": 3}')
+
+        assert cache.invalidate_data_type("financial") == 2
+        assert cache.get("financial", "000001", "latest") is None
+        assert cache.get("price", "000001", "latest") is not None
 
     def test_clear_all(self, tmp_path):
         cache = CacheManager(db_path=tmp_path / "cache.db")

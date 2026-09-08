@@ -34,10 +34,9 @@ PLANNER_SYSTEM_PROMPT = """你是一个股票投研任务规划器。你的职�
 2. 每步只描述"做什么"，不指定"用哪个工具"（工具选择由执行器负责）
 3. 标注步骤间的依赖关系
 4. 复杂问题步骤数不超过5步，简单问题1步
-5. mode 判断：结构化分析（明确指定股票代码/指数，如"分析一下 600519"）→ plan；
-   探索式/对比/开放问题（如"茅台和宁德时代哪个更值得关注""新能源板块最近有什么机会"）
-   → agent；仅当与投资研究完全无关（问候、道谢、闲聊、非金融话题）→ chat。
-   plan 模式 steps 为执行步骤；agent 与 chat 模式 steps 必须为空数组。
+5. mode 判断：所有投资研究问题（结构化分析、探索式/对比、简单查询）→ agent；
+   仅当与投资研究完全无关（问候、道谢、闲聊、非金融话题）→ chat。
+   plan 模式为内部保留（复杂多步骤工具编排场景），agent 与 chat 模式 steps 必须为空数组。
 
 ## 可用能力概览
 {capabilities}
@@ -76,11 +75,10 @@ class Planner:
             return Plan(goal=user_input.strip(), steps=[], mode="chat",
                         context_summary="闲聊，普通会话")
 
-        # 硬编码前缀拦截 —— 简单查询直接单步
+        # 硬编码前缀拦截 —— 简单查询免 LLM 规划，直接 agent 自主执行（产出正文）
         if self._is_simple_query(user_input):
-            step = TaskStep(id="step-1", description=user_input.strip())
-            return Plan(goal=user_input.strip(), steps=[step],
-                       context_summary="简单查询，单步执行")
+            return Plan(goal=user_input.strip(), steps=[], mode="agent",
+                        context_summary="简单查询，agent 自主执行")
 
         # 构建上下文摘要
         context_summary = ""
@@ -187,9 +185,10 @@ class Planner:
         return Plan(goal=data.get("goal", fallback_goal), steps=steps)
 
     def _fallback_plan(self, goal: str, context_summary: str) -> Plan:
-        """降级方案：将整个用户意图作为单步"""
+        """降级方案：agent 自主循环兜底（模型自主决定工具调用并产出正文）"""
         return Plan(
             goal=goal,
-            steps=[TaskStep(id="step-1", description=goal.strip())],
+            steps=[],
+            mode="agent",
             context_summary=context_summary,
         )

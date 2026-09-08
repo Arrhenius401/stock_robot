@@ -74,3 +74,15 @@ class TestBuildLLM:
         mocker.patch("llm.openai.OpenAIAdapter", side_effect=Exception("初始化失败"))
         config.set("llm.api_key", "sk-test")
         assert build_llm(config) is None
+
+    def test_strict_init_failure_raises_runtime_error(self, config, mocker):
+        mocker.patch("llm.openai.OpenAIAdapter", side_effect=Exception("初始化失败"))
+        config.set("llm.api_key", "sk-test")
+        with pytest.raises(RuntimeError, match="LLM 后端初始化失败"):
+            build_llm(config, strict=True)
+
+    def test_strict_agent_core_propagates_llm_initialization_failure(self, config, mocker):
+        mocker.patch("llm.openai.OpenAIAdapter", side_effect=Exception("初始化失败"))
+        config.set("llm.api_key", "sk-test")
+        with pytest.raises(RuntimeError, match="LLM 后端初始化失败"):
+            build_agent_core(config, strict_llm=True)

@@ -44,6 +44,17 @@ class TestAkShareAdapter:
         results = adapter.fetch("000001", data_type="price")
         assert results == []
 
+    def test_fetch_price_returns_empty_when_all_sources_fail(self, mocker):
+        """两条行情源均失败时稳定返回空列表，不触发未初始化变量异常"""
+        mocker.patch("utils.retry.time.sleep")
+        mocker.patch("akshare.stock_zh_a_daily", side_effect=ConnectionError("腾讯失败"))
+        mocker.patch("akshare.stock_zh_a_hist", side_effect=ConnectionError("东财失败"))
+
+        adapter = AkShareAdapter()
+        results = adapter.fetch("000001", data_type="price")
+
+        assert results == []
+
 
 def test_fetch_financial_parses_chinese_units(mocker):
     def _mock(symbol):
@@ -54,6 +65,7 @@ def test_fetch_financial_parses_chinese_units(mocker):
             "扣非净利润": ["7000万", "1.95亿"],
             "净资产收益率": ["12.5", "11.8"],
             "销售净利率": ["15.2", "14.8"],
+            "销售毛利率": ["25.2", "24.8"],
             "每股经营现金流": ["1.2", "-0.35"],
         })
     mocker.patch("akshare.stock_financial_abstract_ths", side_effect=_mock)
@@ -70,8 +82,25 @@ def test_fetch_financial_parses_chinese_units(mocker):
     assert results[0].deducted_net_profit == pytest.approx(7.0e7)
     assert results[0].total_assets is None  # 此 API 不提供资产总计
     assert results[0].roe == pytest.approx(0.125)  # 12.5% → 0.125
-    assert results[0].gross_margin == pytest.approx(0.152)  # 15.2% → 0.152（销售净利率）
-    assert results[1].operating_cash_flow == pytest.approx(-0.35)  # 每股经营现金流
+    assert results[0].gross_margin == pytest.approx(0.252)
+    assert results[1].operating_cash_flow is None
+    assert results[1].operating_cash_flow_per_share == pytest.approx(-0.35)
+
+
+def test_fetch_financial_normalizes_negative_percentage_and_uses_gross_margin(mocker):
+    mocker.patch("akshare.stock_financial_abstract_ths", return_value=pd.DataFrame({
+        "报告期": ["2026-06-30"], "营业总收入": ["594.10亿"], "净利润": ["-60.78亿"],
+        "扣非净利润": ["-58.95亿"], "基本每股收益": ["-1.10"],
+        "净资产收益率": ["-1.00%"], "销售净利率": ["-10.24%"],
+        "销售毛利率": ["-1.58%"], "每股经营现金流": ["-0.39"],
+    }))
+    mocker.patch("akshare.stock_financial_debt_new_ths", return_value=pd.DataFrame())
+    mocker.patch("akshare.stock_financial_debt_ths", return_value=pd.DataFrame())
+    result = AkShareAdapter().fetch("002714", data_type="financial")[0]
+    assert result.roe == pytest.approx(-0.01)
+    assert result.gross_margin == pytest.approx(-0.0158)
+    assert result.operating_cash_flow is None
+    assert result.operating_cash_flow_per_share == pytest.approx(-0.39)
 
 
 def test_fetch_financial_unparseable_becomes_none(mocker):
@@ -185,6 +214,47 @@ def test_fetch_price_computes_change_pct_without_column(mocker):
     assert results[-1].change_pct == pytest.approx(5.0)  # (10.5-10.0)/10.0*100
 
 
+def test_fetch_price_uses_explicit_dates(mocker):
+    """回测场景：显式传入的起止日期必须原样传给数据源"""
+
+    captured: dict[str, str] = {}
+    dates = pd.date_range("2022-01-04", periods=60, freq="B").strftime("%Y-%m-%d").tolist()
+    rows = [
+        {"日期": d, "开盘": "10.0", "最高": "10.6", "最低": "9.8",
+         "收盘": "10.0", "成交量": 1000}
+        for d in dates
+    ]
+
+    def _mock_hist(symbol, period, start_date, end_date, adjust):
+        captured["start_date"] = start_date
+        captured["end_date"] = end_date
+        return pd.DataFrame(rows)
+
+    mocker.patch("akshare.stock_zh_a_hist", side_effect=_mock_hist)
+    # 根 conftest 将腾讯源 patch 成 ConnectionError，会触发重试退避，屏蔽真实 sleep
+    mocker.patch("utils.retry.time.sleep")
+    adapter = AkShareAdapter()
+    results = adapter.fetch("000001", data_type="price", start_date="20220101", end_date="20221231")
+    assert len(results) == 60
+    assert captured["start_date"] == "20220101"
+    assert captured["end_date"] == "20221231"
+
+
+def test_fetch_csindex_passes_dates(mocker):
+    """中证指数公司日线入口透传 symbol 与起止日期"""
+
+    captured: dict[str, str] = {}
+
+    def _mock_csindex(symbol, start_date, end_date):
+        captured.update(symbol=symbol, start_date=start_date, end_date=end_date)
+        return pd.DataFrame({"日期": [], "收盘": []})
+
+    mocker.patch("akshare.stock_zh_index_hist_csindex", side_effect=_mock_csindex)
+    from data.akshare import _ak_csindex
+    _ak_csindex("H11025", "20220101", "20221231")
+    assert captured == {"symbol": "H11025", "start_date": "20220101", "end_date": "20221231"}
+
+
 def test_fetch_valuation_from_tencent_quote(mocker):
     """估值优先腾讯快照（在线，已验证稳定）"""
     # 构造腾讯快照返回：88 个 ~ 分隔字段，[3]=现价 [39]=PE(TTM) [46]=PB
@@ -210,7 +280,8 @@ def test_fetch_industry_uses_eastmoney_info(mocker):
     import pandas as pd
     info_df = pd.DataFrame({"item": ["行业", "总股本"], "value": ["银行", "194.05亿"]})
     mocker.patch("data.akshare._ak_individual_info_em", return_value=info_df)
-    mocker.patch("data.akshare._fetch_sw_peers", return_value=[])
+    mocker.patch("data.industry_mapping_builder.backfill_verified_symbol")
+    mocker.patch("data.akshare._fetch_sw_peers", return_value=([], ""))
     mocker.patch("data.akshare._ak_board_industry_cons_em", return_value=pd.DataFrame())
     from data.akshare import AkShareAdapter
     results = AkShareAdapter()._fetch_industry("000001")
@@ -223,11 +294,84 @@ def test_fetch_industry_falls_back_to_local_mapping(mocker):
                  side_effect=ConnectionError("mock"))
     fake = type("Fake", (), {"lookup": lambda self, s: type("R", (), {"sw_level1": "银行"})()})()
     mocker.patch("data.industry_classifier.IndustryClassifier", return_value=fake)
-    mocker.patch("data.akshare._fetch_sw_peers", return_value=[])
+    mocker.patch("data.akshare._fetch_sw_peers", return_value=([], ""))
     mocker.patch("data.akshare._ak_board_industry_cons_em", return_value=pd.DataFrame())
     from data.akshare import AkShareAdapter
     results = AkShareAdapter()._fetch_industry("000001")
     assert results[0].industry == "银行"
+
+
+def test_fetch_sw_peers_prefers_exact_level2(mocker):
+    """同行池直接请求申万二级代码，不再按模糊名称遍历三级行业。"""
+    from data.akshare import _fetch_sw_peers
+
+    mocker.patch(
+        "data.industry_mapping_builder.fetch_taxonomy_codes",
+        return_value=({"农林牧渔": "801010.SI"}, {"养殖业": "801017.SI"}),
+    )
+    fetch = mocker.patch(
+        "data.industry_mapping_builder.fetch_constituents",
+        return_value=[{
+            "symbol": "002714", "name": "牧原股份", "market_cap": 2000.0,
+            "pe_ttm": 10.0, "pb": 2.0,
+        }],
+    )
+
+    peers, scope = _fetch_sw_peers("养殖业", "农林牧渔")
+
+    assert scope == "申万二级"
+    assert fetch.call_args.args == ("801017.SI",)
+    assert peers == [{
+        "symbol": "002714", "name": "牧原股份", "market_cap": 2000e8,
+        "pe_ttm": 10.0, "pb": 2.0,
+    }]
+
+
+def test_fetch_sw_peers_falls_back_to_level1_once(mocker):
+    """二级成分股为空时仅请求一次申万一级，不扇出三级行业请求。"""
+    from data.akshare import _fetch_sw_peers
+
+    mocker.patch(
+        "data.industry_mapping_builder.fetch_taxonomy_codes",
+        return_value=({"农林牧渔": "801010.SI"}, {"养殖业": "801017.SI"}),
+    )
+    fetch = mocker.patch(
+        "data.industry_mapping_builder.fetch_constituents",
+        side_effect=[[], [{
+            "symbol": "000998", "name": "隆平高科", "market_cap": 100.0,
+            "pe_ttm": 20.0, "pb": 3.0,
+        }]],
+    )
+
+    peers, scope = _fetch_sw_peers("养殖业", "农林牧渔")
+
+    assert scope == "申万一级"
+    assert [call.args for call in fetch.call_args_list] == [("801017.SI",), ("801010.SI",)]
+    assert peers[0]["symbol"] == "000998"
+
+
+def test_fetch_industry_excludes_target_from_comparable_peers(mocker):
+    """目标公司保留行业市值排名，但不能成为自身的同行样本或前五展示项。"""
+    peers = [
+        {"symbol": "002714", "name": "牧原股份", "market_cap": 2000e8, "pe_ttm": 10.0, "pb": 2.0},
+        {"symbol": "002157", "name": "正邦科技", "market_cap": 500e8, "pe_ttm": 12.0, "pb": 1.5},
+    ]
+    mocker.patch("data.akshare._fetch_sw_peers", return_value=(peers, "申万二级"))
+    backfill = mocker.patch("data.industry_mapping_builder.backfill_peer_pool", return_value=2)
+    from data.akshare import AkShareAdapter
+
+    result = AkShareAdapter()._fetch_industry(
+        "002714", sw_level1="农林牧渔", sw_level2="养殖业",
+    )[0]
+
+    assert result.industry == "养殖业"
+    assert result.sector == "农林牧渔"
+    assert result.peer_scope == "申万二级"
+    assert result.peer_industry == "养殖业"
+    assert result.peers == ["002157"]
+    assert [peer.symbol for peer in result.top_peers] == ["002157"]
+    assert result._target_rank == 1
+    backfill.assert_called_once_with(["002714", "002157"], "农林牧渔", "养殖业")
 
 
 def test_fetch_financial_fills_basic_eps(mocker):
@@ -377,6 +521,7 @@ def test_fetch_news_uses_individual_notice(mocker):
 
     results = AkShareAdapter()._fetch_news("000001")
     raw = results[0]._raw_sentiment
+    assert raw is not None
     sources = {item.source for item in raw.items}
     assert "news" in sources and "announcement" in sources
     assert any("职工董事" in item.title for item in raw.items)
@@ -397,6 +542,7 @@ def test_fetch_news_notice_fail_keeps_news(mocker):
 
     results = AkShareAdapter()._fetch_news("000001")
     raw = results[0]._raw_sentiment
+    assert raw is not None
     assert {item.source for item in raw.items} == {"news"}
 
 
@@ -404,12 +550,8 @@ class TestFetchSwPeers:
     def test_returns_peers(self, mocker):
         from data.akshare import _fetch_sw_peers
 
-        mocker.patch("data.industry_mapping_builder.fetch_taxonomy",
-                     return_value=(
-                         {"种植业": "农林牧渔"},
-                         {"850111.SI": ("种子", "种植业"),
-                          "850121.SI": ("海洋捕捞", "渔业")},
-                     ))
+        mocker.patch("data.industry_mapping_builder.fetch_taxonomy_codes",
+                     return_value=({"农林牧渔": "801010.SI"}, {"种植业": "801011.SI"}))
         mocker.patch("data.industry_mapping_builder.fetch_constituents",
                      return_value=[
                          {"symbol": "000998", "name": "隆平高科", "level2": "种植业",
@@ -417,8 +559,9 @@ class TestFetchSwPeers:
                          {"symbol": "600097", "name": "开创国际", "level2": "渔业",
                           "pe_ttm": None, "pb": None, "market_cap": None},
                      ])
-        peers = _fetch_sw_peers("种植业")
+        peers, scope = _fetch_sw_peers("种植业", "农林牧渔")
         assert len(peers) == 1  # 无市值的开创国际被过滤
+        assert scope == "申万二级"
         assert peers[0]["symbol"] == "000998"
         assert peers[0]["market_cap"] == pytest.approx(310.4e8)  # 亿元 → 元
         assert peers[0]["pe_ttm"] == 88.5
@@ -426,6 +569,6 @@ class TestFetchSwPeers:
     def test_no_match_returns_empty(self, mocker):
         from data.akshare import _fetch_sw_peers
 
-        mocker.patch("data.industry_mapping_builder.fetch_taxonomy",
-                     return_value=({"种植业": "农林牧渔"}, {}))
-        assert _fetch_sw_peers("量子计算") == []
+        mocker.patch("data.industry_mapping_builder.fetch_taxonomy_codes",
+                     return_value=({"农林牧渔": "801010.SI"}, {"种植业": "801011.SI"}))
+        assert _fetch_sw_peers("量子计算", "食品饮料") == ([], "")

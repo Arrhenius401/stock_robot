@@ -13,6 +13,7 @@ DIM_WEIGHT_LABELS = {"financial": "30%", "technical": "20%",
                      "valuation": "25%", "industry": "25%",
                      "sentiment": "不计分"}
 SUFFICIENCY_LABEL = {"ok": "充足", "partial": "部分可用", "unavailable": "数据不足"}
+LLM_UNAVAILABLE_PREFIXES = ("（LLM 分析暂时不可用", "LLM 分析暂时不可用", "AI 解读不可用")
 
 
 @dataclass
@@ -80,6 +81,54 @@ def compute_price_info(ctx: AnalysisContext) -> dict:
             "change_pct": change_pct}
 
 
+def _fallback_neutral_commentary(summary: ScoreSummary) -> str:
+    """LLM 不可用时的确定性中性解读，避免报告关键章节空白。"""
+    available = [row["label"] for row in summary.score_rows if row.get("score") != "N/A"]
+    missing = [row["label"] for row in summary.score_rows if row.get("score") == "N/A"]
+    available_text = "、".join(available) if available else "暂无"
+    missing_text = "、".join(missing) if missing else "无"
+
+    if summary.final_score >= 7:
+        tendency = "偏正面"
+    elif summary.final_score >= 4:
+        tendency = "中性"
+    elif summary.final_score > 0:
+        tendency = "偏谨慎"
+    else:
+        tendency = "信息不足"
+
+    lines = [
+        "> AI 解读当前不可用，以下为基于量化结果自动生成的中性摘要。",
+        "",
+        (
+            f"1. 综合数据表现{tendency}。当前可用维度：{available_text}；"
+            f"缺失或未计分维度：{missing_text}。最终综合得分为 {summary.final_score}/10。"
+        ),
+    ]
+    if summary.risk_deduction > 0:
+        lines.append(
+            f"2. 风险汇总：本次识别到 {len(summary.risk_flags)} 个风险标签，"
+            f"风险扣分 {summary.risk_deduction} 分，需优先核对风险标签对应的数据来源与口径。"
+        )
+    else:
+        lines.append("2. 风险汇总：本次未触发明确风险扣分，仍需结合数据时效性和接口完整性复核。")
+    lines.append("3. 多风格观察视角：该摘要不包含模型主观推演，仅用于在 AI 不可用时维持报告可读性。")
+    return "\n".join(lines)
+
+
+def with_commentary_fallback(
+    commentary: dict[str, str],
+    summary: ScoreSummary,
+    no_llm: bool,
+) -> dict[str, str]:
+    if no_llm:
+        return commentary
+    bulk = (commentary.get("bulk") or "").strip()
+    if bulk and not bulk.startswith(LLM_UNAVAILABLE_PREFIXES):
+        return commentary
+    return {**commentary, "bulk": _fallback_neutral_commentary(summary)}
+
+
 def build_report(symbol: str, name: str, results: list[AnalysisResult],
                  commentary: dict[str, str], ctx: AnalysisContext,
                  no_llm: bool = False, market_env: dict | None = None,
@@ -88,8 +137,15 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
     from report.builder import ReportBuilder
 
     summary = compute_score_summary(results)
+    commentary = with_commentary_fallback(commentary, summary, no_llm)
     price_info = compute_price_info(ctx)
-    industry = ctx.industry_data.industry if ctx.industry_data else "未知"
+    if ctx.sw_industry:
+        industry = ctx.sw_industry
+    elif (ctx.industry_data and ctx.industry_data.industry
+          and ctx.industry_data.industry != "未知"):
+        industry = f"{ctx.industry_data.industry}（东财口径，申万待补全）"
+    else:
+        industry = "申万行业待补全（数据源不可用）"
 
     signal = None
     if signal_cfg is not None:

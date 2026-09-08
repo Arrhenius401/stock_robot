@@ -2,6 +2,8 @@
 import asyncio
 import json
 import uuid
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -14,6 +16,7 @@ from api.app import (
     create_app,
 )
 from api.bootstrap import AgentCore
+from api.runtime import RuntimeManager
 from api.sessions import SessionManager, SessionStore
 from data.industry_mapping_builder import IndustryMappingError
 from tests.agent.fake_chat_model import FakeChatModel
@@ -187,14 +190,14 @@ class ChatModeLLM:
         }, ensure_ascii=False)
 
 
-def make_chat_core():
+def make_chat_core(model=None):
     from typing import Any, cast
     registry = ToolRegistry()
     registry.register(EchoTool())
     return AgentCore(registry=registry, pipeline=cast(Any, FakePipeline()),
                      index_pipeline=cast(Any, FakeIndexPipeline()),
                      llm=cast(Any, ChatModeLLM()),
-                     model=FakeChatModel(content="你好呀！有什么可以帮你？"))
+                     model=model or FakeChatModel(content="你好呀！有什么可以帮你？"))
 
 
 class TitleAwareModel:
@@ -303,6 +306,34 @@ def make_broken_core():
                      llm=cast(Any, FakeLLM()))
 
 
+def test_create_app_uses_runtime_as_the_only_initial_push_owner(tmp_path, monkeypatch):
+    """生产 core 注入应复用既有 core，且不得先创建传统推送调度器。"""
+    monkeypatch.chdir(tmp_path)
+    created: list[Any] = []
+
+    class RuntimeRecorder:
+        def __init__(self, config, *, core_factory):
+            self.initial_core = core_factory(config)
+            self._snapshot = SimpleNamespace(
+                push_store=object(), push_executor=object(), push_scheduler=object())
+            created.append(self)
+
+        def snapshot(self):
+            return self._snapshot
+
+    def fail_legacy_push(*_args, **_kwargs):
+        raise AssertionError("不应创建传统 PushExecutor")
+
+    monkeypatch.setattr("api.app.RuntimeManager", RuntimeRecorder)
+    monkeypatch.setattr("push.executor.PushExecutor", fail_legacy_push)
+    core = make_core()
+
+    create_app(core=core, sessions=object())
+
+    assert len(created) == 1
+    assert created[0].initial_core is core
+
+
 @pytest.fixture
 def app(tmp_path):
     store = SessionStore(tmp_path / "sessions.db")
@@ -340,6 +371,64 @@ class TestToolsEndpoint:
         tools = resp.json()["tools"]
         assert len(tools) == 1
         assert tools[0]["name"] == "echo"
+
+
+class TestRuntimeSnapshotEndpoints:
+    @pytest.mark.asyncio
+    async def test_analyze_uses_one_snapshot_and_next_request_uses_reloaded_core(
+            self, tmp_path, monkeypatch):
+        """运行中的请求固定旧 core，下一请求才读取热更新后的新 core。"""
+        from utils.config import Config
+
+        class LabeledPipeline:
+            def __init__(self, label):
+                self.label = label
+
+            def run(self, symbol, name, market="a-shares"):
+                results, _, context = FakePipeline().run(symbol, name, market)
+                return results, {"bulk": self.label}, context
+
+        def labeled_core(label):
+            from typing import Any, cast
+
+            template = make_core()
+            return AgentCore(
+                registry=template.registry,
+                pipeline=cast(Any, LabeledPipeline(label)),
+                index_pipeline=template.index_pipeline,
+                llm=template.llm,
+            )
+
+        class SnapshotRuntime(RuntimeManager):
+            def __init__(self, current):
+                self.current = current
+                self.calls = 0
+
+            def snapshot(self):
+                self.calls += 1
+                return self.current
+
+        monkeypatch.chdir(tmp_path)
+        config = Config()
+        old_core = labeled_core("旧快照")
+        new_core = labeled_core("新快照")
+        runtime = SnapshotRuntime(SimpleNamespace(core=old_core, config=config))
+        sessions = SessionManager(SessionStore(tmp_path / "snapshot_sessions.db"))
+        app_snapshot = create_app(
+            core=old_core, sessions=sessions, push=False, runtime=runtime)
+
+        monkeypatch.setattr("utils.symbols.resolve_name", lambda _symbol: "平安银行")
+        async with AsyncClient(transport=ASGITransport(app=app_snapshot),
+                               base_url="http://test") as client:
+            first = await client.post("/api/v1/analyze", json={"symbol": "000001"})
+            runtime.current = SimpleNamespace(core=new_core, config=config)
+            second = await client.post("/api/v1/analyze", json={"symbol": "000001"})
+
+        assert first.status_code == 200
+        assert first.json()["commentary"] == "旧快照"
+        assert second.status_code == 200
+        assert second.json()["commentary"] == "新快照"
+        assert runtime.calls == 2
 
 
 class TestChatEndpoint:
@@ -944,6 +1033,60 @@ class TestStreamEndpoint:
         assert "你好呀" in text
 
     @pytest.mark.asyncio
+    async def test_stream_chat_mode_emits_deepseek_reasoning(self, tmp_path):
+        """OpenAI 兼容的 reasoning_content 必须透传为 SSE thinking 事件。"""
+        model = FakeChatModel(responses=[SimpleNamespace(
+            content="这是正文。",
+            additional_kwargs={"reasoning_content": "正在核对数据。"},
+        )])
+        sessions = SessionManager(SessionStore(tmp_path / "s_reasoning.db"))
+        app_chat = create_app(core=make_chat_core(model), sessions=sessions, push=False)
+        transport = ASGITransport(app=app_chat)
+        async with (
+            AsyncClient(transport=transport, base_url="http://test") as client,
+            client.stream("POST", "/api/v1/chat/stream", json={"message": "你好"}) as resp,
+        ):
+            events = parse_sse_events((await resp.aread()).decode())
+
+        assert any(
+            event == {"type": "thinking", "content": "正在核对数据。"}
+            for event in events
+        )
+        assert any(
+            event.get("type") == "text"
+            and event.get("thinking") == "正在核对数据。"
+            and event.get("content") == "这是正文。"
+            for event in events
+        )
+
+    @pytest.mark.asyncio
+    async def test_stream_chat_mode_joins_reasoning_deltas_without_blank_lines(
+            self, tmp_path):
+        class ReasoningDeltaModel:
+            async def astream(self, _messages):
+                yield SimpleNamespace(
+                    content="", additional_kwargs={"reasoning_content": "正"})
+                yield SimpleNamespace(
+                    content="", additional_kwargs={"reasoning_content": "在"})
+                yield SimpleNamespace(content="正文", additional_kwargs={})
+
+            async def ainvoke(self, _messages):
+                return SimpleNamespace(content="标题")
+
+        sessions = SessionManager(SessionStore(tmp_path / "reasoning_delta.db"))
+        app_chat = create_app(
+            core=make_chat_core(ReasoningDeltaModel()), sessions=sessions, push=False)
+        transport = ASGITransport(app=app_chat)
+        async with (
+            AsyncClient(transport=transport, base_url="http://test") as client,
+            client.stream("POST", "/api/v1/chat/stream", json={"message": "你好"}) as resp,
+        ):
+            events = parse_sse_events((await resp.aread()).decode())
+
+        final_text = next(event for event in events if event["type"] == "text")
+        assert final_text["thinking"] == "正在"
+
+    @pytest.mark.asyncio
     async def test_stream_agent_mode_emits_tool_events(self, tmp_path):
         sessions = SessionManager(SessionStore(tmp_path / "s_agent2.db"))
         app_agent = create_app(core=make_agent_core(), sessions=sessions, push=False)
@@ -1013,6 +1156,14 @@ class TestStreamEndpoint:
         assert '"type": "error"' not in text
         # 降级后无工具匹配（"对比茅台和宁德时代" 与 echo 描述无关键词交集）→ 0/1 步完成
         assert "完成: 0/1 步骤" in text
+        session_id = next(event["session_id"] for event in parse_sse_events(text)
+                           if event.get("type") == "plan")
+        messages = sessions.get_messages(session_id)
+        assistant = [item for item in messages or []
+                     if item["role"] == "assistant"]
+        assert assistant
+        assert assistant[-1]["content"]
+        assert "思考中..." in assistant[-1]["content"]
 
     @pytest.mark.asyncio
     async def test_stream_agent_fallback_emits_every_report_artifact(
@@ -1062,6 +1213,41 @@ class TestAnalyzeEndpoint:
         assert data["commentary"] == "AI 解读"
         assert "change_pct" in data["overview"]
         assert data["overview"]["change_pct"] is None  # FakePipeline 无价格数据
+
+    @pytest.mark.asyncio
+    async def test_analyze_adds_commentary_fallback_when_llm_empty(self, tmp_path, mocker):
+        """API 分析路径也应在 LLM 空输出时返回量化兜底摘要"""
+        mocker.patch("utils.symbols.resolve_name", return_value="平安银行")
+
+        class EmptyCommentaryPipeline:
+            def run(self, symbol, name, market="a-shares"):
+                from data.schemas import AnalysisContext, AnalysisResult
+                results = [AnalysisResult(
+                    dimension="financial", status="ok", summary="财务健康",
+                    score=8.0, score_detail="财务稳健",
+                )]
+                return results, {"bulk": ""}, AnalysisContext(
+                    symbol=symbol, name=name, market=market,
+                )
+
+        from typing import cast
+        core = AgentCore(
+            registry=make_core().registry,
+            pipeline=cast(Any, EmptyCommentaryPipeline()),
+            index_pipeline=cast(Any, FakeIndexPipeline()),
+            llm=cast(Any, FakeLLM()),
+        )
+        sessions = SessionManager(SessionStore(tmp_path / "sessions_analyze_fb.db"))
+        app_fb = create_app(core=core, sessions=sessions, push=False)
+        async with AsyncClient(
+            transport=ASGITransport(app=app_fb), base_url="http://test",
+        ) as c:
+            resp = await c.post("/api/v1/analyze", json={"symbol": "000001"})
+
+        assert resp.status_code == 200
+        commentary = resp.json()["commentary"]
+        assert "AI 解读当前不可用" in commentary
+        assert "最终综合得分为 8.0/10" in commentary
 
     @pytest.mark.asyncio
     async def test_analyze_invalid_symbol_returns_422(self, client):
@@ -1294,6 +1480,32 @@ class TestSessionsEndpoints:
         assert resp.json()["artifacts"] == []
 
     @pytest.mark.asyncio
+    async def test_get_messages_decodes_assistant_thinking_blocks(self, tmp_path):
+        sessions = SessionManager(SessionStore(tmp_path / "thinking_history.db"))
+        sid, memory = sessions.get_or_create(None, "hello")
+        message_id = memory.add_message(
+            "assistant",
+            "[{\"type\":\"thinking\",\"thinking\":\"先判断意图\","
+            "\"thinking_duration_seconds\":1.4},"
+            "{\"type\":\"text\",\"text\":\"你好，有什么可以帮你？\"}]",
+        )
+        app_history = create_app(core=make_core(), sessions=sessions, push=False)
+
+        async with AsyncClient(transport=ASGITransport(app=app_history),
+                               base_url="http://test") as c:
+            resp = await c.get(f"/api/v1/sessions/{sid}/messages")
+
+        assert resp.status_code == 200
+        assistant = next(
+            message for message in resp.json()["messages"]
+            if message["message_id"] == message_id
+        )
+        assert assistant["content"] == "你好，有什么可以帮你？"
+        assert assistant["thinking"] == "先判断意图"
+        assert assistant["thinking_duration_seconds"] == 1.4
+        assert "text" not in assistant
+
+    @pytest.mark.asyncio
     async def test_get_messages_returns_artifacts(self, tmp_path):
         sessions = SessionManager(SessionStore(tmp_path / "history_artifacts.db"))
         sid, _ = sessions.get_or_create(None, "分析 000001")
@@ -1420,10 +1632,12 @@ class TestIndustryMappingEndpoint:
         mocker.patch("data.industry_classifier.IndustryClassifier.lookup",
                      return_value=type("C", (), {"sw_level1": "农林牧渔",
                                                  "sw_level2": "渔业",
-                                                 "style_category": "必选消费"})())
+                                                 "style_category": "必选消费",
+                                                 "mapping_status": "verified"})())
         sessions = SessionManager(SessionStore(tmp_path / "lookup_sessions.db"))
         app = create_app(core=make_core(), sessions=sessions, push=False)
         client = TestClient(app)
         resp = client.get("/api/v1/industry-mapping/600097")
         assert resp.status_code == 200
         assert resp.json()["sw_level1"] == "农林牧渔"
+        assert resp.json()["mapping_status"] == "verified"
