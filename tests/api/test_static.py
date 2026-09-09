@@ -1877,6 +1877,19 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         _run_node(tmp_path, script)
 
     @pytest.mark.asyncio
+    async def test_radar_detail_preserves_navigation_and_curve_legend_contract(self, client):
+        """雷达详情的返回路由、基准切换与图例语义不得在重构时丢失。"""
+        response = await client.get("/js/radar.js")
+
+        assert response.status_code == 200
+        source = response.text
+        assert "history.pushState" in source
+        assert 'window.addEventListener("popstate"' in source
+        assert "benchmarkSwitch" in source
+        assert "标的净值" in source
+        assert "同池策略参考" in source
+
+    @pytest.mark.asyncio
     async def test_css_served(self, client):
         resp = await client.get("/css/app.css")
         assert resp.status_code == 200

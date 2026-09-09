@@ -152,4 +152,20 @@ export const api = {
   latestRadarBacktest(universeId) {
     return request(`/api/v1/radar/backtests/latest?universe_id=${encodeURIComponent(universeId)}`);
   },
+  radarBacktest(universeId, startDate, endDate) {
+    const params = new URLSearchParams({ universe_id: universeId, end_date: endDate });
+    if (startDate) params.set("start_date", startDate);
+    return request(`/api/v1/radar/backtests?${params}`);
+  },
+  radarInstrumentPerformance(universeId, symbol, startDate, endDate) {
+    const params = new URLSearchParams({ universe_id: universeId, symbol, end_date: endDate });
+    if (startDate) params.set("start_date", startDate);
+    return request(`/api/v1/radar/performance?${params}`);
+  },
+  startRadarBacktest(universeId, startDate, endDate) {
+    return request("/api/v1/radar/backtests", { method: "POST", body: JSON.stringify({ universe_id: universeId, start_date: startDate, end_date: endDate }) });
+  },
+  radarBacktestStatus(taskId) {
+    return request(`/api/v1/radar/backtests/tasks/${encodeURIComponent(taskId)}`);
+  },
 };

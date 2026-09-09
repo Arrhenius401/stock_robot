@@ -28,3 +28,14 @@ def test_radar_backtest_requires_existing_artifact():
     response = client.get("/api/v1/radar/backtests/latest", params={"universe_id": "missing_universe"})
 
     assert response.status_code == 404
+
+
+def test_radar_instrument_performance_rejects_missing_universe_without_upstream_request():
+    client = TestClient(create_app(core=None, push=False))
+
+    response = client.get(
+        "/api/v1/radar/performance",
+        params={"universe_id": "missing_universe", "symbol": "510500", "end_date": "2025-12-31"},
+    )
+
+    assert response.status_code == 404

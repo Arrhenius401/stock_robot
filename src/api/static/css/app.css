@@ -54,6 +54,7 @@ button { font-family: inherit; }
 .collapse-btn:hover { color: var(--text); }
 .sidebar.collapsed .new-session .txt { display: none; }
 .sidebar.collapsed .new-session { padding: 7px 0; }
+.sidebar.collapsed .sessions-empty { display: none; }
 
 .session-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
 .sessions-empty { color: var(--text-4); font-size: 11.5px; padding: 8px 10px; line-height: 1.6; }
@@ -106,9 +107,10 @@ button { font-family: inherit; }
 .radar-section th { color: var(--text-4); font-size: 11px; font-weight: 600; }
 .radar-section td { color: var(--text-2); }
 .radar-badge { display: inline-block; border-radius: 10px; padding: 2px 7px; font-size: 10px; font-weight: 600; }
-.radar-detail { position: fixed; top: 58px; right: 0; width: min(390px, 92vw); height: calc(100vh - 58px); overflow-y: auto; z-index: 30; padding: 22px; background: var(--panel); border-left: 1px solid var(--border); box-shadow: -12px 0 30px rgba(0,0,0,.25); }.radar-detail h3 { color: var(--text); margin: 14px 0 5px; }.radar-detail h4 { color: var(--text-3); margin: 20px 0 10px; font-size: 12px; }.radar-detail dl { display: grid; grid-template-columns: 1fr auto; gap: 9px; }.radar-detail dt { color: var(--text-3); }.radar-detail dd { color: var(--text); font-variant-numeric: tabular-nums; }.radar-detail-close { float: right; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2); color: var(--text-2); padding: 5px 9px; cursor: pointer; }
+.radar-detail-head { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }.radar-detail-head h2 { color: var(--text); font-size: 22px; }.radar-detail-head .radar-badge { margin-left: auto; }.radar-detail-back { width: 32px; height: 32px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: var(--text); font-size: 27px; line-height: 20px; cursor: pointer; }.radar-detail-back:hover, .radar-detail-back:focus-visible { border-color: var(--blue); background: var(--panel-2); }.radar-detail-section { margin-top: 14px; padding: 18px; }.radar-detail-section h3 { color: var(--text); font-size: 15px; margin-bottom: 12px; }.radar-detail-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }.radar-detail-metric { min-width: 0; padding: 10px; border: 1px solid var(--border-soft); border-radius: 9px; background: #fff; }.radar-detail-metric .k { display: block; color: var(--text-4); font-size: 11px; }.radar-detail-metric .v { display: block; margin-top: 4px; color: var(--text); font-variant-numeric: tabular-nums; }.radar-factor-list { display: grid; grid-template-columns: 1fr auto; gap: 10px 18px; }.radar-factor-list dt { color: var(--text-3); }.radar-factor-list dd { color: var(--text); font-variant-numeric: tabular-nums; }.radar-benchmark-switch { display: flex; gap: 7px; flex-wrap: wrap; }.radar-benchmark-switch button { padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: var(--text-3); cursor: pointer; }.radar-benchmark-switch button.on { background: rgba(127,179,255,.14); color: var(--blue); border-color: var(--blue); }
 .radar-badge.fresh { background: rgba(63,182,139,.15); color: var(--ok); }.radar-badge.stale { background: rgba(245,166,35,.15); color: var(--warn); }.radar-badge.failed { background: rgba(229,72,77,.15); color: var(--accent); }
-@media (max-width: 640px) { .radar-content { padding: 16px 12px; }.radar-head { flex-wrap: wrap; }.radar-section th, .radar-section td { padding: 9px 8px; }.radar-section th:nth-child(4), .radar-section td:nth-child(4) { display: none; } }
+.radar-backtest-period { margin-bottom: 12px; border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; color: var(--text-2); background: var(--panel); font: inherit; font-size: 12px; }
+@media (max-width: 640px) { .radar-content { padding: 16px 12px; }.radar-head { flex-wrap: wrap; }.radar-section th, .radar-section td { padding: 9px 8px; }.radar-section th:nth-child(4), .radar-section td:nth-child(4) { display: none; }.radar-detail-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }.radar-detail-section { padding: 14px; } }
 
 /* ============ 聊天视图 ============ */
 #view-chat { padding: 16px; gap: 10px; }
@@ -576,6 +578,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .sidebar.collapsed { width: min(290px, calc(100vw - 48px)); padding: var(--space-3) var(--space-2); }
   .sidebar.collapsed .new-session .txt, .sidebar.collapsed .sess .t,
   .sidebar.collapsed .nav-item span { display: inline; }
+  .sidebar.collapsed .sessions-empty { display: block; }
   .sidebar.collapsed .sess { justify-content: space-between; padding-inline: 10px; }
   .sidebar.collapsed .sess-main { align-items: flex-start; padding-inline: 9px; }
   .sidebar.collapsed .sess-meta, .sidebar.collapsed .sess-menu-toggle { display: flex; }
@@ -1023,11 +1026,9 @@ body, #appLayout.layout, .main { background: var(--workspace-bg); }
 }
 .report-library-table td { color: var(--text-2); }
 
-.radar-backtest { display: grid; gap: 10px; }
-.radar-backtest-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.radar-backtest-metric { white-space: pre-line; padding: 9px; border: 1px solid var(--border-soft); border-radius: 9px; color: var(--text-2); font-size: 12px; line-height: 1.55; background: #fff; }
-.radar-equity-curve { width: 100%; height: 92px; padding: 6px 0; border-top: 1px solid var(--border-soft); }
-.radar-equity-curve polyline { fill: none; stroke: var(--accent); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.radar-backtest { display: grid; gap: 12px; }
+.radar-equity-curve { width: 100%; height: auto; min-height: 180px; padding: 8px 0; border-top: 1px solid var(--border-soft); }
+.radar-equity-curve polyline, .radar-equity-curve line { fill: none; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }.radar-equity-curve .radar-strategy-line { stroke: var(--accent); }.radar-equity-curve .radar-benchmark-line { stroke: #d99a21; stroke-dasharray: 6 4; }.radar-curve-legend text { fill: var(--text-3); font-size: 12px; dominant-baseline: middle; }
 
 @media (max-width: 760px) {
   .report-library-content { padding: 14px 12px 28px; }

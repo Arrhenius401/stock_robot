@@ -10,7 +10,7 @@ import { initReportLibrary } from "./report-library.js";
 import { initSessions, initSessionStartup } from "./sessions.js";
 import { initSubscriptions } from "./subscriptions.js";
 import { initSettings } from "./settings.js";
-import { initRadar } from "./radar.js";
+import { initRadar } from "./radar.js?v=20260909-instrument-performance";
 
 const VIEW_TITLES = {
   chat: "会话研究",
