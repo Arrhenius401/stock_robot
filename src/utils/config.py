@@ -80,6 +80,13 @@ DEFAULT_CONFIG = {
     "radar": {
         "history_days": 400,
         "minimum_interval_seconds": 1.0,
+        "etf_cost_rate": 0.0005,
+        "cost_profiles": {
+            "etf_default": {
+                "commission_rate": 0.0003,
+                "slippage_rate": 0.0002,
+            },
+        },
     },
 }
 

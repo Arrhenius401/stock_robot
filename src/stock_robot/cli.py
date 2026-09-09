@@ -1,7 +1,7 @@
 """Stock Robot CLI — AI 驱动的股票分析研报助手"""
 import logging
 import os
-from datetime import timedelta
+from datetime import date, timedelta
 
 os.environ["TQDM_DISABLE"] = "1"
 
@@ -1200,11 +1200,21 @@ def radar_show(universe_id, run_id, category):
 @click.option("--start", required=True, type=click.DateTime(formats=["%Y-%m-%d"]))
 @click.option("--end", required=True, type=click.DateTime(formats=["%Y-%m-%d"]))
 @click.option("--strategy", default="core_rotation_v1", show_default=True)
-@click.option("--benchmark", help="可选的 ETF 基准代码")
-def radar_backtest(universe_id, start, end, strategy, benchmark):
+@click.option("--rerun", is_flag=True, help="忽略同参数的已完成产物并强制重新计算")
+def radar_backtest(universe_id, start, end, strategy, rerun):
     """运行 ETF 月度轮动研究回测并写入可审计产物。"""
-    from radar.artifacts import write_radar_backtest_artifacts
+    import pandas as pd
+
+    from radar.artifacts import (
+        find_reusable_radar_backtest,
+        write_radar_backtest_artifacts,
+    )
     from radar.backtest import run_monthly_rotation
+    from radar.benchmarks import (
+        RadarBenchmarkError,
+        fetch_benchmark_closes,
+        load_benchmarks,
+    )
     from radar.data import (
         AkShareETFDataProvider,
         FallbackETFDataProvider,
@@ -1230,6 +1240,41 @@ def radar_backtest(universe_id, start, end, strategy, benchmark):
         raise click.ClickException(str(exc)) from exc
     if selected_strategy.asset_type != universe.asset_type:
         raise click.ClickException("策略与标的池资产类型不一致")
+    try:
+        benchmark_catalog = load_benchmarks(root / "config" / "radar_benchmarks.yaml")
+    except RadarBenchmarkError as exc:
+        raise click.ClickException(str(exc)) from exc
+    configured_profiles = config.get("radar.cost_profiles", {})
+    raw_cost_profile = configured_profiles.get(selected_strategy.cost_profile) if isinstance(configured_profiles, dict) else None
+    if not isinstance(raw_cost_profile, dict):
+        raw_cost_profile = {"commission_rate": config.get("radar.etf_cost_rate", 0.0005), "slippage_rate": 0.0}
+    try:
+        commission_rate = float(raw_cost_profile["commission_rate"])
+        slippage_rate = float(raw_cost_profile["slippage_rate"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise click.ClickException(f"成本档 {selected_strategy.cost_profile} 配置无效") from exc
+    if commission_rate < 0 or slippage_rate < 0:
+        raise click.ClickException(f"成本档 {selected_strategy.cost_profile} 的费率不能为负")
+    cost_profile = {
+        "id": selected_strategy.cost_profile,
+        "commission_rate": commission_rate,
+        "slippage_rate": slippage_rate,
+    }
+    benchmark_specs = [item.model_dump() for item in benchmark_catalog.benchmarks]
+    if not rerun:
+        existing = find_reusable_radar_backtest(
+            root / "reports",
+            universe_id=universe.id,
+            strategy_id=strategy,
+            strategy_fingerprint=selected_strategy.fingerprint,
+            start_date=start.date(),
+            end_date=end.date(),
+            cost_profile=cost_profile,
+            benchmarks=benchmark_specs,
+        )
+        if existing is not None:
+            console.print(f"[green]复用已有回测产物: {existing}[/green]")
+            return existing
     provider = FallbackETFDataProvider((
         AkShareETFDataProvider(pacer=RequestPacer(config.get("radar.minimum_interval_seconds", 1.0))),
         TencentETFDataProvider(),
@@ -1241,14 +1286,118 @@ def radar_backtest(universe_id, start, end, strategy, benchmark):
         histories = {item.symbol: provider.fetch_daily(item.symbol, data_start, end.date()) for item in universe.instruments}
     except RadarDataError as exc:
         raise click.ClickException(f"回测历史数据不可用: {exc}") from exc
-    if benchmark:
-        try:
-            provider.fetch_daily(benchmark, data_start, end.date())
-        except Exception as exc:  # 基准数据源错误需在写入产物前失败
-            raise click.ClickException(f"基准数据不可用: {benchmark}") from exc
-    result = run_monthly_rotation(histories, {item.symbol: item.category for item in universe.instruments}, start.date(), end.date(), weights=selected_strategy.weights)
-    output = write_radar_backtest_artifacts(result, universe_id=universe.id, universe_version=universe.version, strategy_id=strategy, strategy_fingerprint=selected_strategy.fingerprint, start_date=start.date(), end_date=end.date(), benchmark=benchmark)
+    try:
+        benchmarks = {
+            item.id: fetch_benchmark_closes(item, start.date(), end.date())
+            for item in benchmark_catalog.benchmarks
+        }
+    except RadarBenchmarkError as exc:
+        raise click.ClickException(f"基准数据不可用: {exc}") from exc
+    result = run_monthly_rotation(
+        histories,
+        {item.symbol: item.category for item in universe.instruments},
+        start.date(),
+        end.date(),
+        commission_rate=commission_rate,
+        slippage_rate=slippage_rate,
+        weights=selected_strategy.weights,
+        benchmarks=benchmarks,
+    )
+    def coverage(frame):
+        dates = pd.to_datetime(frame["date"], errors="coerce").dropna()
+        return {
+            "start_date": dates.min().date().isoformat() if not dates.empty else None,
+            "end_date": dates.max().date().isoformat() if not dates.empty else None,
+            "rows": len(frame),
+        }
+
+    data_coverage = {
+        "requested_history_start": data_start.isoformat(),
+        "formal_start": start.date().isoformat(), "formal_end": end.date().isoformat(),
+        "instruments": {symbol: coverage(frame) for symbol, frame in histories.items()},
+        "benchmarks": {benchmark_id: {
+            "start_date": str(values.index.min()),
+            "end_date": str(values.index.max()), "rows": len(values),
+        } for benchmark_id, values in benchmarks.items()},
+    }
+    output = write_radar_backtest_artifacts(
+        result,
+        universe_id=universe.id,
+        universe_version=universe.version,
+        strategy_id=strategy,
+        strategy_fingerprint=selected_strategy.fingerprint,
+        start_date=start.date(),
+        end_date=end.date(),
+        benchmarks=benchmark_specs,
+        cost_rate=commission_rate,
+        strategy_snapshot=selected_strategy.model_dump(mode="json"),
+        cost_profile=cost_profile,
+        data_coverage=data_coverage,
+        data_providers={
+            "etf": ["AkShareETFDataProvider", "TencentETFDataProvider", "SinaETFDataProvider", "OfficialExchangeETFDataProvider"],
+            "benchmarks": ["AkShare CSI 指数日线"],
+        },
+    )
     console.print(f"[green]回测产物已保存: {output}[/green]")
+    return output
+
+
+@radar.command("backtest-walkforward")
+@click.option("--universe", "universe_id", required=True, help="标的池 ID")
+@click.option("--start", required=True, type=click.DateTime(formats=["%Y-%m-%d"]))
+@click.option("--end", required=True, type=click.DateTime(formats=["%Y-%m-%d"]))
+@click.option("--window-years", default=2, show_default=True, type=click.IntRange(min=1), help="固定且不重叠的窗口年数")
+@click.option("--strategy", default="core_rotation_v1", show_default=True)
+@click.option("--rerun", is_flag=True, help="忽略可复用的单段回测产物")
+@click.pass_context
+def radar_backtest_walkforward(ctx, universe_id, start, end, window_years, strategy, rerun):
+    """按固定多窗口生成 ETF 策略稳健性报告。"""
+    from radar.walkforward import (
+        fixed_windows,
+        summarize_windows,
+        write_walkforward_artifacts,
+    )
+
+    config = Config()
+    if not _check_disclaimer(config):
+        return
+    try:
+        windows = fixed_windows(start.date(), end.date(), window_years)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    outputs: dict[tuple[date, date], Path] = {}
+    failures: dict[tuple[date, date], str] = {}
+    for window in windows:
+        if not window.available:
+            continue
+        try:
+            output = ctx.invoke(
+                radar_backtest,
+                universe_id=universe_id,
+                start=start.replace(year=window.start_date.year, month=window.start_date.month, day=window.start_date.day),
+                end=end.replace(year=window.end_date.year, month=window.end_date.month, day=window.end_date.day),
+                strategy=strategy,
+                rerun=rerun,
+            )
+            if isinstance(output, Path):
+                outputs[(window.start_date, window.end_date)] = output
+            else:
+                failures[(window.start_date, window.end_date)] = "单段回测未生成产物"
+        except click.ClickException as exc:
+            failures[(window.start_date, window.end_date)] = exc.message
+    summary = summarize_windows(windows, outputs, failures)
+    output = write_walkforward_artifacts(
+        summary,
+        universe_id=universe_id,
+        strategy_id=strategy,
+        start_date=start.date(),
+        end_date=end.date(),
+        window_years=window_years,
+        reports_dir=Path(__file__).parents[2] / "reports",
+    )
+    console.print(f"[green]稳健性报告已保存: {output}[/green]")
+    return output
 
 
 if __name__ == "__main__":
