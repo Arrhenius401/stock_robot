@@ -140,7 +140,7 @@ function init() {
   initReportView();
   initReportDrawer();
   initIndexView();
-  import("./allocation-view.js?v=20260913-allocation-view")
+  import("./allocation-view.js?v=20260913-detail-layout")
     .then(({ initRadar: initializeRadar }) => initializeRadar())
     .catch((error) => {
       console.error("配置雷达初始化失败:", error);
