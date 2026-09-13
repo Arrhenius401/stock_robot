@@ -1,6 +1,7 @@
-// 配置雷达：只读取完成快照和已生成回测，详情为独立主视图。
+// 配置模块完整视图：保留为后续兼容层恢复回测与单标的历史表现。
 import { api } from "./api.js?v=20260909-instrument-performance";
 import { el, errorCard, skeleton } from "./components.js";
+import { switchView } from "./state.js";
 
 const BENCHMARKS = [["money_fund", "货币基金"], ["csi_300", "沪深 300"], ["csi_all_bond", "中证全债"]];
 const BACKTEST_PERIODS = [[3, "近3月"], [6, "近半年"], [12, "近1年"], [24, "近2年"], [36, "近3年"], [60, "近5年"], ["since", "成立以来"]];
@@ -26,13 +27,13 @@ function maxDrawdown(values) { let peak = values[0] || 1; return Math.min(...val
 
 function sliceBacktest(result, range) {
   if (!range.start) return result;
-  const rows = (result.equity_curve?.rows || []).filter((row) => row.date >= range.start && row.date <= range.end);
+  const rows = ((result.equity_curve && result.equity_curve.rows) || []).filter((row) => row.date >= range.start && row.date <= range.end);
   if (!rows.length) return result;
-  const strategyBase = Number(rows[0].strategy_equity ?? rows[0].equity);
-  const normalized = rows.map((row) => ({ ...row, strategy_equity: Number(row.strategy_equity ?? row.equity) / strategyBase }));
+  const strategyBase = Number(rows[0].strategy_equity != null ? rows[0].strategy_equity : rows[0].equity);
+  const normalized = rows.map((row) => ({ ...row, strategy_equity: Number(row.strategy_equity != null ? row.strategy_equity : row.equity) / strategyBase }));
   BENCHMARKS.forEach(([id]) => { const base = Number(rows[0][`${id}_equity`]); normalized.forEach((row, index) => { row[`${id}_equity`] = Number(rows[index][`${id}_equity`]) / base; }); });
-  const strategy = normalized.map((row) => row.strategy_equity); const summary = { ...(result.summary || {}), "累计收益": strategy.at(-1) - 1, "最大回撤": maxDrawdown(strategy), benchmarks: {} };
-  BENCHMARKS.forEach(([id]) => { const values = normalized.map((row) => row[`${id}_equity`]); const value = values.at(-1) - 1; summary.benchmarks[id] = { ...(result.summary?.benchmarks?.[id] || {}), "累计收益": value, "超额累计收益": summary["累计收益"] - value }; });
+  const strategy = normalized.map((row) => row.strategy_equity); const summary = { ...(result.summary || {}), "累计收益": strategy[strategy.length - 1] - 1, "最大回撤": maxDrawdown(strategy), benchmarks: {} };
+  BENCHMARKS.forEach(([id]) => { const values = normalized.map((row) => row[`${id}_equity`]); const value = values[values.length - 1] - 1; const previous = (result.summary && result.summary.benchmarks && result.summary.benchmarks[id]) || {}; summary.benchmarks[id] = { ...previous, "累计收益": value, "超额累计收益": summary["累计收益"] - value }; });
   return { ...result, summary, equity_curve: { ...result.equity_curve, rows: normalized }, selection: { ...(result.selection || {}), requested_start_date: range.start } };
 }
 
@@ -101,7 +102,7 @@ function openDetail(item, push = true) {
 
 function returnToList(fromHistory = false) {
   state.detail = null; state.backtest = null; state.performance = null;
-  if (!fromHistory && history.state?.radarDetail) {
+  if (!fromHistory && history.state && history.state.radarDetail) {
     history.back();
     setTimeout(() => { if (!state.detail) renderList(); }, 0);
   } else renderList();
@@ -121,7 +122,7 @@ function factorsSection(item) {
 }
 
 function equityCurve(rows, benchmarkId, seriesKey = "strategy_equity", seriesLabel = "策略净值") {
-  const strategy = rows.map((row) => Number(row[seriesKey] ?? row.equity));
+  const strategy = rows.map((row) => Number(row[seriesKey] != null ? row[seriesKey] : row.equity));
   const base = rows.map((row) => Number(row[`${benchmarkId}_equity`]));
   const values = [...strategy, ...base].filter(Number.isFinite);
   if (rows.length < 2 || !base.every(Number.isFinite)) return el("p", "radar-note", "该回测未包含可展示的多基准净值曲线。");
@@ -156,7 +157,7 @@ function performancePeriodControl(container) {
 }
 
 function renderPerformance(container) {
-  const result = state.performance; const metrics = result?.metrics || {}; const benchmark = result?.benchmarks?.[state.benchmark] || {};
+  const result = state.performance; const metrics = (result && result.metrics) || {}; const benchmark = (result && result.benchmarks && result.benchmarks[state.benchmark]) || {};
   const cards = el("div", "radar-detail-metrics");
   cards.append(
     metric("标的累计收益", percent(metrics["累计收益"])), metric("年化收益", percent(metrics["年化收益"])),
@@ -168,7 +169,7 @@ function renderPerformance(container) {
   container.replaceChildren(
     el("h3", "", "标的历史表现"), performancePeriodControl(container), benchmarkSwitch(() => renderPerformance(container)), cards,
     el("p", "radar-meta", `${state.detail.name} · ${result.start_date} 至 ${result.end_date} · 该结果仅反映此 ETF 自身的历史净值。`),
-    equityCurve(result.equity_curve?.rows || [], state.benchmark, "instrument_equity", "标的净值"),
+    equityCurve((result.equity_curve && result.equity_curve.rows) || [], state.benchmark, "instrument_equity", "标的净值"),
     el("p", "radar-note", "历史表现不代表未来收益；基准仅用于比较，不构成推荐。"),
   );
 }
@@ -182,7 +183,7 @@ function loadPerformance(container) {
 }
 
 function renderBacktest(container) {
-  const result = state.backtest; const summary = result?.summary || {}; const benchmark = summary.benchmarks?.[state.benchmark] || {};
+  const result = state.backtest; const summary = (result && result.summary) || {}; const benchmark = (summary.benchmarks && summary.benchmarks[state.benchmark]) || {};
   const metrics = el("div", "radar-detail-metrics");
   metrics.append(
     metric("策略累计收益", percent(summary["累计收益"])), metric("年化收益", percent(summary["年化收益"])),
@@ -190,9 +191,9 @@ function renderBacktest(container) {
     metric("策略最大回撤", percent(summary["最大回撤"])), metric("相对净值最大回撤", percent(benchmark["相对净值最大回撤"])),
     metric("交易次数", Number(summary["交易次数"] || 0).toFixed(0)), metric("换手率", percent(summary["换手率"])),
   );
-  const note = result.selection?.requested_start_date ? "策略可回测以来的连续净值截取，保留区间起点已有持仓，不等同于全现金重新启动。" : "策略可回测以来的连续策略口径，保留区间起点已有持仓。";
+  const note = result.selection && result.selection.requested_start_date ? "策略可回测以来的连续净值截取，保留区间起点已有持仓，不等同于全现金重新启动。" : "策略可回测以来的连续策略口径，保留区间起点已有持仓。";
   const profile = result.cost_profile || {}; const warnings = result.warnings || [];
-  const trades = (result.trades?.rows || []).filter((trade) => trade.symbol === state.detail.symbol);
+  const trades = ((result.trades && result.trades.rows) || []).filter((trade) => trade.symbol === state.detail.symbol);
   const tradeSection = el("div", "radar-trades");
   tradeSection.appendChild(el("h4", "", "该标的实际成交记录"));
   if (!trades.length) tradeSection.appendChild(el("p", "radar-meta", "该标的未出现在本次池级策略的成交记录中。"));
@@ -200,8 +201,8 @@ function renderBacktest(container) {
     const table = document.createElement("table"); table.innerHTML = "<thead><tr><th>成交日</th><th>方向</th><th>成交价</th><th>费用</th></tr></thead>";
     const body = document.createElement("tbody"); trades.forEach((trade) => { const row = document.createElement("tr"); [trade.trade_date, trade.direction === "buy" ? "买入" : "卖出", trade.execution_price, trade.cost].forEach((value) => row.appendChild(el("td", "", value == null ? "—" : String(value))); body.appendChild(row); }); table.appendChild(body); tradeSection.appendChild(table);
   }
-  const warningSection = warnings.length ? el("p", "radar-note", `运行警告：${warnings.join("；")}`) : el("p", "radar-meta", "本次运行未记录数据缺失、无法成交或持仓保留警告。`);
-  container.replaceChildren(el("h3", "", "同池策略参考"), backtestPeriodControl(container), benchmarkSwitch(() => renderBacktest(container)), metrics, el("p", "radar-meta", `${result.report?.strategy_id || "策略"} · ${result.report?.start_date || "—"} 至 ${result.report?.end_date || "—"} · 池级轮动策略，不是 ${state.detail.name} 的独立历史收益。`), equityCurve(result.equity_curve?.rows || [], state.benchmark), el("p", "radar-meta", `成本假设：佣金 ${percent(profile.commission_rate)} · 滑点 ${percent(profile.slippage_rate)}。`), warningSection, tradeSection, el("p", "radar-note", note));
+  const warningSection = warnings.length ? el("p", "radar-note", `运行警告：${warnings.join("；")}`) : el("p", "radar-meta", "本次运行未记录数据缺失、无法成交或持仓保留警告。");
+  const report = result.report || {}; container.replaceChildren(el("h3", "", "同池策略参考"), backtestPeriodControl(container), benchmarkSwitch(() => renderBacktest(container)), metrics, el("p", "radar-meta", `${report.strategy_id || "策略"} · ${report.start_date || "—"} 至 ${report.end_date || "—"} · 池级轮动策略，不是 ${state.detail.name} 的独立历史收益。`), equityCurve((result.equity_curve && result.equity_curve.rows) || [], state.benchmark), el("p", "radar-meta", `成本假设：佣金 ${percent(profile.commission_rate)} · 滑点 ${percent(profile.slippage_rate)}。`), warningSection, tradeSection, el("p", "radar-note", note));
 }
 
 function backtestPeriodControl(container) {
@@ -257,7 +258,7 @@ function renderDetail() {
 async function load() {
   const target = root();
   try {
-    state.universes = await api.listRadarUniverses(); state.selectedUniverse ||= state.universes[0]?.id;
+    state.universes = await api.listRadarUniverses(); if (!state.selectedUniverse) state.selectedUniverse = state.universes[0] && state.universes[0].id;
     state.snapshot = null;
     target.replaceChildren(renderListHeader(null), skeleton(7));
     state.snapshot = await api.latestRadarSnapshot(state.selectedUniverse);
@@ -269,19 +270,32 @@ async function load() {
   }
 }
 
+async function restoreRoute() {
+  const segments = window.location.hash.replace(/^#/, "").split("/");
+  if (segments[0] !== "radar") return;
+  const [, universeId, , symbol] = segments;
+  if (universeId) state.selectedUniverse = universeId;
+  switchView("radar");
+  await load();
+  if (!symbol || !state.snapshot) return;
+  const item = state.snapshot.items.find((candidate) => candidate.symbol === symbol);
+  if (item) openDetail(item, false);
+}
+
 async function runRefresh(button) {
   button.disabled = true; button.textContent = "更新中…";
   try { const task = await api.refreshRadar(state.selectedUniverse); for (;;) { await new Promise((resolve) => setTimeout(resolve, 1200)); const status = await api.radarRefreshStatus(task.task_id); if (status.status === "completed") { state.listScrollTop = 0; await load(); return; } if (status.status === "failed") throw new Error(status.error || "更新失败"); } } catch (error) { button.disabled = false; button.textContent = "重新更新"; alert(error.message); }
 }
 
 export function initRadar() {
-  document.querySelector('[data-view="radar"]')?.addEventListener("click", () => load());
+  const radarNav = document.querySelector('[data-view="radar"]'); if (radarNav) radarNav.addEventListener("click", () => load());
   window.addEventListener("popstate", (event) => {
-    const symbol = event.state?.radarDetail ? event.state.symbol : null;
+    const symbol = event.state && event.state.radarDetail ? event.state.symbol : null;
     if (symbol && state.snapshot) {
       const item = state.snapshot.items.find((candidate) => candidate.symbol === symbol);
       if (item) { state.detail = item; state.performance = null; state.backtest = null; renderDetail(); return; }
     }
     if (state.snapshot) { state.detail = null; state.backtest = null; renderList(); }
   });
+  restoreRoute().catch((error) => console.error("配置雷达路由恢复失败:", error));
 }

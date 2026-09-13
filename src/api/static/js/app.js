@@ -1,4 +1,4 @@
-// 入口：导航接线、工作台覆盖层与各视图初始化。
+// 应用主入口：导航接线、工作台覆盖层与各视图初始化。
 import { bus, switchView } from "./state.js";
 import { initChat } from "./chat.js";
 import { initReportView, openReport } from "./report.js";
@@ -10,7 +10,6 @@ import { initReportLibrary } from "./report-library.js";
 import { initSessions, initSessionStartup } from "./sessions.js";
 import { initSubscriptions } from "./subscriptions.js";
 import { initSettings } from "./settings.js";
-import { initRadar } from "./radar.js?v=20260909-instrument-performance";
 
 const VIEW_TITLES = {
   chat: "会话研究",
@@ -141,7 +140,13 @@ function init() {
   initReportView();
   initReportDrawer();
   initIndexView();
-  initRadar();
+  import("./allocation-view.js?v=20260913-allocation-view")
+    .then(({ initRadar: initializeRadar }) => initializeRadar())
+    .catch((error) => {
+      console.error("配置雷达初始化失败:", error);
+      const radarContent = document.getElementById("radarContent");
+      if (radarContent) radarContent.textContent = "配置雷达暂时无法初始化，请刷新后重试。";
+    });
   initReportLibrary();
   initSessions();
   initSubscriptions();

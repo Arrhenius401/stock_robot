@@ -1877,17 +1877,16 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         _run_node(tmp_path, script)
 
     @pytest.mark.asyncio
-    async def test_radar_detail_preserves_navigation_and_curve_legend_contract(self, client):
-        """雷达详情的返回路由、基准切换与图例语义不得在重构时丢失。"""
-        response = await client.get("/js/radar.js")
+    async def test_radar_detail_preserves_snapshot_navigation_contract(self, client):
+        """兼容视图至少保留池切换、快照榜单和标的评分详情入口。"""
+        response = await client.get("/js/allocation-view.js")
 
         assert response.status_code == 200
         source = response.text
-        assert "history.pushState" in source
-        assert 'window.addEventListener("popstate"' in source
-        assert "benchmarkSwitch" in source
-        assert "标的净值" in source
-        assert "同池策略参考" in source
+        assert "allocationRequest(\"/api/v1/radar/universes\")" in source
+        assert "/api/v1/radar/snapshots/latest?universe_id=" in source
+        assert "allocationShowDetail(item)" in source
+        assert "返回配置雷达" in source
 
     @pytest.mark.asyncio
     async def test_css_served(self, client):
