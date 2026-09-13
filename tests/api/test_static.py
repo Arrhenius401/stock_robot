@@ -1887,6 +1887,10 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         assert "/api/v1/radar/snapshots/latest?universe_id=" in source
         assert "allocationShowDetail(item)" in source
         assert "返回配置雷达" in source
+        assert "/api/v1/radar/performance?universe_id=" in source
+        assert "/api/v1/radar/backtests/latest?universe_id=" in source
+        assert "window.history.pushState" in source
+        assert 'event.key === "Enter"' in source
 
     @pytest.mark.asyncio
     async def test_css_served(self, client):

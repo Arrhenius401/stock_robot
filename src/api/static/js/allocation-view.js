@@ -1,5 +1,5 @@
 // 配置雷达基础视图：使用浏览器兼容语法直接消费完成快照。
-var allocationState = { universes: [], universeId: null, snapshot: null, detail: null };
+var allocationState = { universes: [], universeId: null, snapshot: null, detail: null, benchmark: "csi_300" };
 
 function allocationRoot() { return document.getElementById("radarContent"); }
 
@@ -10,10 +10,206 @@ function allocationElement(tagName, className, text) {
   return node;
 }
 
-function allocationRequest(url) {
-  return fetch(url).then(function (response) {
-    if (!response.ok) throw new Error("请求失败（" + response.status + "）");
-    return response.json();
+function allocationRequest(url, options) {
+  return fetch(url, options).then(function (response) {
+    return response.json().catch(function () { return {}; }).then(function (payload) {
+      if (!response.ok) {
+        var detail = payload.detail || payload.message || ("请求失败（" + response.status + "）");
+        var error = new Error(detail);
+        error.status = response.status;
+        throw error;
+      }
+      return payload;
+    });
+  });
+}
+
+function allocationPercent(value) {
+  var number = Number(value);
+  return isFinite(number) ? (number * 100).toFixed(1) + "%" : "—";
+}
+
+function allocationRate(value) {
+  var number = Number(value);
+  return isFinite(number) ? (number * 100).toFixed(2) + "%" : "—";
+}
+
+function allocationMetric(label, value) {
+  var card = allocationElement("div", "radar-detail-metric");
+  card.append(allocationElement("span", "k", label), allocationElement("strong", "v", value));
+  return card;
+}
+
+function allocationBenchmarkName(id) {
+  return { money_fund: "货币基金", csi_300: "沪深300", csi_all_bond: "中证全债" }[id] || "基准";
+}
+
+function allocationCurve(rows, valueKey, benchmarkKey, valueLabel) {
+  if (!rows || rows.length < 2) return allocationElement("p", "radar-note", "该区间暂无可展示的净值曲线。");
+  var values = [];
+  rows.forEach(function (row) { values.push(Number(row[valueKey]), Number(row[benchmarkKey])); });
+  values = values.filter(function (value) { return isFinite(value); });
+  if (!values.length) return allocationElement("p", "radar-note", "该区间暂无可展示的净值曲线。");
+  var low = Math.min.apply(Math, values);
+  var high = Math.max.apply(Math, values);
+  var width = 760; var height = 230; var padding = 28; var range = high - low || 1;
+  function points(key) {
+    return rows.map(function (row, index) {
+      var value = Number(row[key]);
+      if (!isFinite(value)) value = low;
+      var x = padding + index * (width - padding * 2) / (rows.length - 1);
+      var y = height - padding - (value - low) * (height - padding * 2) / range;
+      return x + "," + y;
+    }).join(" ");
+  }
+  var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.classList.add("radar-equity-curve"); svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+  svg.setAttribute("role", "img"); svg.setAttribute("aria-label", valueLabel + "与" + allocationBenchmarkName(allocationState.benchmark) + "净值曲线");
+  [[valueKey, "radar-strategy-line"], [benchmarkKey, "radar-benchmark-line"]].forEach(function (entry) {
+    var line = document.createElementNS(svg.namespaceURI, "polyline");
+    line.setAttribute("points", points(entry[0])); line.classList.add(entry[1]); svg.appendChild(line);
+  });
+  return svg;
+}
+
+function allocationBenchmarkSwitch(onChange) {
+  var control = allocationElement("div", "radar-benchmark-switch");
+  ["money_fund", "csi_300", "csi_all_bond"].forEach(function (benchmark) {
+    var button = allocationElement("button", "", allocationBenchmarkName(benchmark));
+    button.type = "button";
+    button.classList.toggle("on", benchmark === allocationState.benchmark);
+    button.addEventListener("click", function () {
+      if (allocationState.benchmark === benchmark) return;
+      allocationState.benchmark = benchmark;
+      onChange();
+    });
+    control.appendChild(button);
+  });
+  return control;
+}
+
+function allocationPerformanceSection(item) {
+  var section = allocationElement("section", "panel radar-detail-section");
+  section.appendChild(allocationElement("h3", "", "标的历史表现"));
+  section.appendChild(allocationElement("p", "radar-meta", "单只 ETF 的历史净值与基准比较，不等同于池级轮动策略。"));
+  section.appendChild(allocationElement("p", "radar-note", "正在读取该标的历史表现…"));
+  allocationLoadPerformance(section, item);
+  return section;
+}
+
+function allocationRenderPerformance(section, payload, item) {
+  if (allocationState.detail !== item) return;
+  section.replaceChildren(allocationElement("h3", "", "标的历史表现"));
+  section.appendChild(allocationElement("p", "radar-meta", payload.start_date + " 至 " + payload.end_date + " · 单只 ETF 净值表现"));
+  section.appendChild(allocationBenchmarkSwitch(function () { allocationRenderPerformance(section, payload, item); }));
+  var metrics = payload.metrics || {};
+  var benchmark = (payload.benchmarks || {})[allocationState.benchmark] || {};
+  var cards = allocationElement("div", "radar-detail-metrics");
+  [["自身累计收益", allocationPercent(metrics["累计收益"])], ["自身年化收益", allocationPercent(metrics["年化收益"])], ["自身最大回撤", allocationPercent(metrics["最大回撤"])], ["相对" + allocationBenchmarkName(allocationState.benchmark) + "超额", allocationPercent(benchmark["超额累计收益"])]].forEach(function (pair) {
+    cards.appendChild(allocationMetric(pair[0], pair[1]));
+  });
+  section.appendChild(cards);
+  var curve = payload.equity_curve || {};
+  section.appendChild(allocationCurve(curve.rows || [], "instrument_equity", allocationState.benchmark + "_equity", "标的净值"));
+  section.appendChild(allocationElement("p", "radar-note", "实线：" + item.name + "；虚线：" + allocationBenchmarkName(allocationState.benchmark) + "。"));
+  if (payload.research_notice) section.appendChild(allocationElement("p", "radar-note", payload.research_notice));
+}
+
+function allocationLoadPerformance(section, item) {
+  var snapshot = allocationState.snapshot;
+  var url = "/api/v1/radar/performance?universe_id=" + encodeURIComponent(allocationState.universeId) + "&symbol=" + encodeURIComponent(item.symbol) + "&end_date=" + encodeURIComponent(snapshot.as_of_date);
+  allocationRequest(url).then(function (payload) {
+    allocationRenderPerformance(section, payload, item);
+  }).catch(function (error) {
+    if (allocationState.detail !== item) return;
+    section.replaceChildren(allocationElement("h3", "", "标的历史表现"), allocationElement("p", "radar-note", "历史表现暂不可用：" + error.message));
+  });
+}
+
+function allocationBacktestSection(item) {
+  var details = document.createElement("details");
+  details.className = "panel radar-detail-section";
+  var summary = allocationElement("summary", "", "同池策略参考");
+  details.appendChild(summary);
+  details.appendChild(allocationElement("p", "radar-meta", "池级轮动策略的研究结果，仅作同池策略参考，并非该 ETF 的独立业绩。"));
+  details.addEventListener("toggle", function () {
+    if (details.open && !details.dataset.loaded) {
+      details.dataset.loaded = "true";
+      allocationLoadBacktest(details, item);
+    }
+  });
+  return details;
+}
+
+function allocationRenderBacktest(section, payload, item) {
+  if (allocationState.detail !== item) return;
+  section.replaceChildren(allocationElement("summary", "", "同池策略参考"));
+  var metrics = payload.summary || payload.metrics || {};
+  var startDate = metrics.start_date || payload.start_date || (payload.report || {}).start_date || "—";
+  var endDate = metrics.end_date || payload.end_date || (payload.report || {}).end_date || "—";
+  section.appendChild(allocationElement("p", "radar-meta", startDate + " 至 " + endDate + " · 池级轮动策略，并非该 ETF 的独立业绩。"));
+  section.appendChild(allocationBenchmarkSwitch(function () { allocationRenderBacktest(section, payload, item); }));
+  var benchmark = (payload.benchmarks || {})[allocationState.benchmark] || {};
+  if (!Object.keys(benchmark).length) benchmark = (metrics.benchmarks || {})[allocationState.benchmark] || {};
+  var cards = allocationElement("div", "radar-detail-metrics");
+  [["策略累计收益", allocationPercent(metrics["累计收益"])], ["策略年化收益", allocationPercent(metrics["年化收益"])], ["策略最大回撤", allocationPercent(metrics["最大回撤"])], ["相对" + allocationBenchmarkName(allocationState.benchmark) + "超额", allocationPercent(benchmark["超额累计收益"])], ["交易次数", metrics["交易次数"] == null ? "—" : String(metrics["交易次数"])], ["换手率", allocationPercent(metrics["换手率"])], ["佣金费率", allocationRate((payload.cost_profile || {}).commission_rate)], ["滑点费率", allocationRate((payload.cost_profile || {}).slippage_rate)]].forEach(function (pair) {
+    cards.appendChild(allocationMetric(pair[0], pair[1]));
+  });
+  section.appendChild(cards);
+  var curve = payload.equity_curve || {};
+  section.appendChild(allocationCurve(curve.rows || [], "strategy_equity", allocationState.benchmark + "_equity", "策略净值"));
+  section.appendChild(allocationElement("p", "radar-note", "实线：同池策略；虚线：" + allocationBenchmarkName(allocationState.benchmark) + "。成本、换手与成交限制以回测产物记录为准。"));
+  var trades = ((payload.trades || {}).rows || []).filter(function (trade) { return trade.symbol === item.symbol; });
+  section.appendChild(allocationElement("p", "radar-note", trades.length ? ("该 ETF 在本回测中实际出现 " + trades.length + " 笔成交记录。") : "该 ETF 未出现在本回测产物的成交记录中。"));
+  (payload.warnings || metrics.warnings || []).forEach(function (warning) {
+    section.appendChild(allocationElement("p", "radar-note", "回测警告：" + warning));
+  });
+  if (payload.research_notice) section.appendChild(allocationElement("p", "radar-note", payload.research_notice));
+}
+
+function allocationBacktestStartDate() {
+  var end = new Date(allocationState.snapshot.as_of_date + "T12:00:00");
+  end.setFullYear(end.getFullYear() - 1);
+  return end.getFullYear() + "-" + String(end.getMonth() + 1).padStart(2, "0") + "-" + String(end.getDate()).padStart(2, "0");
+}
+
+function allocationPollBacktest(taskId, section, item) {
+  window.setTimeout(function () {
+    allocationRequest("/api/v1/radar/backtests/tasks/" + encodeURIComponent(taskId)).then(function (task) {
+      if (allocationState.detail !== item) return;
+      if (task.status === "completed") {
+        allocationLoadBacktest(section, item, true);
+      } else if (task.status === "failed") {
+        section.appendChild(allocationElement("p", "radar-note", "策略回测未完成：" + (task.error || "后端未返回原因。")));
+      } else {
+        allocationPollBacktest(taskId, section, item);
+      }
+    }).catch(function (error) {
+      if (allocationState.detail === item) section.appendChild(allocationElement("p", "radar-note", "无法获取回测任务状态：" + error.message));
+    });
+  }, 1200);
+}
+
+function allocationLoadBacktest(section, item, retried) {
+  section.appendChild(allocationElement("p", "radar-note", "正在读取已完成的同池策略回测…"));
+  allocationRequest("/api/v1/radar/backtests/latest?universe_id=" + encodeURIComponent(allocationState.universeId)).then(function (payload) {
+    allocationRenderBacktest(section, payload, item);
+  }).catch(function (error) {
+    if (allocationState.detail !== item) return;
+    if (error.status !== 404 || retried) {
+      section.appendChild(allocationElement("p", "radar-note", "策略回测暂不可用：" + error.message));
+      return;
+    }
+    section.appendChild(allocationElement("p", "radar-note", "尚无已完成回测，正在由后端生成近一年的同池策略参考…"));
+    allocationRequest("/api/v1/radar/backtests", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ universe_id: allocationState.universeId, start_date: allocationBacktestStartDate(), end_date: allocationState.snapshot.as_of_date })
+    }).then(function (task) {
+      allocationPollBacktest(task.task_id, section, item);
+    }).catch(function (startError) {
+      if (allocationState.detail === item) section.appendChild(allocationElement("p", "radar-note", "无法启动策略回测：" + startError.message));
+    });
   });
 }
 
@@ -48,6 +244,7 @@ function allocationHeader() {
 }
 
 function allocationShowList() {
+  allocationState.detail = null;
   var root = allocationRoot();
   var snapshot = allocationState.snapshot;
   root.replaceChildren(allocationHeader(), allocationElement("p", "radar-note", snapshot.research_notice || "研究评分，不构成投资建议。"));
@@ -66,10 +263,17 @@ function allocationShowList() {
     groups[category].forEach(function (item) {
       var row = document.createElement("tr");
       row.className = "radar-row";
+      row.tabIndex = 0;
       [item.rank || "-", item.name + " · " + item.symbol, item.score == null ? "-" : Number(item.score).toFixed(1), item.grade || "-", item.status || "-"].forEach(function (value) {
         row.appendChild(allocationElement("td", "", value));
       });
       row.addEventListener("click", function () { allocationShowDetail(item); });
+      row.addEventListener("keydown", function (event) {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          allocationShowDetail(item);
+        }
+      });
       body.appendChild(row);
     });
     table.appendChild(body);
@@ -78,13 +282,25 @@ function allocationShowList() {
   });
 }
 
-function allocationShowDetail(item) {
+function allocationShowDetail(item, fromHistory) {
   allocationState.detail = item;
+  if (!fromHistory && allocationState.snapshot) {
+    var detailHash = "#radar/" + encodeURIComponent(allocationState.universeId) + "/" + encodeURIComponent(allocationState.snapshot.run_id) + "/" + encodeURIComponent(item.symbol);
+    window.history.pushState({ radarDetail: item.symbol }, "", detailHash);
+  }
   var root = allocationRoot();
   var back = allocationElement("button", "radar-detail-back", "‹");
   back.type = "button";
   back.setAttribute("aria-label", "返回配置雷达");
-  back.addEventListener("click", allocationShowList);
+  back.addEventListener("click", function () {
+    if (window.history.state && window.history.state.radarDetail) {
+      window.history.back();
+      return;
+    }
+    var listHash = "#radar/" + encodeURIComponent(allocationState.universeId) + "/" + encodeURIComponent(allocationState.snapshot.run_id);
+    window.history.pushState({}, "", listHash);
+    allocationShowList();
+  });
   var head = allocationElement("section", "radar-detail-head");
   var heading = allocationElement("div", "");
   heading.appendChild(allocationElement("h2", "", item.name + " · " + item.symbol));
@@ -116,7 +332,17 @@ function allocationShowDetail(item) {
     list.append(allocationElement("dt", "", labels[key] || key), allocationElement("dd", "", display));
   });
   factors.appendChild(list);
-  root.replaceChildren(head, summary, factors, allocationElement("p", "radar-note", "完整的历史表现与池级策略回测正在恢复兼容层；当前页面仅展示已完成快照的客观评分数据。"));
+  var performance = allocationPerformanceSection(item);
+  var backtest = allocationBacktestSection(item);
+  root.replaceChildren(head, summary, factors, performance, backtest, allocationElement("p", "radar-note", "评分和历史数据均为研究用途，不构成投资建议。"));
+}
+
+function allocationRestoreDetail() {
+  var parts = window.location.hash.split("/");
+  var symbol = parts.length >= 4 ? decodeURIComponent(parts[3]) : null;
+  if (!symbol || !allocationState.snapshot) return;
+  var item = allocationState.snapshot.items.filter(function (candidate) { return candidate.symbol === symbol; })[0];
+  if (item) allocationShowDetail(item, true);
 }
 
 function allocationLoad() {
@@ -128,7 +354,11 @@ function allocationLoad() {
       if (!allocationState.universeId && universes.length) allocationState.universeId = universes[0].id;
       return allocationRequest("/api/v1/radar/snapshots/latest?universe_id=" + encodeURIComponent(allocationState.universeId));
     })
-    .then(function (snapshot) { allocationState.snapshot = snapshot; allocationShowList(); })
+    .then(function (snapshot) {
+      allocationState.snapshot = snapshot;
+      allocationShowList();
+      allocationRestoreDetail();
+    })
     .catch(function (error) { root.replaceChildren(allocationHeader(), allocationElement("p", "radar-note", error.message)); });
 }
 
@@ -139,4 +369,10 @@ export function initRadar() {
     allocationActivate();
     allocationLoad();
   }
+  window.addEventListener("popstate", function () {
+    if (!allocationState.snapshot || window.location.hash.indexOf("#radar") !== 0) return;
+    allocationActivate();
+    allocationShowList();
+    allocationRestoreDetail();
+  });
 }
