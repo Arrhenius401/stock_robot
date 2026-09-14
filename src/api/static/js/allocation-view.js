@@ -1,5 +1,5 @@
 // 配置雷达基础视图：使用浏览器兼容语法直接消费完成快照。
-var allocationState = { universes: [], universeId: null, snapshot: null, detail: null, benchmark: "csi_300" };
+var allocationState = { universes: [], universeId: null, snapshot: null, detail: null, benchmark: "csi_300", backtestPeriod: "inception", performancePeriod: "inception", performanceCache: {} };
 
 function allocationRoot() { return document.getElementById("radarContent"); }
 
@@ -88,6 +88,50 @@ function allocationBenchmarkSwitch(onChange) {
   return control;
 }
 
+function allocationBacktestPeriodLabel(period) {
+  return { three_months: "近三月", six_months: "近半年", one_year: "近一年", two_years: "近2年", three_years: "近3年", five_years: "近5年", ten_years: "近10年", inception: "成立以来" }[period] || "成立以来";
+}
+
+function allocationBacktestPeriodStart(period) {
+  if (period === "inception") return null;
+  var months = { three_months: 3, six_months: 6, one_year: 12, two_years: 24, three_years: 36, five_years: 60, ten_years: 120 }[period];
+  var end = new Date(allocationState.snapshot.as_of_date + "T12:00:00");
+  end.setMonth(end.getMonth() - months);
+  return end.getFullYear() + "-" + String(end.getMonth() + 1).padStart(2, "0") + "-" + String(end.getDate()).padStart(2, "0");
+}
+
+function allocationBacktestPeriodControl(onChange) {
+  var control = allocationElement("div", "radar-backtest-period");
+  ["three_months", "six_months", "one_year", "two_years", "three_years", "five_years", "ten_years", "inception"].forEach(function (period) {
+    var button = allocationElement("button", "", allocationBacktestPeriodLabel(period));
+    button.type = "button";
+    button.classList.toggle("on", period === allocationState.backtestPeriod);
+    button.addEventListener("click", function () {
+      if (period === allocationState.backtestPeriod) return;
+      allocationState.backtestPeriod = period;
+      onChange(period);
+    });
+    control.appendChild(button);
+  });
+  return control;
+}
+
+function allocationPerformancePeriodControl(onChange) {
+  var control = allocationElement("div", "radar-backtest-period");
+  ["three_months", "six_months", "one_year", "two_years", "three_years", "five_years", "ten_years", "inception"].forEach(function (period) {
+    var button = allocationElement("button", "", allocationBacktestPeriodLabel(period));
+    button.type = "button";
+    button.classList.toggle("on", period === allocationState.performancePeriod);
+    button.addEventListener("click", function () {
+      if (period === allocationState.performancePeriod) return;
+      allocationState.performancePeriod = period;
+      onChange(period);
+    });
+    control.appendChild(button);
+  });
+  return control;
+}
+
 function allocationPerformanceSection(item) {
   var section = allocationElement("section", "panel radar-detail-section");
   section.appendChild(allocationElement("h3", "", "标的历史表现"));
@@ -101,6 +145,7 @@ function allocationRenderPerformance(section, payload, item) {
   if (allocationState.detail !== item) return;
   section.replaceChildren(allocationElement("h3", "", "标的历史表现"));
   section.appendChild(allocationElement("p", "radar-meta", payload.start_date + " 至 " + payload.end_date + " · 单只 ETF 净值表现"));
+  section.appendChild(allocationPerformancePeriodControl(function (period) { allocationLoadPerformance(section, item, period); }));
   section.appendChild(allocationBenchmarkSwitch(function () { allocationRenderPerformance(section, payload, item); }));
   var metrics = payload.metrics || {};
   var benchmark = (payload.benchmarks || {})[allocationState.benchmark] || {};
@@ -115,13 +160,24 @@ function allocationRenderPerformance(section, payload, item) {
   if (payload.research_notice) section.appendChild(allocationElement("p", "radar-note", payload.research_notice));
 }
 
-function allocationLoadPerformance(section, item) {
+function allocationLoadPerformance(section, item, requestedPeriod) {
+  var period = requestedPeriod || allocationState.performancePeriod;
   var snapshot = allocationState.snapshot;
+  var requestedStart = allocationBacktestPeriodStart(period);
+  var cacheKey = item.symbol + "|" + snapshot.as_of_date + "|" + period;
+  if (allocationState.performanceCache[cacheKey]) {
+    allocationRenderPerformance(section, allocationState.performanceCache[cacheKey], item);
+    return;
+  }
+  section.replaceChildren(allocationElement("h3", "", "标的历史表现"), allocationElement("p", "radar-note", "正在读取" + allocationBacktestPeriodLabel(period) + "标的历史表现…"));
   var url = "/api/v1/radar/performance?universe_id=" + encodeURIComponent(allocationState.universeId) + "&symbol=" + encodeURIComponent(item.symbol) + "&end_date=" + encodeURIComponent(snapshot.as_of_date);
+  if (requestedStart) url += "&start_date=" + encodeURIComponent(requestedStart);
   allocationRequest(url).then(function (payload) {
+    if (allocationState.performancePeriod !== period) return;
+    allocationState.performanceCache[cacheKey] = payload;
     allocationRenderPerformance(section, payload, item);
   }).catch(function (error) {
-    if (allocationState.detail !== item) return;
+    if (allocationState.detail !== item || allocationState.performancePeriod !== period) return;
     section.replaceChildren(allocationElement("h3", "", "标的历史表现"), allocationElement("p", "radar-note", "历史表现暂不可用：" + error.message));
   });
 }
@@ -148,6 +204,7 @@ function allocationRenderBacktest(section, payload, item) {
   var startDate = metrics.start_date || payload.start_date || (payload.report || {}).start_date || "—";
   var endDate = metrics.end_date || payload.end_date || (payload.report || {}).end_date || "—";
   section.appendChild(allocationElement("p", "radar-meta", startDate + " 至 " + endDate + " · 池级轮动策略，并非该 ETF 的独立业绩。"));
+  section.appendChild(allocationBacktestPeriodControl(function (period) { allocationLoadBacktest(section, item, false, period); }));
   section.appendChild(allocationBenchmarkSwitch(function () { allocationRenderBacktest(section, payload, item); }));
   var benchmark = (payload.benchmarks || {})[allocationState.benchmark] || {};
   if (!Object.keys(benchmark).length) benchmark = (metrics.benchmarks || {})[allocationState.benchmark] || {};
@@ -158,7 +215,11 @@ function allocationRenderBacktest(section, payload, item) {
   section.appendChild(cards);
   var curve = payload.equity_curve || {};
   section.appendChild(allocationCurve(curve.rows || [], "strategy_equity", allocationState.benchmark + "_equity", "策略净值"));
+  var cache = payload.cache || {};
+  var cacheNote = cache.status === "derived" ? "该区间由覆盖它的已完成回测缓存截取并重算窗口指标，未重新运行策略。" : "已命中完整回测缓存，未重新运行策略。";
+  section.appendChild(allocationElement("p", "radar-note", cacheNote));
   section.appendChild(allocationElement("p", "radar-note", "实线：同池策略；虚线：" + allocationBenchmarkName(allocationState.benchmark) + "。成本、换手与成交限制以回测产物记录为准。"));
+  if (allocationState.backtestPeriod === "inception") section.appendChild(allocationElement("p", "radar-note", "“成立以来”指策略可回测以来，以当前已完成产物的数据覆盖为准。"));
   var trades = ((payload.trades || {}).rows || []).filter(function (trade) { return trade.symbol === item.symbol; });
   section.appendChild(allocationElement("p", "radar-note", trades.length ? ("该 ETF 在本回测中实际出现 " + trades.length + " 笔成交记录。") : "该 ETF 未出现在本回测产物的成交记录中。"));
   (payload.warnings || metrics.warnings || []).forEach(function (warning) {
@@ -167,22 +228,20 @@ function allocationRenderBacktest(section, payload, item) {
   if (payload.research_notice) section.appendChild(allocationElement("p", "radar-note", payload.research_notice));
 }
 
-function allocationBacktestStartDate() {
-  var end = new Date(allocationState.snapshot.as_of_date + "T12:00:00");
-  end.setFullYear(end.getFullYear() - 1);
-  return end.getFullYear() + "-" + String(end.getMonth() + 1).padStart(2, "0") + "-" + String(end.getDate()).padStart(2, "0");
+function allocationBacktestTaskStart(period) {
+  return allocationBacktestPeriodStart(period) || "2005-01-01";
 }
 
-function allocationPollBacktest(taskId, section, item) {
+function allocationPollBacktest(taskId, section, item, period) {
   window.setTimeout(function () {
     allocationRequest("/api/v1/radar/backtests/tasks/" + encodeURIComponent(taskId)).then(function (task) {
-      if (allocationState.detail !== item) return;
+      if (allocationState.detail !== item || allocationState.backtestPeriod !== period) return;
       if (task.status === "completed") {
-        allocationLoadBacktest(section, item, true);
+        allocationLoadBacktest(section, item, true, period);
       } else if (task.status === "failed") {
         section.appendChild(allocationElement("p", "radar-note", "策略回测未完成：" + (task.error || "后端未返回原因。")));
       } else {
-        allocationPollBacktest(taskId, section, item);
+        allocationPollBacktest(taskId, section, item, period);
       }
     }).catch(function (error) {
       if (allocationState.detail === item) section.appendChild(allocationElement("p", "radar-note", "无法获取回测任务状态：" + error.message));
@@ -190,23 +249,28 @@ function allocationPollBacktest(taskId, section, item) {
   }, 1200);
 }
 
-function allocationLoadBacktest(section, item, retried) {
+function allocationLoadBacktest(section, item, retried, requestedPeriod) {
+  var period = requestedPeriod || allocationState.backtestPeriod;
+  var requestedStart = allocationBacktestPeriodStart(period);
+  var url = "/api/v1/radar/backtests?universe_id=" + encodeURIComponent(allocationState.universeId) + "&end_date=" + encodeURIComponent(allocationState.snapshot.as_of_date);
+  if (requestedStart) url += "&start_date=" + encodeURIComponent(requestedStart);
   section.appendChild(allocationElement("p", "radar-note", "正在读取已完成的同池策略回测…"));
-  allocationRequest("/api/v1/radar/backtests/latest?universe_id=" + encodeURIComponent(allocationState.universeId)).then(function (payload) {
+  allocationRequest(url).then(function (payload) {
+    if (allocationState.backtestPeriod !== period) return;
     allocationRenderBacktest(section, payload, item);
   }).catch(function (error) {
-    if (allocationState.detail !== item) return;
+    if (allocationState.detail !== item || allocationState.backtestPeriod !== period) return;
     if (error.status !== 404 || retried) {
       section.appendChild(allocationElement("p", "radar-note", "策略回测暂不可用：" + error.message));
       return;
     }
-    section.appendChild(allocationElement("p", "radar-note", "尚无已完成回测，正在由后端生成近一年的同池策略参考…"));
+    section.appendChild(allocationElement("p", "radar-note", "尚无覆盖该区间的缓存，正在由后端生成" + allocationBacktestPeriodLabel(period) + "同池策略参考…"));
     allocationRequest("/api/v1/radar/backtests", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ universe_id: allocationState.universeId, start_date: allocationBacktestStartDate(), end_date: allocationState.snapshot.as_of_date })
+      body: JSON.stringify({ universe_id: allocationState.universeId, start_date: allocationBacktestTaskStart(period), end_date: allocationState.snapshot.as_of_date })
     }).then(function (task) {
-      allocationPollBacktest(task.task_id, section, item);
+      allocationPollBacktest(task.task_id, section, item, period);
     }).catch(function (startError) {
       if (allocationState.detail === item) section.appendChild(allocationElement("p", "radar-note", "无法启动策略回测：" + startError.message));
     });

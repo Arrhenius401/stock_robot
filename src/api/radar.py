@@ -16,6 +16,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from api.report_library import ReportLibraryError, get_report_detail, list_reports
+from radar.backtest_cache import BacktestCacheError, derive_backtest_window
 from radar.benchmarks import (
     RadarBenchmarkError,
     fetch_benchmark_closes,
@@ -125,7 +126,7 @@ def create_radar_router() -> APIRouter:
 
     @router.get("/backtests/latest")
     def latest_backtest(universe_id: str):
-        """读取指定标的池最近一次完整回测产物，不在请求时重新计算。"""
+        """读取指定标的池最近一次完整回测产物，作为“成立以来”的缓存源。"""
         root = Path(__file__).parents[2] / "reports"
         reports = list_reports(root, report_type="backtest", query=universe_id)
         radar_reports = [
@@ -134,11 +135,14 @@ def create_radar_router() -> APIRouter:
         ]
         if not radar_reports:
             raise HTTPException(status_code=404, detail="尚无该标的池的回测产物")
-        return backtest_payload(root, radar_reports[0])
+        try:
+            return derive_backtest_window(backtest_payload(root, radar_reports[0]), None)
+        except BacktestCacheError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @router.get("/backtests")
     def get_backtest(universe_id: str, end_date: date, start_date: date | None = None):
-        """按固定区间读取已完成的池级回测，不在查看时触发重算。"""
+        """从覆盖所选区间的完整产物派生窗口，不重复运行策略。"""
         root = Path(__file__).parents[2] / "reports"
         reports = list_reports(root, report_type="backtest", query=universe_id)
         matching = [
@@ -151,10 +155,18 @@ def create_radar_router() -> APIRouter:
         if not matching:
             raise HTTPException(status_code=404, detail="尚无覆盖该区间的回测产物")
         matching.sort(key=lambda report: report.start_date or "9999-12-31")
-        return {
-            **backtest_payload(root, matching[0]),
-            "selection": {"requested_start_date": start_date.isoformat() if start_date else None, "source_start_date": matching[0].start_date},
-        }
+        for report in matching:
+            try:
+                result = derive_backtest_window(backtest_payload(root, report), start_date)
+            except BacktestCacheError:
+                continue
+            result["selection"] = {
+                "requested_start_date": start_date.isoformat() if start_date else None,
+                "source_start_date": report.start_date,
+                "source_end_date": report.end_date,
+            }
+            return result
+        raise HTTPException(status_code=404, detail="尚无覆盖该区间的有效回测缓存")
 
     @router.get("/performance")
     def instrument_performance(universe_id: str, symbol: str, end_date: date, start_date: date | None = None):
