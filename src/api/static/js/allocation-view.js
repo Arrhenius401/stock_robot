@@ -36,7 +36,12 @@ function allocationRate(value) {
 
 function allocationMetric(label, value) {
   var card = allocationElement("div", "radar-detail-metric");
-  card.append(allocationElement("span", "k", label), allocationElement("strong", "v", value));
+  var display = allocationElement("strong", "v", value);
+  var numeric = Number(String(value).replace("%", ""));
+  if (isFinite(numeric) && /收益|超额|回撤/.test(label)) {
+    display.classList.add(numeric > 0 ? "positive" : (numeric < 0 ? "negative" : ""));
+  }
+  card.append(allocationElement("span", "k", label), display);
   return card;
 }
 
@@ -44,32 +49,74 @@ function allocationBenchmarkName(id) {
   return { money_fund: "货币基金", csi_300: "沪深300", csi_all_bond: "中证全债" }[id] || "基准";
 }
 
-function allocationCurve(rows, valueKey, benchmarkKey, valueLabel) {
+function allocationSvgElement(name) {
+  return document.createElementNS("http://www.w3.org/2000/svg", name);
+}
+
+function allocationCurve(rows, valueKey, benchmarkKey, valueLabel, benchmarkLabel) {
   if (!rows || rows.length < 2) return allocationElement("p", "radar-note", "该区间暂无可展示的净值曲线。");
+  var primaryBase = Number(rows[0][valueKey]);
+  var benchmarkBase = Number(rows[0][benchmarkKey]);
+  if (!isFinite(primaryBase) || primaryBase <= 0 || !isFinite(benchmarkBase) || benchmarkBase <= 0) return allocationElement("p", "radar-note", "该区间暂无可展示的净值曲线。");
+  var series = rows.map(function (row) {
+    return {
+      date: String(row.date || ""),
+      primary: Number(row[valueKey]) / primaryBase - 1,
+      benchmark: Number(row[benchmarkKey]) / benchmarkBase - 1
+    };
+  }).filter(function (row) { return isFinite(row.primary) && isFinite(row.benchmark); });
+  if (series.length < 2) return allocationElement("p", "radar-note", "该区间暂无可展示的净值曲线。");
   var values = [];
-  rows.forEach(function (row) { values.push(Number(row[valueKey]), Number(row[benchmarkKey])); });
-  values = values.filter(function (value) { return isFinite(value); });
-  if (!values.length) return allocationElement("p", "radar-note", "该区间暂无可展示的净值曲线。");
+  series.forEach(function (row) { values.push(row.primary, row.benchmark, 0); });
   var low = Math.min.apply(Math, values);
   var high = Math.max.apply(Math, values);
-  var width = 760; var height = 230; var padding = 28; var range = high - low || 1;
-  function points(key) {
-    return rows.map(function (row, index) {
-      var value = Number(row[key]);
-      if (!isFinite(value)) value = low;
-      var x = padding + index * (width - padding * 2) / (rows.length - 1);
-      var y = height - padding - (value - low) * (height - padding * 2) / range;
-      return x + "," + y;
-    }).join(" ");
-  }
-  var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  var step = Math.max(0.02, Math.pow(10, Math.floor(Math.log(Math.max(high - low, 0.02)) / Math.LN10)) / 2);
+  low = Math.floor(low / step) * step;
+  high = Math.ceil(high / step) * step;
+  if (low === high) { low -= step; high += step; }
+  var width = 760; var height = 270; var left = 54; var right = 16; var top = 30; var bottom = 40; var range = high - low;
+  function xFor(index) { return left + index * (width - left - right) / (series.length - 1); }
+  function yFor(value) { return top + (high - value) * (height - top - bottom) / range; }
+  function points(key) { return series.map(function (row, index) { return xFor(index) + "," + yFor(row[key]); }).join(" "); }
+  var container = allocationElement("div", "radar-curve");
+  var legend = allocationElement("div", "radar-curve-legend");
+  legend.append(allocationElement("span", "radar-legend-primary", "实线：" + valueLabel), allocationElement("span", "radar-legend-benchmark", "虚线：" + benchmarkLabel));
+  var svg = allocationSvgElement("svg");
   svg.classList.add("radar-equity-curve"); svg.setAttribute("viewBox", "0 0 " + width + " " + height);
-  svg.setAttribute("role", "img"); svg.setAttribute("aria-label", valueLabel + "与" + allocationBenchmarkName(allocationState.benchmark) + "净值曲线");
-  [[valueKey, "radar-strategy-line"], [benchmarkKey, "radar-benchmark-line"]].forEach(function (entry) {
-    var line = document.createElementNS(svg.namespaceURI, "polyline");
+  svg.setAttribute("role", "img"); svg.setAttribute("aria-label", valueLabel + "与" + benchmarkLabel + "收益率曲线");
+  var axisLabel = allocationSvgElement("text");
+  axisLabel.setAttribute("x", "14"); axisLabel.setAttribute("y", String(top + 4)); axisLabel.textContent = "收益率"; axisLabel.classList.add("radar-axis-label"); svg.appendChild(axisLabel);
+  for (var tick = 0; tick <= 4; tick += 1) {
+    var tickValue = low + range * tick / 4;
+    var y = yFor(tickValue);
+    var grid = allocationSvgElement("line"); grid.setAttribute("x1", String(left)); grid.setAttribute("x2", String(width - right)); grid.setAttribute("y1", String(y)); grid.setAttribute("y2", String(y)); grid.classList.add("radar-grid-line"); svg.appendChild(grid);
+    var tickText = allocationSvgElement("text"); tickText.setAttribute("x", String(left - 8)); tickText.setAttribute("y", String(y + 4)); tickText.setAttribute("text-anchor", "end"); tickText.textContent = (tickValue * 100).toFixed(0) + "%"; tickText.classList.add("radar-axis-text"); svg.appendChild(tickText);
+  }
+  [0, Math.floor((series.length - 1) / 2), series.length - 1].forEach(function (index) {
+    var dateText = allocationSvgElement("text"); dateText.setAttribute("x", String(xFor(index))); dateText.setAttribute("y", String(height - 12)); dateText.setAttribute("text-anchor", index === 0 ? "start" : (index === series.length - 1 ? "end" : "middle")); dateText.textContent = series[index].date; dateText.classList.add("radar-axis-text"); svg.appendChild(dateText);
+  });
+  [["primary", "radar-strategy-line"], ["benchmark", "radar-benchmark-line"]].forEach(function (entry) {
+    var line = allocationSvgElement("polyline");
     line.setAttribute("points", points(entry[0])); line.classList.add(entry[1]); svg.appendChild(line);
   });
-  return svg;
+  var guide = allocationSvgElement("line"); guide.classList.add("radar-hover-guide"); guide.setAttribute("y1", String(top)); guide.setAttribute("y2", String(height - bottom)); guide.setAttribute("visibility", "hidden"); svg.appendChild(guide);
+  var primaryDot = allocationSvgElement("circle"); primaryDot.classList.add("radar-hover-dot", "primary"); primaryDot.setAttribute("r", "4"); primaryDot.setAttribute("visibility", "hidden"); svg.appendChild(primaryDot);
+  var benchmarkDot = allocationSvgElement("circle"); benchmarkDot.classList.add("radar-hover-dot", "benchmark"); benchmarkDot.setAttribute("r", "4"); benchmarkDot.setAttribute("visibility", "hidden"); svg.appendChild(benchmarkDot);
+  var tooltip = allocationElement("div", "radar-curve-tooltip"); tooltip.hidden = true;
+  function hideTooltip() { guide.setAttribute("visibility", "hidden"); primaryDot.setAttribute("visibility", "hidden"); benchmarkDot.setAttribute("visibility", "hidden"); tooltip.hidden = true; }
+  function showTooltip(event) {
+    var rect = svg.getBoundingClientRect();
+    var ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    var index = Math.round(ratio * (series.length - 1)); var row = series[index]; var x = xFor(index);
+    guide.setAttribute("x1", String(x)); guide.setAttribute("x2", String(x)); guide.setAttribute("visibility", "visible");
+    primaryDot.setAttribute("cx", String(x)); primaryDot.setAttribute("cy", String(yFor(row.primary))); primaryDot.setAttribute("visibility", "visible");
+    benchmarkDot.setAttribute("cx", String(x)); benchmarkDot.setAttribute("cy", String(yFor(row.benchmark))); benchmarkDot.setAttribute("visibility", "visible");
+    tooltip.replaceChildren(allocationElement("strong", "", row.date), allocationElement("span", "primary", valueLabel + " " + allocationPercent(row.primary)), allocationElement("span", "benchmark", benchmarkLabel + " " + allocationPercent(row.benchmark)));
+    tooltip.style.left = Math.max(8, Math.min(rect.width - 158, event.clientX - rect.left + 12)) + "px"; tooltip.style.top = Math.max(8, event.clientY - rect.top + 10) + "px"; tooltip.hidden = false;
+  }
+  svg.addEventListener("mousemove", showTooltip); svg.addEventListener("mouseleave", hideTooltip); svg.addEventListener("focus", function () { showTooltip({ clientX: svg.getBoundingClientRect().left + svg.getBoundingClientRect().width / 2, clientY: svg.getBoundingClientRect().top + 20 }); }); svg.addEventListener("blur", hideTooltip); svg.tabIndex = 0;
+  container.append(legend, svg, tooltip);
+  return container;
 }
 
 function allocationBenchmarkSwitch(onChange) {
@@ -145,8 +192,6 @@ function allocationRenderPerformance(section, payload, item) {
   if (allocationState.detail !== item) return;
   section.replaceChildren(allocationElement("h3", "", "标的历史表现"));
   section.appendChild(allocationElement("p", "radar-meta", payload.start_date + " 至 " + payload.end_date + " · 单只 ETF 净值表现"));
-  section.appendChild(allocationPerformancePeriodControl(function (period) { allocationLoadPerformance(section, item, period); }));
-  section.appendChild(allocationBenchmarkSwitch(function () { allocationRenderPerformance(section, payload, item); }));
   var metrics = payload.metrics || {};
   var benchmark = (payload.benchmarks || {})[allocationState.benchmark] || {};
   var cards = allocationElement("div", "radar-detail-metrics");
@@ -154,8 +199,10 @@ function allocationRenderPerformance(section, payload, item) {
     cards.appendChild(allocationMetric(pair[0], pair[1]));
   });
   section.appendChild(cards);
+  section.appendChild(allocationBenchmarkSwitch(function () { allocationRenderPerformance(section, payload, item); }));
   var curve = payload.equity_curve || {};
-  section.appendChild(allocationCurve(curve.rows || [], "instrument_equity", allocationState.benchmark + "_equity", "标的净值"));
+  section.appendChild(allocationCurve(curve.rows || [], "instrument_equity", allocationState.benchmark + "_equity", item.name, allocationBenchmarkName(allocationState.benchmark)));
+  section.appendChild(allocationPerformancePeriodControl(function (period) { allocationLoadPerformance(section, item, period); }));
   section.appendChild(allocationElement("p", "radar-note", "实线：" + item.name + "；虚线：" + allocationBenchmarkName(allocationState.benchmark) + "。"));
   if (payload.research_notice) section.appendChild(allocationElement("p", "radar-note", payload.research_notice));
 }
@@ -185,9 +232,12 @@ function allocationLoadPerformance(section, item, requestedPeriod) {
 function allocationBacktestSection(item) {
   var details = document.createElement("details");
   details.className = "panel radar-detail-section";
+  details.open = true;
   var summary = allocationElement("summary", "", "同池策略参考");
   details.appendChild(summary);
   details.appendChild(allocationElement("p", "radar-meta", "池级轮动策略的研究结果，仅作同池策略参考，并非该 ETF 的独立业绩。"));
+  details.dataset.loaded = "true";
+  allocationLoadBacktest(details, item);
   details.addEventListener("toggle", function () {
     if (details.open && !details.dataset.loaded) {
       details.dataset.loaded = "true";
@@ -204,8 +254,6 @@ function allocationRenderBacktest(section, payload, item) {
   var startDate = metrics.start_date || payload.start_date || (payload.report || {}).start_date || "—";
   var endDate = metrics.end_date || payload.end_date || (payload.report || {}).end_date || "—";
   section.appendChild(allocationElement("p", "radar-meta", startDate + " 至 " + endDate + " · 池级轮动策略，并非该 ETF 的独立业绩。"));
-  section.appendChild(allocationBacktestPeriodControl(function (period) { allocationLoadBacktest(section, item, false, period); }));
-  section.appendChild(allocationBenchmarkSwitch(function () { allocationRenderBacktest(section, payload, item); }));
   var benchmark = (payload.benchmarks || {})[allocationState.benchmark] || {};
   if (!Object.keys(benchmark).length) benchmark = (metrics.benchmarks || {})[allocationState.benchmark] || {};
   var cards = allocationElement("div", "radar-detail-metrics");
@@ -213,8 +261,10 @@ function allocationRenderBacktest(section, payload, item) {
     cards.appendChild(allocationMetric(pair[0], pair[1]));
   });
   section.appendChild(cards);
+  section.appendChild(allocationBenchmarkSwitch(function () { allocationRenderBacktest(section, payload, item); }));
   var curve = payload.equity_curve || {};
-  section.appendChild(allocationCurve(curve.rows || [], "strategy_equity", allocationState.benchmark + "_equity", "策略净值"));
+  section.appendChild(allocationCurve(curve.rows || [], "strategy_equity", allocationState.benchmark + "_equity", "同池策略", allocationBenchmarkName(allocationState.benchmark)));
+  section.appendChild(allocationBacktestPeriodControl(function (period) { allocationLoadBacktest(section, item, false, period); }));
   var cache = payload.cache || {};
   var cacheNote = cache.status === "derived" ? "该区间由覆盖它的已完成回测缓存截取并重算窗口指标，未重新运行策略。" : "已命中完整回测缓存，未重新运行策略。";
   section.appendChild(allocationElement("p", "radar-note", cacheNote));

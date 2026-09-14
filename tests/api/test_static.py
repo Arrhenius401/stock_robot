@@ -1891,6 +1891,9 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         assert "/api/v1/radar/backtests?universe_id=" in source
         assert "allocationBacktestPeriodControl" in source
         assert "allocationPerformancePeriodControl" in source
+        assert "radar-curve-tooltip" in source
+        assert "radar-hover-guide" in source
+        assert "收益率曲线" in source
         assert "该区间由覆盖它的已完成回测缓存截取" in source
         assert "window.history.pushState" in source
         assert 'event.key === "Enter"' in source
