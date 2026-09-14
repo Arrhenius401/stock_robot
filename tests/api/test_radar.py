@@ -50,6 +50,7 @@ def test_radar_snapshot_exposes_its_own_status_summary_and_audit_metadata(tmp_pa
             name=symbol,
             category="cn_equity",
             status=status,
+            data_source="TencentETFDataProvider" if status == "fresh" else None,
             grade="unavailable" if status == "failed" else "观察",
             error_summary="上游数据暂不可用" if status != "fresh" else None,
         ))
@@ -63,6 +64,21 @@ def test_radar_snapshot_exposes_its_own_status_summary_and_audit_metadata(tmp_pa
     assert payload["status_summary"] == {"fresh": 1, "stale": 1, "failed": 1}
     assert payload["provider"] == "fallback_etf"
     assert payload["completed_at"]
+    fresh_item = next(item for item in payload["items"] if item["symbol"] == "510500")
+    assert fresh_item["data_source"] == "TencentETFDataProvider"
+    failed_run = store.create_run(
+        universe_id="cn_hk_etf",
+        universe_version=1,
+        score_profile="core_etf_v1",
+        provider="fallback_etf",
+        as_of_date="2026-01-01",
+    )
+    store.fail_run(failed_run, "腾讯日线请求失败")
+
+    latest = client.get("/api/v1/radar/snapshots/latest", params={"universe_id": "cn_hk_etf"})
+
+    assert latest.status_code == 200
+    assert latest.json()["last_refresh_failure"]["error_summary"] == "腾讯日线请求失败"
 
 
 def test_radar_backtest_requires_existing_artifact():

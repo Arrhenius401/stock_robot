@@ -135,6 +135,7 @@ class SnapshotItem(BaseModel):
     status: Literal["fresh", "stale", "failed"]
     observed_at: datetime | None = None
     source_run_id: str | None = None
+    data_source: str | None = None
     close: float | None = None
     amount: float | None = None
     score: float | None = None

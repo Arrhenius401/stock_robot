@@ -364,6 +364,11 @@ function allocationDataAvailability(snapshot) {
     var state = item.status === "stale" ? "沿用上次健康数据" : "本次不可用，未参与评分";
     section.appendChild(allocationElement("p", "radar-note", item.name + " · " + item.symbol + "：" + state + allocationItemStatusDetail(item)));
   });
+  var lastFailure = snapshot.last_refresh_failure;
+  if (lastFailure && lastFailure.error_summary) {
+    var failureTime = String(lastFailure.completed_at || "").replace("T", " ").replace(/([+-]\d\d:\d\d)$/, "");
+    section.appendChild(allocationElement("p", "radar-note", "最近一次数据更新未发布新快照" + (failureTime ? "（" + failureTime + "）" : "") + "；当前仍展示上一次完成榜单。原因：" + lastFailure.error_summary));
+  }
   return section;
 }
 
@@ -530,6 +535,11 @@ function allocationShowDetail(item, fromHistory) {
     metrics.appendChild(card);
   });
   summary.appendChild(metrics);
+  summary.appendChild(allocationElement(
+    "p",
+    "radar-meta",
+    "本次行情来源：" + (item.data_source || "历史快照未记录"),
+  ));
   if (item.status !== "fresh") {
     var statusNote = item.status === "stale" ? "本次刷新未获得最新行情；评分依据沿用上次健康快照。" : "本次刷新未获得有效行情；该标的不参与当前评分。";
     summary.appendChild(allocationElement("p", "radar-note", statusNote + allocationItemStatusDetail(item)));

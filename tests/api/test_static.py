@@ -1886,12 +1886,14 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         assert "allocationRequest(\"/api/v1/radar/universes\")" in source
         assert "/api/v1/radar/snapshots/latest?universe_id=" in source
         assert "allocationShowDetail(item)" in source
+        assert "本次行情来源：" in source
         assert "返回配置雷达" in source
         assert "/api/v1/radar/performance?universe_id=" in source
         assert "/api/v1/radar/backtests?universe_id=" in source
         assert "allocationBacktestPeriodControl" in source
         assert "allocationPerformancePeriodControl" in source
         assert "allocationDataAvailability(snapshot)" in source
+        assert "最近一次数据更新未发布新快照" in source
         assert "allocationSnapshotMeta(allocationState.snapshot)" in source
         assert 'allocationElement("div", "radar-head-controls")' in source
         assert '"/api/v1/radar/refresh"' in source

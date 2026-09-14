@@ -52,9 +52,9 @@ class RadarStore:
                 """
                 INSERT INTO snapshot_items(
                     run_id, symbol, name, category, status, observed_at, source_run_id,
-                    close, amount, score, rank, grade, factors_json, error_summary
+                    data_source, close, amount, score, rank, grade, factors_json, error_summary
                 )
-                SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 WHERE EXISTS (
                     SELECT 1 FROM snapshot_runs WHERE run_id = ? AND status = 'running'
                 )
@@ -67,6 +67,7 @@ class RadarStore:
                     item.status,
                     item.observed_at.isoformat() if item.observed_at else None,
                     item.source_run_id,
+                    item.data_source,
                     item.close,
                     item.amount,
                     item.score,
@@ -127,6 +128,22 @@ class RadarStore:
             ).fetchone()
             return self._snapshot(conn, row) if row is not None else None
 
+    def latest_failure_since(self, universe_id: str, completed_after: str | None) -> dict[str, Any] | None:
+        """读取指定完成快照之后最近一次未发布的刷新失败。"""
+        if completed_after is None:
+            return None
+        with closing(self._connect()) as conn, conn:
+            row = conn.execute(
+                """
+                SELECT run_id, completed_at, error_summary
+                FROM snapshot_runs
+                WHERE universe_id = ? AND status = 'failed' AND completed_at > ?
+                ORDER BY completed_at DESC LIMIT 1
+                """,
+                (universe_id, completed_after),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
     def copy_latest_healthy_item(self, universe_id: str, symbol: str) -> SnapshotItem | None:
         """获取上一个完成快照中的新鲜项目，供刷新失败时降级为 stale。"""
         with closing(self._connect()) as conn, conn:
@@ -182,6 +199,7 @@ class RadarStore:
                     status TEXT NOT NULL CHECK(status IN ('fresh', 'stale', 'failed')),
                     observed_at TEXT,
                     source_run_id TEXT,
+                    data_source TEXT,
                     close REAL,
                     amount REAL,
                     score REAL,
@@ -196,6 +214,8 @@ class RadarStore:
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(snapshot_items)")}
             if "factors_json" not in columns:
                 conn.execute("ALTER TABLE snapshot_items ADD COLUMN factors_json TEXT")
+            if "data_source" not in columns:
+                conn.execute("ALTER TABLE snapshot_items ADD COLUMN data_source TEXT")
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)

@@ -365,10 +365,16 @@ class FallbackETFDataProvider:
         raise RadarDataError("；".join(errors))
 
     def fetch_daily(self, symbol: str, start: date, end: date) -> pd.DataFrame:
+        """获取日线，保持数据提供者的既有调用接口。"""
+        frame, _ = self.fetch_daily_with_source(symbol, start, end)
+        return frame
+
+    def fetch_daily_with_source(self, symbol: str, start: date, end: date) -> tuple[pd.DataFrame, str]:
+        """获取日线并返回实际成功的提供者名称。"""
         errors: list[str] = []
         for provider in self._providers:
             try:
-                return provider.fetch_daily(symbol, start, end)
+                return provider.fetch_daily(symbol, start, end), type(provider).__name__
             except RadarDataError as exc:
                 errors.append(f"{type(provider).__name__}: {exc}")
         raise RadarDataError("；".join(errors))

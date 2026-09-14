@@ -8,7 +8,7 @@ from typing import Any, Literal, cast
 
 import pandas as pd
 
-from radar.data import RadarDataProvider
+from radar.data import FallbackETFDataProvider, RadarDataProvider
 from radar.models import SnapshotItem
 from radar.score_profile import ScoreProfileRepository
 from radar.scoring import score_etfs
@@ -38,6 +38,7 @@ class RadarRefresher:
             as_of_date=target_date.isoformat(),
         )
         histories: dict[str, Any] = {}
+        data_sources: dict[str, str] = {}
         failures: dict[str, str] = {}
         # 当前评分窗口最多依赖 61 个交易日；完整窗口让上游修订可被重新纳入。
         # 数据源未提供可靠的增量游标，默认也只拉取有限窗口而非全历史。
@@ -45,12 +46,23 @@ class RadarRefresher:
         start = target_date - timedelta(days=history_days)
         for instrument in universe.instruments:
             try:
-                histories[instrument.symbol] = self.provider.fetch_daily(instrument.symbol, start, target_date)
+                if isinstance(self.provider, FallbackETFDataProvider):
+                    history, source = self.provider.fetch_daily_with_source(instrument.symbol, start, target_date)
+                    histories[instrument.symbol] = history
+                    data_sources[instrument.symbol] = source
+                else:
+                    histories[instrument.symbol] = self.provider.fetch_daily(instrument.symbol, start, target_date)
+                    data_sources[instrument.symbol] = type(self.provider).__name__
             except Exception as exc:  # noqa: BLE001 — 数据源单标的失败不应阻断其他标的
                 failures[instrument.symbol] = str(exc)
         if not histories:
-            self.store.fail_run(run_id, "所有标的日线获取失败")
-            raise RuntimeError("所有标的日线获取失败，未发布新快照")
+            failure_details = list(dict.fromkeys(failures.values()))
+            detail = "；".join(failure_details[:3])
+            if len(failure_details) > 3:
+                detail += f"；另有 {len(failure_details) - 3} 条不同错误"
+            message = "所有标的日线获取失败" + (f"：{detail}" if detail else "")
+            self.store.fail_run(run_id, message)
+            raise RuntimeError(f"{message}，未发布新快照")
         categories = {item.symbol: item.category for item in universe.instruments if item.symbol in histories}
         profile = ScoreProfileRepository(Path(__file__).parents[2] / "config" / "radar_score_profiles").get(universe.score_profile)
         scores = score_etfs(histories, categories, profile.weights, profile).set_index("symbol")
@@ -73,6 +85,23 @@ class RadarRefresher:
                 for key in profile.weights
                 for field in (key, f"{key}_percentile", f"{key}_contribution")
             }
-            self.store.add_item(run_id, SnapshotItem(symbol=instrument.symbol, name=instrument.name, category=instrument.category, status="fresh", observed_at=datetime.now().astimezone(), source_run_id=run_id, close=float(last["close"]), amount=float(last["amount"]), score=score, rank=rank, grade=grade, factors=factors))
+            self.store.add_item(
+                run_id,
+                SnapshotItem(
+                    symbol=instrument.symbol,
+                    name=instrument.name,
+                    category=instrument.category,
+                    status="fresh",
+                    observed_at=datetime.now().astimezone(),
+                    source_run_id=run_id,
+                    data_source=data_sources[instrument.symbol],
+                    close=float(last["close"]),
+                    amount=float(last["amount"]),
+                    score=score,
+                    rank=rank,
+                    grade=grade,
+                    factors=factors,
+                ),
+            )
         self.store.complete_run(run_id)
         return run_id
