@@ -1891,6 +1891,10 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         assert "/api/v1/radar/backtests?universe_id=" in source
         assert "allocationBacktestPeriodControl" in source
         assert "allocationPerformancePeriodControl" in source
+        assert "allocationDataAvailability(snapshot)" in source
+        assert "沿用上次健康数据" in source
+        assert "标的池轮动策略研究结果" in source
+        assert "allocationBacktestSectionIsCurrent" in source
         assert "radar-curve-tooltip" in source
         assert "radar-hover-guide" in source
         assert "收益率曲线" in source

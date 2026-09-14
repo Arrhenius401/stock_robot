@@ -78,6 +78,15 @@ def create_radar_router() -> APIRouter:
         ))
         return repository, store, RadarRefresher(repository, provider, store)
 
+    def snapshot_status_summary(snapshot: dict[str, Any]) -> dict[str, int]:
+        """从指定快照计算状态，避免历史快照误用最新一次刷新的汇总。"""
+        counts = {"fresh": 0, "stale": 0, "failed": 0}
+        for item in cast(list[dict[str, Any]], snapshot["items"]):
+            status = item.get("status")
+            if status in counts:
+                counts[status] += 1
+        return counts
+
     def backtest_payload(root: Path, report: Any) -> dict[str, Any]:
         """补充池级产物的成本与警告，供前端明确标注其策略属性。"""
         try:
@@ -114,7 +123,11 @@ def create_radar_router() -> APIRouter:
         snapshot = store.latest_completed(universe_id)
         if snapshot is None:
             raise HTTPException(status_code=404, detail="尚无完成快照")
-        return {**snapshot, "research_notice": _RESEARCH_NOTICE}
+        return {
+            **snapshot,
+            "research_notice": _RESEARCH_NOTICE,
+            "status_summary": snapshot_status_summary(snapshot),
+        }
 
     @router.get("/snapshots/{run_id}")
     def get_snapshot(run_id: str):
@@ -122,7 +135,11 @@ def create_radar_router() -> APIRouter:
         snapshot = store.get_snapshot(run_id)
         if snapshot is None:
             raise HTTPException(status_code=404, detail="快照不存在或尚未完成")
-        return {**snapshot, "research_notice": _RESEARCH_NOTICE}
+        return {
+            **snapshot,
+            "research_notice": _RESEARCH_NOTICE,
+            "status_summary": snapshot_status_summary(snapshot),
+        }
 
     @router.get("/backtests/latest")
     def latest_backtest(universe_id: str):

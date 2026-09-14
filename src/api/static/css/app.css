@@ -1029,6 +1029,9 @@ body, #appLayout.layout, .main { background: var(--workspace-bg); }
 .radar-backtest { display: grid; gap: 12px; }
 
 /* 配置雷达详情：保持工作台的深色语义，仅重组报告内图表的信息层级。 */
+.radar-data-availability { display: grid; gap: 9px; }
+.radar-data-availability h3 { margin: 0; font-size: 15px; }
+.radar-data-availability .radar-detail-metrics { margin-top: 0; }
 .radar-detail-section { display: block; }
 .radar-detail-section > summary { color: var(--text); font-size: 15px; font-weight: 650; cursor: pointer; list-style: none; }
 .radar-detail-section > summary::-webkit-details-marker { display: none; }

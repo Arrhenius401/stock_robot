@@ -183,6 +183,10 @@ function allocationPerformanceSection(item) {
   var section = allocationElement("section", "panel radar-detail-section");
   section.appendChild(allocationElement("h3", "", "标的历史表现"));
   section.appendChild(allocationElement("p", "radar-meta", "单只 ETF 的历史净值与基准比较，不等同于池级轮动策略。"));
+  if (item.status === "failed") {
+    section.appendChild(allocationElement("p", "radar-note", "本次刷新未取得该标的的有效行情，暂不请求历史表现。" + allocationItemStatusDetail(item)));
+    return section;
+  }
   section.appendChild(allocationElement("p", "radar-note", "正在读取该标的历史表现…"));
   allocationLoadPerformance(section, item);
   return section;
@@ -229,15 +233,16 @@ function allocationLoadPerformance(section, item, requestedPeriod) {
   });
 }
 
-function allocationBacktestSection(item) {
+function allocationBacktestSection(item, isPoolOverview) {
   var details = document.createElement("details");
   details.className = "panel radar-detail-section";
-  details.open = true;
+  details.dataset.context = isPoolOverview ? "pool" : "detail";
+  details.open = !isPoolOverview;
   var summary = allocationElement("summary", "", "同池策略参考");
   details.appendChild(summary);
-  details.appendChild(allocationElement("p", "radar-meta", "池级轮动策略的研究结果，仅作同池策略参考，并非该 ETF 的独立业绩。"));
-  details.dataset.loaded = "true";
-  allocationLoadBacktest(details, item);
+  details.appendChild(allocationElement("p", "radar-meta", isPoolOverview ? "该标的池的轮动策略研究结果，用于观察池级规则，不代表任一单只 ETF 的业绩。" : "池级轮动策略的研究结果，仅作同池策略参考，并非该 ETF 的独立业绩。"));
+  details.dataset.loaded = isPoolOverview ? "false" : "true";
+  if (!isPoolOverview) allocationLoadBacktest(details, item);
   details.addEventListener("toggle", function () {
     if (details.open && !details.dataset.loaded) {
       details.dataset.loaded = "true";
@@ -247,13 +252,19 @@ function allocationBacktestSection(item) {
   return details;
 }
 
+function allocationBacktestSectionIsCurrent(section, item) {
+  if (!allocationRoot().contains(section)) return false;
+  return section.dataset.context === "pool" ? allocationState.detail === null : allocationState.detail === item;
+}
+
 function allocationRenderBacktest(section, payload, item) {
-  if (allocationState.detail !== item) return;
+  if (!allocationBacktestSectionIsCurrent(section, item)) return;
   section.replaceChildren(allocationElement("summary", "", "同池策略参考"));
   var metrics = payload.summary || payload.metrics || {};
   var startDate = metrics.start_date || payload.start_date || (payload.report || {}).start_date || "—";
   var endDate = metrics.end_date || payload.end_date || (payload.report || {}).end_date || "—";
-  section.appendChild(allocationElement("p", "radar-meta", startDate + " 至 " + endDate + " · 池级轮动策略，并非该 ETF 的独立业绩。"));
+  var overview = section.dataset.context === "pool";
+  section.appendChild(allocationElement("p", "radar-meta", startDate + " 至 " + endDate + (overview ? " · 标的池轮动策略研究结果。" : " · 池级轮动策略，并非该 ETF 的独立业绩。")));
   var benchmark = (payload.benchmarks || {})[allocationState.benchmark] || {};
   if (!Object.keys(benchmark).length) benchmark = (metrics.benchmarks || {})[allocationState.benchmark] || {};
   var cards = allocationElement("div", "radar-detail-metrics");
@@ -270,8 +281,10 @@ function allocationRenderBacktest(section, payload, item) {
   section.appendChild(allocationElement("p", "radar-note", cacheNote));
   section.appendChild(allocationElement("p", "radar-note", "实线：同池策略；虚线：" + allocationBenchmarkName(allocationState.benchmark) + "。成本、换手与成交限制以回测产物记录为准。"));
   if (allocationState.backtestPeriod === "inception") section.appendChild(allocationElement("p", "radar-note", "“成立以来”指策略可回测以来，以当前已完成产物的数据覆盖为准。"));
-  var trades = ((payload.trades || {}).rows || []).filter(function (trade) { return trade.symbol === item.symbol; });
-  section.appendChild(allocationElement("p", "radar-note", trades.length ? ("该 ETF 在本回测中实际出现 " + trades.length + " 笔成交记录。") : "该 ETF 未出现在本回测产物的成交记录中。"));
+  if (!overview) {
+    var trades = ((payload.trades || {}).rows || []).filter(function (trade) { return trade.symbol === item.symbol; });
+    section.appendChild(allocationElement("p", "radar-note", trades.length ? ("该 ETF 在本回测中实际出现 " + trades.length + " 笔成交记录。") : "该 ETF 未出现在本回测产物的成交记录中。"));
+  }
   (payload.warnings || metrics.warnings || []).forEach(function (warning) {
     section.appendChild(allocationElement("p", "radar-note", "回测警告：" + warning));
   });
@@ -285,7 +298,7 @@ function allocationBacktestTaskStart(period) {
 function allocationPollBacktest(taskId, section, item, period) {
   window.setTimeout(function () {
     allocationRequest("/api/v1/radar/backtests/tasks/" + encodeURIComponent(taskId)).then(function (task) {
-      if (allocationState.detail !== item || allocationState.backtestPeriod !== period) return;
+      if (!allocationBacktestSectionIsCurrent(section, item) || allocationState.backtestPeriod !== period) return;
       if (task.status === "completed") {
         allocationLoadBacktest(section, item, true, period);
       } else if (task.status === "failed") {
@@ -294,7 +307,7 @@ function allocationPollBacktest(taskId, section, item, period) {
         allocationPollBacktest(taskId, section, item, period);
       }
     }).catch(function (error) {
-      if (allocationState.detail === item) section.appendChild(allocationElement("p", "radar-note", "无法获取回测任务状态：" + error.message));
+      if (allocationBacktestSectionIsCurrent(section, item)) section.appendChild(allocationElement("p", "radar-note", "无法获取回测任务状态：" + error.message));
     });
   }, 1200);
 }
@@ -306,10 +319,10 @@ function allocationLoadBacktest(section, item, retried, requestedPeriod) {
   if (requestedStart) url += "&start_date=" + encodeURIComponent(requestedStart);
   section.appendChild(allocationElement("p", "radar-note", "正在读取已完成的同池策略回测…"));
   allocationRequest(url).then(function (payload) {
-    if (allocationState.backtestPeriod !== period) return;
+    if (!allocationBacktestSectionIsCurrent(section, item) || allocationState.backtestPeriod !== period) return;
     allocationRenderBacktest(section, payload, item);
   }).catch(function (error) {
-    if (allocationState.detail !== item || allocationState.backtestPeriod !== period) return;
+    if (!allocationBacktestSectionIsCurrent(section, item) || allocationState.backtestPeriod !== period) return;
     if (error.status !== 404 || retried) {
       section.appendChild(allocationElement("p", "radar-note", "策略回测暂不可用：" + error.message));
       return;
@@ -322,9 +335,36 @@ function allocationLoadBacktest(section, item, retried, requestedPeriod) {
     }).then(function (task) {
       allocationPollBacktest(task.task_id, section, item, period);
     }).catch(function (startError) {
-      if (allocationState.detail === item) section.appendChild(allocationElement("p", "radar-note", "无法启动策略回测：" + startError.message));
+      if (allocationBacktestSectionIsCurrent(section, item)) section.appendChild(allocationElement("p", "radar-note", "无法启动策略回测：" + startError.message));
     });
   });
+}
+
+function allocationItemStatusDetail(item) {
+  return item.error_summary ? " 原因：" + item.error_summary : "";
+}
+
+function allocationDataAvailability(snapshot) {
+  var summary = snapshot.status_summary || {};
+  var fresh = Number(summary.fresh || 0);
+  var stale = Number(summary.stale || 0);
+  var failed = Number(summary.failed || 0);
+  var section = allocationElement("section", "panel radar-data-availability");
+  section.appendChild(allocationElement("h3", "", "数据可用性"));
+  var message = failed ? (failed + " 个标的本次未取得有效行情，未参与评分；") : "本次快照均已生成评分；";
+  message += stale ? (stale + " 个标的沿用上次健康数据。") : "其余标的使用本次行情。";
+  section.appendChild(allocationElement("p", "radar-meta", message));
+  var metrics = allocationElement("div", "radar-detail-metrics");
+  [["最新数据", fresh], ["沿用历史数据", stale], ["本次不可用", failed]].forEach(function (pair) {
+    metrics.appendChild(allocationMetric(pair[0], String(pair[1])));
+  });
+  section.appendChild(metrics);
+  var affected = snapshot.items.filter(function (item) { return item.status !== "fresh"; });
+  affected.forEach(function (item) {
+    var state = item.status === "stale" ? "沿用上次健康数据" : "本次不可用，未参与评分";
+    section.appendChild(allocationElement("p", "radar-note", item.name + " · " + item.symbol + "：" + state + allocationItemStatusDetail(item)));
+  });
+  return section;
 }
 
 function allocationActivate() {
@@ -361,7 +401,7 @@ function allocationShowList() {
   allocationState.detail = null;
   var root = allocationRoot();
   var snapshot = allocationState.snapshot;
-  root.replaceChildren(allocationHeader(), allocationElement("p", "radar-note", snapshot.research_notice || "研究评分，不构成投资建议。"));
+  root.replaceChildren(allocationHeader(), allocationDataAvailability(snapshot), allocationBacktestSection(null, true), allocationElement("p", "radar-note", snapshot.research_notice || "研究评分，不构成投资建议。"));
   var groups = {};
   snapshot.items.forEach(function (item) {
     var category = item.category || "其他";
@@ -378,7 +418,7 @@ function allocationShowList() {
       var row = document.createElement("tr");
       row.className = "radar-row";
       row.tabIndex = 0;
-      [item.rank || "-", item.name + " · " + item.symbol, item.score == null ? "-" : Number(item.score).toFixed(1), item.grade || "-", item.status || "-"].forEach(function (value) {
+      [item.rank || "-", item.name + " · " + item.symbol, item.score == null ? "-" : Number(item.score).toFixed(1), item.grade || "-", item.status === "stale" ? "沿用历史" : (item.status === "failed" ? "不可用" : "最新")].forEach(function (value) {
         row.appendChild(allocationElement("td", "", value));
       });
       row.addEventListener("click", function () { allocationShowDetail(item); });
@@ -429,6 +469,10 @@ function allocationShowDetail(item, fromHistory) {
     metrics.appendChild(card);
   });
   summary.appendChild(metrics);
+  if (item.status !== "fresh") {
+    var statusNote = item.status === "stale" ? "本次刷新未获得最新行情；评分依据沿用上次健康快照。" : "本次刷新未获得有效行情；该标的不参与当前评分。";
+    summary.appendChild(allocationElement("p", "radar-note", statusNote + allocationItemStatusDetail(item)));
+  }
   var factors = allocationElement("section", "panel radar-detail-section");
   factors.appendChild(allocationElement("h3", "", "评分依据"));
   factors.appendChild(allocationElement("p", "radar-meta", "评分配置由趋势、回撤、波动与流动性共同构成。"));
