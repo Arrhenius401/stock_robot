@@ -146,7 +146,7 @@ function init() {
   initSettings();
   initSessionStartup()
     .catch((error) => console.error("会话初始化失败:", error))
-    .finally(() => import("./allocation-view.js?v=20260914-radar-deep-link")
+    .finally(() => import("./allocation-view.js?v=20260914-radar-header-layout")
       .then(({ initRadar: initializeRadar }) => initializeRadar())
       .catch((error) => {
         console.error("配置雷达初始化失败:", error);

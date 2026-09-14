@@ -1,5 +1,5 @@
 // 配置雷达基础视图：使用浏览器兼容语法直接消费完成快照。
-var allocationState = { universes: [], universeId: null, snapshot: null, detail: null, benchmark: "csi_300", backtestPeriod: "inception", performancePeriod: "inception", performanceCache: {} };
+var allocationState = { universes: [], universeId: null, snapshot: null, detail: null, benchmark: "csi_300", backtestPeriod: "inception", performancePeriod: "inception", performanceCache: {}, refreshMessage: "" };
 
 function allocationRoot() { return document.getElementById("radarContent"); }
 
@@ -388,12 +388,24 @@ function allocationHeader() {
   selector.addEventListener("change", function () {
     allocationState.universeId = selector.value;
     allocationState.detail = null;
+    allocationState.refreshMessage = "";
     allocationLoad();
   });
-  var title = allocationElement("div", "");
+  var title = allocationElement("div", "radar-head-title");
   title.appendChild(allocationElement("h2", "", "ETF 配置雷达"));
   title.appendChild(allocationElement("p", "radar-meta", allocationSnapshotMeta(allocationState.snapshot)));
-  header.append(selector, title);
+  var controls = allocationElement("div", "radar-head-controls");
+  var actions = allocationElement("div", "radar-head-actions");
+  var refresh = allocationElement("button", "radar-refresh", "更新数据");
+  refresh.type = "button";
+  refresh.addEventListener("click", function () { allocationStartRefresh(refresh, feedback); });
+  actions.appendChild(refresh);
+  var feedback = allocationElement("p", "radar-meta");
+  feedback.setAttribute("role", "status");
+  feedback.textContent = allocationState.refreshMessage;
+  actions.appendChild(feedback);
+  controls.append(selector, actions);
+  header.append(title, controls);
   return header;
 }
 
@@ -403,6 +415,47 @@ function allocationSnapshotMeta(snapshot) {
   if (snapshot.completed_at) parts.push("刷新完成 " + String(snapshot.completed_at).replace("T", " ").replace(/([+-]\d\d:\d\d)$/, ""));
   if (snapshot.provider) parts.push("采集通道 " + snapshot.provider);
   return parts.join(" · ");
+}
+
+function allocationRefreshFeedback(button, feedback, message) {
+  allocationState.refreshMessage = message;
+  button.disabled = false;
+  button.textContent = "更新数据";
+  feedback.textContent = message;
+}
+
+function allocationPollRefresh(taskId, button, feedback) {
+  window.setTimeout(function () {
+    allocationRequest("/api/v1/radar/refresh/" + encodeURIComponent(taskId)).then(function (task) {
+      if (task.status === "completed") {
+        allocationState.performanceCache = {};
+        allocationState.refreshMessage = "数据更新完成，已载入最新快照。";
+        allocationLoad();
+      } else if (task.status === "failed") {
+        allocationRefreshFeedback(button, feedback, "数据更新失败：" + (task.error || "后端未返回原因。"));
+      } else {
+        allocationPollRefresh(taskId, button, feedback);
+      }
+    }).catch(function (error) {
+      allocationRefreshFeedback(button, feedback, "无法获取更新状态：" + error.message);
+    });
+  }, 1200);
+}
+
+function allocationStartRefresh(button, feedback) {
+  if (!allocationState.universeId) return;
+  button.disabled = true;
+  button.textContent = "更新中…";
+  feedback.textContent = "正在后台更新当前标的池，完成后自动刷新榜单。";
+  allocationRequest("/api/v1/radar/refresh", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ universe_id: allocationState.universeId })
+  }).then(function (task) {
+    allocationPollRefresh(task.task_id, button, feedback);
+  }).catch(function (error) {
+    allocationRefreshFeedback(button, feedback, "无法启动数据更新：" + error.message);
+  });
 }
 
 function allocationShowList() {
