@@ -392,9 +392,17 @@ function allocationHeader() {
   });
   var title = allocationElement("div", "");
   title.appendChild(allocationElement("h2", "", "ETF 配置雷达"));
-  title.appendChild(allocationElement("p", "radar-meta", allocationState.snapshot ? "数据截至 " + allocationState.snapshot.as_of_date : "正在读取完成快照…"));
+  title.appendChild(allocationElement("p", "radar-meta", allocationSnapshotMeta(allocationState.snapshot)));
   header.append(selector, title);
   return header;
+}
+
+function allocationSnapshotMeta(snapshot) {
+  if (!snapshot) return "正在读取完成快照…";
+  var parts = ["数据截至 " + snapshot.as_of_date];
+  if (snapshot.completed_at) parts.push("刷新完成 " + String(snapshot.completed_at).replace("T", " ").replace(/([+-]\d\d:\d\d)$/, ""));
+  if (snapshot.provider) parts.push("采集通道 " + snapshot.provider);
+  return parts.join(" · ");
 }
 
 function allocationShowList() {

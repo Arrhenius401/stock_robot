@@ -1892,6 +1892,7 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         assert "allocationBacktestPeriodControl" in source
         assert "allocationPerformancePeriodControl" in source
         assert "allocationDataAvailability(snapshot)" in source
+        assert "allocationSnapshotMeta(allocationState.snapshot)" in source
         assert "沿用上次健康数据" in source
         assert "标的池轮动策略研究结果" in source
         assert "allocationBacktestSectionIsCurrent" in source
