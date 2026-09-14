@@ -140,18 +140,19 @@ function init() {
   initReportView();
   initReportDrawer();
   initIndexView();
-  import("./allocation-view.js?v=20260914-radar-availability")
-    .then(({ initRadar: initializeRadar }) => initializeRadar())
-    .catch((error) => {
-      console.error("配置雷达初始化失败:", error);
-      const radarContent = document.getElementById("radarContent");
-      if (radarContent) radarContent.textContent = "配置雷达暂时无法初始化，请刷新后重试。";
-    });
   initReportLibrary();
   initSessions();
   initSubscriptions();
   initSettings();
-  initSessionStartup().catch((error) => console.error("会话初始化失败:", error));
+  initSessionStartup()
+    .catch((error) => console.error("会话初始化失败:", error))
+    .finally(() => import("./allocation-view.js?v=20260914-radar-deep-link")
+      .then(({ initRadar: initializeRadar }) => initializeRadar())
+      .catch((error) => {
+        console.error("配置雷达初始化失败:", error);
+        const radarContent = document.getElementById("radarContent");
+        if (radarContent) radarContent.textContent = "配置雷达暂时无法初始化，请刷新后重试。";
+      }));
 }
 
 init();

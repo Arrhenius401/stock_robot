@@ -1896,6 +1896,9 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         assert "沿用上次健康数据" in source
         assert "标的池轮动策略研究结果" in source
         assert "allocationBacktestSectionIsCurrent" in source
+        app_source = (await client.get("/js/app.js")).text
+        assert "initSessionStartup()" in app_source
+        assert ".finally(() => import(\"./allocation-view.js" in app_source
         assert "radar-curve-tooltip" in source
         assert "radar-hover-guide" in source
         assert "收益率曲线" in source
