@@ -108,6 +108,36 @@ class TestSubscriptionsAPI:
         })
         assert resp.status_code == 422
 
+    def test_create_honors_runtime_symbol_limit(self, tmp_path):
+        """运行时快照中的上限应覆盖默认值。"""
+        from push.store import PushStore
+        from utils.config import Config
+
+        config = Config(config_dir=tmp_path / "config")
+        config.set("push.max_symbols_per_subscription", 1)
+        store = PushStore(tmp_path / "push_limit.db")
+        push = _PushStub(store, _Executor())
+
+        class SnapshotRuntime(RuntimeManager):
+            def __init__(self):
+                pass
+
+            def snapshot(self):
+                return SimpleNamespace(
+                    config=config,
+                    push_store=store,
+                    push_executor=push.executor,
+                    push_scheduler=push,
+                )
+
+        app = create_app(core=MagicMock(), push=False, runtime=SnapshotRuntime())
+        response = TestClient(app).post("/api/v1/subscriptions", json={
+            "name": "限额", "symbols": ["600519", "000300"],
+            "channel": "email", "time": "08:00",
+        })
+
+        assert response.status_code == 422
+
     def test_update_and_reload(self, tmp_path):
         app, push = _make_app(tmp_path)
         client = TestClient(app)

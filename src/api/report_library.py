@@ -299,7 +299,7 @@ def list_reports(
     type_order = {"stock": 0, "index": 1, "backtest": 2}
     return sorted(
         filtered,
-        key=lambda item: (-item.generated_at, item.legacy, type_order[item.type], item.path),
+        key=lambda item: (item.legacy, type_order[item.type], -item.generated_at, item.path),
     )
 
 

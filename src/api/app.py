@@ -942,9 +942,13 @@ def create_app(
             raise HTTPException(status_code=422, detail=str(e.errors())) from e
 
     def _check_symbol_limit(sub: Subscription, snapshot: RuntimeSnapshot | None = None):
-        from utils.config import Config
-        config = snapshot.config if snapshot is not None else Config()
-        limit = int(config.get("push.max_symbols_per_subscription", 20))
+        if snapshot is not None:
+            limit = int(snapshot.config.get("push.max_symbols_per_subscription", 20))
+        else:
+            # 注入式轻量应用（主要用于测试）没有运行时快照时，不能读取用户目录配置。
+            # 否则同一测试会随本机 config.yaml 改变订阅上限。
+            from utils.config import DEFAULT_CONFIG
+            limit = int(DEFAULT_CONFIG["push"]["max_symbols_per_subscription"])
         if len(sub.symbols) > limit:
             raise HTTPException(
                 status_code=422,
