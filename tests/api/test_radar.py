@@ -5,6 +5,7 @@ from typing import Literal
 from fastapi.testclient import TestClient
 
 from api.app import create_app
+from radar.collector_store import CollectorStore
 from radar.models import SnapshotItem
 from radar.store import RadarStore
 from utils.config import Config
@@ -25,6 +26,22 @@ def test_radar_snapshot_requires_completed_local_snapshot():
     response = client.get("/api/v1/radar/snapshots/latest", params={"universe_id": "missing_universe"})
 
     assert response.status_code == 404
+
+
+def test_radar_collector_status_exposes_each_pool_and_schedule(tmp_path, monkeypatch):
+    config = Config(config_dir=tmp_path)
+    monkeypatch.setattr("api.radar.Config", lambda: config)
+    CollectorStore(config.config_dir / "radar_collector.db").record("cn_hk_etf", "failed", "上游超时")
+    client = TestClient(create_app(core=None, push=False))
+
+    response = client.get("/api/v1/radar/collector/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["schedule"] == {"timezone": "Asia/Shanghai", "weekdays": True, "hour": 18, "minute": 30}
+    states = {item["universe_id"]: item for item in payload["items"]}
+    assert states["cn_hk_etf"]["error_summary"] == "上游超时"
+    assert states["overseas_etf"]["status"] == "never"
 
 
 def test_radar_snapshot_exposes_its_own_status_summary_and_audit_metadata(tmp_path, monkeypatch):

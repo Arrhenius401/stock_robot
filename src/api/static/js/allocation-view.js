@@ -1,5 +1,5 @@
 // 配置雷达基础视图：使用浏览器兼容语法直接消费完成快照。
-var allocationState = { universes: [], universeId: null, snapshot: null, detail: null, benchmark: "csi_300", backtestPeriod: "inception", performancePeriod: "inception", performanceCache: {}, refreshMessage: "" };
+var allocationState = { universes: [], universeId: null, snapshot: null, collectorStatus: null, detail: null, benchmark: "csi_300", backtestPeriod: "inception", performancePeriod: "inception", performanceCache: {}, refreshMessage: "" };
 
 function allocationRoot() { return document.getElementById("radarContent"); }
 
@@ -467,7 +467,7 @@ function allocationShowList() {
   allocationState.detail = null;
   var root = allocationRoot();
   var snapshot = allocationState.snapshot;
-  root.replaceChildren(allocationHeader(), allocationDataAvailability(snapshot), allocationBacktestSection(null, true), allocationElement("p", "radar-note", snapshot.research_notice || "研究评分，不构成投资建议。"));
+  root.replaceChildren(allocationHeader(), allocationCollectionStatus(snapshot), allocationDataAvailability(snapshot), allocationBacktestSection(null, true), allocationElement("p", "radar-note", snapshot.research_notice || "研究评分，不构成投资建议。"));
   var groups = {};
   snapshot.items.forEach(function (item) {
     var category = item.category || "其他";
@@ -500,6 +500,24 @@ function allocationShowList() {
     section.appendChild(table);
     root.appendChild(section);
   });
+}
+
+function allocationCollectionStatus(snapshot) {
+  var collector = allocationState.collectorStatus;
+  if (!collector || !collector.items) return document.createDocumentFragment();
+  var section = allocationElement("section", "panel radar-collection-status");
+  section.appendChild(allocationElement("h3", "", "自动采集状态"));
+  var names = {};
+  allocationState.universes.forEach(function (universe) { names[universe.id] = universe.name; });
+  collector.items.forEach(function (item) {
+    var completed = item.completed_at ? String(item.completed_at).replace("T", " ").replace(/([+-]\d\d:\d\d)$/, "") : "尚未执行";
+    var result = item.status === "completed" ? "完成" : (item.status === "failed" ? "失败：" + (item.error_summary || "未提供原因") : "尚无自动采集记录");
+    section.appendChild(allocationElement("p", "radar-meta", (names[item.universe_id] || item.universe_id) + " · " + completed + " · " + result));
+  });
+  var schedule = collector.schedule || {};
+  var time = String(schedule.hour == null ? 18 : schedule.hour).padStart(2, "0") + ":" + String(schedule.minute == null ? 30 : schedule.minute).padStart(2, "0");
+  section.appendChild(allocationElement("p", "radar-meta", "计划：工作日 " + time + " 自动采集；失败时保留上一次完成榜单。"));
+  return section;
 }
 
 function allocationShowDetail(item, fromHistory) {
@@ -581,10 +599,14 @@ function allocationLoad() {
     .then(function (universes) {
       allocationState.universes = universes;
       if (!allocationState.universeId && universes.length) allocationState.universeId = universes[0].id;
-      return allocationRequest("/api/v1/radar/snapshots/latest?universe_id=" + encodeURIComponent(allocationState.universeId));
+      return Promise.all([
+        allocationRequest("/api/v1/radar/snapshots/latest?universe_id=" + encodeURIComponent(allocationState.universeId)),
+        allocationRequest("/api/v1/radar/collector/status").catch(function () { return null; })
+      ]);
     })
-    .then(function (snapshot) {
-      allocationState.snapshot = snapshot;
+    .then(function (payload) {
+      allocationState.snapshot = payload[0];
+      allocationState.collectorStatus = payload[1];
       allocationShowList();
       allocationRestoreDetail();
     })

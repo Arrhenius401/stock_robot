@@ -55,7 +55,9 @@ def test_radar_import_benchmark_writes_local_history(mocker, tmp_path):
     assert (config.config_dir / "radar_local_data" / "benchmarks" / "csi_300.csv").exists()
 
 
-def test_radar_collect_once_prints_each_pool(mocker):
+def test_radar_collect_once_prints_each_pool(mocker, tmp_path):
+    from utils.config import Config
+
     class _Repository:
         @staticmethod
         def load_all():
@@ -66,7 +68,8 @@ def test_radar_collect_once_prints_each_pool(mocker):
         def refresh(universe_id):
             return f"run-{universe_id}"
 
-    mocker.patch("stock_robot.cli._radar_services", return_value=(None, _Repository(), None, _Refresher()))
+    config = Config(config_dir=tmp_path / "config")
+    mocker.patch("stock_robot.cli._radar_services", return_value=(config, _Repository(), None, _Refresher()))
 
     result = CliRunner().invoke(main, ["radar", "collect", "--once"])
 

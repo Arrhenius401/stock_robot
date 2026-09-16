@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -22,6 +23,7 @@ from radar.benchmarks import (
     fetch_benchmark_closes,
     load_benchmarks,
 )
+from radar.collector_store import CollectorStore
 from radar.data import (
     AkShareETFDataProvider,
     FallbackETFDataProvider,
@@ -119,6 +121,21 @@ def create_radar_router() -> APIRouter:
     def list_universes():
         repository, _, _ = services()
         return [item.model_dump(mode="json") for item in repository.load_all()]
+
+    @router.get("/collector/status")
+    def collector_status():
+        """返回两个 ETF 池最近一次定时采集的独立审计记录。"""
+        config = Config()
+        repository, _, _ = services()
+        universe_ids = tuple(item.id for item in repository.load_all())
+        try:
+            states = CollectorStore(config.config_dir / "radar_collector.db").latest(universe_ids)
+        except (OSError, sqlite3.Error) as exc:
+            raise HTTPException(status_code=503, detail="采集状态暂不可读取") from exc
+        return {
+            "schedule": {"timezone": "Asia/Shanghai", "weekdays": True, "hour": 18, "minute": 30},
+            "items": states,
+        }
 
     @router.get("/score-profiles/{profile_id}")
     def get_score_profile(profile_id: str):

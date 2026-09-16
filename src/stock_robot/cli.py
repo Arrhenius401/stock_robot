@@ -1170,9 +1170,15 @@ def radar_refresh(universe_id, full, as_of):
 def radar_collect(hour: int, minute: int, once: bool):
     """工作日收盘后自动刷新两个 ETF 池。"""
     from radar.collector import RadarCollector
+    from radar.collector_store import CollectorStore
 
-    _, repository, _, refresher = _radar_services()
-    collector = RadarCollector(lambda universe_id: refresher.refresh(universe_id), tuple(item.id for item in repository.load_all()))
+    config, repository, _, refresher = _radar_services()
+    status_store = CollectorStore(config.config_dir / "radar_collector.db")
+    collector = RadarCollector(
+        lambda universe_id: refresher.refresh(universe_id),
+        tuple(item.id for item in repository.load_all()),
+        status_store.record,
+    )
     if once:
         for universe_id, result in collector.run_once().items():
             console.print(f"{universe_id}: {result}")
