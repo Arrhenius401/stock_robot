@@ -25,6 +25,7 @@ from radar.benchmarks import (
 from radar.data import (
     AkShareETFDataProvider,
     FallbackETFDataProvider,
+    LocalETFDataProvider,
     OfficialExchangeETFDataProvider,
     RadarDataError,
     RequestPacer,
@@ -71,6 +72,7 @@ def create_radar_router() -> APIRouter:
         repository = UniverseRepository(root / "config" / "radar_universes")
         store = RadarStore(config.config_dir / "radar.db")
         provider = FallbackETFDataProvider((
+            LocalETFDataProvider(config.config_dir / "radar_local_data" / "etf"),
             AkShareETFDataProvider(pacer=RequestPacer(config.get("radar.minimum_interval_seconds", 1.0))),
             TencentETFDataProvider(),
             SinaETFDataProvider(),
@@ -203,6 +205,7 @@ def create_radar_router() -> APIRouter:
         effective_start = start_date or date(2005, 1, 1)
         config = Config()
         provider = FallbackETFDataProvider((
+            LocalETFDataProvider(config.config_dir / "radar_local_data" / "etf"),
             AkShareETFDataProvider(pacer=RequestPacer(config.get("radar.minimum_interval_seconds", 1.0))),
             TencentETFDataProvider(), SinaETFDataProvider(), OfficialExchangeETFDataProvider(),
         ))
@@ -210,7 +213,15 @@ def create_radar_router() -> APIRouter:
         try:
             history = provider.fetch_daily(symbol, effective_start, end_date)
             catalog = load_benchmarks(root / "config" / "radar_benchmarks.yaml")
-            benchmarks = {item.id: fetch_benchmark_closes(item, effective_start, end_date) for item in catalog.benchmarks}
+            benchmarks = {
+                item.id: fetch_benchmark_closes(
+                    item,
+                    effective_start,
+                    end_date,
+                    local_directory=config.config_dir / "radar_local_data" / "benchmarks",
+                )
+                for item in catalog.benchmarks
+            }
             result = calculate_instrument_performance(history, benchmarks)
         except (RadarDataError, RadarBenchmarkError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=f"标的历史表现不可用: {exc}") from exc

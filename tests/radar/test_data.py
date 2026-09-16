@@ -4,6 +4,7 @@ from datetime import date
 
 import pandas as pd
 import pytest
+import requests
 
 from radar.data import (
     AkShareETFDataProvider,
@@ -12,6 +13,7 @@ from radar.data import (
     RadarDataError,
     RequestPacer,
     SinaETFDataProvider,
+    TencentETFDataProvider,
 )
 
 
@@ -99,3 +101,20 @@ def test_fallback_reports_the_provider_that_supplied_daily_history():
     _, source = provider.fetch_daily_with_source("510300", date(2024, 1, 1), date(2024, 1, 31))
 
     assert source == "SinaETFDataProvider"
+
+
+def test_tencent_provider_opens_circuit_after_network_failure():
+    calls = 0
+
+    def unavailable(symbol: str, start: date, end: date) -> pd.DataFrame:
+        nonlocal calls
+        calls += 1
+        raise requests.ConnectionError("offline")
+
+    provider = TencentETFDataProvider(fetcher=unavailable)
+
+    with pytest.raises(RadarDataError, match="已熔断"):
+        provider.fetch_daily("510300", date(2024, 1, 1), date(2024, 1, 31))
+    with pytest.raises(ProviderCircuitOpenError):
+        provider.fetch_daily("510500", date(2024, 1, 1), date(2024, 1, 31))
+    assert calls == 1

@@ -22,6 +22,39 @@ def test_create_cli_progress_uses_shared_transient_columns():
     assert all("task.completed" not in str(column) for column in progress.columns)
 
 
+def test_radar_import_data_writes_local_etf_history(mocker, tmp_path):
+    from utils.config import Config
+
+    source = tmp_path / "etf.csv"
+    pd.DataFrame({
+        "日期": ["2024-01-02"], "开盘": [3.7], "最高": [3.9], "最低": [3.6],
+        "收盘": [3.8], "成交量": [100], "成交额": [380],
+    }).to_csv(source, index=False, encoding="utf-8-sig")
+    config = Config(config_dir=tmp_path / "config")
+    mocker.patch("stock_robot.cli.Config", return_value=config)
+
+    result = CliRunner().invoke(main, ["radar", "import-data", "--symbol", "510300", "--file", str(source)])
+
+    assert result.exit_code == 0
+    assert "已导入 510300" in result.output
+    assert (config.config_dir / "radar_local_data" / "etf" / "510300.csv").exists()
+
+
+def test_radar_import_benchmark_writes_local_history(mocker, tmp_path):
+    from utils.config import Config
+
+    source = tmp_path / "benchmark.csv"
+    pd.DataFrame({"日期": ["2024-01-02"], "收盘": [3500.0]}).to_csv(source, index=False, encoding="utf-8-sig")
+    config = Config(config_dir=tmp_path / "config")
+    mocker.patch("stock_robot.cli.Config", return_value=config)
+
+    result = CliRunner().invoke(main, ["radar", "import-benchmark", "--benchmark", "csi_300", "--file", str(source)])
+
+    assert result.exit_code == 0
+    assert "已导入基准 csi_300" in result.output
+    assert (config.config_dir / "radar_local_data" / "benchmarks" / "csi_300.csv").exists()
+
+
 class TestCLI:
     def test_analyze_without_symbol_shows_error(self):
         runner = CliRunner()

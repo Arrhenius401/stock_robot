@@ -56,10 +56,10 @@ class RadarRefresher:
             except Exception as exc:  # noqa: BLE001 — 数据源单标的失败不应阻断其他标的
                 failures[instrument.symbol] = str(exc)
         if not histories:
-            failure_details = list(dict.fromkeys(failures.values()))
-            detail = "；".join(failure_details[:3])
-            if len(failure_details) > 3:
-                detail += f"；另有 {len(failure_details) - 3} 条不同错误"
+            failure_details = _summarize_provider_failures(failures.values())
+            detail = "；".join(failure_details[:4])
+            if len(failure_details) > 4:
+                detail += f"；另有 {len(failure_details) - 4} 条不同错误"
             message = "所有标的日线获取失败" + (f"：{detail}" if detail else "")
             self.store.fail_run(run_id, message)
             raise RuntimeError(f"{message}，未发布新快照")
@@ -105,3 +105,16 @@ class RadarRefresher:
             )
         self.store.complete_run(run_id)
         return run_id
+
+
+def _summarize_provider_failures(failures: Any) -> list[str]:
+    """合并同一提供器的重复熔断信息，优先保留首次可诊断错误。"""
+    representatives: dict[str, str] = {}
+    for failure in failures:
+        for item in str(failure).split("；"):
+            provider, separator, message = item.partition(":")
+            key = provider if separator else item
+            previous = representatives.get(key)
+            if previous is None or ("已熔断" in previous and "已熔断" not in message):
+                representatives[key] = item
+    return list(representatives.values())

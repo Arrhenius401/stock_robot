@@ -1099,6 +1099,7 @@ def _radar_services():
     from radar.data import (
         AkShareETFDataProvider,
         FallbackETFDataProvider,
+        LocalETFDataProvider,
         OfficialExchangeETFDataProvider,
         RequestPacer,
         SinaETFDataProvider,
@@ -1112,6 +1113,7 @@ def _radar_services():
     root = Path(__file__).parents[2]
     repository = UniverseRepository(root / "config" / "radar_universes")
     provider = FallbackETFDataProvider((
+        LocalETFDataProvider(config.config_dir / "radar_local_data" / "etf"),
         AkShareETFDataProvider(pacer=RequestPacer(config.get("radar.minimum_interval_seconds", 1.0))),
         TencentETFDataProvider(),
         SinaETFDataProvider(),
@@ -1159,6 +1161,38 @@ def radar_refresh(universe_id, full, as_of):
     except (RuntimeError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
     console.print(f"[green]快照已完成: {run_id}[/green]")
+
+
+@radar.command("import-data")
+@click.option("--symbol", required=True, help="六位 ETF 代码")
+@click.option("--file", "source_file", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True, help="含日线的 CSV 文件")
+def radar_import_data(symbol: str, source_file: Path):
+    """导入本地 ETF 日线，供离线刷新与回测优先使用。"""
+    from radar.data import LocalETFDataProvider, RadarDataError
+
+    config = Config()
+    provider = LocalETFDataProvider(config.config_dir / "radar_local_data" / "etf")
+    try:
+        rows, start, end = provider.import_csv(symbol, source_file)
+    except RadarDataError as exc:
+        raise click.ClickException(str(exc)) from exc
+    console.print(f"[green]已导入 {symbol}: {rows} 行，覆盖 {start.isoformat()} 至 {end.isoformat()}[/green]")
+
+
+@radar.command("import-benchmark")
+@click.option("--benchmark", "benchmark_id", type=click.Choice(["money_fund", "csi_300", "csi_all_bond"]), required=True, help="雷达固定基准 ID")
+@click.option("--file", "source_file", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True, help="含日期和收盘价的 CSV 文件")
+def radar_import_benchmark(benchmark_id: str, source_file: Path):
+    """导入本地基准日线，供离线回测和标的比较优先使用。"""
+    from radar.benchmarks import LocalBenchmarkStore, RadarBenchmarkError
+
+    config = Config()
+    store = LocalBenchmarkStore(config.config_dir / "radar_local_data" / "benchmarks")
+    try:
+        rows, start, end = store.import_csv(benchmark_id, source_file)
+    except RadarBenchmarkError as exc:
+        raise click.ClickException(str(exc)) from exc
+    console.print(f"[green]已导入基准 {benchmark_id}: {rows} 行，覆盖 {start.isoformat()} 至 {end.isoformat()}[/green]")
 
 
 @radar.command("status")
@@ -1218,6 +1252,7 @@ def radar_backtest(universe_id, start, end, strategy, rerun):
     from radar.data import (
         AkShareETFDataProvider,
         FallbackETFDataProvider,
+        LocalETFDataProvider,
         OfficialExchangeETFDataProvider,
         RadarDataError,
         RequestPacer,
@@ -1276,6 +1311,7 @@ def radar_backtest(universe_id, start, end, strategy, rerun):
             console.print(f"[green]复用已有回测产物: {existing}[/green]")
             return existing
     provider = FallbackETFDataProvider((
+        LocalETFDataProvider(config.config_dir / "radar_local_data" / "etf"),
         AkShareETFDataProvider(pacer=RequestPacer(config.get("radar.minimum_interval_seconds", 1.0))),
         TencentETFDataProvider(),
         SinaETFDataProvider(),
@@ -1288,7 +1324,12 @@ def radar_backtest(universe_id, start, end, strategy, rerun):
         raise click.ClickException(f"回测历史数据不可用: {exc}") from exc
     try:
         benchmarks = {
-            item.id: fetch_benchmark_closes(item, start.date(), end.date())
+            item.id: fetch_benchmark_closes(
+                item,
+                start.date(),
+                end.date(),
+                local_directory=config.config_dir / "radar_local_data" / "benchmarks",
+            )
             for item in benchmark_catalog.benchmarks
         }
     except RadarBenchmarkError as exc:

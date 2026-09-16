@@ -507,10 +507,16 @@ stock-robot analyze 000001 --no-llm
 
 ```powershell
 stock-robot radar universe list
+stock-robot radar import-data --symbol 510300 --file .\data\510300.csv
+stock-robot radar import-benchmark --benchmark csi_300 --file .\data\csi_300.csv
 stock-robot radar refresh --universe cn_hk_etf
 stock-robot radar refresh --universe cn_hk_etf --full --as-of 2026-09-04
 stock-robot radar show --universe cn_hk_etf
 stock-robot radar backtest --universe overseas_etf --start 2022-01-01 --end 2025-12-31
 ```
 
-仅 `refresh` 与 `backtest` 会访问数据源，展示和 API 只读取 `.stock_robot/radar.db` 的完成态快照。`refresh` 默认仅获取有限评分窗口，`--full` 将窗口扩展为完整修订窗口；`--as-of` 用于回放指定数据日期。回测以月末可得日线评分、下一交易日开盘成交、各类别冠军等权为约束，产物包含策略指纹、池版本、调仓日、费用和数据范围。评分与回测均为研究用途，不构成投资建议；历史结果不代表未来收益，海外 QDII ETF 还可能存在时差、溢价与申赎限制。
+仅 `refresh` 与 `backtest` 会访问数据源，展示和 API 只读取 `.stock_robot/radar.db` 的完成态快照。`refresh` 默认仅获取有限评分窗口，`--full` 将窗口扩展为完整修订窗口；`--as-of` 用于回放指定数据日期。
+
+网络不可用时，可使用 `radar import-data` 导入单只 ETF 的本地 CSV。文件必须包含日期、开盘、最高、最低、收盘和成交额列（支持常见中文或英文列名，成交量可选）；同一代码的重复导入会按日期合并，并以新文件覆盖同日记录。导入后的文件保存于 `.stock_robot/radar_local_data/etf/`，刷新和 ETF 回测均优先读取它；只有本地缺失时才继续尝试网络数据源。完整离线回测还需分别通过 `radar import-benchmark` 导入 `money_fund`、`csi_300`、`csi_all_bond` 三条基准的日期与收盘价 CSV。
+
+回测以月末可得日线评分、下一交易日开盘成交、各类别冠军等权为约束，产物包含策略指纹、池版本、调仓日、费用和数据范围。评分与回测均为研究用途，不构成投资建议；历史结果不代表未来收益，海外 QDII ETF 还可能存在时差、溢价与申赎限制。

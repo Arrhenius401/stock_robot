@@ -59,5 +59,7 @@ def test_refresh_reports_deduplicated_provider_chain_when_every_instrument_fails
     })
     refresher = RadarRefresher(_Repository(universe), _UnavailableProvider(), RadarStore(tmp_path / "radar.db"))
 
-    with pytest.raises(RuntimeError, match="AkShare 请求失败；腾讯请求失败；官方兜底未启用"):
+    with pytest.raises(RuntimeError, match="AkShare 请求失败；腾讯请求失败；官方兜底未启用") as error:
         refresher.refresh("test_etf", as_of=date(2025, 12, 31))
+
+    assert str(error.value).count("腾讯请求失败") == 1
