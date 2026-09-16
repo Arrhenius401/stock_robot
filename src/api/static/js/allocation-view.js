@@ -463,6 +463,16 @@ function allocationStartRefresh(button, feedback) {
   });
 }
 
+function allocationDataStatus(item) {
+  var observed = item.observed_at ? String(item.observed_at).slice(0, 10) : "";
+  var snapshotDate = allocationState.snapshot && allocationState.snapshot.as_of_date ? String(allocationState.snapshot.as_of_date).slice(0, 10) : "";
+  var date = observed || snapshotDate;
+  if (item.status === "fresh") return date || "已更新";
+  if (item.status === "stale") return date ? "沿用 " + date : "沿用历史";
+  if (item.status === "failed") return "不可用";
+  return "—";
+}
+
 function allocationShowList() {
   allocationState.detail = null;
   var root = allocationRoot();
@@ -484,7 +494,7 @@ function allocationShowList() {
       var row = document.createElement("tr");
       row.className = "radar-row";
       row.tabIndex = 0;
-      [item.rank || "-", item.name + " · " + item.symbol, item.score == null ? "-" : Number(item.score).toFixed(1), item.grade || "-", item.status === "stale" ? "沿用历史" : (item.status === "failed" ? "不可用" : "最新")].forEach(function (value) {
+      [item.rank || "-", item.name + " · " + item.symbol, item.score == null ? "-" : Number(item.score).toFixed(1), item.grade || "-", allocationDataStatus(item)].forEach(function (value) {
         row.appendChild(allocationElement("td", "", value));
       });
       row.addEventListener("click", function () { allocationShowDetail(item); });
@@ -547,7 +557,7 @@ function allocationShowDetail(item, fromHistory) {
   var summary = allocationElement("section", "panel radar-detail-section");
   summary.appendChild(allocationElement("h3", "", "评分摘要"));
   var metrics = allocationElement("div", "radar-detail-metrics");
-  [["综合评分", item.score == null ? "—" : Number(item.score).toFixed(1)], ["类别排名", item.rank ? "#" + item.rank : "—"], ["研究等级", item.grade || "—"], ["数据状态", item.status || "—"]].forEach(function (pair) {
+  [["综合评分", item.score == null ? "—" : Number(item.score).toFixed(1)], ["类别排名", item.rank ? "#" + item.rank : "—"], ["研究等级", item.grade || "—"], ["数据状态", allocationDataStatus(item)]].forEach(function (pair) {
     var card = allocationElement("div", "radar-detail-metric");
     card.append(allocationElement("span", "k", pair[0]), allocationElement("strong", "v", pair[1]));
     metrics.appendChild(card);

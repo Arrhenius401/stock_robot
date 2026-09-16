@@ -1898,6 +1898,8 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         assert 'allocationElement("div", "radar-head-controls")' in source
         assert '"/api/v1/radar/refresh"' in source
         assert '"/api/v1/radar/collector/status"' in source
+        assert "function allocationDataStatus(item)" in source
+        assert "allocationDataStatus(item)" in source
         assert "allocationPollRefresh" in source
         assert "数据更新完成，已载入最新快照。" in source
         assert "沿用上次健康数据" in source
