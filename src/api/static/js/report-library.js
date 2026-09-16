@@ -2,6 +2,7 @@ import { api } from "./api.js";
 import { el, errorCard, skeleton } from "./components.js";
 import { renderMarkdown } from "./markdown.js";
 import { bus } from "./state.js";
+import { renderStockMarkdownReport } from "./report-renderer.js?v=20260916-report-readability";
 
 const TYPE_LABELS = {
   stock: "个股",
@@ -321,6 +322,9 @@ function renderMarkdownTab(detail) {
 function renderActiveTab(detail) {
   if (state.tab === "curve") return renderEquityCurve(detail.equity_curve);
   if (state.tab === "trades") return renderTrades(detail.trades);
+  if (detail.report?.type === "stock") {
+    return renderStockMarkdownReport(detail.markdown, { sectionIdPrefix: "library-" });
+  }
   return renderMarkdownTab(detail);
 }
 

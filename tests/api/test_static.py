@@ -246,11 +246,21 @@ class TestStaticUI:
         assert 'id="globalStockSearch"' not in html
 
     @pytest.mark.asyncio
+    async def test_index_contains_runtime_logs_view(self, client):
+        """日志是配置之前的一级导航，并有独立内容容器。"""
+        html = (await client.get("/")).text
+
+        assert 'data-view="logs"' in html
+        assert "<span>日志</span>" in html
+        assert 'id="view-logs"' in html
+        assert 'id="logsContent"' in html
+
+    @pytest.mark.asyncio
     async def test_report_library_modules_served(self, client):
         app_js = (await client.get("/js/app.js")).text
         api_js = (await client.get("/js/api.js")).text
 
-        assert 'import { initReportLibrary } from "./report-library.js";' in app_js
+        assert 'import { initReportLibrary } from "./report-library.js?v=20260916-report-readability";' in app_js
         assert "initReportLibrary();" in app_js
         assert "listReports(" in api_js
         assert "getReport(" in api_js
@@ -361,7 +371,7 @@ const report = {
       status: "ok",
       score: 8,
       summary: "**稳健** <script>alert(1)</script>",
-      metrics: { nested: { value: 3 } },
+      metrics: { latest_close: 12.3, nested: { value: 3 } },
       risk_flags: ["集中度偏高", "集中度偏高"],
     },
     sentiment: { summary: "消息平稳", risk_flags: ["舆情波动"] },
@@ -397,8 +407,9 @@ if (!htmlValues.some((value) => value.includes("&lt;script&gt;"))) {
 if (article.textContent.includes("undefined") || article.textContent.includes("[object Object]")) {
   throw new Error("缺失字段或对象指标不可泄漏 JS 默认字符串");
 }
-if (!article.textContent.includes('{\n  "value": 3\n}')) {
-  throw new Error("对象指标应使用可读 JSON");
+if (!article.textContent.includes("最新收盘价") || !article.textContent.includes("nested · value")
+    || article.textContent.includes('{\n  "value": 3\n}')) {
+  throw new Error("对象指标应拆为可读字段，不能展示 JSON");
 }
 if (byClass(article, "report-risk-item").length !== 2) {
   throw new Error("风险应跨维度去重聚合");

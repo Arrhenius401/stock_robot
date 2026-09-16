@@ -10,6 +10,24 @@ const DIMENSIONS = [
   ["sentiment", "舆情风险"],
 ];
 
+// 数据层字段只在内部协议中使用；界面统一显示业务中文名称。
+const METRIC_LABELS = {
+  latest_close: "最新收盘价", latest_price: "最新价格", change_pct: "涨跌幅",
+  year_high: "近一年最高价", year_low: "近一年最低价", price_position: "价格位置",
+  latest_quarter: "最新财报季度", revenue: "营业收入", net_profit: "净利润",
+  total_assets: "总资产", total_equity: "股东权益", operating_cash_flow: "经营活动现金流",
+  operating_cash_flow_per_share: "每股经营现金流", revenue_growth_yoy: "营收同比增长",
+  profit_growth_yoy: "净利润同比增长", roe: "净资产收益率", gross_margin: "毛利率",
+  ma_5: "5 日均线", ma_20: "20 日均线", ma_60: "60 日均线",
+  pe_ttm: "市盈率（TTM）", pb: "市净率", ps_ttm: "市销率（TTM）",
+  pe_percentile: "市盈率分位", pb_percentile: "市净率分位", dividend_yield: "股息率",
+  industry: "所属行业", sector: "所属板块", peer_count: "有效同行数",
+  industry_median_pe: "行业市盈率中位数", industry_median_pb: "行业市净率中位数",
+  target_pe_premium: "相对行业市盈率溢价", target_market_cap_rank: "行业市值排名",
+  headline_count: "新闻数量", north_bound: "北向资金净流入", main_net_inflow: "主力资金净流入",
+  margin_balance: "融资余额", data_date: "数据日期", date: "数据日期",
+};
+
 function record(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
@@ -33,6 +51,35 @@ function readable(value, fallback = "暂无数据") {
     }
   }
   return String(value);
+}
+
+function metricLabel(key) {
+  const raw = String(key);
+  return METRIC_LABELS[raw] || raw.replaceAll("_", " ");
+}
+
+function metricText(value) {
+  if (Array.isArray(value)) return value.map(metricText).filter(Boolean).join("、") || "暂无数据";
+  if (value && typeof value === "object") {
+    return Object.values(value).map(metricText).filter(Boolean).join("、") || "暂无数据";
+  }
+  return readable(value);
+}
+
+function appendMetrics(grid, key, value, prefix = "") {
+  const label = prefix ? `${prefix} · ${metricLabel(key)}` : metricLabel(key);
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const entries = Object.entries(value);
+    if (!entries.length) {
+      grid.appendChild(kv(label, "暂无数据"));
+      return;
+    }
+    for (const [nestedKey, nestedValue] of entries) {
+      appendMetrics(grid, nestedKey, nestedValue, label);
+    }
+    return;
+  }
+  grid.appendChild(kv(label, metricText(value)));
 }
 
 function naturalText(value) {
@@ -195,7 +242,7 @@ function dimensionSection(name, label, data, sectionIdPrefix) {
   if (Object.keys(metrics).length) {
     const grid = el("div", "mtr");
     for (const [metric, value] of Object.entries(metrics)) {
-      grid.appendChild(kv(metric, readable(value)));
+      appendMetrics(grid, metric, value);
     }
     card.appendChild(grid);
   }
@@ -250,6 +297,31 @@ export function renderStockReport(report, options = {}) {
   }
   article.appendChild(risksSection(data, sectionIdPrefix));
   article.appendChild(commentarySection(data, sectionIdPrefix));
+  return article;
+}
+
+export function renderStockMarkdownReport(markdown, options = {}) {
+  // 将报告库的历史 Markdown 放入与实时个股报告一致的章节卡片体系。
+  const article = el("article", "stock-report");
+  if (options.className) article.classList.add(String(options.className));
+  const sectionIdPrefix = options.sectionIdPrefix || "";
+  const source = String(markdown || "").trim();
+  const titleMatch = source.match(/^#\s+(.+)$/m);
+  const title = titleMatch?.[1] || "个股分析报告";
+  const parts = source.replace(/^#\s+.+\n?/, "").split(/\n(?=##\s+)/);
+
+  const heading = section("report-summary", "投资摘要", "panel", sectionIdPrefix);
+  heading.appendChild(el("div", "stock-name", title));
+  heading.appendChild(markdownBlock(parts.shift() || "暂无报告摘要", "report-investment-summary md"));
+  article.appendChild(heading);
+
+  parts.forEach((part, index) => {
+    const match = part.match(/^##\s+(.+)$/m);
+    const label = match?.[1] || `报告章节 ${index + 1}`;
+    const card = section(`report-library-${index}`, label, "panel", sectionIdPrefix);
+    card.appendChild(markdownBlock(part.replace(/^##\s+.+\n?/, ""), "md"));
+    article.appendChild(card);
+  });
   return article;
 }
 

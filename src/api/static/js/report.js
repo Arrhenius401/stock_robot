@@ -3,7 +3,7 @@ import { store, switchView } from "./state.js";
 import { api } from "./api.js";
 import { el, errorCard, skeleton,
          showEntryError, clearEntryError } from "./components.js";
-import { renderStockReport } from "./report-renderer.js";
+import { renderStockReport } from "./report-renderer.js?v=20260916-report-readability";
 
 const content = () => document.getElementById("reportContent");
 
