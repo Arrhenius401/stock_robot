@@ -18,6 +18,23 @@ logger = logging.getLogger(__name__)
 
 from utils.config import Config
 
+_RUNTIME_LOG_HANDLER_NAME = "stock-robot-runtime-log"
+
+
+def _configure_runtime_log(config: Config) -> None:
+    """为 Web 服务增加可供界面读取的本地运行日志。"""
+    root_logger = logging.getLogger()
+    if any(handler.get_name() == _RUNTIME_LOG_HANDLER_NAME
+           for handler in root_logger.handlers):
+        return
+    log_path = config.config_dir / "runtime.log"
+    handler = logging.FileHandler(log_path, encoding="utf-8")
+    handler.set_name(_RUNTIME_LOG_HANDLER_NAME)
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s %(message)s"))
+    root_logger.addHandler(handler)
+    root_logger.setLevel(logging.INFO)
+
 
 def _create_cli_progress():
     """创建三条 CLI 命令共用的进度条。"""
@@ -630,6 +647,7 @@ def run(host, port):
     from api.bootstrap import build_agent_core
 
     config = Config()
+    _configure_runtime_log(config)
     bind_host, bind_port = _resolve_api_bind(host, port, config)
     with _create_cli_progress() as progress:
         task_id = progress.add_task("正在构建 Agent 核心", total=3)

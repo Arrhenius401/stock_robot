@@ -116,6 +116,10 @@ export const api = {
     // PUT 响应含 persisted/applied/restart_required 与可选 reload_error，由设置页决定是否重绘
     return request("/api/v1/config", { method: "PUT", body: JSON.stringify({ config }) });
   },
+  getRuntimeLogs(level = "") {
+    const suffix = level ? `?level=${encodeURIComponent(level)}` : "";
+    return request(`/api/v1/logs${suffix}`);
+  },
   listTools() {
     return request("/api/v1/tools");
   },

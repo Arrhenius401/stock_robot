@@ -21,6 +21,7 @@ from agent.memory import TaskStatus
 from agent.planner import Planner
 from agent.react import ReActExecutor
 from api.configuration import create_configuration_router
+from api.logs import create_logs_router
 from api.message_content import encode_message_content, normalize_message_content
 from api.report_library import (
     ReportLibraryError,
@@ -298,6 +299,7 @@ def create_app(
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
                        allow_headers=["*"])
     app.include_router(create_configuration_router(runtime=runtime))
+    app.include_router(create_logs_router())
     from api.radar import create_radar_router
     app.include_router(create_radar_router())
 

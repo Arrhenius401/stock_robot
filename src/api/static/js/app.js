@@ -1,15 +1,16 @@
 // 应用主入口：导航接线、工作台覆盖层与各视图初始化。
 import { bus, switchView } from "./state.js";
 import { initChat } from "./chat.js";
-import { initReportView, openReport } from "./report.js";
+import { initReportView, openReport } from "./report.js?v=20260916-report-readability";
 import { initReportDrawer } from "./report-drawer.js";
 import { closeReportDrawer } from "./report-drawer.js";
 import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js";
 import { initIndexView } from "./indexview.js";
-import { initReportLibrary } from "./report-library.js";
+import { initReportLibrary } from "./report-library.js?v=20260916-report-readability";
 import { initSessions, initSessionStartup } from "./sessions.js";
 import { initSubscriptions } from "./subscriptions.js";
 import { initSettings } from "./settings.js";
+import { initLogs } from "./logs.js";
 
 const VIEW_TITLES = {
   chat: "会话研究",
@@ -18,6 +19,7 @@ const VIEW_TITLES = {
   radar: "配置雷达",
   "report-library": "报告库",
   subscriptions: "订阅推送",
+  logs: "日志",
   settings: "配置",
 };
 
@@ -143,6 +145,7 @@ function init() {
   initReportLibrary();
   initSessions();
   initSubscriptions();
+  initLogs();
   initSettings();
   initSessionStartup()
     .catch((error) => console.error("会话初始化失败:", error))
