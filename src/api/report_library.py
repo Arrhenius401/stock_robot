@@ -107,7 +107,7 @@ def _read_optional_json(path: Path) -> dict[str, Any]:
     return _read_json(path)
 
 
-def _read_csv(path: Path, max_rows: int = MAX_TRADE_ROWS) -> dict[str, Any]:
+def _read_csv(path: Path, max_rows: int | None = MAX_TRADE_ROWS) -> dict[str, Any]:
     try:
         with path.open("r", encoding="utf-8", newline="") as file:
             reader = csv.DictReader(file)
@@ -115,7 +115,7 @@ def _read_csv(path: Path, max_rows: int = MAX_TRADE_ROWS) -> dict[str, Any]:
             rows: list[dict[str, Any]] = []
             for row in reader:
                 rows.append({column: (row.get(column) or None) for column in columns})
-                if len(rows) >= max_rows:
+                if max_rows is not None and len(rows) >= max_rows:
                     break
     except (OSError, UnicodeDecodeError, csv.Error) as exc:
         raise ReportLibraryError("报告文件已损坏或不完整", 422) from exc
@@ -322,7 +322,12 @@ def _summary_from_relative(reports_root: Path, relative: Path) -> ReportSummary:
     return summary
 
 
-def get_report_detail(reports_root: Path, report_id: str) -> ReportDetail:
+def get_report_detail(
+    reports_root: Path,
+    report_id: str,
+    *,
+    equity_curve_max_rows: int | None = MAX_TRADE_ROWS,
+) -> ReportDetail:
     relative = _decode_id(report_id)
     path = reports_root / relative
     if _safe_relative(reports_root, path) is None:
@@ -336,7 +341,7 @@ def get_report_detail(reports_root: Path, report_id: str) -> ReportDetail:
     payload = _read_json(run_dir / "summary.json")
     missing: list[str] = []
     if (run_dir / "equity_curve.csv").exists():
-        equity_curve = _read_csv(run_dir / "equity_curve.csv")
+        equity_curve = _read_csv(run_dir / "equity_curve.csv", max_rows=equity_curve_max_rows)
     else:
         equity_curve = {"columns": [], "rows": []}
         missing.append("equity_curve.csv")

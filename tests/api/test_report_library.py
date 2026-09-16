@@ -79,6 +79,23 @@ def test_detail_reads_backtest_payload_and_missing_csv_is_nonfatal(tmp_path):
     assert detail.missing_artifacts == ["trades.csv"]
 
 
+def test_detail_can_read_complete_equity_curve_for_radar(tmp_path):
+    reports = tmp_path / "reports"
+    run = reports / "radar_backtests" / "etf" / "core_rotation_v1" / "cn_hk_etf" / "2026-09" / "run-1"
+    write(run / "report.md", "# 配置雷达 ETF 回测")
+    write(run / "summary.json", '{"strategy_id":"core_rotation_v1"}')
+    write(run / "manifest.json", '{"universe_id":"cn_hk_etf","strategy_id":"core_rotation_v1"}')
+    rows = "\n".join(f"2020-01-{(index % 28) + 1:02d},{index}" for index in range(1_001))
+    write(run / "equity_curve.csv", "date,strategy_equity\n" + rows)
+    write(run / "trades.csv", "trade_date,symbol\n")
+
+    summary = list_reports(reports, report_type="backtest")[0]
+    detail = get_report_detail(reports, summary.id, equity_curve_max_rows=None)
+
+    assert detail.equity_curve is not None
+    assert len(detail.equity_curve["rows"]) == 1_001
+
+
 def test_rejects_unknown_id_and_path_escape(tmp_path):
     reports = tmp_path / "reports"
     make_reports(reports)

@@ -16,3 +16,14 @@ def test_collector_store_preserves_latest_status_per_universe(tmp_path):
     assert states[1]["status"] == "failed"
     assert states[1]["error_summary"] == "上游超时"
     assert states[2] == {"universe_id": "missing", "status": "never"}
+
+
+def test_collector_store_records_runtime_and_recent_events(tmp_path):
+    store = CollectorStore(tmp_path / "collector.db")
+
+    store.record_started()
+    store.record_heartbeat()
+    store.record("cn_hk_etf", "completed", "run-cn")
+
+    assert store.runtime()["heartbeat_at"]
+    assert store.recent_events()[0]["message"] == "cn_hk_etf 采集完成：run-cn"

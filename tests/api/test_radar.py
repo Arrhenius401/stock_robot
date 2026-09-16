@@ -5,6 +5,7 @@ from typing import Literal
 from fastapi.testclient import TestClient
 
 from api.app import create_app
+from radar.collector_autostart import CollectorAutostartStatus
 from radar.collector_store import CollectorStore
 from radar.models import SnapshotItem
 from radar.store import RadarStore
@@ -39,9 +40,37 @@ def test_radar_collector_status_exposes_each_pool_and_schedule(tmp_path, monkeyp
     assert response.status_code == 200
     payload = response.json()
     assert payload["schedule"] == {"timezone": "Asia/Shanghai", "weekdays": True, "hour": 18, "minute": 30}
+    assert payload["next_scheduled_at"]
+    assert payload["runtime"] == {"status": "never"}
     states = {item["universe_id"]: item for item in payload["items"]}
     assert states["cn_hk_etf"]["error_summary"] == "上游超时"
     assert states["overseas_etf"]["status"] == "never"
+
+
+def test_radar_collector_autostart_is_local_only_and_returns_scheduler_state(monkeypatch):
+    class FakeAutostart:
+        enabled = False
+
+        def status(self):
+            return CollectorAutostartStatus(
+                True, True, self.enabled, "StockRobotRadarCollector",
+                {"timezone": "Asia/Shanghai", "weekdays": True, "hour": 18, "minute": 30},
+            )
+
+        def set_enabled(self, enabled: bool):
+            self.enabled = enabled
+            return self.status()
+
+    fake = FakeAutostart()
+    monkeypatch.setattr("api.radar.WindowsCollectorAutostart", lambda: fake)
+    remote_client = TestClient(create_app(core=None, push=False))
+    local_client = TestClient(create_app(core=None, push=False), client=("127.0.0.1", 50123))
+
+    assert remote_client.put("/api/v1/radar/collector/autostart", json={"enabled": True}).status_code == 403
+    response = local_client.put("/api/v1/radar/collector/autostart", json={"enabled": True})
+
+    assert response.status_code == 200
+    assert response.json()["enabled"] is True
 
 
 def test_radar_snapshot_exposes_its_own_status_summary_and_audit_metadata(tmp_path, monkeypatch):

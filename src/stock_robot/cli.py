@@ -1178,6 +1178,8 @@ def radar_collect(hour: int, minute: int, once: bool):
         lambda universe_id: refresher.refresh(universe_id),
         tuple(item.id for item in repository.load_all()),
         status_store.record,
+        status_store.record_started,
+        status_store.record_heartbeat,
     )
     if once:
         for universe_id, result in collector.run_once().items():

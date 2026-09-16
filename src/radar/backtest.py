@@ -45,6 +45,7 @@ def run_monthly_rotation(
     dates = _trading_dates(histories, start, end)
     if not dates:
         return RadarBacktestResult(pd.DataFrame(columns=["equity"]), pd.DataFrame(), {}, (), {})
+    dates, benchmark_warnings = _trim_to_common_benchmark_dates(dates, benchmarks or {})
     planned: dict[date, tuple[date, tuple[str, ...]]] = {}
     for signal_date in _month_ends(dates):
         execution = _next_date(dates, signal_date)
@@ -56,7 +57,7 @@ def run_monthly_rotation(
     trades: list[dict[str, Any]] = []
     rows: list[dict[str, Any]] = []
     rebalance_dates: list[date] = []
-    warnings: list[str] = []
+    warnings: list[str] = list(benchmark_warnings)
     for current in dates:
         instruction = planned.get(current)
         if instruction is not None:
@@ -215,6 +216,37 @@ def _normalized_benchmark(closes: pd.Series, dates: list[date]) -> pd.Series:
     if aligned.isna().any() or float(aligned.iloc[0]) <= 0:
         raise ValueError("基准无法对齐至策略交易日")
     return aligned / float(aligned.iloc[0])
+
+
+def _trim_to_common_benchmark_dates(
+    dates: list[date], benchmarks: Mapping[str, pd.Series],
+) -> tuple[list[date], tuple[str, ...]]:
+    """裁剪至策略与全部基准均可回测的首个交易日。"""
+    if not benchmarks:
+        return dates, ()
+    strategy_dates = pd.Index(dates, name="date")
+    available = pd.Series(True, index=strategy_dates)
+    delayed: list[str] = []
+    for benchmark_id, closes in benchmarks.items():
+        values = closes.copy()
+        values.index = pd.Index([pd.Timestamp(item).date() for item in values.index], name="date")
+        aligned = values.reindex(strategy_dates).ffill()
+        valid = aligned.notna() & (aligned > 0)
+        available &= valid
+        if not bool(valid.iloc[0]):
+            first_valid = valid[valid].index.min()
+            delayed.append(f"{benchmark_id} 自 {first_valid.isoformat() if first_valid else '无可用日线'} 起可用")
+    common_dates = [cast(date, index) for index, is_available in available.items() if bool(is_available)]
+    if not common_dates:
+        raise ValueError("所有基准均无法对齐至策略交易日")
+    actual_start = common_dates[0]
+    if actual_start == dates[0]:
+        return dates, ()
+    warning = (
+        f"基准可用期限制，策略回测起点已从 {dates[0].isoformat()} 裁剪至 "
+        f"{actual_start.isoformat()}（{'；'.join(delayed)}）"
+    )
+    return [value for value in dates if value >= actual_start], (warning,)
 
 
 def _benchmark_metrics(strategy: pd.Series, benchmark: pd.Series) -> dict[str, float]:

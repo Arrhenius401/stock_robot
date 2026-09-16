@@ -146,6 +146,17 @@ export const api = {
   refreshRadar(universeId) {
     return request("/api/v1/radar/refresh", { method: "POST", body: JSON.stringify({ universe_id: universeId }) });
   },
+  radarCollectorAutostart() {
+    return request("/api/v1/radar/collector/autostart");
+  },
+  radarCollectorStatus() {
+    return request("/api/v1/radar/collector/status");
+  },
+  updateRadarCollectorAutostart(enabled) {
+    return request("/api/v1/radar/collector/autostart", {
+      method: "PUT", body: JSON.stringify({ enabled }),
+    });
+  },
   radarRefreshStatus(taskId) {
     return request(`/api/v1/radar/refresh/${encodeURIComponent(taskId)}`);
   },

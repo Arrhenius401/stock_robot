@@ -20,10 +20,14 @@ class RadarCollector:
         refresh: Callable[[str], str],
         universe_ids: tuple[str, ...],
         record: Callable[[str, str, str | None], None] | None = None,
+        record_started: Callable[[], None] | None = None,
+        record_heartbeat: Callable[[], None] | None = None,
     ):
         self._refresh = refresh
         self._universe_ids = universe_ids
         self._record = record
+        self._record_started_callback = record_started
+        self._record_heartbeat_callback = record_heartbeat
 
     def run_once(self) -> dict[str, str]:
         """执行一次采集；单池失败不阻断其他池。"""
@@ -51,6 +55,7 @@ class RadarCollector:
     def serve(self, *, hour: int, minute: int) -> None:
         """前台运行工作日定时采集。"""
         scheduler = BlockingScheduler(timezone="Asia/Shanghai")
+        self._record_runtime(self._record_started_callback)
         scheduler.add_job(
             self.run_once,
             CronTrigger(day_of_week="mon-fri", hour=hour, minute=minute),
@@ -59,4 +64,23 @@ class RadarCollector:
             max_instances=1,
             coalesce=True,
         )
+        scheduler.add_job(
+            lambda: self._record_runtime(self._record_heartbeat_callback),
+            "interval",
+            minutes=5,
+            id="radar-collector-heartbeat",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
         scheduler.start()
+
+    @staticmethod
+    def _record_runtime(callback: Callable[[], None] | None) -> None:
+        """运行审计异常不应阻断定时采集。"""
+        if callback is None:
+            return
+        try:
+            callback()
+        except (OSError, sqlite3.Error, ValueError) as exc:
+            logger.warning("雷达采集运行状态未写入: %s", exc)

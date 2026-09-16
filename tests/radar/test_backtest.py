@@ -109,14 +109,16 @@ def test_rebalance_applies_commission_and_slippage_to_both_sides():
     assert buys[0]["cost"] == pytest.approx(1_000 / 1.01 * 0.01)
 
 
-def test_monthly_rotation_rejects_benchmark_missing_at_formal_start():
+def test_monthly_rotation_trims_to_common_benchmark_start():
     histories = {"a": _history("a", 0), "b": _history("b", 1), "c": _history("c", 2)}
     late_benchmark = pd.Series(
         [100.0, 101.0], index=[date(2024, 1, 2), date(2024, 1, 3)],
     )
 
-    with pytest.raises(ValueError, match="基准无法对齐"):
-        run_monthly_rotation(
-            histories, {"a": "cn", "b": "cn", "c": "cn"},
-            date(2024, 1, 1), date(2024, 1, 4), benchmarks={"csi_300": late_benchmark},
-        )
+    result = run_monthly_rotation(
+        histories, {"a": "cn", "b": "cn", "c": "cn"},
+        date(2024, 1, 1), date(2024, 1, 4), benchmarks={"csi_300": late_benchmark},
+    )
+
+    assert result.equity_curve.index.min() == date(2024, 1, 2)
+    assert result.warnings == ("基准可用期限制，策略回测起点已从 2024-01-01 裁剪至 2024-01-02（csi_300 自 2024-01-02 起可用）",)

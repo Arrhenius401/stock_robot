@@ -8,12 +8,13 @@ import subprocess
 import sys
 import threading
 import uuid
-from datetime import date
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, cast
+from zoneinfo import ZoneInfo
 
 import pandas as pd
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from api.report_library import ReportLibraryError, get_report_detail, list_reports
@@ -23,6 +24,7 @@ from radar.benchmarks import (
     fetch_benchmark_closes,
     load_benchmarks,
 )
+from radar.collector_autostart import CollectorAutostartError, WindowsCollectorAutostart
 from radar.collector_store import CollectorStore
 from radar.data import (
     AkShareETFDataProvider,
@@ -59,7 +61,24 @@ class BacktestRequest(BaseModel):
     strategy: str = "core_rotation_v1"
 
 
+class CollectorAutostartRequest(BaseModel):
+    """更新本机采集守护启动项的请求体。"""
+
+    enabled: bool
+
+
 _RESEARCH_NOTICE = "研究评分，不构成投资建议。"
+
+
+def _next_collector_run(now: datetime | None = None) -> datetime:
+    """返回下一个工作日的本地收盘后采集时间。"""
+    current = now or datetime.now(ZoneInfo("Asia/Shanghai"))
+    candidate = datetime.combine(current.date(), time(18, 30), tzinfo=ZoneInfo("Asia/Shanghai"))
+    if current >= candidate:
+        candidate += timedelta(days=1)
+    while candidate.weekday() >= 5:
+        candidate += timedelta(days=1)
+    return candidate
 
 
 def create_radar_router() -> APIRouter:
@@ -105,7 +124,7 @@ def create_radar_router() -> APIRouter:
     def backtest_payload(root: Path, report: Any) -> dict[str, Any]:
         """补充池级产物的成本与警告，供前端明确标注其策略属性。"""
         try:
-            detail = get_report_detail(root, report.id)
+            detail = get_report_detail(root, report.id, equity_curve_max_rows=None)
             manifest_path = root / Path(report.path).parent / "manifest.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError, ReportLibraryError) as exc:
@@ -129,13 +148,36 @@ def create_radar_router() -> APIRouter:
         repository, _, _ = services()
         universe_ids = tuple(item.id for item in repository.load_all())
         try:
-            states = CollectorStore(config.config_dir / "radar_collector.db").latest(universe_ids)
+            status_store = CollectorStore(config.config_dir / "radar_collector.db")
+            states = status_store.latest(universe_ids)
         except (OSError, sqlite3.Error) as exc:
             raise HTTPException(status_code=503, detail="采集状态暂不可读取") from exc
         return {
             "schedule": {"timezone": "Asia/Shanghai", "weekdays": True, "hour": 18, "minute": 30},
             "items": states,
+            "runtime": status_store.runtime(),
+            "recent_events": status_store.recent_events(),
+            "next_scheduled_at": _next_collector_run().isoformat(),
         }
+
+    @router.get("/collector/autostart")
+    def collector_autostart_status():
+        """读取 Windows 启动任务状态，供配置页展示。"""
+        try:
+            return WindowsCollectorAutostart().status().to_dict()
+        except CollectorAutostartError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @router.put("/collector/autostart")
+    def update_collector_autostart(body: CollectorAutostartRequest, request: Request):
+        """仅允许本机页面切换本机的持久化采集任务。"""
+        client = request.client
+        if client is None or client.host not in {"127.0.0.1", "::1"}:
+            raise HTTPException(status_code=403, detail="仅允许本机页面管理采集启动项")
+        try:
+            return WindowsCollectorAutostart().set_enabled(body.enabled).to_dict()
+        except CollectorAutostartError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @router.get("/score-profiles/{profile_id}")
     def get_score_profile(profile_id: str):
