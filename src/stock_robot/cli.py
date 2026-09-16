@@ -1163,6 +1163,24 @@ def radar_refresh(universe_id, full, as_of):
     console.print(f"[green]快照已完成: {run_id}[/green]")
 
 
+@radar.command("collect")
+@click.option("--hour", default=18, show_default=True, type=click.IntRange(0, 23))
+@click.option("--minute", default=30, show_default=True, type=click.IntRange(0, 59))
+@click.option("--once", is_flag=True, help="立即执行一次后退出")
+def radar_collect(hour: int, minute: int, once: bool):
+    """工作日收盘后自动刷新两个 ETF 池。"""
+    from radar.collector import RadarCollector
+
+    _, repository, _, refresher = _radar_services()
+    collector = RadarCollector(lambda universe_id: refresher.refresh(universe_id), tuple(item.id for item in repository.load_all()))
+    if once:
+        for universe_id, result in collector.run_once().items():
+            console.print(f"{universe_id}: {result}")
+        return
+    console.print(f"[green]采集守护已启动：工作日 {hour:02d}:{minute:02d} 执行，按 Ctrl+C 退出。[/green]")
+    collector.serve(hour=hour, minute=minute)
+
+
 @radar.command("import-data")
 @click.option("--symbol", required=True, help="六位 ETF 代码")
 @click.option("--file", "source_file", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True, help="含日线的 CSV 文件")
