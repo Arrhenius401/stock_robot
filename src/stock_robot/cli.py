@@ -21,19 +21,24 @@ from utils.config import Config
 _RUNTIME_LOG_HANDLER_NAME = "stock-robot-runtime-log"
 
 
-def _configure_runtime_log(config: Config) -> None:
+def _configure_runtime_log(config: Config) -> Path:
     """为 Web 服务增加可供界面读取的本地运行日志。"""
     root_logger = logging.getLogger()
-    if any(handler.get_name() == _RUNTIME_LOG_HANDLER_NAME
-           for handler in root_logger.handlers):
-        return
-    log_path = config.config_dir / "runtime.log"
+    for existing_handler in root_logger.handlers:
+        if existing_handler.get_name() != _RUNTIME_LOG_HANDLER_NAME:
+            continue
+        existing_path = getattr(existing_handler, "baseFilename", None)
+        if isinstance(existing_path, str):
+            return Path(existing_path)
+    # 同机多个 Web 服务可并存，按进程隔离文件，避免日志页混入其他服务的记录。
+    log_path = config.config_dir / f"runtime-{os.getpid()}.log"
     handler = logging.FileHandler(log_path, encoding="utf-8")
     handler.set_name(_RUNTIME_LOG_HANDLER_NAME)
     handler.setFormatter(logging.Formatter(
         "%(asctime)s %(levelname)s %(name)s %(message)s"))
     root_logger.addHandler(handler)
     root_logger.setLevel(logging.INFO)
+    return log_path
 
 
 def _create_cli_progress():
@@ -647,17 +652,27 @@ def run(host, port):
     from api.bootstrap import build_agent_core
 
     config = Config()
-    _configure_runtime_log(config)
+    runtime_log_path = _configure_runtime_log(config)
+    try:
+        runtime_log_offset = runtime_log_path.stat().st_size
+    except FileNotFoundError:
+        runtime_log_offset = 0
     bind_host, bind_port = _resolve_api_bind(host, port, config)
     with _create_cli_progress() as progress:
         task_id = progress.add_task("正在构建 Agent 核心", total=3)
         core = build_agent_core(config)
         progress.update(task_id, completed=1, description="正在创建 Web 应用")
-        app = create_app(core=core)
+        app = create_app(
+            core=core,
+            log_start_offset=runtime_log_offset,
+            runtime_log_path=runtime_log_path,
+        )
         progress.update(task_id, completed=3, description="正在启动 HTTP 服务")
 
-    logger.info("Stock Robot API 启动于 http://%s:%d", bind_host, bind_port)
-    console.print(f"[green]Web 服务正在运行: http://{bind_host}:{bind_port}[/green]")
+    web_url = f"http://{bind_host}:{bind_port}"
+    logger.info("Stock Robot API 启动于 %s", web_url)
+    logger.info("Web 服务正在运行: %s", web_url)
+    console.print(f"[green]Web 服务正在运行: {web_url}[/green]")
     _run_web_server(app, bind_host, bind_port)
 
 

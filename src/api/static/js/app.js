@@ -10,7 +10,11 @@ import { initReportLibrary } from "./report-library.js?v=20260916-report-readabi
 import { initSessions, initSessionStartup } from "./sessions.js";
 import { initSubscriptions } from "./subscriptions.js";
 import { initSettings } from "./settings.js";
-import { initLogs } from "./logs.js";
+import { initLogs } from "./logs.js?v=20260917-log-sidebar-resize-fix";
+
+const SIDEBAR_WIDTH_KEY = "stockRobot.sidebarWidth";
+const SIDEBAR_MIN_WIDTH = 210;
+const SIDEBAR_MAX_WIDTH = 420;
 
 const VIEW_TITLES = {
   chat: "会话研究",
@@ -81,6 +85,61 @@ function initWorkspaceShell() {
   const layout = document.getElementById("appLayout");
   const search = document.getElementById("globalStockSearch");
   const searchForm = search?.closest("form");
+  const sidebar = document.getElementById("sidebar");
+  const sidebarResizer = document.getElementById("sidebarResizer");
+  let resizePointerId = null;
+  let appliedSidebarWidth = null;
+
+  function sidebarWidthFromStorage() {
+    try {
+      const width = Number(window.sessionStorage?.getItem(SIDEBAR_WIDTH_KEY));
+      return Number.isFinite(width) ? width : null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function applySidebarWidth(width) {
+    if (!layout) return;
+    const bounded = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width));
+    appliedSidebarWidth = bounded;
+    layout.style.setProperty("--sidebar-width", `${bounded}px`);
+  }
+
+  function finishSidebarResize() {
+    if (resizePointerId === null) return;
+    resizePointerId = null;
+    document.body.classList.remove("sidebar-resizing");
+    layout?.classList.remove("sidebar-resizing");
+    try {
+      if (appliedSidebarWidth !== null) {
+        window.sessionStorage?.setItem(SIDEBAR_WIDTH_KEY, String(Math.round(appliedSidebarWidth)));
+      }
+    } catch (_error) {
+      // 浏览器禁用会话存储时仅放弃记忆，不影响本次拖拽。
+    }
+  }
+
+  const savedSidebarWidth = sidebarWidthFromStorage();
+  if (savedSidebarWidth !== null) applySidebarWidth(savedSidebarWidth);
+  sidebarResizer?.addEventListener("pointerdown", (event) => {
+    if (!layout || !sidebar || sidebar.classList.contains("collapsed") || isNarrowScreen()) return;
+    event.preventDefault();
+    resizePointerId = event.pointerId;
+    sidebarResizer.setPointerCapture?.(event.pointerId);
+    document.body.classList.add("sidebar-resizing");
+    layout.classList.add("sidebar-resizing");
+  });
+  document.addEventListener("pointermove", (event) => {
+    if (resizePointerId !== event.pointerId || !layout) return;
+    applySidebarWidth(event.clientX - layout.getBoundingClientRect().left);
+  });
+  document.addEventListener("pointerup", (event) => {
+    if (resizePointerId === event.pointerId) finishSidebarResize();
+  });
+  document.addEventListener("pointercancel", (event) => {
+    if (resizePointerId === event.pointerId) finishSidebarResize();
+  });
 
   toggle?.addEventListener("click", () => {
     const opening = !document.body.classList.contains("workspace-nav-open");

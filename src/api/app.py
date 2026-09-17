@@ -279,6 +279,8 @@ def create_app(
     sessions=None,
     push: Any = None,
     runtime: RuntimeManager | None = None,
+    log_start_offset: int | None = None,
+    runtime_log_path: Path | None = None,
 ):
     # 生产路径由 RuntimeManager 独占 core、执行器和推送调度器的初始所有权。
     # 测试传入 push=False、推送桩或 runtime 桩时保持既有注入行为，不创建真实依赖。
@@ -299,7 +301,20 @@ def create_app(
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
                        allow_headers=["*"])
     app.include_router(create_configuration_router(runtime=runtime))
-    app.include_router(create_logs_router())
+    # 正式服务启动前的历史日志不属于本次运行；测试和直接导入 app 时保留默认读取行为。
+    runtime_log_offset = log_start_offset
+    if runtime_log_offset is None and core is not None:
+        from utils.config import Config
+
+        log_path = runtime_log_path or Config().config_dir / "runtime.log"
+        try:
+            runtime_log_offset = log_path.stat().st_size
+        except FileNotFoundError:
+            runtime_log_offset = 0
+    app.include_router(create_logs_router(
+        log_path=runtime_log_path,
+        start_offset=runtime_log_offset,
+    ))
     from api.radar import create_radar_router
     app.include_router(create_radar_router())
 

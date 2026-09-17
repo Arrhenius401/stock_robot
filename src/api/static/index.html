@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Stock Robot — AI 股票分析助手</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='4' fill='%23e5484d'/></svg>">
-  <link rel="stylesheet" href="/css/app.css?v=20260916-log-levels">
+<link rel="stylesheet" href="/css/app.css?v=20260917-log-sidebar-resize-fix-2">
 </head>
 <body>
 <header class="topbar">
@@ -59,6 +59,8 @@
       </button>
     </nav>
   </aside>
+  <div class="sidebar-resizer" id="sidebarResizer" role="separator" aria-orientation="vertical"
+       aria-label="调整侧边栏宽度"></div>
   <main class="main" id="workspaceMain" tabindex="-1">
     <div class="view active" id="view-chat">
       <div class="chat-scroll" id="chatScroll"></div>
@@ -130,6 +132,6 @@
     <div id="reportDrawerContent"></div>
   </aside>
 </div>
-    <script type="module" src="/js/app-main.js?v=20260916-report-readability"></script>
+    <script type="module" src="/js/app-main.js?v=20260917-log-sidebar-resize-fix-2"></script>
 </body>
 </html>

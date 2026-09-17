@@ -5,6 +5,7 @@ import { bus, store } from "./state.js";
 const REFRESH_INTERVAL_MS = 5_000;
 let selectedLevel = "";
 let refreshTimer = null;
+let renderedSignature = null;
 
 function content() {
   return document.getElementById("logsContent");
@@ -13,6 +14,10 @@ function content() {
 function levelOf(line) {
   const match = line.match(/\b(INFO|WARNING|ERROR)\b/);
   return match ? match[1].toLowerCase() : "default";
+}
+
+function isNearBottom(node) {
+  return node.scrollHeight - node.scrollTop - node.clientHeight < 12;
 }
 
 function stopRefresh() {
@@ -30,11 +35,18 @@ function startRefresh() {
 function render(lines, available) {
   const root = content();
   if (!root) return;
+  const previousList = root.querySelector(".logs-list");
+  const previousListState = previousList ? {
+    scrollTop: previousList.scrollTop,
+    wasAtBottom: isNearBottom(previousList),
+  } : null;
+  const view = document.getElementById("view-logs");
+  const viewScrollTop = view?.scrollTop ?? 0;
   root.replaceChildren();
 
   const heading = document.createElement("section");
   heading.className = "logs-heading";
-  heading.innerHTML = `<div><h2>运行日志</h2><p>本机服务最近运行记录，每 5 秒自动刷新。</p></div><span class="logs-status ${available ? "available" : "missing"}">${available ? "本地日志可用" : "尚未生成日志"}</span>`;
+  heading.innerHTML = `<div><h2>运行日志</h2><p>仅显示本次服务启动后的记录，每 5 秒自动刷新。</p></div><span class="logs-status ${available ? "available" : "missing"}">${available ? "本地日志可用" : "尚未生成日志"}</span>`;
   root.append(heading);
 
   const panel = document.createElement("section");
@@ -63,17 +75,27 @@ function render(lines, available) {
       row.textContent = line;
       list.append(row);
     }
-    list.scrollTop = list.scrollHeight;
+    if (!previousListState || previousListState.wasAtBottom) {
+      list.scrollTop = list.scrollHeight;
+    } else {
+      list.scrollTop = previousListState.scrollTop;
+    }
   }
   panel.append(list);
   root.append(panel);
+  if (view) view.scrollTop = viewScrollTop;
 }
 
 async function loadLogs() {
   try {
     const payload = await api.getRuntimeLogs(selectedLevel);
-    render(payload.lines || [], Boolean(payload.available));
+    const lines = payload.lines || [];
+    const signature = JSON.stringify([selectedLevel, Boolean(payload.available), lines]);
+    if (signature === renderedSignature && content()?.childElementCount) return;
+    renderedSignature = signature;
+    render(lines, Boolean(payload.available));
   } catch (error) {
+    renderedSignature = null;
     const root = content();
     if (root) root.innerHTML = `<section class="logs-panel"><p class="logs-empty">日志读取失败：${error.message}</p></section>`;
   }
@@ -82,6 +104,7 @@ async function loadLogs() {
 export function initLogs() {
   bus.addEventListener("view-change", (event) => {
     if (event.detail.view === "logs") {
+      renderedSignature = null;
       loadLogs();
       startRefresh();
     } else {

@@ -256,6 +256,14 @@ class TestStaticUI:
         assert 'id="logsContent"' in html
 
     @pytest.mark.asyncio
+    async def test_workspace_shell_has_sidebar_resize_handle(self, client):
+        """桌面侧边栏提供可访问的宽度拖拽分隔条。"""
+        html = (await client.get("/")).text
+
+        assert 'id="sidebarResizer"' in html
+        assert 'aria-label="调整侧边栏宽度"' in html
+
+    @pytest.mark.asyncio
     async def test_report_library_modules_served(self, client):
         app_js = (await client.get("/js/app.js")).text
         api_js = (await client.get("/js/api.js")).text
