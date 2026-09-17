@@ -522,6 +522,7 @@ class AkShareAdapter(DataSource):
         sector = sw_level1
         top_peers = []
         all_peer_symbols: list[str] = []
+        all_peer_names: dict[str, str] = {}
         target_mcap: float | None = None
         target_rank: int | None = None
         peer_scope = ""
@@ -549,6 +550,11 @@ class AkShareAdapter(DataSource):
 
                 comparable_peers = [p for p in valid_peers if p["symbol"] != symbol]
                 all_peer_symbols = [p["symbol"] for p in comparable_peers]
+                all_peer_names = {
+                    p["symbol"]: p["name"]
+                    for p in comparable_peers
+                    if p.get("name")
+                }
                 peer_industry = sw_level2 if peer_scope == "申万二级" else sw_level1
 
                 for p in comparable_peers[:5]:
@@ -561,7 +567,8 @@ class AkShareAdapter(DataSource):
 
         result = IndustryData(
             symbol=symbol, industry=industry or "未知", sector=sector or "",
-            peers=all_peer_symbols, peer_scope=peer_scope, peer_industry=peer_industry,
+            peers=all_peer_symbols, peer_names=all_peer_names,
+            peer_scope=peer_scope, peer_industry=peer_industry,
             resolved_sw_level1=sw_level1, resolved_sw_level2=sw_level2,
             top_peers=top_peers,
         )

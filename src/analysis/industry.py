@@ -21,6 +21,8 @@ class IndustryAnalyzer(AnalysisModule):
             "industry": ind_data.industry,
             "sector": ind_data.sector,
             "peers": ind_data.peers,
+            # 仅供报告展示层将代码渲染为“公司名（代码）”，不单独展示。
+            "peer_names": ind_data.peer_names,
             "peer_scope": ind_data.peer_scope,
             "peer_industry": ind_data.peer_industry,
         }

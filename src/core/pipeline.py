@@ -373,6 +373,12 @@ class Pipeline:
                 # 旧缓存使用东财行业构建同业池，不能进入申万口径评分。
                 self._cache.invalidate(data_type, symbol, "latest")
                 return None
+            if (data_type == "industry" and results
+                    and getattr(results[0], "peers", [])
+                    and not getattr(results[0], "peer_names", {})):
+                # 旧快照未保存同行名称，刷新后才能以“公司名（代码）”展示。
+                self._cache.invalidate(data_type, symbol, "latest")
+                return None
             return results
         except Exception:  # noqa: BLE001 — 缓存损坏视为未命中
             return None

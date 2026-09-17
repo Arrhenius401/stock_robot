@@ -34,6 +34,7 @@ class TestIndustryAnalyzer:
         assert result.status == "ok"
         assert result.metrics["industry"] == "银行"
         assert len(result.metrics["peers"]) == 2
+        assert result.metrics["peer_names"] == {}
 
     def test_no_data_returns_unavailable(self):
         ctx = AnalysisContext(symbol="000001", name="测试")

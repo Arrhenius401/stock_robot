@@ -374,7 +374,20 @@ const report = {
       metrics: { latest_close: 12.3, nested: { value: 3 } },
       risk_flags: ["集中度偏高", "集中度偏高"],
     },
-    sentiment: { summary: "消息平稳", risk_flags: ["舆情波动"] },
+    industry: {
+      status: "ok",
+      metrics: {
+        peers: ["601398", "601939"],
+        peer_names: { "601398": "工商银行", "601939": "建设银行" },
+        peer_scope: "申万一级",
+        peer_industry: "银行",
+      },
+    },
+    sentiment: {
+      summary: "消息平稳",
+      metrics: { headlines: ["业绩增长超预期", "机构上调目标价"] },
+      risk_flags: ["舆情波动"],
+    },
   },
   comments: ["第一段结论。\n\n第二段", "补充说明"],
   signal: { label: "持有", action: "控制仓位" },
@@ -410,6 +423,18 @@ if (article.textContent.includes("undefined") || article.textContent.includes("[
 if (!article.textContent.includes("最新收盘价") || !article.textContent.includes("nested · value")
     || article.textContent.includes('{\n  "value": 3\n}')) {
   throw new Error("对象指标应拆为可读字段，不能展示 JSON");
+}
+if (!article.textContent.includes("同行业公司") || !article.textContent.includes("同行范围")
+    || !article.textContent.includes("工商银行（601398）")
+    || !article.textContent.includes("建设银行（601939）")
+    || article.textContent.includes("peer_names")) {
+  throw new Error("行业字段必须显示中文标签与公司名（代码）");
+}
+const headlines = byClass(article, "report-metric-list")[0];
+if (!headlines || headlines.children.length !== 2
+    || !headlines.textContent.includes("业绩增长超预期")
+    || !headlines.textContent.includes("机构上调目标价")) {
+  throw new Error("舆情标题必须逐条纵向展示");
 }
 if (byClass(article, "report-risk-item").length !== 2) {
   throw new Error("风险应跨维度去重聚合");

@@ -32,8 +32,12 @@ def _md_table(data, headers=None):
     rows = []
 
     if isinstance(data, dict):
-        # 过滤掉 list 类型字段（如 headlines, peers），它们在表格外处理
-        filtered = {k: v for k, v in data.items() if not isinstance(v, list)}
+        # 过滤掉列表和仅供 Web 渲染的内部映射，它们在模板中单独展示。
+        filtered = {
+            k: v
+            for k, v in data.items()
+            if not isinstance(v, list) and k != "peer_names"
+        }
         if not filtered:
             return ""
         headers = ["指标", "数值"]

@@ -294,6 +294,10 @@ button { font-family: inherit; }
 .mtr .k { color: var(--text-4); font-size: 10px; }
 .mtr .v { color: var(--text-2); font-size: 11.5px; margin-top: 1px;
           font-variant-numeric: tabular-nums; }
+.report-metric-list-wrap { flex: 1 1 100%; min-width: 0; }
+.report-metric-list { display: grid; gap: 4px; margin: 4px 0 0; padding-left: 18px;
+                      color: var(--text-2); font-size: 11.5px; line-height: 1.55; }
+.report-metric-list li { padding-left: 2px; }
 .flag { display: inline-block; background: rgba(229,72,77,.12); color: var(--accent);
         border-radius: 5px; padding: 1px 7px; font-size: 10.5px; margin: 6px 4px 0 0; }
 

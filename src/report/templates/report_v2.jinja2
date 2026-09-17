@@ -34,6 +34,13 @@
 {% set r = results_map.get(dim) %}
 {% if r and r.status != "unavailable" %}
 {{ r.metrics | md_table }}
+{% if r.metrics.get("peers") %}
+**同行业公司：**
+{% for peer in r.metrics["peers"] %}
+{% set peer_name = r.metrics.get("peer_names", {}).get(peer) %}
+- {% if peer_name %}{{ peer_name }}（{{ peer }}）{% else %}{{ peer }}{% endif %}
+{% endfor %}
+{% endif %}
 {% if r.metrics.get("headlines") %}
 {% for headline in r.metrics["headlines"] %}
 - {{ headline }}

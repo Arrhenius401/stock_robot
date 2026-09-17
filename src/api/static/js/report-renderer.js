@@ -22,9 +22,14 @@ const METRIC_LABELS = {
   pe_ttm: "市盈率（TTM）", pb: "市净率", ps_ttm: "市销率（TTM）",
   pe_percentile: "市盈率分位", pb_percentile: "市净率分位", dividend_yield: "股息率",
   industry: "所属行业", sector: "所属板块", peer_count: "有效同行数",
+  peers: "同行业公司", peer_scope: "同行范围", peer_industry: "同行所属行业",
+  top_peers: "头部同行公司", symbol: "股票代码", name: "公司名称", market_cap: "总市值",
   industry_median_pe: "行业市盈率中位数", industry_median_pb: "行业市净率中位数",
   target_pe_premium: "相对行业市盈率溢价", target_market_cap_rank: "行业市值排名",
   headline_count: "新闻数量", north_bound: "北向资金净流入", main_net_inflow: "主力资金净流入",
+  headlines: "近期新闻", top_headlines: "近期要闻", roe_trend: "净资产收益率走势",
+  quarter: "报告期", valuation_valid: "估值样本有效", percentile_lookback_years: "分位回看年限",
+  sample_start: "样本起始日期", sample_end: "样本结束日期", tag: "信号标签",
   margin_balance: "融资余额", data_date: "数据日期", date: "数据日期",
 };
 
@@ -64,6 +69,29 @@ function metricText(value) {
     return Object.values(value).map(metricText).filter(Boolean).join("、") || "暂无数据";
   }
   return readable(value);
+}
+
+function peerText(value, peerNames) {
+  const names = record(peerNames);
+  const peers = Array.isArray(value) ? value : [];
+  const labels = peers.map((peer) => {
+    const item = record(peer);
+    const symbol = readable(item.symbol ?? peer, "");
+    const name = readable(item.name ?? names[symbol], "");
+    return name ? `${name}（${symbol}）` : symbol;
+  }).filter(Boolean);
+  return labels.join("、") || "暂无数据";
+}
+
+function appendListMetric(grid, key, value) {
+  const wrap = el("div", "report-metric-list-wrap");
+  wrap.appendChild(el("div", "k", metricLabel(key)));
+  const list = el("ul", "report-metric-list");
+  const items = Array.isArray(value) ? value : [];
+  for (const item of items) list.appendChild(el("li", "", metricText(item)));
+  if (!list.children.length) list.appendChild(el("li", "", "暂无数据"));
+  wrap.appendChild(list);
+  grid.appendChild(wrap);
 }
 
 function appendMetrics(grid, key, value, prefix = "") {
@@ -242,6 +270,15 @@ function dimensionSection(name, label, data, sectionIdPrefix) {
   if (Object.keys(metrics).length) {
     const grid = el("div", "mtr");
     for (const [metric, value] of Object.entries(metrics)) {
+      if (metric === "peer_names") continue;
+      if (metric === "peers") {
+        grid.appendChild(kv(metricLabel(metric), peerText(value, metrics.peer_names)));
+        continue;
+      }
+      if (metric === "headlines" || metric === "top_headlines") {
+        appendListMetric(grid, metric, value);
+        continue;
+      }
       appendMetrics(grid, metric, value);
     }
     card.appendChild(grid);

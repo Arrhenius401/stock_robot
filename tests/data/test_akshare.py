@@ -369,6 +369,7 @@ def test_fetch_industry_excludes_target_from_comparable_peers(mocker):
     assert result.peer_scope == "申万二级"
     assert result.peer_industry == "养殖业"
     assert result.peers == ["002157"]
+    assert result.peer_names == {"002157": "正邦科技"}
     assert [peer.symbol for peer in result.top_peers] == ["002157"]
     assert result._target_rank == 1
     backfill.assert_called_once_with(["002714", "002157"], "农林牧渔", "养殖业")
