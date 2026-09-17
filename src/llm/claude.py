@@ -18,6 +18,7 @@ class ClaudeAdapter(LLMBackend):
         self._temperature = temperature
         self._max_tokens = max_tokens
         self._retry_times = retry_times
+        self._disable_thinking = bool(base_url and "deepseek.com" in base_url.lower())
         # 禁用 SDK 内置重试（默认 2 次），重试策略由 _call_with_retry 统一控制，避免叠加放大请求数
         client_kwargs: dict[str, Any] = {
             "api_key": api_key, "timeout": timeout, "max_retries": 0,
@@ -31,25 +32,41 @@ class ClaudeAdapter(LLMBackend):
         return self._model
 
     def generate(self, prompt: str, system: str | None = None, **kwargs) -> str:
-        def _create():
+        max_tokens = kwargs.get("max_tokens", self._max_tokens)
+
+        def _create(request_max_tokens: int):
             kwargs_dict = {
                 "model": self._model,
-                "max_tokens": kwargs.get("max_tokens", self._max_tokens),
+                "max_tokens": request_max_tokens,
                 "temperature": kwargs.get("temperature", self._temperature),
                 "messages": [{"role": "user", "content": prompt}],
             }
             if system:
                 kwargs_dict["system"] = system
+            # DeepSeek Anthropic 兼容端默认启用高强度推理，可能耗尽正文预算。
+            # 仅对该兼容端显式关闭，不改变原生 Claude 的请求语义。
+            if self._disable_thinking:
+                kwargs_dict["thinking"] = {"type": "disabled"}
             return self._client.messages.create(**kwargs_dict)
 
         try:
             response = self._call_with_retry(
-                _create, retry_times=kwargs.get("retry_times", self._retry_times)
+                lambda: _create(max_tokens),
+                retry_times=kwargs.get("retry_times", self._retry_times),
             )
-            content = ""
-            for block in response.content:
-                if hasattr(block, "text"):
-                    content += block.text
+            content = self._extract_text(response)
+            # 部分 Anthropic 兼容端会先返回 ThinkingBlock；当预算耗尽时可能没有
+            # TextBlock。仅此场景提高一次预算重试，避免把内部推理当作报告正文。
+            if not content and self._has_thinking_block(response):
+                retry_max_tokens = max(max_tokens * 4, 8192)
+                logger.warning(
+                    "LLM 响应只有推理块，使用 %d token 重试一次以获取正文",
+                    retry_max_tokens,
+                )
+                response = self._call_with_retry(
+                    lambda: _create(retry_max_tokens), retry_times=0,
+                )
+                content = self._extract_text(response)
 
             usage = response.usage
             if usage:
@@ -58,6 +75,22 @@ class ClaudeAdapter(LLMBackend):
         except Exception as e:  # noqa: BLE001 — SDK 异常类型不可预测，契约是永不抛出
             logger.error(f"Claude API 调用失败: {e}")
             return f"（LLM 分析暂时不可用：{e}，请检查 API 配置）"
+
+    @staticmethod
+    def _extract_text(response: Any) -> str:
+        """仅拼接兼容接口返回的最终正文块。"""
+        return "".join(
+            block.text for block in response.content
+            if hasattr(block, "text") and isinstance(block.text, str)
+        )
+
+    @staticmethod
+    def _has_thinking_block(response: Any) -> bool:
+        """判断响应是否包含非空推理块，不暴露其具体内容。"""
+        return any(
+            isinstance(getattr(block, "thinking", None), str) and block.thinking
+            for block in response.content
+        )
 
     def _log_usage(self, prompt_tokens: int, completion_tokens: int):
         try:

@@ -36,6 +36,30 @@ class TestClaudeAdapter:
         # 错误详情应出现在返回文本中，避免被静默吞掉
         assert "API Error" in result
 
+    def test_generate_retries_once_when_only_thinking_block_returned(self, mocker):
+        mock_client = MagicMock()
+        thinking_response = MagicMock()
+        thinking_block = MagicMock(spec=["thinking"])
+        thinking_block.thinking = "内部推理"
+        thinking_response.content = [thinking_block]
+        thinking_response.usage.input_tokens = 100
+        thinking_response.usage.output_tokens = 2000
+        final_response = MagicMock()
+        text_block = MagicMock(spec=["text"])
+        text_block.text = "最终分析正文"
+        final_response.content = [text_block]
+        final_response.usage.input_tokens = 100
+        final_response.usage.output_tokens = 300
+        mock_client.messages.create.side_effect = [thinking_response, final_response]
+        mocker.patch("llm.claude.Anthropic", return_value=mock_client)
+
+        adapter = ClaudeAdapter(api_key="sk-ant-test", max_tokens=2000)
+        result = adapter.generate("分析")
+
+        assert result == "最终分析正文"
+        assert mock_client.messages.create.call_count == 2
+        assert mock_client.messages.create.call_args_list[1].kwargs["max_tokens"] == 8192
+
     def test_base_url_passed_to_client(self, mocker):
         mock_anthropic = mocker.patch("llm.claude.Anthropic", return_value=MagicMock())
         ClaudeAdapter(api_key="sk-ant-test", base_url="https://api.deepseek.com/anthropic")
@@ -43,6 +67,23 @@ class TestClaudeAdapter:
             api_key="sk-ant-test", base_url="https://api.deepseek.com/anthropic", timeout=60.0,
             max_retries=0,
         )
+
+    def test_deepseek_compatible_endpoint_disables_thinking(self, mocker):
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        text_block = MagicMock(spec=["text"])
+        text_block.text = "最终分析正文"
+        mock_response.content = [text_block]
+        mock_response.usage.input_tokens = 100
+        mock_response.usage.output_tokens = 300
+        mock_client.messages.create.return_value = mock_response
+        mocker.patch("llm.claude.Anthropic", return_value=mock_client)
+
+        adapter = ClaudeAdapter(
+            api_key="sk-ant-test", base_url="https://api.deepseek.com/anthropic/v1",
+        )
+        assert adapter.generate("分析") == "最终分析正文"
+        assert mock_client.messages.create.call_args.kwargs["thinking"] == {"type": "disabled"}
 
     def test_no_base_url_omits_arg(self, mocker):
         mock_anthropic = mocker.patch("llm.claude.Anthropic", return_value=MagicMock())
