@@ -10,6 +10,7 @@ venv/
 .direnv/
 .pytest_cache/
 .tmp/
+/tmp/
 *.egg-info/
 dist/
 build/
