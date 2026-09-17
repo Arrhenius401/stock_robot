@@ -97,7 +97,7 @@ class TestCreateEmbeddingProvider:
         second = create_embedding_provider()
         assert first is second
 
-    def test_model_loaded_once_across_calls(self, mocker):
+    def test_model_is_loaded_only_when_first_embedding_is_requested(self, mocker):
         constructions: list[str] = []
 
         def fake_model(name: str):
@@ -105,11 +105,14 @@ class TestCreateEmbeddingProvider:
             return mocker.MagicMock()
 
         mocker.patch("rag.embedding.SentenceTransformer", side_effect=fake_model)
+        provider = create_embedding_provider()
         create_embedding_provider()
-        create_embedding_provider()
+        assert constructions == []
+        provider.embed(["首次检索"])
+        provider.embed(["第二次检索"])
         assert constructions == ["BAAI/bge-small-zh"]
 
-    def test_concurrent_calls_load_model_once(self, mocker):
+    def test_concurrent_provider_creation_does_not_load_model(self, mocker):
         from concurrent.futures import ThreadPoolExecutor
 
         constructions: list[str] = []
@@ -122,4 +125,4 @@ class TestCreateEmbeddingProvider:
         with ThreadPoolExecutor(max_workers=4) as pool:
             providers = list(pool.map(lambda _: create_embedding_provider(), range(4)))
         assert len({id(p) for p in providers}) == 1
-        assert len(constructions) == 1
+        assert constructions == []

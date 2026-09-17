@@ -37,18 +37,22 @@ class SentenceTransformersProvider(EmbeddingProvider):
     MODEL_NAME = "BAAI/bge-small-zh"
 
     def __init__(self):
-        # 模型延迟加载：构造本身不依赖 sentence-transformers 是否安装
+        if SentenceTransformer is None:
+            raise ImportError(
+                "sentence-transformers 未安装。"
+                "请运行 pip install sentence-transformers"
+            )
+        # 模型延迟加载：服务启动不应因下载模型而阻塞。
         self._model = None
+        self._model_lock = threading.Lock()
 
     def _load_model(self):
         """首次调用时加载本地 bge-small-zh 模型"""
         if self._model is None:
-            if SentenceTransformer is None:
-                raise ImportError(
-                    "sentence-transformers 未安装。"
-                    "请运行 pip install sentence-transformers"
-                )
-            self._model = SentenceTransformer(self.MODEL_NAME)
+            with self._model_lock:
+                if self._model is None:
+                    assert SentenceTransformer is not None
+                    self._model = SentenceTransformer(self.MODEL_NAME)
         return self._model
 
     @property
@@ -85,8 +89,7 @@ def create_embedding_provider() -> EmbeddingProvider:
 def _build_provider() -> EmbeddingProvider:
     try:
         provider = SentenceTransformersProvider()
-        provider._load_model()  # 预加载模型，失败则降级为关键词模式
-        logger.info("Embedding 模型: bge-small-zh (本地)")
+        logger.info("Embedding 模型已就绪，将在首次检索时加载: bge-small-zh")
         return provider
     except (ImportError, OSError) as e:
         logger.warning(
