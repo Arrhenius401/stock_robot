@@ -125,6 +125,20 @@ class FakeIndexReport:
     def __init__(self):
         self.code = "000300"
         self.name = "沪深300"
+        self.overview = {}
+        self.section_technical = {"status": "unavailable", "summary": "", "metrics": {}}
+        self.section_valuation = {"status": "unavailable", "summary": "", "metrics": {}}
+        self.section_capital = {"status": "unavailable", "summary": "", "metrics": {}}
+        self.section_macro = None
+        self.section_sentiment = {"status": "unavailable", "summary": "", "metrics": {}}
+        self.tag_technical = "shake"
+        self.tag_valuation = "invalid"
+        self.tag_capital = "neutral"
+        self.tag_macro = "na"
+        self.tag_sentiment = "neutral"
+        self.composite_comment = "中性震荡"
+        self.position_coeff = 0.5
+        self.visible_sections = {"overview", "technical", "valuation", "sentiment"}
 
     def model_dump(self, mode="json"):
         return {"code": self.code, "name": self.name}
@@ -335,7 +349,8 @@ def test_create_app_uses_runtime_as_the_only_initial_push_owner(tmp_path, monkey
 
 
 @pytest.fixture
-def app(tmp_path):
+def app(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     store = SessionStore(tmp_path / "sessions.db")
     sessions = SessionManager(store, facts_path=tmp_path / "facts.json")
     return create_app(core=make_core(), sessions=sessions, push=False)
@@ -1215,6 +1230,18 @@ class TestAnalyzeEndpoint:
         assert data["overview"]["change_pct"] is None  # FakePipeline 无价格数据
 
     @pytest.mark.asyncio
+    async def test_analyze_saves_markdown_report_to_report_library(
+            self, client, mocker, tmp_path):
+        mocker.patch("utils.symbols.resolve_name", return_value="平安银行")
+
+        resp = await client.post("/api/v1/analyze", json={"symbol": "000001"})
+
+        assert resp.status_code == 200
+        saved = list((tmp_path / "reports" / "stock" / "000001").glob("*/*.md"))
+        assert len(saved) == 1
+        assert "平安银行" in saved[0].read_text(encoding="utf-8")
+
+    @pytest.mark.asyncio
     async def test_analyze_adds_commentary_fallback_when_llm_empty(self, tmp_path, mocker):
         """API 分析路径也应在 LLM 空输出时返回量化兜底摘要"""
         mocker.patch("utils.symbols.resolve_name", return_value="平安银行")
@@ -1291,6 +1318,15 @@ class TestIndexEndpoint:
         assert data["reports"][0]["code"] == "000300"
         assert data["errors"] == []
         assert data["compare"] is None
+
+    @pytest.mark.asyncio
+    async def test_index_saves_markdown_report_to_report_library(self, client, tmp_path):
+        resp = await client.post("/api/v1/index", json={"symbol": "000300"})
+
+        assert resp.status_code == 200
+        saved = list((tmp_path / "reports" / "index" / "000300").glob("*/*.md"))
+        assert len(saved) == 1
+        assert "沪深300" in saved[0].read_text(encoding="utf-8")
 
     @pytest.mark.asyncio
     async def test_index_invalid_symbol_returns_422(self, client):

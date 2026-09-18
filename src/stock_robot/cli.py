@@ -257,36 +257,9 @@ def _render_index_report(report):
 
 def _render_index_report_md(report) -> str:
     """将 IndexReport 渲染为纯 Markdown 文本"""
-    from datetime import datetime
+    from index.build_single import render_index_report_markdown
 
-    from jinja2 import Environment, FileSystemLoader
-
-    from report.builder import _md_table
-
-    template_dir = Path(__file__).parent.parent / "report" / "templates"
-    env = Environment(loader=FileSystemLoader(str(template_dir)),
-                      trim_blocks=True, lstrip_blocks=True)
-    env.filters["md_table"] = _md_table
-    template = env.get_template("index_report.jinja2")
-    return template.render(
-        code=report.code,
-        name=report.name,
-        generated_at=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
-        overview=report.overview,
-        section_technical=report.section_technical,
-        section_valuation=report.section_valuation,
-        section_capital=report.section_capital,
-        section_macro=report.section_macro,
-        section_sentiment=report.section_sentiment,
-        tag_technical=report.tag_technical,
-        tag_valuation=report.tag_valuation,
-        tag_capital=report.tag_capital,
-        tag_macro=report.tag_macro,
-        tag_sentiment=report.tag_sentiment,
-        composite_comment=report.composite_comment,
-        position_coeff=report.position_coeff,
-        visible_sections=report.visible_sections,
-    )
+    return render_index_report_markdown(report)
 
 
 def _render_compare_table(compare) -> Table | str:

@@ -82,11 +82,11 @@
 
 | 维度 | 标签 |
 |------|------|
-| 技术面 | {{ tag_technical }} |
-| 估值面 | {{ tag_valuation }} |
-| 资金面 | {{ tag_capital }} |
-| 宏观面 | {{ tag_macro }} |
-| 舆情面 | {{ tag_sentiment }} |
+| 技术面 | {{ tag_labels.get(tag_technical, tag_technical) }} |
+| 估值面 | {{ tag_labels.get(tag_valuation, tag_valuation) }} |
+| 资金面 | {{ tag_labels.get(tag_capital, tag_capital) }} |
+| 宏观面 | {{ tag_labels.get(tag_macro, tag_macro) }} |
+| 舆情面 | {{ tag_labels.get(tag_sentiment, tag_sentiment) }} |
 
 **综合定性：** {{ composite_comment }}
 **建议仓位参考系数：** {{ position_coeff if position_coeff is not none else "N/A" }}

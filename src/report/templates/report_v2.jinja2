@@ -88,7 +88,7 @@
 {% if risk_flags %}
 ### 风险标签清单
 {% for flag in risk_flags %}
-- {{ flag }}
+- {{ flag | risk_display_name }}
 {% endfor %}
 {% endif %}
 

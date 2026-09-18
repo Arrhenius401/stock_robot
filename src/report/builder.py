@@ -36,7 +36,7 @@ def _md_table(data, headers=None):
         filtered = {
             k: v
             for k, v in data.items()
-            if not isinstance(v, list) and k != "peer_names"
+            if not isinstance(v, list) and k not in {"peer_names", "tag"}
         }
         if not filtered:
             return ""
@@ -101,6 +101,8 @@ class ReportBuilder:
             lstrip_blocks=True,
         )
         self._env.filters["md_table"] = _md_table
+        from report.formatter import risk_display_name
+        self._env.filters["risk_display_name"] = risk_display_name
 
     def build(self, symbol: str, name: str, results: list[AnalysisResult],
               commentary: dict[str, str], no_llm: bool = False,

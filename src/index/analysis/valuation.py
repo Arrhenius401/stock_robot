@@ -3,7 +3,7 @@ from typing import Any, Literal
 
 from analysis.base import AnalysisModule
 from data.schemas import AnalysisResult, IndexAnalysisContext
-from index.enricher import tag_valuation
+from index.enricher import index_tag_label, tag_valuation
 
 
 class IndexValuationAnalyzer(AnalysisModule):
@@ -41,6 +41,6 @@ class IndexValuationAnalyzer(AnalysisModule):
                                   metrics=metrics)
 
         status = "ok"
-        summary = f"PE-TTM {val.pe_ttm}，历史分位 {pe_pct}%，估值: {vtag}"
+        summary = f"PE-TTM {val.pe_ttm}，历史分位 {pe_pct}%，估值：{index_tag_label(vtag)}"
         return AnalysisResult(dimension=self.dimension, status=status,
                               summary=summary, metrics=metrics)

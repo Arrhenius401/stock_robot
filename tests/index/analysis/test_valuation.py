@@ -32,6 +32,7 @@ class TestIndexValuationAnalyzer:
         result = IndexValuationAnalyzer().analyze(ctx)
         assert result.status == "ok"
         assert result.metrics["tag"] == "neutral"
+        assert "估值：中性" in result.summary
 
     def test_analyze_invalid_valuation(self):
         target = AnalysisTarget(

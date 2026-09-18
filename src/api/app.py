@@ -366,6 +366,48 @@ def create_app(
     def _reports_root() -> Path:
         return Path.cwd() / "reports"
 
+    def _save_web_stock_report(
+            symbol: str, name: str, results, commentary, ctx, agent_core,
+            snapshot: RuntimeSnapshot | None) -> Path:
+        """将网页个股分析保存为与 CLI 一致的 Markdown 报告。"""
+        from report.formatter import ReportFormatter
+        from report.scoring import build_report
+        from report.signal import load_signal_config
+        from utils.config import Config
+
+        config = snapshot.config if snapshot is not None else Config()
+        markdown = build_report(
+            symbol,
+            name,
+            results,
+            commentary,
+            ctx,
+            no_llm=agent_core.llm is None,
+            signal_cfg=load_signal_config(config),
+        )
+        saved_path = ReportFormatter.save(
+            markdown,
+            symbol,
+            output_dir=_reports_root(),
+            category="stock",
+        )
+        logger.info("网页个股报告已保存: %s", saved_path)
+        return saved_path
+
+    def _save_web_index_report(report) -> Path:
+        """将网页指数分析保存为与 CLI 一致的 Markdown 报告。"""
+        from index.build_single import render_index_report_markdown
+        from report.formatter import ReportFormatter
+
+        saved_path = ReportFormatter.save(
+            render_index_report_markdown(report),
+            report.code,
+            output_dir=_reports_root(),
+            category="index",
+        )
+        logger.info("网页指数报告已保存: %s", saved_path)
+        return saved_path
+
     def _raise_report_error(error: ReportLibraryError) -> None:
         raise HTTPException(status_code=error.status_code, detail=str(error))
 
@@ -758,6 +800,8 @@ def create_app(
                 ),
                 "generated_at": datetime.now().astimezone().isoformat(),
             }
+            _save_web_stock_report(
+                symbol, name, results, commentary, ctx, agent_core, snapshot)
             return JSONResponse(_json_safe(payload))
         except Exception as e:  # noqa: BLE001 — HTTP 边界兜底
             logger.error("个股分析失败: %s", e)
@@ -816,6 +860,8 @@ def create_app(
 
         try:
             result = await asyncio.to_thread(agent_core.index_pipeline.run, targets)
+            for report in result.reports:
+                _save_web_index_report(report)
             compare = None
             if result.compare is not None:
                 compare = {"headers": result.compare.headers,
