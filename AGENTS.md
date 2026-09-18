@@ -60,12 +60,12 @@ chore(项目): 初始化项目脚手架
 - 涉及类型系统边界行为（Protocol/ClassVar 结构匹配、`cast` 到 Literal、`# pyright: ignore` 规则码）先用 10 行临时探针 + `pyright <探针>` 验证再大规模应用
 - `mcp__ide__getDiagnostics` 依赖 IDE 连接，时有时无，**不可作为复查依赖**
 
+推荐入口为 `.\scripts\verify.ps1 -Scope Changed`；它按 Git 改动选择最小验证集，无法安全归类时自动回退全量。提交前使用 `-Source Staged`，全量使用 `-Scope Full`。
+
 ### 环境事实（勿重复探测）
 
 - `python`/`pip` 裸命令指向 Anaconda（`D:\Private File\Anaconda`）——**所有 Python 命令显式用 `.venv/Scripts/python`**；Anaconda 缺 pytest-asyncio，用它跑 async 测试会误报失败
-- `pyright` 在 `C:\Users\25618\AppData\Roaming\Python\Python312\Scripts\pyright`，直接命令可用；`.venv` 中未安装
-- `ruff` 不在 PATH，用 VS Code 扩展 bundled 二进制（**版本号会随扩展升级变化，必须用通配符**）：
-  `~/.vscode/extensions/charliermarsh.ruff-*/bundled/libs/bin/ruff.exe`
+- 首次开发环境同步执行 `.\scripts\bootstrap-dev.ps1`；它将 Ruff、Pyright、pytest 固定到 `.venv`，不依赖 VS Code 扩展或用户目录中的全局工具。
 - 环境探测合并为一条命令（`which python ruff pyright`），不要逐个探测
 
 ### 异常处理

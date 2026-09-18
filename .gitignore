@@ -9,6 +9,7 @@ __pycache__/
 venv/
 .direnv/
 .pytest_cache/
+.pytest-tmp-*/
 .tmp/
 /tmp/
 *.egg-info/

@@ -28,6 +28,25 @@ python3 -m venv .venv
 
 后续示例中的 `stock-robot` 假定已使用 `direnv` 自动加入项目虚拟环境；不使用 `direnv` 时，将其替换为 Windows 的 `.\scripts\stock-robot.ps1` 或 Linux 的 `./scripts/stock-robot.sh`。
 
+### 开发校验
+
+项目将 Ruff、Pyright 与 pytest 固化为 `[dev]` 依赖。推荐使用 `uv` 同步开发环境，避免依赖 VS Code 扩展或用户目录中的全局工具：
+
+```powershell
+.\scripts\bootstrap-dev.ps1
+
+# 仅校验当前工作区改动；无法安全归类时自动退回全量校验
+.\scripts\verify.ps1 -Scope Changed
+
+# 校验暂存区，适合提交前使用
+.\scripts\verify.ps1 -Scope Changed -Source Staged
+
+# 全量 Ruff、Pyright 和 pytest
+.\scripts\verify.ps1 -Scope Full
+```
+
+测试过程产生的缓存和临时文件统一存放于 `tmp/pytest/`：成功后自动删除，失败时保留用于排查。
+
 ## 首次使用
 
 ```bash
