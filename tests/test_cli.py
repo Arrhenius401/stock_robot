@@ -292,18 +292,25 @@ def test_run_builds_server_and_reports_ready_url(mocker):
     assert "正在启动 HTTP 服务" not in result.output
     assert "http://127.0.0.1:8000" in result.output
     mock_core.assert_called_once()
-    mock_server.assert_called_once_with(mock_app.return_value, "127.0.0.1", 8000)
+    server_args = mock_server.call_args.args
+    assert server_args[:3] == (mock_app.return_value, "127.0.0.1", 8000)
+    assert server_args[3].name.startswith("runtime-")
 
 
-def test_run_web_server_does_not_write_console_status(mocker):
+def test_run_web_server_adds_runtime_log_handlers(mocker, tmp_path):
     """Uvicorn 日志已经覆盖运行状态，命令层不再输出 spinner。"""
-    mocker.patch("uvicorn.run")
+    mock_run = mocker.patch("uvicorn.run")
     status = mocker.patch("stock_robot.cli.console.status")
 
     from stock_robot.cli import _run_web_server
-    _run_web_server(object(), "127.0.0.1", 8000)
+    log_path = tmp_path / "runtime.log"
+    _run_web_server(object(), "127.0.0.1", 8000, log_path)
 
     status.assert_not_called()
+    log_config = mock_run.call_args.kwargs["log_config"]
+    assert log_config["handlers"]["runtime_access"]["filename"] == str(log_path)
+    assert "runtime_default" in log_config["loggers"]["uvicorn"]["handlers"]
+    assert "runtime_access" in log_config["loggers"]["uvicorn.access"]["handlers"]
 
 
 def test_api_bind_resolution_uses_config_defaults(tmp_path):

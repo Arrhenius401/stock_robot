@@ -1060,6 +1060,13 @@ def create_app(
 
     static_dir = os.path.join(os.path.dirname(__file__), "static")
     if os.path.isdir(static_dir):
+        index_path = os.path.join(static_dir, "index.html")
+
+        @app.get("/", include_in_schema=False)
+        async def serve_web_ui() -> FileResponse:
+            """首页不缓存，确保本地服务重启后立即加载当前版本入口。"""
+            return FileResponse(index_path, headers={"Cache-Control": "no-store"})
+
         app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
 
     return app

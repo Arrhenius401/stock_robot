@@ -236,6 +236,13 @@ class TestStaticUI:
         assert 'id="workspaceBackdrop"' in html
 
     @pytest.mark.asyncio
+    async def test_index_is_not_cached(self, client):
+        """本地前端入口必须随服务更新重新读取，不能复用旧模块版本。"""
+        response = await client.get("/")
+
+        assert response.headers["cache-control"] == "no-store"
+
+    @pytest.mark.asyncio
     async def test_index_contains_report_library_view(self, client):
         html = (await client.get("/")).text
 
@@ -262,6 +269,13 @@ class TestStaticUI:
 
         assert 'id="sidebarResizer"' in html
         assert 'aria-label="调整侧边栏宽度"' in html
+
+    @pytest.mark.asyncio
+    async def test_workspace_main_has_no_programmatic_focus_outline(self, client):
+        """主工作区仅用于程序化焦点恢复，不应显示浏览器默认描边。"""
+        css = (await client.get("/css/app.css")).text
+
+        assert "#workspaceMain:focus { outline: 0; }" in css
 
     @pytest.mark.asyncio
     async def test_report_library_modules_served(self, client):

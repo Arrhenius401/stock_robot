@@ -1,6 +1,7 @@
 """Stock Robot CLI — AI 驱动的股票分析研报助手"""
 import logging
 import os
+from copy import deepcopy
 from datetime import date, timedelta
 
 os.environ["TQDM_DISABLE"] = "1"
@@ -636,11 +637,48 @@ def _resolve_api_bind(host: str | None, port: int | None, config: Config) -> tup
     return resolved_host, resolved_port
 
 
-def _run_web_server(app, host: str, port: int) -> None:
-    """运行 Web 服务。"""
+def _runtime_uvicorn_log_config(runtime_log_path: Path) -> dict:
+    """构建同时写入控制台和本次服务日志的 Uvicorn 配置。"""
+    from uvicorn.config import LOGGING_CONFIG
+
+    log_config = deepcopy(LOGGING_CONFIG)
+    log_config["formatters"]["runtime_default"] = {
+        "()": "uvicorn.logging.DefaultFormatter",
+        "fmt": "%(asctime)s %(levelprefix)s %(message)s",
+        "use_colors": False,
+    }
+    log_config["formatters"]["runtime_access"] = {
+        "()": "uvicorn.logging.AccessFormatter",
+        "fmt": '%(asctime)s %(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s',
+        "use_colors": False,
+    }
+    log_config["handlers"]["runtime_default"] = {
+        "class": "logging.FileHandler",
+        "encoding": "utf-8",
+        "filename": str(runtime_log_path),
+        "formatter": "runtime_default",
+    }
+    log_config["handlers"]["runtime_access"] = {
+        "class": "logging.FileHandler",
+        "encoding": "utf-8",
+        "filename": str(runtime_log_path),
+        "formatter": "runtime_access",
+    }
+    log_config["loggers"]["uvicorn"]["handlers"].append("runtime_default")
+    log_config["loggers"]["uvicorn.access"]["handlers"].append("runtime_access")
+    return log_config
+
+
+def _run_web_server(app, host: str, port: int, runtime_log_path: Path) -> None:
+    """运行 Web 服务，并将访问日志写入本次服务的日志文件。"""
     import uvicorn
 
-    uvicorn.run(app, host=host, port=port)
+    uvicorn.run(
+        app,
+        host=host,
+        port=port,
+        log_config=_runtime_uvicorn_log_config(runtime_log_path),
+    )
 
 
 @main.command("run")
@@ -673,7 +711,7 @@ def run(host, port):
     logger.info("Stock Robot API 启动于 %s", web_url)
     logger.info("Web 服务正在运行: %s", web_url)
     console.print(f"[green]Web 服务正在运行: {web_url}[/green]")
-    _run_web_server(app, bind_host, bind_port)
+    _run_web_server(app, bind_host, bind_port, runtime_log_path)
 
 
 @main.command()

@@ -1,5 +1,5 @@
 // 应用主入口：导航接线、工作台覆盖层与各视图初始化。
-import { bus, switchView } from "./state.js";
+import { bus, store, switchView } from "./state.js";
 import { initChat } from "./chat.js";
 import { initReportView, openReport } from "./report.js?v=20260916-report-readability";
 import { initReportDrawer } from "./report-drawer.js";
@@ -15,6 +15,9 @@ import { initLogs } from "./logs.js?v=20260917-log-sidebar-resize-fix";
 const SIDEBAR_WIDTH_KEY = "stockRobot.sidebarWidth";
 const SIDEBAR_MIN_WIDTH = 210;
 const SIDEBAR_MAX_WIDTH = 420;
+const HASH_VIEWS = new Set([
+  "chat", "report", "index", "radar", "report-library", "subscriptions", "logs", "settings",
+]);
 
 const VIEW_TITLES = {
   chat: "会话研究",
@@ -38,6 +41,22 @@ function updateViewTitle(view) {
 
 function mainContent() {
   return document.getElementById("workspaceMain");
+}
+
+function viewFromHash() {
+  const view = window.location.hash.slice(1).split("/")[0];
+  return HASH_VIEWS.has(view) ? view : null;
+}
+
+function syncViewFromHash() {
+  const view = viewFromHash();
+  if (view && view !== store.currentView) switchView(view);
+}
+
+function updateSimpleViewHash(view) {
+  if (view === "radar") return;
+  const nextHash = `#${view}`;
+  if (window.location.hash !== nextHash) window.history.replaceState(null, "", nextHash);
 }
 
 function focusVisible(target) {
@@ -185,6 +204,7 @@ function init() {
     node.addEventListener("click", () => {
       const focusTarget = isNarrowScreen() ? mainContent() : node;
       resetWorkspaceOverlays({ focusTarget });
+      updateSimpleViewHash(node.dataset.view);
       switchView(node.dataset.view);
     });
   });
@@ -206,6 +226,7 @@ function init() {
   initSubscriptions();
   initLogs();
   initSettings();
+  window.addEventListener("hashchange", syncViewFromHash);
   initSessionStartup()
     .catch((error) => console.error("会话初始化失败:", error))
     .finally(() => import("./allocation-view.js?v=20260916-radar-data-date")
@@ -214,7 +235,8 @@ function init() {
         console.error("配置雷达初始化失败:", error);
         const radarContent = document.getElementById("radarContent");
         if (radarContent) radarContent.textContent = "配置雷达暂时无法初始化，请刷新后重试。";
-      }));
+      }))
+    .finally(syncViewFromHash);
 }
 
 init();
