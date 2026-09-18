@@ -10,7 +10,7 @@ import { initReportLibrary } from "./report-library.js?v=20260916-report-readabi
 import { initSessions, initSessionStartup } from "./sessions.js";
 import { initSubscriptions } from "./subscriptions.js";
 import { initSettings } from "./settings.js";
-import { initLogs } from "./logs.js?v=20260917-log-sidebar-resize-fix";
+import { initLogs } from "./logs.js?v=20260918-log-scroll-position";
 
 const SIDEBAR_WIDTH_KEY = "stockRobot.sidebarWidth";
 const SIDEBAR_MIN_WIDTH = 210;

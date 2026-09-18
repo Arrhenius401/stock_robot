@@ -20,6 +20,36 @@ function isNearBottom(node) {
   return node.scrollHeight - node.scrollTop - node.clientHeight < 12;
 }
 
+function captureScrollState(node) {
+  const listBounds = node.getBoundingClientRect();
+  const anchor = Array.from(node.querySelectorAll(".logs-line"))
+    .find((row) => row.getBoundingClientRect().bottom > listBounds.top);
+  return {
+    anchorOffset: anchor ? anchor.getBoundingClientRect().top - listBounds.top : null,
+    anchorText: anchor?.textContent ?? null,
+    scrollTop: node.scrollTop,
+    wasAtBottom: isNearBottom(node),
+  };
+}
+
+function restoreScrollPosition(list, previousListState, view, viewScrollTop) {
+  window.requestAnimationFrame(() => {
+    if (previousListState?.wasAtBottom) {
+      list.scrollTop = list.scrollHeight;
+    } else if (previousListState?.anchorText) {
+      const anchor = Array.from(list.querySelectorAll(".logs-line"))
+        .find((row) => row.textContent === previousListState.anchorText);
+      if (anchor && previousListState.anchorOffset !== null) {
+        const desiredTop = list.getBoundingClientRect().top + previousListState.anchorOffset;
+        list.scrollTop += anchor.getBoundingClientRect().top - desiredTop;
+      } else {
+        list.scrollTop = previousListState.scrollTop;
+      }
+    }
+    if (view) view.scrollTop = viewScrollTop;
+  });
+}
+
 function stopRefresh() {
   if (refreshTimer !== null) window.clearInterval(refreshTimer);
   refreshTimer = null;
@@ -36,10 +66,7 @@ function render(lines, available) {
   const root = content();
   if (!root) return;
   const previousList = root.querySelector(".logs-list");
-  const previousListState = previousList ? {
-    scrollTop: previousList.scrollTop,
-    wasAtBottom: isNearBottom(previousList),
-  } : null;
+  const previousListState = previousList ? captureScrollState(previousList) : null;
   const view = document.getElementById("view-logs");
   const viewScrollTop = view?.scrollTop ?? 0;
   root.replaceChildren();
@@ -75,15 +102,10 @@ function render(lines, available) {
       row.textContent = line;
       list.append(row);
     }
-    if (!previousListState || previousListState.wasAtBottom) {
-      list.scrollTop = list.scrollHeight;
-    } else {
-      list.scrollTop = previousListState.scrollTop;
-    }
   }
   panel.append(list);
   root.append(panel);
-  if (view) view.scrollTop = viewScrollTop;
+  restoreScrollPosition(list, previousListState, view, viewScrollTop);
 }
 
 async function loadLogs() {
