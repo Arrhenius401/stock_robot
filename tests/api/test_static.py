@@ -282,7 +282,7 @@ class TestStaticUI:
         app_js = (await client.get("/js/app.js")).text
         api_js = (await client.get("/js/api.js")).text
 
-        assert 'import { initReportLibrary } from "./report-library.js?v=20260916-report-readability";' in app_js
+        assert 'import { initReportLibrary } from "./report-library.js?v=20260918-report-parity";' in app_js
         assert "initReportLibrary();" in app_js
         assert "listReports(" in api_js
         assert "getReport(" in api_js
@@ -379,22 +379,28 @@ if (!code.includes("**代码原样** [不应解析](https://example.com)")
         renderer_url = json.dumps(_module_url("src/api/static/js/report-renderer.js"))
         script = _DOM_STUB + r"""
 const {
-  normalizeArtifactReport, renderStockReport, renderReportSummary,
+  localizeReportMarkdown, normalizeArtifactReport, renderStockReport, renderReportSummary,
 } = await import(__RENDERER_URL__);
 
 const report = {
   code: "000001",
   name: '<img src=x onerror="boom">',
   overview: { industry: "银行", latest_close: 12.3, change_pct: -1.2 },
-  score: { final: 7.6, risk_deduction: 1 },
-  score_rows: [{ label: "财务", score: 8, weight: "30%" }],
+  score: { final: 1.2000000000000002, risk_deduction: 1 },
+  score_rows: [{ label: "财务", score: 1.2000000000000002, weight: "30%" }],
   dimensions: {
     financial: {
       status: "ok",
       score: 8,
       summary: "**稳健** <script>alert(1)</script>",
       metrics: { latest_close: 12.3, nested: { value: 3 } },
-      risk_flags: ["集中度偏高", "集中度偏高"],
+      risk_flags: ["roe_low", "roe_low"],
+    },
+    technical: {
+      status: "ok",
+      score: 1.2000000000000002,
+      summary: "技术面承压",
+      risk_flags: ["bearish_ma"],
     },
     industry: {
       status: "ok",
@@ -403,6 +409,7 @@ const report = {
         peer_names: { "601398": "工商银行", "601939": "建设银行" },
         peer_scope: "申万一级",
         peer_industry: "银行",
+        top_peers: [{ symbol: "600036", name: "招商银行", market_cap: 60330000000, pe_ttm: 6.2, pb: 0.8 }],
       },
     },
     sentiment: {
@@ -452,14 +459,47 @@ if (!article.textContent.includes("同行业公司") || !article.textContent.inc
     || article.textContent.includes("peer_names")) {
   throw new Error("行业字段必须显示中文标签与公司名（代码）");
 }
-const headlines = byClass(article, "report-metric-list")[0];
+if (!article.textContent.includes("头部同行公司")
+    || !article.textContent.includes("招商银行（600036）：市值 603.30 亿元 · PE(TTM) 6.2 · PB 0.8")) {
+  throw new Error("头部同行应以公司名、代码和指标的结构化格式展示");
+}
+if (article.textContent.includes("roe_low") || article.textContent.includes("bearish_ma")
+    || !article.textContent.includes("净资产收益率偏低")
+    || !article.textContent.includes("均线呈空头排列")) {
+  throw new Error("风险代码必须转换为中文提示");
+}
+if (article.textContent.includes("1.2000000000000002")
+    || !article.textContent.includes("1.2")) {
+  throw new Error("评分必须保留一位小数");
+}
+if ((article.textContent.match(/财务健康/g) || []).length !== 1) {
+  throw new Error("维度标题不得重复展示");
+}
+const headlines = byClass(article, "report-metric-list").find((list) =>
+  list.textContent.includes("业绩增长超预期"));
 if (!headlines || headlines.children.length !== 2
     || !headlines.textContent.includes("业绩增长超预期")
     || !headlines.textContent.includes("机构上调目标价")) {
   throw new Error("舆情标题必须逐条纵向展示");
 }
-if (byClass(article, "report-risk-item").length !== 2) {
-  throw new Error("风险应跨维度去重聚合");
+const riskRows = byClass(article, "report-risk-item");
+if (riskRows.length !== 3 || !riskRows.every((row) =>
+    row.classList.contains("report-detail-row"))
+    || !article.textContent.includes("风险 01")) {
+  throw new Error("风险应跨维度去重并使用统一字段行布局");
+}
+const commentaryRows = byClass(article, "report-commentary-item");
+if (commentaryRows.length !== 2 || !commentaryRows.every((row) =>
+    row.classList.contains("report-detail-row"))
+    || !article.textContent.includes("要点 01")) {
+  throw new Error("AI 解读分点应使用统一字段行布局");
+}
+const legacyMarkdown = localizeReportMarkdown("- roe_low\n趋势：bear\n估值：undervalued");
+if (legacyMarkdown.includes("roe_low") || legacyMarkdown.includes("bear")
+    || legacyMarkdown.includes("undervalued")
+    || !legacyMarkdown.includes("净资产收益率偏低")
+    || !legacyMarkdown.includes("空头") || !legacyMarkdown.includes("低估")) {
+  throw new Error("报告库旧 Markdown 的内部标签必须转换为中文");
 }
 
 const artifact = {
@@ -470,7 +510,7 @@ const artifact = {
 };
 const summary = renderReportSummary(artifact);
 if (summary.dataset.artifactId !== "artifact-1") throw new Error("摘要卡缺少成果 ID");
-if (!summary.textContent.includes("2 项风险")) throw new Error("摘要卡风险计数错误");
+if (!summary.textContent.includes("3 项风险")) throw new Error("摘要卡风险计数错误");
 const conclusion = byClass(summary, "report-summary-conclusion")[0];
 if (!conclusion || !conclusion.innerHTML.includes("第一段结论")) {
   throw new Error("摘要卡应优先使用 commentary/comments 第一段");

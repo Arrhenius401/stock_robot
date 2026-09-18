@@ -301,6 +301,37 @@ button { font-family: inherit; }
 .flag { display: inline-block; background: rgba(229,72,77,.12); color: var(--accent);
         border-radius: 5px; padding: 1px 7px; font-size: 10.5px; margin: 6px 4px 0 0; }
 
+/* 报告末尾的风险与 AI 解读沿用指标行的纵向信息层级。 */
+.report-detail-list {
+  display: grid;
+  margin-top: 8px;
+  border-top: 1px solid var(--border-soft);
+}
+.report-detail-row {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.report-detail-row .k {
+  color: var(--text-4);
+  font-size: 10px;
+  line-height: 1.55;
+}
+.report-detail-row .v {
+  min-width: 0;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.report-risk-item .v { color: var(--accent); }
+.report-commentary-intro { margin: 0; }
+.report-commentary-value { margin: 0; }
+.report-commentary-value > :first-child { margin-top: 0; }
+.report-commentary-value > :last-child { margin-bottom: 0; }
+
 /* 徽章与标签 */
 .badge { border-radius: 5px; padding: 1px 7px; font-size: 10px; font-weight: 600; }
 .badge.ok { background: rgba(63,182,139,.15); color: var(--ok); }
@@ -545,6 +576,9 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .report-content .panel, #reportDrawerContent .panel { overflow-x: auto; }
 .report-content table, #reportDrawerContent table, .md table { min-width: max-content; }
 .md { overflow-wrap: anywhere; }
+@media (max-width: 520px) {
+  .report-detail-row { grid-template-columns: 58px minmax(0, 1fr); gap: 8px; }
+}
 
 #reportDrawer {
   grid-column: 3; grid-row: 1; display: flex; min-width: 0; min-height: 0;

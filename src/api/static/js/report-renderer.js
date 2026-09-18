@@ -33,6 +33,17 @@ const METRIC_LABELS = {
   margin_balance: "融资余额", data_date: "数据日期", date: "数据日期",
 };
 
+const RISK_LABELS = {
+  roe_low: "净资产收益率偏低",
+  high_debt: "资产负债率偏高",
+  cash_flow_mismatch: "经营现金流与净利润不匹配",
+  high_pe_premium: "市盈率分位偏高",
+  industry_weak_margin: "毛利率弱于行业",
+  bearish_ma: "均线呈空头排列",
+  volume_bearish: "放量下跌风险",
+  major_negative_news: "存在重大负面舆情",
+};
+
 function record(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
@@ -58,12 +69,23 @@ function readable(value, fallback = "暂无数据") {
   return String(value);
 }
 
-function metricLabel(key) {
+export function metricLabel(key) {
   const raw = String(key);
   return METRIC_LABELS[raw] || raw.replaceAll("_", " ");
 }
 
-function metricText(value) {
+function scoreText(value, fallback = "—") {
+  if (value === null || value === undefined || value === "") return fallback;
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toFixed(1) : readable(value, fallback);
+}
+
+export function riskText(value) {
+  const raw = readable(value, "");
+  return RISK_LABELS[raw] || raw;
+}
+
+export function metricText(value) {
   if (Array.isArray(value)) return value.map(metricText).filter(Boolean).join("、") || "暂无数据";
   if (value && typeof value === "object") {
     return Object.values(value).map(metricText).filter(Boolean).join("、") || "暂无数据";
@@ -73,7 +95,7 @@ function metricText(value) {
 
 function peerText(value, peerNames) {
   const names = record(peerNames);
-  const peers = Array.isArray(value) ? value : [];
+  const peers = Array.isArray(value) ? value : Object.entries(record(value)).map(([symbol, name]) => ({ symbol, name }));
   const labels = peers.map((peer) => {
     const item = record(peer);
     const symbol = readable(item.symbol ?? peer, "");
@@ -81,6 +103,34 @@ function peerText(value, peerNames) {
     return name ? `${name}（${symbol}）` : symbol;
   }).filter(Boolean);
   return labels.join("、") || "暂无数据";
+}
+
+function marketCapText(value) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? `${(amount / 1e8).toFixed(2)} 亿元` : metricText(value);
+}
+
+function appendTopPeers(grid, value, peerNames) {
+  const names = record(peerNames);
+  const peers = Array.isArray(value) ? value : [];
+  const wrap = el("div", "report-metric-list-wrap");
+  wrap.appendChild(el("div", "k", metricLabel("top_peers")));
+  const list = el("ul", "report-metric-list report-peer-list");
+  for (const peer of peers) {
+    const item = record(peer);
+    const symbol = readable(item.symbol, "");
+    const name = readable(item.name ?? names[symbol], "");
+    const title = name ? `${name}（${symbol}）` : symbol;
+    if (!title) continue;
+    const details = [
+      ["市值", item.market_cap], ["PE(TTM)", item.pe_ttm], ["PB", item.pb],
+    ].filter(([, metric]) => metric !== null && metric !== undefined && metric !== "")
+      .map(([label, metric]) => `${label} ${label === "市值" ? marketCapText(metric) : metricText(metric)}`);
+    list.appendChild(el("li", "", details.length ? `${title}：${details.join(" · ")}` : title));
+  }
+  if (!list.children.length) list.appendChild(el("li", "", "暂无数据"));
+  wrap.appendChild(list);
+  grid.appendChild(wrap);
 }
 
 function appendListMetric(grid, key, value) {
@@ -108,6 +158,31 @@ function appendMetrics(grid, key, value, prefix = "") {
     return;
   }
   grid.appendChild(kv(label, metricText(value)));
+}
+
+export function appendReadableMetric(grid, key, value, context = {}) {
+  if (key === "headlines" || key === "top_headlines") {
+    appendListMetric(grid, key, value);
+    return;
+  }
+  if (key === "top_peers") {
+    appendTopPeers(grid, value, context.peer_names);
+    return;
+  }
+  appendMetrics(grid, key, value);
+}
+
+const REPORT_TOKEN_LABELS = {
+  ...RISK_LABELS,
+  bull: "多头", shake: "震荡", bear: "空头",
+  undervalued: "低估", overvalued: "高估", invalid: "无效",
+  positive: "积极", negative: "消极", neutral: "中性", na: "不适用",
+};
+
+export function localizeReportMarkdown(markdown) {
+  const text = String(markdown || "");
+  return text.replace(/\b(?:roe_low|high_debt|cash_flow_mismatch|high_pe_premium|industry_weak_margin|bearish_ma|volume_bearish|major_negative_news|bull|shake|bear|undervalued|overvalued|invalid|positive|negative|neutral|na)\b/g,
+    (token) => REPORT_TOKEN_LABELS[token] || token);
 }
 
 function naturalText(value) {
@@ -227,7 +302,7 @@ function scoreSection(report, sectionIdPrefix) {
   const card = section("report-score", "综合评分", "panel", sectionIdPrefix);
   const score = record(report.score);
   const big = el("div", "score-big");
-  const number = el("div", "score-num", readable(score.final, "—"));
+  const number = el("div", "score-num", scoreText(score.final));
   number.appendChild(el("small", "", "/10"));
   big.appendChild(number);
 
@@ -236,14 +311,14 @@ function scoreSection(report, sectionIdPrefix) {
     const rowData = record(item);
     const row = el("div", "score-row");
     row.appendChild(el("span", "lb", readable(rowData.label)));
-    row.appendChild(el("span", "v", readable(rowData.score, "—")));
+    row.appendChild(el("span", "v", scoreText(rowData.score)));
     row.appendChild(priceBar(Number(rowData.score) * 10));
     row.appendChild(el("span", "wt", readable(rowData.weight, "")));
     rows.appendChild(row);
   }
   if (score.risk_deduction) {
     rows.appendChild(el("div", "score-note",
-      `风险扣分: -${readable(score.risk_deduction)}`));
+      `风险扣分: -${scoreText(score.risk_deduction)}`));
   }
   if (!rows.children.length) rows.appendChild(el("div", "report-empty", "暂无评分明细"));
   big.appendChild(rows);
@@ -260,9 +335,8 @@ function dimensionSection(name, label, data, sectionIdPrefix) {
 
   const dimension = record(data);
   const header = el("div", "dim-head");
-  header.appendChild(el("span", "dim-name", label));
   header.appendChild(statusBadge(dimension.status));
-  header.appendChild(el("span", "dim-score", readable(dimension.score, "—")));
+  header.appendChild(el("span", "dim-score", scoreText(dimension.score)));
   card.appendChild(header);
   card.appendChild(markdownBlock(naturalText(dimension.summary), "dim-sum md"));
 
@@ -275,16 +349,12 @@ function dimensionSection(name, label, data, sectionIdPrefix) {
         grid.appendChild(kv(metricLabel(metric), peerText(value, metrics.peer_names)));
         continue;
       }
-      if (metric === "headlines" || metric === "top_headlines") {
-        appendListMetric(grid, metric, value);
-        continue;
-      }
-      appendMetrics(grid, metric, value);
+      appendReadableMetric(grid, metric, value, metrics);
     }
     card.appendChild(grid);
   }
   for (const flag of Array.isArray(dimension.risk_flags) ? dimension.risk_flags : []) {
-    card.appendChild(el("span", "flag", `⚠ ${readable(flag)}`));
+    card.appendChild(el("span", "flag", `⚠ ${riskText(flag)}`));
   }
   return card;
 }
@@ -294,7 +364,7 @@ function riskFlags(report) {
   const dimensions = record(report.dimensions);
   for (const data of Object.values(dimensions)) {
     for (const flag of Array.isArray(record(data).risk_flags) ? data.risk_flags : []) {
-      const text = readable(flag, "");
+      const text = riskText(flag);
       if (text) unique.add(text);
     }
   }
@@ -308,15 +378,56 @@ function risksSection(report, sectionIdPrefix) {
     card.appendChild(el("div", "report-empty", "暂无风险提示"));
     return card;
   }
-  const list = el("ul", "report-risk-list");
-  for (const flag of flags) list.appendChild(el("li", "report-risk-item", flag));
+  const list = el("div", "report-detail-list report-risk-list");
+  flags.forEach((flag, index) => {
+    const row = el("div", "report-detail-row report-risk-item");
+    row.appendChild(el("span", "k", `风险 ${String(index + 1).padStart(2, "0")}`));
+    row.appendChild(el("span", "v", flag));
+    list.appendChild(row);
+  });
   card.appendChild(list);
   return card;
 }
 
+function commentaryParts(report) {
+  const paragraphs = commentaryText(report)
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+  if (!paragraphs.length) return { intro: "", points: [] };
+
+  const intro = paragraphs[0];
+  const points = [];
+  for (const paragraph of paragraphs.slice(1)) {
+    const lines = paragraph.split("\n").map((line) => line.trim()).filter(Boolean);
+    const numbered = lines.filter((line) => /^\d+[.、)]\s+/.test(line));
+    if (numbered.length) {
+      points.push(...numbered.map((line) => line.replace(/^\d+[.、)]\s+/, "")));
+    } else {
+      points.push(paragraph);
+    }
+  }
+  return { intro, points };
+}
+
 function commentarySection(report, sectionIdPrefix) {
   const card = section("report-commentary", "AI 解读", "llm", sectionIdPrefix);
-  card.appendChild(markdownBlock(commentaryText(report), "report-commentary md"));
+  const { intro, points } = commentaryParts(report);
+  if (intro) {
+    card.appendChild(markdownBlock(intro, "report-commentary-intro dim-sum md"));
+  }
+  if (!points.length) {
+    card.appendChild(el("div", "report-empty", "暂无 AI 解读"));
+    return card;
+  }
+  const list = el("div", "report-detail-list report-commentary-list");
+  points.forEach((point, index) => {
+    const row = el("div", "report-detail-row report-commentary-item");
+    row.appendChild(el("span", "k", `要点 ${String(index + 1).padStart(2, "0")}`));
+    row.appendChild(markdownBlock(point, "v report-commentary-value md"));
+    list.appendChild(row);
+  });
+  card.appendChild(list);
   return card;
 }
 
@@ -356,7 +467,8 @@ export function renderStockMarkdownReport(markdown, options = {}) {
     const match = part.match(/^##\s+(.+)$/m);
     const label = match?.[1] || `报告章节 ${index + 1}`;
     const card = section(`report-library-${index}`, label, "panel", sectionIdPrefix);
-    card.appendChild(markdownBlock(part.replace(/^##\s+.+\n?/, ""), "md"));
+    card.appendChild(markdownBlock(localizeReportMarkdown(
+      part.replace(/^##\s+.+\n?/, "")), "md"));
     article.appendChild(card);
   });
   return article;
@@ -395,7 +507,7 @@ export function renderReportSummary(artifact) {
   header.appendChild(el("span", "report-summary-code", reportSymbol(report)));
   const score = record(report.score);
   if (score.final !== null && score.final !== undefined && score.final !== "") {
-    header.appendChild(el("span", "report-summary-score", `${readable(score.final)}/10`));
+    header.appendChild(el("span", "report-summary-score", `${scoreText(score.final)}/10`));
   }
   card.appendChild(header);
 

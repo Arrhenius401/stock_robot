@@ -2,7 +2,7 @@ import { api } from "./api.js";
 import { el, errorCard, skeleton } from "./components.js";
 import { renderMarkdown } from "./markdown.js";
 import { bus } from "./state.js";
-import { renderStockMarkdownReport } from "./report-renderer.js?v=20260916-report-readability";
+import { localizeReportMarkdown, renderStockMarkdownReport } from "./report-renderer.js?v=20260918-report-presentation-4";
 
 const TYPE_LABELS = {
   stock: "个股",
@@ -315,7 +315,7 @@ function renderTrades(data) {
 
 function renderMarkdownTab(detail) {
   const markdown = el("article", "md report-library-markdown");
-  markdown.innerHTML = renderMarkdown(detail.markdown || "暂无报告正文");
+  markdown.innerHTML = renderMarkdown(localizeReportMarkdown(detail.markdown || "暂无报告正文"));
   return markdown;
 }
 

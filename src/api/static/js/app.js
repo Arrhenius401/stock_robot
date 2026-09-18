@@ -5,8 +5,8 @@ import { initReportView, openReport } from "./report.js?v=20260916-report-readab
 import { initReportDrawer } from "./report-drawer.js";
 import { closeReportDrawer } from "./report-drawer.js";
 import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js";
-import { initIndexView } from "./indexview.js";
-import { initReportLibrary } from "./report-library.js?v=20260916-report-readability";
+import { initIndexView } from "./indexview.js?v=20260918-report-parity";
+import { initReportLibrary } from "./report-library.js?v=20260918-report-parity";
 import { initSessions, initSessionStartup } from "./sessions.js";
 import { initSubscriptions } from "./subscriptions.js";
 import { initSettings } from "./settings.js";
