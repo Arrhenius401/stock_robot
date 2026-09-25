@@ -19,8 +19,8 @@ button { font-family: inherit; }
           padding: 10px 16px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 .logo { display: flex; align-items: center; gap: 8px; color: var(--text);
         font-weight: 650; font-size: 14px; letter-spacing: .2px; }
-.logo .dot { width: 9px; height: 9px; border-radius: 3px;
-             background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
+.logo img { width: 32px; height: 32px; flex-shrink: 0; object-fit: contain;
+            image-rendering: pixelated; }
 .entries { margin-left: auto; display: flex; gap: 10px; }
 .entry { position: relative; display: flex; align-items: center; gap: 6px; background: var(--bg);
          border: 1px solid var(--border); border-radius: 8px; padding: 4px 6px 4px 10px; }
@@ -620,7 +620,9 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
     display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid var(--border);
     border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: 17px;
   }
-  .logo { display: none; }
+  .logo { display: flex; }
+  .logo img { width: 28px; height: 28px; }
+  .logo span { display: none; }
   .workspace-title { overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
   .global-stock-search { min-width: 0; flex: 1; padding-left: var(--space-2); }
   .global-stock-search input { font-size: 12px; }

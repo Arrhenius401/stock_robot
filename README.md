@@ -1,5 +1,7 @@
 # Stock Robot
 
+<img src="assets/logo-reimu-piggy-bank-v2.png" alt="Stock Robot Logo" width="96">
+
 AI 驱动的股票/指数分析研报助手。支持 A 股 + 指数分析、AI Agent 对话式投研、RAG 知识库增强、MCP 工具生态接入、HTTP API + Web UI。
 
 ## 免责声明
