@@ -29,7 +29,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 000039,,,,missing
 000042,房地产,房地产开发,大金融,verified
 000045,,,,missing
-000048,,,,missing
+000048,农林牧渔,养殖业,必选消费,verified
 000049,电力设备,电池,高端制造,verified
 000050,,,,missing
 000055,,,,missing
@@ -144,7 +144,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 000568,食品饮料,白酒Ⅱ,必选消费,verified
 000570,,,,missing
 000571,煤炭,煤炭开采,周期资源,verified
-000572,,,,missing
+000572,汽车,乘用车,可选消费,verified
 000573,房地产,房地产开发,大金融,verified
 000576,,,,missing
 000581,,,,missing
@@ -174,7 +174,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 000619,,,,missing
 000620,房地产,房地产开发,大金融,verified
 000623,,,,missing
-000625,,,,missing
+000625,汽车,乘用车,可选消费,verified
 000626,,,,missing
 000628,,,,missing
 000629,,,,missing
@@ -245,7 +245,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 000729,,,,missing
 000731,,,,missing
 000733,,,,missing
-000735,,,,missing
+000735,农林牧渔,养殖业,必选消费,verified
 000736,房地产,房地产开发,大金融,verified
 000737,,,,missing
 000738,,,,missing
@@ -411,7 +411,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 000997,,,,missing
 000998,,,,missing
 000999,,,,missing
-001201,,,,missing
+001201,农林牧渔,养殖业,必选消费,verified
 001202,,,,missing
 001203,,,,missing
 001205,,,,missing
@@ -645,7 +645,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 002121,,,,missing
 002122,,,,missing
 002123,,,,missing
-002124,,,,missing
+002124,农林牧渔,养殖业,必选消费,verified
 002125,电力设备,电池,高端制造,verified
 002126,,,,missing
 002127,,,,missing
@@ -676,7 +676,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 002154,,,,missing
 002155,,,,missing
 002156,,,,missing
-002157,,,,missing
+002157,农林牧渔,养殖业,必选消费,verified
 002158,,,,missing
 002159,,,,missing
 002160,,,,missing
@@ -751,7 +751,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 002230,,,,missing
 002232,,,,missing
 002233,,,,missing
-002234,,,,missing
+002234,农林牧渔,养殖业,必选消费,verified
 002235,,,,missing
 002236,,,,missing
 002237,,,,missing
@@ -812,7 +812,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 002296,,,,missing
 002297,,,,missing
 002298,,,,missing
-002299,,,,missing
+002299,农林牧渔,养殖业,必选消费,verified
 002300,,,,missing
 002301,,,,missing
 002302,,,,missing
@@ -833,7 +833,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 002318,,,,missing
 002319,,,,missing
 002320,,,,missing
-002321,,,,missing
+002321,农林牧渔,养殖业,必选消费,verified
 002322,,,,missing
 002323,,,,missing
 002324,,,,missing
@@ -960,7 +960,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 002455,,,,missing
 002456,,,,missing
 002457,,,,missing
-002458,,,,missing
+002458,农林牧渔,养殖业,必选消费,verified
 002459,,,,missing
 002460,,,,missing
 002461,,,,missing
@@ -1086,7 +1086,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 002591,,,,missing
 002592,,,,missing
 002593,,,,missing
-002594,,,,missing
+002594,汽车,乘用车,可选消费,verified
 002595,,,,missing
 002596,,,,missing
 002597,,,,missing
@@ -1223,7 +1223,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 002742,,,,missing
 002743,,,,missing
 002745,,,,missing
-002746,,,,missing
+002746,农林牧渔,养殖业,必选消费,verified
 002747,,,,missing
 002748,,,,missing
 002749,,,,missing
@@ -1433,7 +1433,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 002979,,,,missing
 002980,,,,missing
 002981,,,,missing
-002982,,,,missing
+002982,农林牧渔,养殖业,必选消费,verified
 002983,,,,missing
 002984,,,,missing
 002985,,,,missing
@@ -1778,7 +1778,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 300308,,,,missing
 300310,,,,missing
 300311,,,,missing
-300313,,,,missing
+300313,农林牧渔,养殖业,必选消费,verified
 300314,,,,missing
 300315,,,,missing
 300316,,,,missing
@@ -1949,7 +1949,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 300494,,,,missing
 300496,,,,missing
 300497,,,,missing
-300498,,,,missing
+300498,农林牧渔,养殖业,必选消费,verified
 300499,,,,missing
 300500,,,,missing
 300501,,,,missing
@@ -2199,7 +2199,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 300758,,,,missing
 300759,,,,missing
 300760,,,,missing
-300761,,,,missing
+300761,农林牧渔,养殖业,必选消费,verified
 300762,,,,missing
 300763,,,,missing
 300765,,,,missing
@@ -2396,7 +2396,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 300964,,,,missing
 300965,,,,missing
 300966,,,,missing
-300967,,,,missing
+300967,农林牧渔,养殖业,必选消费,verified
 300968,,,,missing
 300969,,,,missing
 300970,,,,missing
@@ -2534,7 +2534,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 301112,,,,missing
 301113,,,,missing
 301115,,,,missing
-301116,,,,missing
+301116,农林牧渔,养殖业,必选消费,verified
 301117,,,,missing
 301118,,,,missing
 301119,,,,missing
@@ -2965,7 +2965,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 600100,,,,missing
 600101,,,,missing
 600103,,,,missing
-600104,,,,missing
+600104,汽车,乘用车,可选消费,verified
 600105,,,,missing
 600106,,,,missing
 600107,,,,missing
@@ -3441,7 +3441,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 600730,,,,missing
 600731,,,,missing
 600732,,,,missing
-600733,,,,missing
+600733,汽车,乘用车,可选消费,verified
 600734,,,,missing
 600735,,,,missing
 600736,房地产,房地产开发,大金融,verified
@@ -3617,7 +3617,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 600970,,,,missing
 600971,煤炭,煤炭开采,周期资源,verified
 600973,,,,missing
-600975,,,,missing
+600975,农林牧渔,养殖业,必选消费,verified
 600976,,,,missing
 600977,,,,missing
 600979,,,,missing
@@ -3689,7 +3689,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 601118,,,,missing
 601121,,,,missing
 601126,,,,missing
-601127,,,,missing
+601127,汽车,乘用车,可选消费,verified
 601128,,,,missing
 601133,,,,missing
 601136,非银金融,证券Ⅱ,大金融,verified
@@ -3777,7 +3777,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 601618,,,,missing
 601619,,,,missing
 601628,非银金融,保险Ⅱ,大金融,verified
-601633,,,,missing
+601633,汽车,乘用车,可选消费,verified
 601636,,,,missing
 601658,,,,missing
 601665,,,,missing
@@ -4204,7 +4204,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 603458,,,,missing
 603459,,,,missing
 603466,,,,missing
-603477,,,,missing
+603477,农林牧渔,养殖业,必选消费,verified
 603486,,,,missing
 603488,,,,missing
 603489,,,,missing
@@ -4328,7 +4328,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 603712,,,,missing
 603713,,,,missing
 603716,,,,missing
-603717,,,,missing
+603717,农林牧渔,养殖业,必选消费,verified
 603718,,,,missing
 603719,,,,missing
 603721,,,,missing
@@ -4552,7 +4552,7 @@ symbol,sw_level1,sw_level2,style_category,mapping_status
 605287,,,,missing
 605288,,,,missing
 605289,,,,missing
-605296,,,,missing
+605296,农林牧渔,养殖业,必选消费,verified
 605298,,,,missing
 605299,,,,missing
 605300,,,,missing
