@@ -93,7 +93,7 @@ export function switchView(name) {
     v.classList.toggle("active", v.id === `view-${name}`);
   });
   document.querySelectorAll(".nav-item").forEach((n) => {
-    n.classList.toggle("on", n.dataset.view === name);
+    n.classList.toggle("on", n.dataset.view === (name === "index" ? "report" : name));
   });
   bus.dispatchEvent(new CustomEvent("view-change", { detail: { view: name } }));
 }

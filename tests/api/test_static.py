@@ -253,6 +253,19 @@ class TestStaticUI:
         assert 'id="globalStockSearch"' not in html
 
     @pytest.mark.asyncio
+    async def test_analysis_has_one_navigation_entry_and_preserves_report_views(self, client):
+        """个股与指数共用导航入口，各自沿用原报告内容容器。"""
+        html = (await client.get("/")).text
+
+        assert html.count('data-view="report"') == 1
+        assert 'data-view="index"' not in html
+        assert "<span>股指分析</span>" in html
+        assert html.count('data-analysis-mode="report"') == 2
+        assert html.count('data-analysis-mode="index"') == 2
+        assert 'id="reportContent"' in html
+        assert 'id="indexContent"' in html
+
+    @pytest.mark.asyncio
     async def test_index_contains_runtime_logs_view(self, client):
         """日志是配置之前的一级导航，并有独立内容容器。"""
         html = (await client.get("/")).text
@@ -770,6 +783,8 @@ const chat = makeElement("view-chat");
 chat.className = "view active";
 const report = makeElement("view-report");
 report.className = "view";
+const index = makeElement("view-index");
+index.className = "view";
 const chatNav = makeElement("chatNav", "button");
 chatNav.className = "nav-item on";
 chatNav.dataset.view = "chat";
@@ -784,6 +799,11 @@ switchView("report");
 if (received !== "report" || !report.classList.contains("active")
     || chat.classList.contains("active")) {
   throw new Error("程序化视图切换没有通知标题层");
+}
+switchView("index");
+if (received !== "index" || !index.classList.contains("active")
+    || report.classList.contains("active") || !reportNav.classList.contains("on")) {
+  throw new Error("指数视图未保持股指分析入口高亮");
 }
 """.replace("__STATE_URL__", state_url)
         _run_node(tmp_path, script)

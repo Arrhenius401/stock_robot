@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Stock Robot — AI 股票分析助手</title>
 <link rel="icon" type="image/png" href="/logo.png?v=2">
-<link rel="stylesheet" href="/css/app.css?v=20260925-logo-v2">
+<link rel="stylesheet" href="/css/app.css?v=20260926-analysis-width-2">
 </head>
 <body>
 <header class="topbar">
@@ -31,11 +31,7 @@
       </button>
       <button class="nav-item" type="button" data-view="report">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 3 5-6"/></svg>
-        <span>个股报告</span>
-      </button>
-      <button class="nav-item" type="button" data-view="index">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M23 6l-9.5 9.5-5-5L1 18"/><path d="M17 6h6v6"/></svg>
-        <span>指数分析</span>
+        <span>股指分析</span>
       </button>
       <button class="nav-item" type="button" data-view="radar">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3v4M21 12h-4M12 21v-4M3 12h4"/><path d="m12 12 5-3"/></svg>
@@ -74,21 +70,39 @@
       </div>
     </div>
     <div class="view" id="view-report">
-      <div class="analysis-entry" aria-label="个股报告查询">
-        <label for="stockInput">个股分析</label>
-        <div class="analysis-entry-controls">
-          <div class="entry-input-wrap"><input id="stockInput" inputmode="numeric" autocomplete="off" placeholder="输入股票代码，如 600519"></div>
-          <button id="stockBtn" type="button">生成报告</button>
+      <div class="analysis-entry analysis-entry-card" aria-label="股指分析查询">
+        <div class="analysis-entry-label">研究对象</div>
+        <div class="analysis-entry-row">
+          <div class="analysis-kind" aria-label="研究对象">
+            <button class="analysis-mode on" type="button" data-analysis-mode="report" aria-pressed="true">个股</button>
+            <button class="analysis-mode" type="button" data-analysis-mode="index" aria-pressed="false">指数</button>
+          </div>
+          <div class="analysis-entry-controls">
+            <div class="entry-input-wrap">
+              <input id="stockInput" inputmode="numeric" autocomplete="off" aria-label="股票代码" placeholder="输入股票代码，如 600519">
+              <div class="analysis-entry-hint">输入股票代码，生成个股研报</div>
+            </div>
+            <button id="stockBtn" type="button">生成研报</button>
+          </div>
         </div>
       </div>
       <div id="reportContent" class="report-content"></div>
     </div>
     <div class="view" id="view-index">
-      <div class="analysis-entry" aria-label="指数分析查询">
-        <label for="indexInput">指数分析</label>
-        <div class="analysis-entry-controls">
-          <div class="entry-input-wrap"><input id="indexInput" autocomplete="off" placeholder="输入指数代码，空格分隔（000300 000905）"></div>
-          <button id="indexBtn" type="button">生成分析</button>
+      <div class="analysis-entry analysis-entry-card" aria-label="股指分析查询">
+        <div class="analysis-entry-label">研究对象</div>
+        <div class="analysis-entry-row">
+          <div class="analysis-kind" aria-label="研究对象">
+            <button class="analysis-mode" type="button" data-analysis-mode="report" aria-pressed="false">个股</button>
+            <button class="analysis-mode on" type="button" data-analysis-mode="index" aria-pressed="true">指数</button>
+          </div>
+          <div class="analysis-entry-controls">
+            <div class="entry-input-wrap">
+              <input id="indexInput" autocomplete="off" aria-label="指数代码" placeholder="输入指数代码，空格分隔（000300 000905）">
+              <div class="analysis-entry-hint">输入多个指数代码，用空格分隔</div>
+            </div>
+            <button id="indexBtn" type="button">生成研报</button>
+          </div>
         </div>
       </div>
       <div id="indexContent" class="report-content"></div>
@@ -132,6 +146,6 @@
     <div id="reportDrawerContent"></div>
   </aside>
 </div>
-    <script type="module" src="/js/app-main.js?v=20260917-log-sidebar-resize-fix-2"></script>
+    <script type="module" src="/js/app-main.js?v=20260926-analysis-switch"></script>
 </body>
 </html>

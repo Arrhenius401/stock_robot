@@ -21,8 +21,8 @@ const HASH_VIEWS = new Set([
 
 const VIEW_TITLES = {
   chat: "会话研究",
-  report: "个股报告",
-  index: "指数分析",
+  report: "股指分析",
+  index: "股指分析",
   radar: "配置雷达",
   "report-library": "报告库",
   subscriptions: "订阅推送",
@@ -206,6 +206,15 @@ function init() {
       resetWorkspaceOverlays({ focusTarget });
       updateSimpleViewHash(node.dataset.view);
       switchView(node.dataset.view);
+    });
+  });
+  document.querySelectorAll("[data-analysis-mode]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const mode = node.dataset.analysisMode;
+      if (mode === store.currentView) return;
+      updateSimpleViewHash(mode);
+      switchView(mode);
+      document.querySelector(`#view-${mode} [data-analysis-mode="${mode}"]`)?.focus();
     });
   });
   // 全局连接状态条：网络层失败（conn-down）/恢复（conn-up）时切换显隐。
