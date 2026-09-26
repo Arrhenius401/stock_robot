@@ -236,6 +236,16 @@ class TestStaticUI:
         assert 'id="workspaceBackdrop"' in html
 
     @pytest.mark.asyncio
+    async def test_chat_has_session_entry_without_duplicate_navigation(self, client):
+        """新建和历史会话仍可进入聊天视图，导航不再重复列出聊天。"""
+        html = (await client.get("/")).text
+
+        assert 'data-view="chat"' not in html
+        assert 'id="newSessionBtn"' in html
+        assert 'id="sessionList"' in html
+        assert 'id="view-chat"' in html
+
+    @pytest.mark.asyncio
     async def test_index_is_not_cached(self, client):
         """本地前端入口必须随服务更新重新读取，不能复用旧模块版本。"""
         response = await client.get("/")

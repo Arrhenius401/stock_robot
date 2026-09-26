@@ -489,14 +489,13 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .sidebar.collapsed { width: auto; padding-inline: 6px; }
 .sidebar-top { gap: var(--space-2); }
 .session-list { padding-inline: 2px; }
-.sess { min-width: 0; align-items: flex-start; }
-.sess .t { white-space: normal; line-height: 1.45; overflow: hidden; text-overflow: ellipsis;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.sess { min-width: 0; min-height: 52px; flex-shrink: 0; align-items: center; }
+.sess .t { display: block; white-space: nowrap; line-height: 1.45; overflow: hidden; text-overflow: ellipsis; }
 .sidebar.collapsed .sess .t { display: none; }
 .sess { position: relative; padding: 0; gap: 2px; }
 .sess-main {
   display: flex; min-width: 0; flex: 1; flex-direction: column; align-items: flex-start; gap: 4px;
-  padding: 8px 9px; border: 0; border-radius: var(--radius-sm); color: inherit;
+  height: 52px; justify-content: center; padding: 8px 9px; border: 0; border-radius: var(--radius-sm); color: inherit;
   background: transparent; text-align: left;
 }
 .sess-main:hover, .sess.active .sess-main { background: var(--surface-raised); color: var(--text); }
@@ -506,7 +505,7 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .sess-target { max-width: 74px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--blue); }
 .sess-time { flex-shrink: 0; }
 .sess-menu-toggle {
-  flex: 0 0 auto; margin: 5px 4px 0 0; width: 26px; height: 26px; border: 0;
+  flex: 0 0 auto; margin: 0 4px 0 0; width: 26px; height: 26px; border: 0;
   border-radius: 6px; color: var(--text-4); background: transparent; font-size: 17px; line-height: 1;
 }
 .sess-menu-toggle:hover, .sess-menu-toggle[aria-expanded="true"] { color: var(--text); background: var(--surface-hover); }
@@ -742,9 +741,12 @@ body, #appLayout.layout, .main { background: var(--workspace-bg); }
 .new-session:hover, .chat-input button:hover, .global-stock-search button:hover, .analysis-entry-controls button:hover { background: #0e56c7; }
 .new-session { border-radius: 9px; padding: 10px; }
 .collapse-btn { background: #f6f8fb; border-color: var(--border); }
-.sess-main:hover, .sess.active .sess-main, .nav-item.on { background: #e8f0ff; color: #164fa9; }
+.sess.active .sess-main, .nav-item.on { background: #e8f0ff; color: #164fa9; }
+.sess:not(.active):hover, .nav-item:not(.on):hover { background: #f3f7ff; color: #164fa9; }
+.sess:not(.active):hover .sess-main { background: transparent; color: inherit; }
 .sess-menu, .report-drawer-toolbar button, .report-drawer-nav-item { background: #fff; }
-.sess-menu-toggle:hover, .sess-menu-toggle[aria-expanded="true"], .sess-menu-action:hover { background: #f3f6fb; }
+.sess-menu-toggle:hover, .sess-menu-toggle[aria-expanded="true"] { background: #e8f0ff; color: #164fa9; }
+.sess-menu-action:hover { background: #f3f6fb; }
 .nav { border-color: var(--border-soft); }
 #view-chat { padding: 0 0 18px; gap: 12px; background: var(--workspace-bg); }
 .chat-scroll, .quick-bar { padding-inline: clamp(26px, 6vw, 86px); }
