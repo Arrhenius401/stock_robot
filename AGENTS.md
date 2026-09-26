@@ -1,5 +1,14 @@
 # AGENTS.md
 
+## CodeGraph 使用
+
+仓库根目录存在 `.codegraph/` 时，定位或理解代码应先使用 CodeGraph，再考虑 `rg` 或直接读取源码。当前项目已建立索引，已验证 MCP 工具 `mcp__codegraph__codegraph_explore` 可用。
+
+- 若工具未直接显示，先在可用工具中搜索 `codegraph_explore`，不要据此认定 CodeGraph 不可用。
+- 调用时传入 `projectPath: "D:\\code\\stock_robot"` 和具体的文件名、符号名或问题；返回的带行号源码可直接用于分析，必要时再按符号缩小查询。
+- 只有确认 `Get-Command codegraph` 能找到命令时才使用 CLI 后备方案。当前环境没有 `codegraph` 命令，优先使用 MCP。
+- 若 `.codegraph/` 不存在，则跳过 CodeGraph；是否建立索引由用户决定。
+
 ## 项目概述
 
 Stock Robot — AI 驱动的股票分析研报助手。输入 A 股代码，输出多维度分析报告。
