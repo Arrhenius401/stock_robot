@@ -57,6 +57,8 @@ class RuntimeManager:
         self._executor_factory = executor_factory
         self._scheduler_factory = scheduler_factory
         self._snapshot = self._build_snapshot(config)
+        if self._snapshot.push_store is not None:
+            self._snapshot.push_store.recover_interrupted()
         self._start_scheduler(self._snapshot)
 
     def snapshot(self) -> RuntimeSnapshot:

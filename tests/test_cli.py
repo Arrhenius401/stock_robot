@@ -429,7 +429,9 @@ class TestSubscribe:
         runner = CliRunner()
         result = runner.invoke(main, ["subscribe", "run", "--id", "1"])
         assert result.exit_code == 0
-        mock_executor.return_value.run_subscription.assert_called_once_with(sub)
+        mock_executor.return_value.run_subscription.assert_called_once_with(
+            sub, mock_store.return_value.queue_run.return_value,
+        )
         assert "1/1" in result.output
 
 

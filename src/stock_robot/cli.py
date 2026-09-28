@@ -1005,13 +1005,13 @@ def rag_stats():
 
 @main.group()
 def subscribe():
-    """管理每日定时推送订阅（邮件/企业微信）"""
+    """管理每日邮箱推送订阅"""
 
 
 @subscribe.command("add")
 @click.option("--name", required=True, help="订阅名称")
 @click.option("--symbols", required=True, help="标的代码，逗号/空格分隔")
-@click.option("--channel", type=click.Choice(["email", "wecom"]), required=True,
+@click.option("--channel", type=click.Choice(["email"]), default="email",
               help="推送渠道")
 @click.option("--time", "push_time", required=True, help="每日推送时间 HH:MM")
 @click.option("--kind", type=click.Choice(["auto", "stock", "index"]),
@@ -1025,6 +1025,7 @@ def subscribe_add(name, symbols, channel, push_time, kind, index_style):
     from typing import Any
 
     from push.models import Subscription
+    from push.names import resolve_subscription
     from push.store import PushStore
     from utils.config import Config
 
@@ -1043,8 +1044,13 @@ def subscribe_add(name, symbols, channel, push_time, kind, index_style):
         time=push_time,
         created_at=datetime.now().astimezone().isoformat(),
     )
+    try:
+        resolve_subscription(sub)
+    except ValueError as exc:
+        raise click.BadParameter(str(exc), param_hint="--symbols") from exc
     sub_id = store.create(sub)
     console.print(f"[green]已创建订阅 #{sub_id}: {name}（{channel} {push_time}）[/green]")
+    console.print("[yellow]若 Web 服务正在运行，请重启服务以注册新的每日定时任务。[/yellow]")
 
 
 @subscribe.command("list")
@@ -1076,11 +1082,15 @@ def subscribe_list():
 @click.option("--id", "sub_id", type=int, required=True, help="订阅 ID")
 def subscribe_remove(sub_id):
     """删除订阅"""
-    from push.store import PushStore
+    from push.store import ActiveRunError, PushStore
     from utils.config import Config
 
     store = PushStore(Config().config_dir / "push.db")
-    if store.delete(sub_id):
+    try:
+        deleted = store.delete(sub_id)
+    except ActiveRunError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if deleted:
         console.print(f"[green]已删除订阅 #{sub_id}[/green]")
     else:
         console.print(f"[red]订阅 #{sub_id} 不存在[/red]")
@@ -1112,6 +1122,8 @@ def _set_enabled(sub_id: int, enabled: bool):
     sub.enabled = enabled
     store.update(sub)
     console.print(f"[green]订阅 #{sub_id} 已{'启用' if enabled else '停用'}[/green]")
+    if enabled:
+        console.print("[yellow]若 Web 服务正在运行，请重启服务以注册该每日定时任务。[/yellow]")
 
 
 @subscribe.command("run")
@@ -1119,7 +1131,7 @@ def _set_enabled(sub_id: int, enabled: bool):
 def subscribe_run(sub_id):
     """手动触发一次推送（同步执行，耗时取决于标的数）"""
     from push.executor import PushExecutor
-    from push.store import PushStore
+    from push.store import ActiveRunError, MissingSubscriptionError, PushStore
     from utils.config import Config
 
     config = Config()
@@ -1131,9 +1143,14 @@ def subscribe_run(sub_id):
     from api.bootstrap import build_agent_core
     core = build_agent_core(config)
     executor = PushExecutor(core, store, config)
+    try:
+        run_id = store.queue_run(sub, "manual")
+    except (ActiveRunError, MissingSubscriptionError) as exc:
+        raise click.ClickException(str(exc)) from exc
     with console.status("正在生成报告并推送..."):
-        result = executor.run_subscription(sub)
-    console.print(f"[green]推送完成: {result['ok']}/{result['total']} 成功[/green]")
+        result = executor.run_subscription(sub, run_id)
+    final_run = store.get_run(run_id)
+    console.print(f"[green]运行 #{run_id}：{final_run['status'] if final_run else 'unknown'}，{result['ok']}/{result['total']} 成功[/green]")
     for failure in result["failures"]:
         console.print(f"[yellow]失败: {failure}[/yellow]")
 

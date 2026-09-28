@@ -7,7 +7,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,7 +32,11 @@ from api.report_library import (
 from api.runtime import RuntimeManager, RuntimeSnapshot
 from api.session_titles import SessionTitleRefiner, derive_session_title
 from api.sessions import is_draft_session_id
-from push.models import Channel, Subscription
+from push.backends.base import get_backend
+from push.models import Subscription
+from push.names import resolve_subscription
+from push.store import ActiveRunError, MissingSubscriptionError
+from push.symbol_search import search_symbols
 
 logger = logging.getLogger(__name__)
 _TITLE_REFINE_TIMEOUT_SECONDS = 0.25
@@ -990,17 +994,19 @@ def create_app(
             raise HTTPException(status_code=503, detail="推送模块未初始化")
         return store
 
-    def _parse_subscription(body: dict):
+    def _parse_subscription(body: Any):
         # 返回类型不标注 Subscription（模型已模块级导入），校验失败统一转 422；
         # enabled 走全量替换语义（PUT 缺省视为启用，create 缺省默认 True）
         try:
-            return Subscription(
-                name=str(body.get("name", "")).strip(),
-                symbols=list(body.get("symbols") or []),
-                channel=cast(Channel, str(body.get("channel", ""))),
-                time=str(body.get("time", "")),
-                enabled=bool(body.get("enabled", True)),
-            )
+            if not isinstance(body, dict):
+                raise HTTPException(status_code=422, detail="订阅请求必须是对象")
+            return Subscription.model_validate({
+                "name": body.get("name"),
+                "symbols": body.get("symbols"),
+                "channel": body.get("channel", "email"),
+                "time": body.get("time"),
+                "enabled": body.get("enabled", True),
+            })
         except ValidationError as e:
             raise HTTPException(status_code=422, detail=str(e.errors())) from e
 
@@ -1017,15 +1023,30 @@ def create_app(
                 status_code=422,
                 detail=f"标的数量 {len(sub.symbols)} 超过上限 {limit}")
 
+    def _resolve_symbols(sub: Subscription) -> Subscription:
+        try:
+            return resolve_subscription(sub)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    def _subscription_payload(sub: Subscription, store, snapshot: RuntimeSnapshot | None):
+        item = sub.model_dump(mode="json")
+        item["last_run"] = store.last_run(sub.id) if sub.id else None
+        item["next_run_at"] = None
+        scheduler = snapshot.push_scheduler if snapshot is not None else push
+        if sub.enabled and scheduler is not None and getattr(scheduler, "is_active", False):
+            job = getattr(getattr(scheduler, "_scheduler", None), "get_job", lambda _id: None)(f"sub-{sub.id}")
+            if job is not None and job.next_run_time is not None:
+                item["next_run_at"] = job.next_run_time.isoformat()
+        return item
+
     @app.get("/api/v1/subscriptions")
     async def list_subscriptions():
         snapshot = _runtime_snapshot()
         store = _require_push(snapshot)
         items = []
         for sub in store.list():
-            item = sub.model_dump(mode="json")
-            item["last_run"] = store.last_run(sub.id) if sub.id else None
-            items.append(item)
+            items.append(_subscription_payload(sub, store, snapshot))
         return JSONResponse({"subscriptions": items})
 
     @app.post("/api/v1/subscriptions")
@@ -1035,12 +1056,15 @@ def create_app(
         body = await request.json()
         sub = _parse_subscription(body)
         _check_symbol_limit(sub, snapshot)
+        await asyncio.to_thread(_resolve_symbols, sub)
         sub.created_at = datetime.now().astimezone().isoformat()
         sub_id = store.create(sub)
         _reload_push_if_active(
             snapshot.push_scheduler if snapshot is not None else push)
         # 先展开 model_dump（id 为 None），再覆盖真实 id
-        return JSONResponse({**sub.model_dump(mode="json"), "id": sub_id})
+        saved = store.get(sub_id)
+        assert saved is not None
+        return JSONResponse(_subscription_payload(saved, store, snapshot))
 
     @app.get("/api/v1/subscriptions/{subscription_id}")
     async def get_subscription(subscription_id: int):
@@ -1050,9 +1074,7 @@ def create_app(
         if sub is None:
             raise HTTPException(status_code=404,
                                 detail=f"订阅不存在: {subscription_id}")
-        item = sub.model_dump(mode="json")
-        item["last_run"] = store.last_run(subscription_id)
-        return JSONResponse(item)
+        return JSONResponse(_subscription_payload(sub, store, snapshot))
 
     @app.put("/api/v1/subscriptions/{subscription_id}")
     async def update_subscription(subscription_id: int, request: Request):
@@ -1064,17 +1086,24 @@ def create_app(
         body = await request.json()
         sub = _parse_subscription(body)
         _check_symbol_limit(sub, snapshot)
+        await asyncio.to_thread(_resolve_symbols, sub)
         sub.id = subscription_id
         store.update(sub)
         _reload_push_if_active(
             snapshot.push_scheduler if snapshot is not None else push)
-        return JSONResponse(sub.model_dump(mode="json"))
+        saved = store.get(subscription_id)
+        assert saved is not None
+        return JSONResponse(_subscription_payload(saved, store, snapshot))
 
     @app.delete("/api/v1/subscriptions/{subscription_id}")
     async def delete_subscription(subscription_id: int):
         snapshot = _runtime_snapshot()
         store = _require_push(snapshot)
-        if not store.delete(subscription_id):
+        try:
+            deleted = store.delete(subscription_id)
+        except ActiveRunError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        if not deleted:
             raise HTTPException(status_code=404,
                                 detail=f"订阅不存在: {subscription_id}")
         _reload_push_if_active(
@@ -1093,10 +1122,79 @@ def create_app(
                     else getattr(push, "executor", None) or push_executor)
         if executor is None:
             raise HTTPException(status_code=503, detail="推送执行器未初始化")
-        # 后台线程触发推送，避免长耗时阻塞 HTTP 请求
-        threading.Thread(target=executor.run_subscription, args=(sub,),
-                         daemon=True).start()
-        return JSONResponse({"status": "triggered"})
+        try:
+            run_id = store.queue_run(sub, "manual")
+        except ActiveRunError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except MissingSubscriptionError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        # 后台线程持有本次快照里的执行器；热重载不干扰旧任务。
+        def execute() -> None:
+            try:
+                executor.run_subscription(sub, run_id)
+                current = store.get_run(run_id)
+                if current is not None and current["status"] in {"queued", "running"}:
+                    store.finish_run(run_id)
+            except Exception as exc:  # 后台边界必须将失败写回运行记录
+                logger.exception("订阅 %s 手动推送失败", subscription_id)
+                store.finish_run(run_id, error=f"推送失败: {exc}")
+
+        threading.Thread(target=execute, daemon=True).start()
+        return JSONResponse({"run_id": run_id, "status": "queued"}, status_code=202)
+
+    @app.get("/api/v1/subscriptions/{subscription_id}/runs")
+    async def list_subscription_runs(subscription_id: int, limit: int = 20):
+        store = _require_push(_runtime_snapshot())
+        if store.get(subscription_id) is None:
+            raise HTTPException(status_code=404, detail="订阅不存在")
+        return JSONResponse({"runs": store.list_runs(subscription_id, min(max(limit, 1), 100))})
+
+    @app.get("/api/v1/subscriptions/{subscription_id}/runs/{run_id}")
+    async def get_subscription_run(subscription_id: int, run_id: int):
+        store = _require_push(_runtime_snapshot())
+        run = store.get_run(run_id)
+        if run is None or run["subscription_id"] != subscription_id:
+            raise HTTPException(status_code=404, detail="运行记录不存在")
+        return JSONResponse(run)
+
+    @app.get("/api/v1/push/status")
+    async def push_status():
+        snapshot = _runtime_snapshot()
+        scheduler = snapshot.push_scheduler if snapshot is not None else push
+        enabled = bool(snapshot.config.get("push.enabled", True)) if snapshot is not None else True
+        return JSONResponse({"enabled": enabled, "scheduler_running": bool(getattr(scheduler, "is_active", False)),
+                             "timezone": "Asia/Shanghai"})
+
+    @app.get("/api/v1/push/symbols")
+    async def push_symbol_candidates(q: str = "", limit: int = Query(default=8, ge=1, le=20)):
+        snapshot = _runtime_snapshot()
+        if snapshot is not None:
+            config_dir = snapshot.config.config_dir
+        else:
+            from utils.config import Config
+
+            config_dir = Config().config_dir
+        return JSONResponse(await asyncio.to_thread(search_symbols, q, limit, config_dir))
+
+    @app.post("/api/v1/push/email/test")
+    async def test_push_email():
+        snapshot = _runtime_snapshot()
+        if snapshot is None:
+            raise HTTPException(status_code=503, detail="推送配置未初始化")
+        email = snapshot.config.get("push.email") or {}
+        if not all(email.get(field) for field in ("smtp_host", "smtp_user", "smtp_password", "to_addr")):
+            raise HTTPException(status_code=422, detail="请先填写完整的邮箱配置")
+
+        def send_test() -> None:
+            backend = get_backend("email", snapshot.config)
+            backend.send(title="[Stock Robot] 邮箱测试", content="Stock Robot 邮箱推送测试成功。", content_type="html")
+
+        try:
+            await asyncio.to_thread(send_test)
+        except Exception as exc:
+            logger.warning("邮箱试发失败: %s", type(exc).__name__)
+            raise HTTPException(status_code=502, detail="邮箱试发失败，请检查 SMTP 地址、端口、凭据及网络") from exc
+        return JSONResponse({"status": "sent"})
 
     # 挂载 Web UI 静态文件（必须放在所有 API 路由之后，"/" 挂载会兜底捕获其余路径，
     # 按注册顺序匹配，API 路由优先）

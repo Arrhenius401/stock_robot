@@ -10,9 +10,9 @@ class TestGetBackend:
         backend = get_backend("email", _fake_config())
         assert isinstance(backend, EmailBackend)
 
-    def test_wecom(self):
-        backend = get_backend("wecom", _fake_config())
-        assert isinstance(backend, WeComBackend)
+    def test_wecom_reserved_but_not_reachable(self):
+        with pytest.raises(ValueError, match="未知推送渠道"):
+            get_backend("wecom", _fake_config())
 
     def test_unknown_channel(self):
         with pytest.raises(ValueError):

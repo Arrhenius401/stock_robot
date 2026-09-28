@@ -42,5 +42,9 @@ class IndexMapping:
     def lookup(self, symbol: str) -> IndexMappingEntry | None:
         return self._mapping.get(symbol)
 
+    def entries(self) -> tuple[IndexMappingEntry, ...]:
+        """返回全部本地指数，供订阅标的搜索使用。"""
+        return tuple(self._mapping.values())
+
     def __len__(self) -> int:
         return len(self._mapping)

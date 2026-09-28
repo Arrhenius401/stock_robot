@@ -14,7 +14,6 @@ from utils.config import Config
 _CREDENTIAL_PATHS = {
     "llm.api_key": ("llm", "api_key"),
     "push.email.smtp_password": ("push", "email", "smtp_password"),
-    "push.wecom.secret": ("push", "wecom", "secret"),
 }
 
 _EDITABLE_FIELDS: dict[str, Any] = {
@@ -44,7 +43,6 @@ _EDITABLE_FIELDS: dict[str, Any] = {
             "smtp_password": None,
             "to_addr": None,
         },
-        "wecom": {"corp_id": None, "agent_id": None, "secret": None, "to_user": None},
     },
     "signal": {
         "thresholds": {"attack": None, "watch": None},
@@ -62,9 +60,6 @@ _NONEMPTY_STRING_PATHS = {
     ("push", "email", "smtp_host"),
     ("push", "email", "smtp_user"),
     ("push", "email", "to_addr"),
-    ("push", "wecom", "corp_id"),
-    ("push", "wecom", "agent_id"),
-    ("push", "wecom", "to_user"),
     ("signal", "actions", "attack", "action"),
     ("signal", "actions", "attack", "position"),
     ("signal", "actions", "watch", "action"),
@@ -281,8 +276,13 @@ def _safe_reload_error(error: str | None, config: Config) -> str:
 
 
 def _is_loopback_client(request: Request) -> bool:
-    """完整凭据只交给本机回环请求，防止远程页面读取。"""
-    return request.client is not None and request.client.host in {"127.0.0.1", "::1"}
+    """完整凭据只交给本机页面，拒绝跨站脚本借浏览器读取。"""
+    if request.client is None or request.client.host not in {"127.0.0.1", "::1"}:
+        return False
+    if request.url.hostname not in {"127.0.0.1", "localhost", "::1", "testserver"}:
+        return False
+    origin = request.headers.get("origin")
+    return origin is None or origin == f"{request.url.scheme}://{request.url.netloc}"
 
 
 def create_configuration_router(

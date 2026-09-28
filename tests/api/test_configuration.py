@@ -31,7 +31,6 @@ def config_client(tmp_path: Path, monkeypatch):
     config = Config()
     config.set("llm.api_key", "abcde12345vwxyz")
     config.set("push.email.smtp_password", "smtp-secret-xyz")
-    config.set("push.wecom.secret", "wecom-secret-xyz")
     return config, TestClient(
         create_app(push=False),
         client=("127.0.0.1", 43210),
@@ -88,10 +87,7 @@ def test_get_config_only_returns_safe_whitelist_and_read_only_paths(config_clien
         "configured": True,
         "masked": "smtp-*****t-xyz",
     }
-    assert payload["config"]["push"]["wecom"]["secret"] == {
-        "configured": True,
-        "masked": "wecom******t-xyz",
-    }
+    assert "wecom" not in payload["config"]["push"]
     assert "abcde12345vwxyz" not in str(payload)
     assert "smtp-secret-xyz" not in str(payload)
     assert "wecom-secret-xyz" not in str(payload)
@@ -102,11 +98,10 @@ def test_get_config_only_returns_safe_whitelist_and_read_only_paths(config_clien
     [
         ("llm.api_key", "abcde12345vwxyz"),
         ("push.email.smtp_password", "smtp-secret-xyz"),
-        ("push.wecom.secret", "wecom-secret-xyz"),
     ],
 )
 def test_get_credential_only_allows_explicit_secret_keys(config_client, key, expected):
-    """完整密钥读取只允许三个明确白名单键。"""
+    """完整密钥读取只允许当前版本的明确白名单键。"""
     _, client = config_client
 
     response = client.get(f"/api/v1/config/credentials/{key}")
@@ -122,6 +117,7 @@ def test_get_credential_rejects_unknown_key(config_client):
     response = client.get("/api/v1/config/credentials/llm.model")
 
     assert response.status_code == 404
+    assert client.get("/api/v1/config/credentials/push.wecom.secret").status_code == 404
 
 
 def test_get_credential_allows_loopback_client(config_client):
@@ -132,6 +128,15 @@ def test_get_credential_allows_loopback_client(config_client):
 
     assert response.status_code == 200
     assert response.json() == {"value": "abcde12345vwxyz"}
+
+
+def test_get_credential_rejects_cross_site_origin_and_host(config_client):
+    """其他网站不能借用户浏览器读取本机完整凭据。"""
+    _, client = config_client
+    path = "/api/v1/config/credentials/push.email.smtp_password"
+    assert client.get(path, headers={"origin": "https://other.example"}).status_code == 403
+    assert client.get(path, headers={"host": "other.example"}).status_code == 403
+    assert client.get(path, headers={"origin": "http://testserver"}).status_code == 200
 
 
 def test_get_credential_rejects_remote_client_but_keeps_safe_config_public(tmp_path, monkeypatch):

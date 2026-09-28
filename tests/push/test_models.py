@@ -14,7 +14,7 @@ class TestSubscription:
 
     def test_symbols_whitespace_stripped(self):
         sub = Subscription(name="t", symbols=[" 600519 ", "  "],  # pyright: ignore[reportArgumentType] 简写入参由 before-validator 兼容
-                           channel="wecom", time="09:30")
+                           channel="email", time="09:30")
         assert sub.symbols[0].symbol == "600519"
         assert len(sub.symbols) == 1
 
