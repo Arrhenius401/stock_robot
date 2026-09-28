@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Stock Robot — AI 股票分析助手</title>
 <link rel="icon" type="image/png" href="/logo.png?v=2">
-<link rel="stylesheet" href="/css/app.css?v=20260926-analysis-width-2">
+<link rel="stylesheet" href="/css/app.css?v=20260928-email-visibility-6">
 </head>
 <body>
 <header class="topbar">
   <button class="mobile-nav-toggle" id="mobileNavToggle" type="button"
           aria-label="打开主要导航" aria-controls="sidebar" aria-expanded="false">☰</button>
   <div class="logo"><img src="/logo.png?v=2" alt="" width="32" height="32"><span>Stock Robot</span></div>
-  <h1 class="workspace-title" id="currentViewTitle">会话研究</h1>
+  <div class="workspace-title" id="currentViewTitle">会话研究</div>
   <div class="conn-status" id="connStatus" role="status" hidden>⚠ 无法连接服务</div>
 </header>
 <button class="workspace-backdrop" id="workspaceBackdrop" type="button" hidden
@@ -66,6 +66,7 @@
       </div>
     </div>
     <div class="view" id="view-report">
+      <header class="page-heading"><div class="page-heading-copy"><h1>股指分析</h1><p>选择个股或指数，生成研究报告</p></div></header>
       <div class="analysis-entry analysis-entry-card" aria-label="股指分析查询">
         <div class="analysis-entry-label">研究对象</div>
         <div class="analysis-entry-row">
@@ -85,6 +86,7 @@
       <div id="reportContent" class="report-content"></div>
     </div>
     <div class="view" id="view-index">
+      <header class="page-heading"><div class="page-heading-copy"><h1>股指分析</h1><p>选择个股或指数，生成研究报告</p></div></header>
       <div class="analysis-entry analysis-entry-card" aria-label="股指分析查询">
         <div class="analysis-entry-label">研究对象</div>
         <div class="analysis-entry-row">
@@ -104,31 +106,30 @@
       <div id="indexContent" class="report-content"></div>
     </div>
     <div class="view" id="view-radar">
+      <header class="page-heading"><div class="page-heading-copy"><h1>配置雷达</h1><p>查看 ETF 池快照与策略表现</p></div></header>
       <div id="radarContent" class="radar-content" aria-live="polite"></div>
     </div>
     <div class="view" id="view-report-library">
+      <header class="page-heading"><div class="page-heading-copy"><h1>报告库</h1><p>浏览和管理已保存的报告</p></div></header>
       <div id="reportLibraryContent" class="report-library-content"></div>
     </div>
     <div class="view" id="view-subscriptions">
-      <div class="subs-form panel">
-        <div class="panel-title">新建订阅</div>
-        <div class="subs-form-row">
-          <input id="subName" placeholder="订阅名称（如：自选池）">
-          <input id="subSymbols" placeholder="标的代码，空格分隔（600519 000300）">
-          <select id="subKind"><option value="auto">自动判定</option><option value="stock">股票</option><option value="index">指数</option></select>
-          <select id="subIndexStyle"><option value="">指数风格（自动）</option><option value="broad">宽基</option><option value="sector">行业</option><option value="overseas">海外</option></select>
-          <select id="subChannel"><option value="email">邮箱（全文）</option><option value="wecom">企业微信（摘要）</option></select>
-          <input id="subTime" type="time" value="08:00">
-          <button id="subCreateBtn" type="button">创建</button>
-        </div>
-        <div class="subs-error" id="subsError"></div>
+      <header class="page-heading"><div class="page-heading-copy"><h1>订阅推送</h1><p>每日自动发送研究报告到邮箱</p></div><div class="subs-heading-actions"><button id="subEmailBtn" type="button">邮箱设置</button><button id="subNewBtn" class="primary" type="button">新建订阅</button></div></header>
+      <div class="subs-content"><div id="subsNotice" class="subs-notice" role="status" hidden></div><div id="subsList" aria-live="polite"></div><div id="subsDetail" hidden></div></div>
+      <div id="subsModal" class="subs-modal" hidden>
+        <div class="subs-modal-backdrop" data-close-modal></div>
+        <section class="subs-modal-panel" role="dialog" aria-modal="true" aria-labelledby="subsModalTitle" tabindex="-1">
+          <div class="subs-modal-head"><h2 id="subsModalTitle"></h2><button id="subsModalClose" type="button" aria-label="关闭弹窗">×</button></div>
+          <div id="subsModalBody"></div>
+        </section>
       </div>
-      <div id="subsList"></div>
     </div>
     <div class="view" id="view-logs">
+      <header class="page-heading"><div class="page-heading-copy"><h1>日志</h1><p>仅显示本次服务启动后的记录，每 5 秒自动刷新</p></div><span class="logs-status" id="logsHeaderStatus" role="status">正在读取</span></header>
       <div id="logsContent" class="logs-content" aria-live="polite"></div>
     </div>
     <div class="view" id="view-settings">
+      <header class="page-heading"><div class="page-heading-copy"><h1>配置</h1><p>调整应用与数据源设置</p></div></header>
       <div id="settingsContent" class="settings-content"></div>
     </div>
   </main>
@@ -142,6 +143,6 @@
     <div id="reportDrawerContent"></div>
   </aside>
 </div>
-    <script type="module" src="/js/app-main.js?v=20260926-analysis-switch"></script>
+    <script type="module" src="/js/app.js?v=20260928-email-visibility-6"></script>
 </body>
 </html>

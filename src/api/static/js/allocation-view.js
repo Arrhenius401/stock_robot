@@ -396,9 +396,7 @@ function allocationHeader() {
     allocationState.refreshMessage = "";
     allocationLoad();
   });
-  var title = allocationElement("div", "radar-head-title");
-  title.appendChild(allocationElement("h2", "", "ETF 配置雷达"));
-  title.appendChild(allocationElement("p", "radar-meta", allocationSnapshotMeta(allocationState.snapshot)));
+  var meta = allocationElement("p", "radar-meta radar-head-title", allocationSnapshotMeta(allocationState.snapshot));
   var controls = allocationElement("div", "radar-head-controls");
   var actions = allocationElement("div", "radar-head-actions");
   var refresh = allocationElement("button", "radar-refresh", "更新数据");
@@ -410,7 +408,7 @@ function allocationHeader() {
   feedback.textContent = allocationState.refreshMessage;
   actions.appendChild(feedback);
   controls.append(selector, actions);
-  header.append(title, controls);
+  header.append(meta, controls);
   return header;
 }
 

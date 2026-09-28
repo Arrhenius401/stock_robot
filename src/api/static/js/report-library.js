@@ -75,7 +75,7 @@ function renderMeta(report) {
 function renderHeader() {
   const heading = el("section", "report-library-heading");
   const copy = el("div", "report-library-heading-copy");
-  copy.appendChild(el("div", "report-library-title", "已保存报告"));
+  copy.appendChild(el("h2", "report-library-title", "已保存报告"));
   copy.appendChild(el("div", "report-library-subtitle", `共 ${state.total} 份 · 按生成时间倒序展示`));
 
   const tools = el("div", "report-library-heading-tools");

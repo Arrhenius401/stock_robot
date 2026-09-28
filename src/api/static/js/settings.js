@@ -46,10 +46,6 @@ const SECTIONS = [
       { path: "push.email.smtp_user", label: "SMTP 用户名", type: "text", group: "邮箱" },
       { path: "push.email.smtp_password", label: "SMTP 密码", type: "secret", group: "邮箱" },
       { path: "push.email.to_addr", label: "收件人地址", type: "text", group: "邮箱" },
-      { path: "push.wecom.corp_id", label: "企业 ID", type: "text", group: "企业微信" },
-      { path: "push.wecom.agent_id", label: "应用 Agent ID", type: "text", group: "企业微信" },
-      { path: "push.wecom.secret", label: "应用 Secret", type: "secret", group: "企业微信" },
-      { path: "push.wecom.to_user", label: "接收用户", type: "text", group: "企业微信" },
     ],
   },
   {
@@ -494,4 +490,8 @@ export function initSettings() {
       hideAllSecrets();
     }
   });
+}
+
+export function invalidateSettings() {
+  loaded = false;
 }

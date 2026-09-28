@@ -126,6 +126,13 @@ export const api = {
   listSubscriptions() {
     return request("/api/v1/subscriptions");
   },
+  searchPushSymbols(query, limit = 8) {
+    const params = new URLSearchParams({ q: query, limit: String(limit) });
+    return request(`/api/v1/push/symbols?${params}`);
+  },
+  getSubscription(id) {
+    return request(`/api/v1/subscriptions/${encodeURIComponent(id)}`);
+  },
   createSubscription(body) {
     return request("/api/v1/subscriptions", { method: "POST", body: JSON.stringify(body) });
   },
@@ -137,6 +144,18 @@ export const api = {
   },
   triggerSubscription(id) {
     return request(`/api/v1/subscriptions/${id}/run`, { method: "POST" });
+  },
+  listSubscriptionRuns(id) {
+    return request(`/api/v1/subscriptions/${encodeURIComponent(id)}/runs`);
+  },
+  getSubscriptionRun(id, runId) {
+    return request(`/api/v1/subscriptions/${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}`);
+  },
+  getPushStatus() {
+    return request("/api/v1/push/status");
+  },
+  testPushEmail() {
+    return request("/api/v1/push/email/test", { method: "POST" });
   },
   listRadarUniverses() {
     return request("/api/v1/radar/universes");

@@ -6,11 +6,11 @@ import { initReportDrawer } from "./report-drawer.js";
 import { closeReportDrawer } from "./report-drawer.js";
 import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js";
 import { initIndexView } from "./indexview.js?v=20260918-report-parity";
-import { initReportLibrary } from "./report-library.js?v=20260918-report-parity";
+import { initReportLibrary } from "./report-library.js?v=20260927-page-heading-1";
 import { initSessions, initSessionStartup } from "./sessions.js";
-import { initSubscriptions } from "./subscriptions.js";
+import { initSubscriptions } from "./subscriptions.js?v=20260928-email-visibility-6";
 import { initSettings } from "./settings.js";
-import { initLogs } from "./logs.js?v=20260918-log-scroll-position";
+import { initLogs } from "./logs.js?v=20260927-page-heading-1";
 
 const SIDEBAR_WIDTH_KEY = "stockRobot.sidebarWidth";
 const SIDEBAR_MIN_WIDTH = 210;
@@ -238,7 +238,7 @@ function init() {
   window.addEventListener("hashchange", syncViewFromHash);
   initSessionStartup()
     .catch((error) => console.error("会话初始化失败:", error))
-    .finally(() => import("./allocation-view.js?v=20260916-radar-data-date")
+    .finally(() => import("./allocation-view.js?v=20260927-page-heading-1")
       .then(({ initRadar: initializeRadar }) => initializeRadar())
       .catch((error) => {
         console.error("配置雷达初始化失败:", error);

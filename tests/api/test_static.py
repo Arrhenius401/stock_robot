@@ -305,7 +305,7 @@ class TestStaticUI:
         app_js = (await client.get("/js/app.js")).text
         api_js = (await client.get("/js/api.js")).text
 
-        assert 'import { initReportLibrary } from "./report-library.js?v=20260918-report-parity";' in app_js
+        assert 'import { initReportLibrary } from "./report-library.js?v=20260927-page-heading-1";' in app_js
         assert "initReportLibrary();" in app_js
         assert "listReports(" in api_js
         assert "getReport(" in api_js
@@ -1948,7 +1948,7 @@ const payload = {
 store.currentView = "settings";
 initSettings();
 renderSettings(payload);
-for (const path of ["llm.api_key", "push.email.smtp_password", "push.wecom.secret"]) {
+for (const path of ["llm.api_key", "push.email.smtp_password"]) {
   const input = document.getElementById(`settings-${path.replaceAll(".", "-")}`);
   const labelId = `settings-${path.replaceAll(".", "-")}-label`;
   if (input.getAttribute("aria-labelledby") !== labelId || !document.getElementById(labelId)) {
@@ -2002,6 +2002,61 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
 }
 """.replace("__SETTINGS_URL__", settings_url).replace("__API_URL__", api_url)
         script = script.replace("__STATE_URL__", state_url)
+        _run_node(tmp_path, script)
+
+    @pytest.mark.asyncio
+    async def test_subscription_home_keeps_forms_in_dialog(self, client):
+        """订阅首页仅放操作入口，邮箱与订阅表单由弹窗按需展示。"""
+        response = await client.get("/")
+        assert response.status_code == 200
+        html = response.text
+        assert 'id="subEmailBtn"' in html
+        assert 'id="subNewBtn"' in html
+        assert 'id="subsModal"' in html
+        assert 'aria-modal="true"' in html
+        assert 'id="subName"' not in html
+        assert 'id="subChannel"' not in html
+        assert "企业微信" not in html
+        assert "20260928-email-visibility-6" in html
+        script = (await client.get("/js/subscriptions.js")).text
+        assert "searchPushSymbols" in script
+        assert "批量添加" not in script
+        assert "添加单项" not in script
+
+    def test_subscription_symbol_selection_avoids_ambiguous_code_guess(self, tmp_path):
+        """同一代码的股票与指数候选须同时保留，未收录字母代码无候选时不能臆造。"""
+        subscription_url = json.dumps(_module_url("src/api/static/js/subscriptions.js"))
+        api_url = json.dumps(_module_url("src/api/static/js/api.js"))
+        script = r"""
+const { exactMatches, isCodeToken, suggestedName } = await import(__SUBSCRIPTIONS_URL__);
+const { api } = await import(__API_URL__);
+const matches = exactMatches([
+  { symbol: "000001", kind: "index" },
+  { symbol: "000001", kind: "stock" },
+  { symbol: "000300", kind: "index" },
+], "000001");
+if (matches.length !== 2 || matches[0].kind !== "index" || matches[1].kind !== "stock") {
+  throw new Error("歧义代码的候选被悄悄选定");
+}
+if (exactMatches([], "UNKNOWN").length !== 0 || !isCodeToken("HSI")) {
+  throw new Error("未收录字母代码不能凭输入直接成为候选");
+}
+if (suggestedName([{ symbol: "600519", display_name: "贵州茅台" }]) !== "贵州茅台每日研报") {
+  throw new Error("默认名称未使用标的名称");
+}
+let requested = "";
+globalThis.fetch = async (url) => {
+  requested = url;
+  return { ok: true, json: async () => ({ candidates: [], stocks_available: false }) };
+};
+await api.searchPushSymbols("贵州茅台", 8);
+const parsed = new URL(requested, "http://localhost");
+if (parsed.pathname !== "/api/v1/push/symbols" ||
+    parsed.searchParams.get("q") !== "贵州茅台" ||
+    parsed.searchParams.get("limit") !== "8") {
+  throw new Error("订阅搜索请求未按 API 契约编码");
+}
+""".replace("__SUBSCRIPTIONS_URL__", subscription_url).replace("__API_URL__", api_url)
         _run_node(tmp_path, script)
 
     @pytest.mark.asyncio

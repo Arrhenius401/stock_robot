@@ -70,11 +70,11 @@ function render(lines, available) {
   const view = document.getElementById("view-logs");
   const viewScrollTop = view?.scrollTop ?? 0;
   root.replaceChildren();
-
-  const heading = document.createElement("section");
-  heading.className = "logs-heading";
-  heading.innerHTML = `<div><h2>运行日志</h2><p>仅显示本次服务启动后的记录，每 5 秒自动刷新。</p></div><span class="logs-status ${available ? "available" : "missing"}">${available ? "本地日志可用" : "尚未生成日志"}</span>`;
-  root.append(heading);
+  const status = document.getElementById("logsHeaderStatus");
+  if (status) {
+    status.textContent = available ? "本地日志可用" : "尚未生成日志";
+    status.className = `logs-status ${available ? "available" : "missing"}`;
+  }
 
   const panel = document.createElement("section");
   panel.className = "logs-panel";
@@ -118,6 +118,11 @@ async function loadLogs() {
     render(lines, Boolean(payload.available));
   } catch (error) {
     renderedSignature = null;
+    const status = document.getElementById("logsHeaderStatus");
+    if (status) {
+      status.textContent = "读取失败";
+      status.className = "logs-status missing";
+    }
     const root = content();
     if (root) root.innerHTML = `<section class="logs-panel"><p class="logs-empty">日志读取失败：${error.message}</p></section>`;
   }
