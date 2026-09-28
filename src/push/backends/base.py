@@ -16,7 +16,4 @@ def get_backend(channel: str, config) -> PushBackend:
     if channel == "email":
         from push.backends.email import EmailBackend
         return EmailBackend(push_cfg.get("email") or {})
-    if channel == "wecom":
-        from push.backends.wecom import WeComBackend
-        return WeComBackend(push_cfg.get("wecom") or {})
     raise ValueError(f"未知推送渠道: {channel}")

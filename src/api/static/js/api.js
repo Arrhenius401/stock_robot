@@ -116,11 +116,22 @@ export const api = {
     // PUT 响应含 persisted/applied/restart_required 与可选 reload_error，由设置页决定是否重绘
     return request("/api/v1/config", { method: "PUT", body: JSON.stringify({ config }) });
   },
+  getRuntimeLogs(level = "") {
+    const suffix = level ? `?level=${encodeURIComponent(level)}` : "";
+    return request(`/api/v1/logs${suffix}`);
+  },
   listTools() {
     return request("/api/v1/tools");
   },
   listSubscriptions() {
     return request("/api/v1/subscriptions");
+  },
+  searchPushSymbols(query, limit = 8) {
+    const params = new URLSearchParams({ q: query, limit: String(limit) });
+    return request(`/api/v1/push/symbols?${params}`);
+  },
+  getSubscription(id) {
+    return request(`/api/v1/subscriptions/${encodeURIComponent(id)}`);
   },
   createSubscription(body) {
     return request("/api/v1/subscriptions", { method: "POST", body: JSON.stringify(body) });
@@ -134,6 +145,18 @@ export const api = {
   triggerSubscription(id) {
     return request(`/api/v1/subscriptions/${id}/run`, { method: "POST" });
   },
+  listSubscriptionRuns(id) {
+    return request(`/api/v1/subscriptions/${encodeURIComponent(id)}/runs`);
+  },
+  getSubscriptionRun(id, runId) {
+    return request(`/api/v1/subscriptions/${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}`);
+  },
+  getPushStatus() {
+    return request("/api/v1/push/status");
+  },
+  testPushEmail() {
+    return request("/api/v1/push/email/test", { method: "POST" });
+  },
   listRadarUniverses() {
     return request("/api/v1/radar/universes");
   },
@@ -146,10 +169,37 @@ export const api = {
   refreshRadar(universeId) {
     return request("/api/v1/radar/refresh", { method: "POST", body: JSON.stringify({ universe_id: universeId }) });
   },
+  radarCollectorAutostart() {
+    return request("/api/v1/radar/collector/autostart");
+  },
+  radarCollectorStatus() {
+    return request("/api/v1/radar/collector/status");
+  },
+  updateRadarCollectorAutostart(enabled) {
+    return request("/api/v1/radar/collector/autostart", {
+      method: "PUT", body: JSON.stringify({ enabled }),
+    });
+  },
   radarRefreshStatus(taskId) {
     return request(`/api/v1/radar/refresh/${encodeURIComponent(taskId)}`);
   },
   latestRadarBacktest(universeId) {
     return request(`/api/v1/radar/backtests/latest?universe_id=${encodeURIComponent(universeId)}`);
+  },
+  radarBacktest(universeId, startDate, endDate) {
+    const params = new URLSearchParams({ universe_id: universeId, end_date: endDate });
+    if (startDate) params.set("start_date", startDate);
+    return request(`/api/v1/radar/backtests?${params}`);
+  },
+  radarInstrumentPerformance(universeId, symbol, startDate, endDate) {
+    const params = new URLSearchParams({ universe_id: universeId, symbol, end_date: endDate });
+    if (startDate) params.set("start_date", startDate);
+    return request(`/api/v1/radar/performance?${params}`);
+  },
+  startRadarBacktest(universeId, startDate, endDate) {
+    return request("/api/v1/radar/backtests", { method: "POST", body: JSON.stringify({ universe_id: universeId, start_date: startDate, end_date: endDate }) });
+  },
+  radarBacktestStatus(taskId) {
+    return request(`/api/v1/radar/backtests/tasks/${encodeURIComponent(taskId)}`);
   },
 };

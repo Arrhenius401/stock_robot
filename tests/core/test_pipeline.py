@@ -231,6 +231,7 @@ class TestCacheHealth:
         pipe = self._make_pipeline(tmp_path, mocker)
         ind = IndustryData(
             symbol="000001", industry="银行", sector="金融", peers=["600000"],
+            peer_names={"600000": "浦发银行"},
             peer_scope="申万二级", peer_industry="银行", top_peers=[],
         )
         pipe._set_cache("000001", "industry", [ind])
@@ -244,6 +245,20 @@ class TestCacheHealth:
         pipe = self._make_pipeline(tmp_path, mocker)
         old_data = IndustryData(
             symbol="000001", industry="银行", sector="金融", peers=["600000"],
+        )
+        pipe._set_cache("000001", "industry", [old_data])
+
+        assert pipe._get_cached("000001", "industry") is None
+        assert pipe._cache.get("industry", "000001", "latest") is None
+
+    def test_industry_cache_without_peer_names_is_invalidated(self, tmp_path, mocker):
+        """旧快照缺少同行名称时应刷新，以提升报告可读性。"""
+        from data.schemas import IndustryData
+
+        pipe = self._make_pipeline(tmp_path, mocker)
+        old_data = IndustryData(
+            symbol="000001", industry="银行", sector="金融", peers=["600000"],
+            peer_scope="申万二级", peer_industry="银行",
         )
         pipe._set_cache("000001", "industry", [old_data])
 
@@ -359,6 +374,7 @@ class TestCacheHealth:
         # 先写入健康缓存
         ind = IndustryData(
             symbol="000001", industry="银行", sector="金融", peers=["600000"],
+            peer_names={"600000": "浦发银行"},
             peer_scope="申万二级", peer_industry="银行", top_peers=[],
         )
         pipe._set_cache("000001", "industry", [ind])

@@ -8,7 +8,7 @@ class _Executor:
     def __init__(self):
         self.runs = []
 
-    def run_subscription(self, sub):
+    def run_subscription(self, sub, run_id=None):
         self.runs.append(sub.id)
         return {"total": 1, "ok": 1, "failures": []}
 
@@ -16,6 +16,7 @@ class _Executor:
 class _Store:
     def __init__(self, subs):
         self._subs = subs
+        self._run_id = 0
 
     def list(self):
         return self._subs
@@ -25,6 +26,14 @@ class _Store:
             if s.id == sub_id:
                 return s
         return None
+
+    def queue_run(self, sub, trigger):
+        assert trigger == "scheduled"
+        self._run_id += 1
+        return self._run_id
+
+    def finish_run(self, run_id, *, error=None):
+        return {"id": run_id, "error": error}
 
 
 class _Config:
@@ -57,7 +66,8 @@ class _SchedulerStub:
     def remove_all_jobs(self):
         self.jobs = []
 
-    def add_job(self, fn, trigger, id=None, replace_existing=False, kwargs=None):
+    def add_job(self, fn, trigger, id=None, replace_existing=False, kwargs=None, **options):
+        assert options == {"max_instances": 1, "coalesce": True, "misfire_grace_time": 60}
         self.jobs.append({"id": id, "trigger": trigger, "kwargs": kwargs or {}})
 
     def shutdown(self, wait=False):
@@ -91,7 +101,7 @@ class TestPushScheduler:
     def test_reload_after_enabled_toggle(self, mocker):
         subs = [Subscription(id=1, name="a", symbols=[SubscriptionSymbol(symbol="600519")], channel="email",
                              time="08:00", enabled=True),
-                Subscription(id=2, name="b", symbols=[SubscriptionSymbol(symbol="000300")], channel="wecom",
+                Subscription(id=2, name="b", symbols=[SubscriptionSymbol(symbol="000300")], channel="email",
                              time="09:00", enabled=False)]
         stub = _SchedulerStub()
         mocker.patch("push.scheduler.BackgroundScheduler", return_value=stub)
@@ -112,6 +122,17 @@ class TestPushScheduler:
         scheduler.start()
         scheduler._run(1)
         assert executor.runs == [1]
+
+    def test_cron_skips_subscription_disabled_outside_web_process(self):
+        sub = Subscription(id=1, name="a", symbols=[SubscriptionSymbol(symbol="600519")],
+                           channel="email", time="08:00", enabled=True)
+        executor = _Executor()
+        store = _Store([sub])
+        scheduler = PushScheduler(executor, store, _Config())
+        sub.enabled = False  # CLI 更新数据库后，回调重新读取到停用状态
+        scheduler._run(1)
+        assert executor.runs == []
+        assert store._run_id == 0
 
     def test_old_and_new_scheduler_callbacks_keep_their_own_executor(self):
         """热切换后，滞后的旧 cron 回调不得转用新 executor。"""

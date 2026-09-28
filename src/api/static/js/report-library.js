@@ -2,6 +2,7 @@ import { api } from "./api.js";
 import { el, errorCard, skeleton } from "./components.js";
 import { renderMarkdown } from "./markdown.js";
 import { bus } from "./state.js";
+import { localizeReportMarkdown, renderStockMarkdownReport } from "./report-renderer.js?v=20260918-report-presentation-4";
 
 const TYPE_LABELS = {
   stock: "个股",
@@ -74,7 +75,7 @@ function renderMeta(report) {
 function renderHeader() {
   const heading = el("section", "report-library-heading");
   const copy = el("div", "report-library-heading-copy");
-  copy.appendChild(el("div", "report-library-title", "已保存报告"));
+  copy.appendChild(el("h2", "report-library-title", "已保存报告"));
   copy.appendChild(el("div", "report-library-subtitle", `共 ${state.total} 份 · 按生成时间倒序展示`));
 
   const tools = el("div", "report-library-heading-tools");
@@ -314,13 +315,16 @@ function renderTrades(data) {
 
 function renderMarkdownTab(detail) {
   const markdown = el("article", "md report-library-markdown");
-  markdown.innerHTML = renderMarkdown(detail.markdown || "暂无报告正文");
+  markdown.innerHTML = renderMarkdown(localizeReportMarkdown(detail.markdown || "暂无报告正文"));
   return markdown;
 }
 
 function renderActiveTab(detail) {
   if (state.tab === "curve") return renderEquityCurve(detail.equity_curve);
   if (state.tab === "trades") return renderTrades(detail.trades);
+  if (detail.report?.type === "stock") {
+    return renderStockMarkdownReport(detail.markdown, { sectionIdPrefix: "library-" });
+  }
   return renderMarkdownTab(detail);
 }
 

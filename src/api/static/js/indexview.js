@@ -2,6 +2,7 @@
 import { store, switchView } from "./state.js";
 import { api } from "./api.js";
 import { renderMarkdown } from "./markdown.js";
+import { appendReadableMetric, riskText } from "./report-renderer.js?v=20260918-report-presentation-4";
 import { el, kv, tagChip, priceBar, errorCard, skeleton,
          showEntryError, clearEntryError } from "./components.js";
 
@@ -164,9 +165,8 @@ function reportCard(r) {
     card.appendChild(sectionCard(label, section, tagFor(key, r[tagField])));
   }
   card.appendChild(compositeCard(r));
-  for (const risk of r.risk_list || []) {
-    card.appendChild(el("span", "flag", `⚠ ${risk}`));
-  }
+  const risks = riskCard(r.risk_list || []);
+  if (risks) card.appendChild(risks);
   return card;
 }
 
@@ -196,12 +196,25 @@ function sectionCard(label, section, tag) {
   if (keys.length) {
     const mtr = el("div", "mtr");
     for (const k of keys) {
-      const val = metrics[k];
-      const text = val !== null && typeof val === "object" ? JSON.stringify(val) : String(val);
-      mtr.appendChild(kv(k, text));
+      appendReadableMetric(mtr, k, metrics[k], metrics);
     }
     card.appendChild(mtr);
   }
+  return card;
+}
+
+function riskCard(risks) {
+  if (!Array.isArray(risks) || !risks.length) return null;
+  const card = el("div", "panel");
+  card.appendChild(el("div", "panel-title", "风险提示"));
+  const list = el("div", "report-detail-list report-risk-list");
+  risks.forEach((risk, index) => {
+    const row = el("div", "report-detail-row report-risk-item");
+    row.appendChild(el("span", "k", `风险 ${String(index + 1).padStart(2, "0")}`));
+    row.appendChild(el("span", "v", riskText(risk)));
+    list.appendChild(row);
+  });
+  card.appendChild(list);
   return card;
 }
 

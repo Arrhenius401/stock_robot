@@ -8,7 +8,7 @@ import { api } from "./api.js";
 import { renderMarkdown } from "./markdown.js";
 import { el } from "./components.js";
 import { openReportDrawer, closeReportDrawer } from "./report-drawer.js";
-import { renderReportSummary } from "./report-renderer.js";
+import { renderReportSummary } from "./report-renderer.js?v=20260918-report-presentation-3";
 
 const scrollEl = () => document.getElementById("chatScroll");
 

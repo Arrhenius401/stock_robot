@@ -236,6 +236,23 @@ class TestStaticUI:
         assert 'id="workspaceBackdrop"' in html
 
     @pytest.mark.asyncio
+    async def test_chat_has_session_entry_without_duplicate_navigation(self, client):
+        """新建和历史会话仍可进入聊天视图，导航不再重复列出聊天。"""
+        html = (await client.get("/")).text
+
+        assert 'data-view="chat"' not in html
+        assert 'id="newSessionBtn"' in html
+        assert 'id="sessionList"' in html
+        assert 'id="view-chat"' in html
+
+    @pytest.mark.asyncio
+    async def test_index_is_not_cached(self, client):
+        """本地前端入口必须随服务更新重新读取，不能复用旧模块版本。"""
+        response = await client.get("/")
+
+        assert response.headers["cache-control"] == "no-store"
+
+    @pytest.mark.asyncio
     async def test_index_contains_report_library_view(self, client):
         html = (await client.get("/")).text
 
@@ -246,11 +263,49 @@ class TestStaticUI:
         assert 'id="globalStockSearch"' not in html
 
     @pytest.mark.asyncio
+    async def test_analysis_has_one_navigation_entry_and_preserves_report_views(self, client):
+        """个股与指数共用导航入口，各自沿用原报告内容容器。"""
+        html = (await client.get("/")).text
+
+        assert html.count('data-view="report"') == 1
+        assert 'data-view="index"' not in html
+        assert "<span>股指分析</span>" in html
+        assert html.count('data-analysis-mode="report"') == 2
+        assert html.count('data-analysis-mode="index"') == 2
+        assert 'id="reportContent"' in html
+        assert 'id="indexContent"' in html
+
+    @pytest.mark.asyncio
+    async def test_index_contains_runtime_logs_view(self, client):
+        """日志是配置之前的一级导航，并有独立内容容器。"""
+        html = (await client.get("/")).text
+
+        assert 'data-view="logs"' in html
+        assert "<span>日志</span>" in html
+        assert 'id="view-logs"' in html
+        assert 'id="logsContent"' in html
+
+    @pytest.mark.asyncio
+    async def test_workspace_shell_has_sidebar_resize_handle(self, client):
+        """桌面侧边栏提供可访问的宽度拖拽分隔条。"""
+        html = (await client.get("/")).text
+
+        assert 'id="sidebarResizer"' in html
+        assert 'aria-label="调整侧边栏宽度"' in html
+
+    @pytest.mark.asyncio
+    async def test_workspace_main_has_no_programmatic_focus_outline(self, client):
+        """主工作区仅用于程序化焦点恢复，不应显示浏览器默认描边。"""
+        css = (await client.get("/css/app.css")).text
+
+        assert "#workspaceMain:focus { outline: 0; }" in css
+
+    @pytest.mark.asyncio
     async def test_report_library_modules_served(self, client):
         app_js = (await client.get("/js/app.js")).text
         api_js = (await client.get("/js/api.js")).text
 
-        assert 'import { initReportLibrary } from "./report-library.js";' in app_js
+        assert 'import { initReportLibrary } from "./report-library.js?v=20260927-page-heading-1";' in app_js
         assert "initReportLibrary();" in app_js
         assert "listReports(" in api_js
         assert "getReport(" in api_js
@@ -347,24 +402,44 @@ if (!code.includes("**代码原样** [不应解析](https://example.com)")
         renderer_url = json.dumps(_module_url("src/api/static/js/report-renderer.js"))
         script = _DOM_STUB + r"""
 const {
-  normalizeArtifactReport, renderStockReport, renderReportSummary,
+  localizeReportMarkdown, normalizeArtifactReport, renderStockReport, renderReportSummary,
 } = await import(__RENDERER_URL__);
 
 const report = {
   code: "000001",
   name: '<img src=x onerror="boom">',
   overview: { industry: "银行", latest_close: 12.3, change_pct: -1.2 },
-  score: { final: 7.6, risk_deduction: 1 },
-  score_rows: [{ label: "财务", score: 8, weight: "30%" }],
+  score: { final: 1.2000000000000002, risk_deduction: 1 },
+  score_rows: [{ label: "财务", score: 1.2000000000000002, weight: "30%" }],
   dimensions: {
     financial: {
       status: "ok",
       score: 8,
       summary: "**稳健** <script>alert(1)</script>",
-      metrics: { nested: { value: 3 } },
-      risk_flags: ["集中度偏高", "集中度偏高"],
+      metrics: { latest_close: 12.3, nested: { value: 3 } },
+      risk_flags: ["roe_low", "roe_low"],
     },
-    sentiment: { summary: "消息平稳", risk_flags: ["舆情波动"] },
+    technical: {
+      status: "ok",
+      score: 1.2000000000000002,
+      summary: "技术面承压",
+      risk_flags: ["bearish_ma"],
+    },
+    industry: {
+      status: "ok",
+      metrics: {
+        peers: ["601398", "601939"],
+        peer_names: { "601398": "工商银行", "601939": "建设银行" },
+        peer_scope: "申万一级",
+        peer_industry: "银行",
+        top_peers: [{ symbol: "600036", name: "招商银行", market_cap: 60330000000, pe_ttm: 6.2, pb: 0.8 }],
+      },
+    },
+    sentiment: {
+      summary: "消息平稳",
+      metrics: { headlines: ["业绩增长超预期", "机构上调目标价"] },
+      risk_flags: ["舆情波动"],
+    },
   },
   comments: ["第一段结论。\n\n第二段", "补充说明"],
   signal: { label: "持有", action: "控制仓位" },
@@ -397,11 +472,57 @@ if (!htmlValues.some((value) => value.includes("&lt;script&gt;"))) {
 if (article.textContent.includes("undefined") || article.textContent.includes("[object Object]")) {
   throw new Error("缺失字段或对象指标不可泄漏 JS 默认字符串");
 }
-if (!article.textContent.includes('{\n  "value": 3\n}')) {
-  throw new Error("对象指标应使用可读 JSON");
+if (!article.textContent.includes("最新收盘价") || !article.textContent.includes("nested · value")
+    || article.textContent.includes('{\n  "value": 3\n}')) {
+  throw new Error("对象指标应拆为可读字段，不能展示 JSON");
 }
-if (byClass(article, "report-risk-item").length !== 2) {
-  throw new Error("风险应跨维度去重聚合");
+if (!article.textContent.includes("同行业公司") || !article.textContent.includes("同行范围")
+    || !article.textContent.includes("工商银行（601398）")
+    || !article.textContent.includes("建设银行（601939）")
+    || article.textContent.includes("peer_names")) {
+  throw new Error("行业字段必须显示中文标签与公司名（代码）");
+}
+if (!article.textContent.includes("头部同行公司")
+    || !article.textContent.includes("招商银行（600036）：市值 603.30 亿元 · PE(TTM) 6.2 · PB 0.8")) {
+  throw new Error("头部同行应以公司名、代码和指标的结构化格式展示");
+}
+if (article.textContent.includes("roe_low") || article.textContent.includes("bearish_ma")
+    || !article.textContent.includes("净资产收益率偏低")
+    || !article.textContent.includes("均线呈空头排列")) {
+  throw new Error("风险代码必须转换为中文提示");
+}
+if (article.textContent.includes("1.2000000000000002")
+    || !article.textContent.includes("1.2")) {
+  throw new Error("评分必须保留一位小数");
+}
+if ((article.textContent.match(/财务健康/g) || []).length !== 1) {
+  throw new Error("维度标题不得重复展示");
+}
+const headlines = byClass(article, "report-metric-list").find((list) =>
+  list.textContent.includes("业绩增长超预期"));
+if (!headlines || headlines.children.length !== 2
+    || !headlines.textContent.includes("业绩增长超预期")
+    || !headlines.textContent.includes("机构上调目标价")) {
+  throw new Error("舆情标题必须逐条纵向展示");
+}
+const riskRows = byClass(article, "report-risk-item");
+if (riskRows.length !== 3 || !riskRows.every((row) =>
+    row.classList.contains("report-detail-row"))
+    || !article.textContent.includes("风险 01")) {
+  throw new Error("风险应跨维度去重并使用统一字段行布局");
+}
+const commentaryRows = byClass(article, "report-commentary-item");
+if (commentaryRows.length !== 2 || !commentaryRows.every((row) =>
+    row.classList.contains("report-detail-row"))
+    || !article.textContent.includes("要点 01")) {
+  throw new Error("AI 解读分点应使用统一字段行布局");
+}
+const legacyMarkdown = localizeReportMarkdown("- roe_low\n趋势：bear\n估值：undervalued");
+if (legacyMarkdown.includes("roe_low") || legacyMarkdown.includes("bear")
+    || legacyMarkdown.includes("undervalued")
+    || !legacyMarkdown.includes("净资产收益率偏低")
+    || !legacyMarkdown.includes("空头") || !legacyMarkdown.includes("低估")) {
+  throw new Error("报告库旧 Markdown 的内部标签必须转换为中文");
 }
 
 const artifact = {
@@ -412,7 +533,7 @@ const artifact = {
 };
 const summary = renderReportSummary(artifact);
 if (summary.dataset.artifactId !== "artifact-1") throw new Error("摘要卡缺少成果 ID");
-if (!summary.textContent.includes("2 项风险")) throw new Error("摘要卡风险计数错误");
+if (!summary.textContent.includes("3 项风险")) throw new Error("摘要卡风险计数错误");
 const conclusion = byClass(summary, "report-summary-conclusion")[0];
 if (!conclusion || !conclusion.innerHTML.includes("第一段结论")) {
   throw new Error("摘要卡应优先使用 commentary/comments 第一段");
@@ -672,6 +793,8 @@ const chat = makeElement("view-chat");
 chat.className = "view active";
 const report = makeElement("view-report");
 report.className = "view";
+const index = makeElement("view-index");
+index.className = "view";
 const chatNav = makeElement("chatNav", "button");
 chatNav.className = "nav-item on";
 chatNav.dataset.view = "chat";
@@ -686,6 +809,11 @@ switchView("report");
 if (received !== "report" || !report.classList.contains("active")
     || chat.classList.contains("active")) {
   throw new Error("程序化视图切换没有通知标题层");
+}
+switchView("index");
+if (received !== "index" || !index.classList.contains("active")
+    || report.classList.contains("active") || !reportNav.classList.contains("on")) {
+  throw new Error("指数视图未保持股指分析入口高亮");
 }
 """.replace("__STATE_URL__", state_url)
         _run_node(tmp_path, script)
@@ -1820,7 +1948,7 @@ const payload = {
 store.currentView = "settings";
 initSettings();
 renderSettings(payload);
-for (const path of ["llm.api_key", "push.email.smtp_password", "push.wecom.secret"]) {
+for (const path of ["llm.api_key", "push.email.smtp_password"]) {
   const input = document.getElementById(`settings-${path.replaceAll(".", "-")}`);
   const labelId = `settings-${path.replaceAll(".", "-")}-label`;
   if (input.getAttribute("aria-labelledby") !== labelId || !document.getElementById(labelId)) {
@@ -1875,6 +2003,100 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
 """.replace("__SETTINGS_URL__", settings_url).replace("__API_URL__", api_url)
         script = script.replace("__STATE_URL__", state_url)
         _run_node(tmp_path, script)
+
+    @pytest.mark.asyncio
+    async def test_subscription_home_keeps_forms_in_dialog(self, client):
+        """订阅首页仅放操作入口，邮箱与订阅表单由弹窗按需展示。"""
+        response = await client.get("/")
+        assert response.status_code == 200
+        html = response.text
+        assert 'id="subEmailBtn"' in html
+        assert 'id="subNewBtn"' in html
+        assert 'id="subsModal"' in html
+        assert 'aria-modal="true"' in html
+        assert 'id="subName"' not in html
+        assert 'id="subChannel"' not in html
+        assert "企业微信" not in html
+        assert "20260928-email-visibility-6" in html
+        script = (await client.get("/js/subscriptions.js")).text
+        assert "searchPushSymbols" in script
+        assert "批量添加" not in script
+        assert "添加单项" not in script
+
+    def test_subscription_symbol_selection_avoids_ambiguous_code_guess(self, tmp_path):
+        """同一代码的股票与指数候选须同时保留，未收录字母代码无候选时不能臆造。"""
+        subscription_url = json.dumps(_module_url("src/api/static/js/subscriptions.js"))
+        api_url = json.dumps(_module_url("src/api/static/js/api.js"))
+        script = r"""
+const { exactMatches, isCodeToken, suggestedName } = await import(__SUBSCRIPTIONS_URL__);
+const { api } = await import(__API_URL__);
+const matches = exactMatches([
+  { symbol: "000001", kind: "index" },
+  { symbol: "000001", kind: "stock" },
+  { symbol: "000300", kind: "index" },
+], "000001");
+if (matches.length !== 2 || matches[0].kind !== "index" || matches[1].kind !== "stock") {
+  throw new Error("歧义代码的候选被悄悄选定");
+}
+if (exactMatches([], "UNKNOWN").length !== 0 || !isCodeToken("HSI")) {
+  throw new Error("未收录字母代码不能凭输入直接成为候选");
+}
+if (suggestedName([{ symbol: "600519", display_name: "贵州茅台" }]) !== "贵州茅台每日研报") {
+  throw new Error("默认名称未使用标的名称");
+}
+let requested = "";
+globalThis.fetch = async (url) => {
+  requested = url;
+  return { ok: true, json: async () => ({ candidates: [], stocks_available: false }) };
+};
+await api.searchPushSymbols("贵州茅台", 8);
+const parsed = new URL(requested, "http://localhost");
+if (parsed.pathname !== "/api/v1/push/symbols" ||
+    parsed.searchParams.get("q") !== "贵州茅台" ||
+    parsed.searchParams.get("limit") !== "8") {
+  throw new Error("订阅搜索请求未按 API 契约编码");
+}
+""".replace("__SUBSCRIPTIONS_URL__", subscription_url).replace("__API_URL__", api_url)
+        _run_node(tmp_path, script)
+
+    @pytest.mark.asyncio
+    async def test_radar_detail_preserves_snapshot_navigation_contract(self, client):
+        """兼容视图至少保留池切换、快照榜单和标的评分详情入口。"""
+        response = await client.get("/js/allocation-view.js")
+
+        assert response.status_code == 200
+        source = response.text
+        assert "allocationRequest(\"/api/v1/radar/universes\")" in source
+        assert "/api/v1/radar/snapshots/latest?universe_id=" in source
+        assert "allocationShowDetail(item)" in source
+        assert "本次行情来源：" in source
+        assert "返回配置雷达" in source
+        assert "/api/v1/radar/performance?universe_id=" in source
+        assert "/api/v1/radar/backtests?universe_id=" in source
+        assert "allocationBacktestPeriodControl" in source
+        assert "allocationPerformancePeriodControl" in source
+        assert "allocationDataAvailability(snapshot)" in source
+        assert "最近一次数据更新未发布新快照" in source
+        assert "allocationSnapshotMeta(allocationState.snapshot)" in source
+        assert 'allocationElement("div", "radar-head-controls")' in source
+        assert '"/api/v1/radar/refresh"' in source
+        assert '"/api/v1/radar/collector/status"' in source
+        assert "function allocationDataStatus(item)" in source
+        assert "allocationDataStatus(item)" in source
+        assert "allocationPollRefresh" in source
+        assert "数据更新完成，已载入最新快照。" in source
+        assert "沿用上次健康数据" in source
+        assert "标的池轮动策略研究结果" in source
+        assert "allocationBacktestSectionIsCurrent" in source
+        app_source = (await client.get("/js/app.js")).text
+        assert "initSessionStartup()" in app_source
+        assert ".finally(() => import(\"./allocation-view.js" in app_source
+        assert "radar-curve-tooltip" in source
+        assert "radar-hover-guide" in source
+        assert "收益率曲线" in source
+        assert "该区间由覆盖它的已完成回测缓存截取" in source
+        assert "window.history.pushState" in source
+        assert 'event.key === "Enter"' in source
 
     @pytest.mark.asyncio
     async def test_css_served(self, client):

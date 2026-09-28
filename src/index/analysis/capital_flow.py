@@ -3,7 +3,7 @@ from typing import Any, Literal
 
 from analysis.base import AnalysisModule
 from data.schemas import AnalysisResult, IndexAnalysisContext
-from index.enricher import tag_capital
+from index.enricher import index_tag_label, tag_capital
 
 
 class CapitalFlowAnalyzer(AnalysisModule):
@@ -27,7 +27,7 @@ class CapitalFlowAnalyzer(AnalysisModule):
             "tag": flow_tag,
         }
 
-        summary = f"资金面: {flow_tag}"
+        summary = f"资金面：{index_tag_label(flow_tag)}"
         if cf.north_bound is not None:
             direction = "流入" if cf.north_bound > 0 else "流出"
             summary += f"，北向资金净{direction} {abs(cf.north_bound):.1f}亿"

@@ -22,6 +22,62 @@ def test_create_cli_progress_uses_shared_transient_columns():
     assert all("task.completed" not in str(column) for column in progress.columns)
 
 
+def test_radar_import_data_writes_local_etf_history(mocker, tmp_path):
+    from utils.config import Config
+
+    source = tmp_path / "etf.csv"
+    pd.DataFrame({
+        "日期": ["2024-01-02"], "开盘": [3.7], "最高": [3.9], "最低": [3.6],
+        "收盘": [3.8], "成交量": [100], "成交额": [380],
+    }).to_csv(source, index=False, encoding="utf-8-sig")
+    config = Config(config_dir=tmp_path / "config")
+    mocker.patch("stock_robot.cli.Config", return_value=config)
+
+    result = CliRunner().invoke(main, ["radar", "import-data", "--symbol", "510300", "--file", str(source)])
+
+    assert result.exit_code == 0
+    assert "已导入 510300" in result.output
+    assert (config.config_dir / "radar_local_data" / "etf" / "510300.csv").exists()
+
+
+def test_radar_import_benchmark_writes_local_history(mocker, tmp_path):
+    from utils.config import Config
+
+    source = tmp_path / "benchmark.csv"
+    pd.DataFrame({"日期": ["2024-01-02"], "收盘": [3500.0]}).to_csv(source, index=False, encoding="utf-8-sig")
+    config = Config(config_dir=tmp_path / "config")
+    mocker.patch("stock_robot.cli.Config", return_value=config)
+
+    result = CliRunner().invoke(main, ["radar", "import-benchmark", "--benchmark", "csi_300", "--file", str(source)])
+
+    assert result.exit_code == 0
+    assert "已导入基准 csi_300" in result.output
+    assert (config.config_dir / "radar_local_data" / "benchmarks" / "csi_300.csv").exists()
+
+
+def test_radar_collect_once_prints_each_pool(mocker, tmp_path):
+    from utils.config import Config
+
+    class _Repository:
+        @staticmethod
+        def load_all():
+            return [type("Universe", (), {"id": "cn_hk_etf"})(), type("Universe", (), {"id": "overseas_etf"})()]
+
+    class _Refresher:
+        @staticmethod
+        def refresh(universe_id):
+            return f"run-{universe_id}"
+
+    config = Config(config_dir=tmp_path / "config")
+    mocker.patch("stock_robot.cli._radar_services", return_value=(config, _Repository(), None, _Refresher()))
+
+    result = CliRunner().invoke(main, ["radar", "collect", "--once"])
+
+    assert result.exit_code == 0
+    assert "cn_hk_etf: run-cn_hk_etf" in result.output
+    assert "overseas_etf: run-overseas_etf" in result.output
+
+
 class TestCLI:
     def test_analyze_without_symbol_shows_error(self):
         runner = CliRunner()
@@ -236,18 +292,25 @@ def test_run_builds_server_and_reports_ready_url(mocker):
     assert "正在启动 HTTP 服务" not in result.output
     assert "http://127.0.0.1:8000" in result.output
     mock_core.assert_called_once()
-    mock_server.assert_called_once_with(mock_app.return_value, "127.0.0.1", 8000)
+    server_args = mock_server.call_args.args
+    assert server_args[:3] == (mock_app.return_value, "127.0.0.1", 8000)
+    assert server_args[3].name.startswith("runtime-")
 
 
-def test_run_web_server_does_not_write_console_status(mocker):
+def test_run_web_server_adds_runtime_log_handlers(mocker, tmp_path):
     """Uvicorn 日志已经覆盖运行状态，命令层不再输出 spinner。"""
-    mocker.patch("uvicorn.run")
+    mock_run = mocker.patch("uvicorn.run")
     status = mocker.patch("stock_robot.cli.console.status")
 
     from stock_robot.cli import _run_web_server
-    _run_web_server(object(), "127.0.0.1", 8000)
+    log_path = tmp_path / "runtime.log"
+    _run_web_server(object(), "127.0.0.1", 8000, log_path)
 
     status.assert_not_called()
+    log_config = mock_run.call_args.kwargs["log_config"]
+    assert log_config["handlers"]["runtime_access"]["filename"] == str(log_path)
+    assert "runtime_default" in log_config["loggers"]["uvicorn"]["handlers"]
+    assert "runtime_access" in log_config["loggers"]["uvicorn.access"]["handlers"]
 
 
 def test_api_bind_resolution_uses_config_defaults(tmp_path):
@@ -366,7 +429,9 @@ class TestSubscribe:
         runner = CliRunner()
         result = runner.invoke(main, ["subscribe", "run", "--id", "1"])
         assert result.exit_code == 0
-        mock_executor.return_value.run_subscription.assert_called_once_with(sub)
+        mock_executor.return_value.run_subscription.assert_called_once_with(
+            sub, mock_store.return_value.queue_run.return_value,
+        )
         assert "1/1" in result.output
 
 

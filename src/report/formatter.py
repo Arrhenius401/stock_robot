@@ -42,6 +42,12 @@ METRIC_DISPLAY_NAMES = {
     "sector": "所属板块",
     "peer_scope": "同业口径",
     "peer_industry": "可比行业",
+    "peers": "同行业公司",
+    "top_peers": "头部同行公司",
+    "roe_trend": "净资产收益率走势",
+    "quarter": "报告期",
+    "headlines": "近期新闻",
+    "top_headlines": "近期要闻",
     "peer_count": "有效同行数（不含本公司）",
     "industry_median_pe": "行业 PE(TTM) 中位数",
     "industry_median_pb": "行业 PB 中位数",
@@ -61,11 +67,28 @@ METRIC_DISPLAY_NAMES = {
     "tag": "信号标签",
 }
 
+RISK_DISPLAY_NAMES = {
+    "roe_low": "净资产收益率偏低",
+    "high_debt": "资产负债率偏高",
+    "cash_flow_mismatch": "经营现金流与净利润不匹配",
+    "high_pe_premium": "市盈率分位偏高",
+    "industry_weak_margin": "毛利率弱于行业",
+    "bearish_ma": "均线呈空头排列",
+    "volume_bearish": "放量下跌风险",
+    "major_negative_news": "存在重大负面舆情",
+}
+
 
 def metric_display_name(key: object) -> str:
     """返回指标的中文显示名，未知指标保留原键名。"""
     text = str(key)
     return METRIC_DISPLAY_NAMES.get(text, text)
+
+
+def risk_display_name(key: object) -> str:
+    """返回风险标签的中文显示名，未知标签保留原值。"""
+    text = str(key)
+    return RISK_DISPLAY_NAMES.get(text, text)
 
 
 def _is_separator(line: str) -> bool:

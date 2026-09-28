@@ -88,3 +88,31 @@ class TestReportBuilder:
 
         assert "最新财报季度" in report
         assert "| latest_quarter" not in report
+
+    def test_report_renders_peer_names_and_hides_internal_mapping(self):
+        results = [
+            AnalysisResult(
+                dimension="industry",
+                status="ok",
+                summary="所属行业: 银行",
+                metrics={
+                    "industry": "银行",
+                    "peers": ["601398", "601939"],
+                    "peer_names": {"601398": "工商银行", "601939": "建设银行"},
+                },
+            ),
+            AnalysisResult(
+                dimension="sentiment",
+                status="ok",
+                summary="近1日共 2 条相关新闻",
+                metrics={"headlines": ["业绩增长超预期", "机构上调目标价"]},
+            ),
+        ]
+
+        report = ReportBuilder().build("000001", "平安银行", results, commentary={})
+
+        assert "工商银行（601398）" in report
+        assert "建设银行（601939）" in report
+        assert "peer_names" not in report
+        assert "- 业绩增长超预期" in report
+        assert "- 机构上调目标价" in report

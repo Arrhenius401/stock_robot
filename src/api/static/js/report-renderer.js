@@ -10,6 +10,40 @@ const DIMENSIONS = [
   ["sentiment", "舆情风险"],
 ];
 
+// 数据层字段只在内部协议中使用；界面统一显示业务中文名称。
+const METRIC_LABELS = {
+  latest_close: "最新收盘价", latest_price: "最新价格", change_pct: "涨跌幅",
+  year_high: "近一年最高价", year_low: "近一年最低价", price_position: "价格位置",
+  latest_quarter: "最新财报季度", revenue: "营业收入", net_profit: "净利润",
+  total_assets: "总资产", total_equity: "股东权益", operating_cash_flow: "经营活动现金流",
+  operating_cash_flow_per_share: "每股经营现金流", revenue_growth_yoy: "营收同比增长",
+  profit_growth_yoy: "净利润同比增长", roe: "净资产收益率", gross_margin: "毛利率",
+  ma_5: "5 日均线", ma_20: "20 日均线", ma_60: "60 日均线",
+  pe_ttm: "市盈率（TTM）", pb: "市净率", ps_ttm: "市销率（TTM）",
+  pe_percentile: "市盈率分位", pb_percentile: "市净率分位", dividend_yield: "股息率",
+  industry: "所属行业", sector: "所属板块", peer_count: "有效同行数",
+  peers: "同行业公司", peer_scope: "同行范围", peer_industry: "同行所属行业",
+  top_peers: "头部同行公司", symbol: "股票代码", name: "公司名称", market_cap: "总市值",
+  industry_median_pe: "行业市盈率中位数", industry_median_pb: "行业市净率中位数",
+  target_pe_premium: "相对行业市盈率溢价", target_market_cap_rank: "行业市值排名",
+  headline_count: "新闻数量", north_bound: "北向资金净流入", main_net_inflow: "主力资金净流入",
+  headlines: "近期新闻", top_headlines: "近期要闻", roe_trend: "净资产收益率走势",
+  quarter: "报告期", valuation_valid: "估值样本有效", percentile_lookback_years: "分位回看年限",
+  sample_start: "样本起始日期", sample_end: "样本结束日期", tag: "信号标签",
+  margin_balance: "融资余额", data_date: "数据日期", date: "数据日期",
+};
+
+const RISK_LABELS = {
+  roe_low: "净资产收益率偏低",
+  high_debt: "资产负债率偏高",
+  cash_flow_mismatch: "经营现金流与净利润不匹配",
+  high_pe_premium: "市盈率分位偏高",
+  industry_weak_margin: "毛利率弱于行业",
+  bearish_ma: "均线呈空头排列",
+  volume_bearish: "放量下跌风险",
+  major_negative_news: "存在重大负面舆情",
+};
+
 function record(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
@@ -33,6 +67,122 @@ function readable(value, fallback = "暂无数据") {
     }
   }
   return String(value);
+}
+
+export function metricLabel(key) {
+  const raw = String(key);
+  return METRIC_LABELS[raw] || raw.replaceAll("_", " ");
+}
+
+function scoreText(value, fallback = "—") {
+  if (value === null || value === undefined || value === "") return fallback;
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toFixed(1) : readable(value, fallback);
+}
+
+export function riskText(value) {
+  const raw = readable(value, "");
+  return RISK_LABELS[raw] || raw;
+}
+
+export function metricText(value) {
+  if (Array.isArray(value)) return value.map(metricText).filter(Boolean).join("、") || "暂无数据";
+  if (value && typeof value === "object") {
+    return Object.values(value).map(metricText).filter(Boolean).join("、") || "暂无数据";
+  }
+  return readable(value);
+}
+
+function peerText(value, peerNames) {
+  const names = record(peerNames);
+  const peers = Array.isArray(value) ? value : Object.entries(record(value)).map(([symbol, name]) => ({ symbol, name }));
+  const labels = peers.map((peer) => {
+    const item = record(peer);
+    const symbol = readable(item.symbol ?? peer, "");
+    const name = readable(item.name ?? names[symbol], "");
+    return name ? `${name}（${symbol}）` : symbol;
+  }).filter(Boolean);
+  return labels.join("、") || "暂无数据";
+}
+
+function marketCapText(value) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? `${(amount / 1e8).toFixed(2)} 亿元` : metricText(value);
+}
+
+function appendTopPeers(grid, value, peerNames) {
+  const names = record(peerNames);
+  const peers = Array.isArray(value) ? value : [];
+  const wrap = el("div", "report-metric-list-wrap");
+  wrap.appendChild(el("div", "k", metricLabel("top_peers")));
+  const list = el("ul", "report-metric-list report-peer-list");
+  for (const peer of peers) {
+    const item = record(peer);
+    const symbol = readable(item.symbol, "");
+    const name = readable(item.name ?? names[symbol], "");
+    const title = name ? `${name}（${symbol}）` : symbol;
+    if (!title) continue;
+    const details = [
+      ["市值", item.market_cap], ["PE(TTM)", item.pe_ttm], ["PB", item.pb],
+    ].filter(([, metric]) => metric !== null && metric !== undefined && metric !== "")
+      .map(([label, metric]) => `${label} ${label === "市值" ? marketCapText(metric) : metricText(metric)}`);
+    list.appendChild(el("li", "", details.length ? `${title}：${details.join(" · ")}` : title));
+  }
+  if (!list.children.length) list.appendChild(el("li", "", "暂无数据"));
+  wrap.appendChild(list);
+  grid.appendChild(wrap);
+}
+
+function appendListMetric(grid, key, value) {
+  const wrap = el("div", "report-metric-list-wrap");
+  wrap.appendChild(el("div", "k", metricLabel(key)));
+  const list = el("ul", "report-metric-list");
+  const items = Array.isArray(value) ? value : [];
+  for (const item of items) list.appendChild(el("li", "", metricText(item)));
+  if (!list.children.length) list.appendChild(el("li", "", "暂无数据"));
+  wrap.appendChild(list);
+  grid.appendChild(wrap);
+}
+
+function appendMetrics(grid, key, value, prefix = "") {
+  const label = prefix ? `${prefix} · ${metricLabel(key)}` : metricLabel(key);
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const entries = Object.entries(value);
+    if (!entries.length) {
+      grid.appendChild(kv(label, "暂无数据"));
+      return;
+    }
+    for (const [nestedKey, nestedValue] of entries) {
+      appendMetrics(grid, nestedKey, nestedValue, label);
+    }
+    return;
+  }
+  grid.appendChild(kv(label, metricText(value)));
+}
+
+export function appendReadableMetric(grid, key, value, context = {}) {
+  if (key === "headlines" || key === "top_headlines") {
+    appendListMetric(grid, key, value);
+    return;
+  }
+  if (key === "top_peers") {
+    appendTopPeers(grid, value, context.peer_names);
+    return;
+  }
+  appendMetrics(grid, key, value);
+}
+
+const REPORT_TOKEN_LABELS = {
+  ...RISK_LABELS,
+  bull: "多头", shake: "震荡", bear: "空头",
+  undervalued: "低估", overvalued: "高估", invalid: "无效",
+  positive: "积极", negative: "消极", neutral: "中性", na: "不适用",
+};
+
+export function localizeReportMarkdown(markdown) {
+  const text = String(markdown || "");
+  return text.replace(/\b(?:roe_low|high_debt|cash_flow_mismatch|high_pe_premium|industry_weak_margin|bearish_ma|volume_bearish|major_negative_news|bull|shake|bear|undervalued|overvalued|invalid|positive|negative|neutral|na)\b/g,
+    (token) => REPORT_TOKEN_LABELS[token] || token);
 }
 
 function naturalText(value) {
@@ -152,7 +302,7 @@ function scoreSection(report, sectionIdPrefix) {
   const card = section("report-score", "综合评分", "panel", sectionIdPrefix);
   const score = record(report.score);
   const big = el("div", "score-big");
-  const number = el("div", "score-num", readable(score.final, "—"));
+  const number = el("div", "score-num", scoreText(score.final));
   number.appendChild(el("small", "", "/10"));
   big.appendChild(number);
 
@@ -161,14 +311,14 @@ function scoreSection(report, sectionIdPrefix) {
     const rowData = record(item);
     const row = el("div", "score-row");
     row.appendChild(el("span", "lb", readable(rowData.label)));
-    row.appendChild(el("span", "v", readable(rowData.score, "—")));
+    row.appendChild(el("span", "v", scoreText(rowData.score)));
     row.appendChild(priceBar(Number(rowData.score) * 10));
     row.appendChild(el("span", "wt", readable(rowData.weight, "")));
     rows.appendChild(row);
   }
   if (score.risk_deduction) {
     rows.appendChild(el("div", "score-note",
-      `风险扣分: -${readable(score.risk_deduction)}`));
+      `风险扣分: -${scoreText(score.risk_deduction)}`));
   }
   if (!rows.children.length) rows.appendChild(el("div", "report-empty", "暂无评分明细"));
   big.appendChild(rows);
@@ -185,9 +335,8 @@ function dimensionSection(name, label, data, sectionIdPrefix) {
 
   const dimension = record(data);
   const header = el("div", "dim-head");
-  header.appendChild(el("span", "dim-name", label));
   header.appendChild(statusBadge(dimension.status));
-  header.appendChild(el("span", "dim-score", readable(dimension.score, "—")));
+  header.appendChild(el("span", "dim-score", scoreText(dimension.score)));
   card.appendChild(header);
   card.appendChild(markdownBlock(naturalText(dimension.summary), "dim-sum md"));
 
@@ -195,12 +344,17 @@ function dimensionSection(name, label, data, sectionIdPrefix) {
   if (Object.keys(metrics).length) {
     const grid = el("div", "mtr");
     for (const [metric, value] of Object.entries(metrics)) {
-      grid.appendChild(kv(metric, readable(value)));
+      if (metric === "peer_names") continue;
+      if (metric === "peers") {
+        grid.appendChild(kv(metricLabel(metric), peerText(value, metrics.peer_names)));
+        continue;
+      }
+      appendReadableMetric(grid, metric, value, metrics);
     }
     card.appendChild(grid);
   }
   for (const flag of Array.isArray(dimension.risk_flags) ? dimension.risk_flags : []) {
-    card.appendChild(el("span", "flag", `⚠ ${readable(flag)}`));
+    card.appendChild(el("span", "flag", `⚠ ${riskText(flag)}`));
   }
   return card;
 }
@@ -210,7 +364,7 @@ function riskFlags(report) {
   const dimensions = record(report.dimensions);
   for (const data of Object.values(dimensions)) {
     for (const flag of Array.isArray(record(data).risk_flags) ? data.risk_flags : []) {
-      const text = readable(flag, "");
+      const text = riskText(flag);
       if (text) unique.add(text);
     }
   }
@@ -224,15 +378,56 @@ function risksSection(report, sectionIdPrefix) {
     card.appendChild(el("div", "report-empty", "暂无风险提示"));
     return card;
   }
-  const list = el("ul", "report-risk-list");
-  for (const flag of flags) list.appendChild(el("li", "report-risk-item", flag));
+  const list = el("div", "report-detail-list report-risk-list");
+  flags.forEach((flag, index) => {
+    const row = el("div", "report-detail-row report-risk-item");
+    row.appendChild(el("span", "k", `风险 ${String(index + 1).padStart(2, "0")}`));
+    row.appendChild(el("span", "v", flag));
+    list.appendChild(row);
+  });
   card.appendChild(list);
   return card;
 }
 
+function commentaryParts(report) {
+  const paragraphs = commentaryText(report)
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+  if (!paragraphs.length) return { intro: "", points: [] };
+
+  const intro = paragraphs[0];
+  const points = [];
+  for (const paragraph of paragraphs.slice(1)) {
+    const lines = paragraph.split("\n").map((line) => line.trim()).filter(Boolean);
+    const numbered = lines.filter((line) => /^\d+[.、)]\s+/.test(line));
+    if (numbered.length) {
+      points.push(...numbered.map((line) => line.replace(/^\d+[.、)]\s+/, "")));
+    } else {
+      points.push(paragraph);
+    }
+  }
+  return { intro, points };
+}
+
 function commentarySection(report, sectionIdPrefix) {
   const card = section("report-commentary", "AI 解读", "llm", sectionIdPrefix);
-  card.appendChild(markdownBlock(commentaryText(report), "report-commentary md"));
+  const { intro, points } = commentaryParts(report);
+  if (intro) {
+    card.appendChild(markdownBlock(intro, "report-commentary-intro dim-sum md"));
+  }
+  if (!points.length) {
+    card.appendChild(el("div", "report-empty", "暂无 AI 解读"));
+    return card;
+  }
+  const list = el("div", "report-detail-list report-commentary-list");
+  points.forEach((point, index) => {
+    const row = el("div", "report-detail-row report-commentary-item");
+    row.appendChild(el("span", "k", `要点 ${String(index + 1).padStart(2, "0")}`));
+    row.appendChild(markdownBlock(point, "v report-commentary-value md"));
+    list.appendChild(row);
+  });
+  card.appendChild(list);
   return card;
 }
 
@@ -250,6 +445,32 @@ export function renderStockReport(report, options = {}) {
   }
   article.appendChild(risksSection(data, sectionIdPrefix));
   article.appendChild(commentarySection(data, sectionIdPrefix));
+  return article;
+}
+
+export function renderStockMarkdownReport(markdown, options = {}) {
+  // 将报告库的历史 Markdown 放入与实时个股报告一致的章节卡片体系。
+  const article = el("article", "stock-report");
+  if (options.className) article.classList.add(String(options.className));
+  const sectionIdPrefix = options.sectionIdPrefix || "";
+  const source = String(markdown || "").trim();
+  const titleMatch = source.match(/^#\s+(.+)$/m);
+  const title = titleMatch?.[1] || "个股分析报告";
+  const parts = source.replace(/^#\s+.+\n?/, "").split(/\n(?=##\s+)/);
+
+  const heading = section("report-summary", "投资摘要", "panel", sectionIdPrefix);
+  heading.appendChild(el("div", "stock-name", title));
+  heading.appendChild(markdownBlock(parts.shift() || "暂无报告摘要", "report-investment-summary md"));
+  article.appendChild(heading);
+
+  parts.forEach((part, index) => {
+    const match = part.match(/^##\s+(.+)$/m);
+    const label = match?.[1] || `报告章节 ${index + 1}`;
+    const card = section(`report-library-${index}`, label, "panel", sectionIdPrefix);
+    card.appendChild(markdownBlock(localizeReportMarkdown(
+      part.replace(/^##\s+.+\n?/, "")), "md"));
+    article.appendChild(card);
+  });
   return article;
 }
 
@@ -286,7 +507,7 @@ export function renderReportSummary(artifact) {
   header.appendChild(el("span", "report-summary-code", reportSymbol(report)));
   const score = record(report.score);
   if (score.final !== null && score.final !== undefined && score.final !== "") {
-    header.appendChild(el("span", "report-summary-score", `${readable(score.final)}/10`));
+    header.appendChild(el("span", "report-summary-score", `${scoreText(score.final)}/10`));
   }
   card.appendChild(header);
 

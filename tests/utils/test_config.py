@@ -86,6 +86,15 @@ data:
 
 
 class TestPushConfig:
+    def test_legacy_wecom_credentials_not_loaded(self, tmp_path):
+        (tmp_path / "config.yaml").write_text(
+            "push:\n  wecom:\n    secret: old-secret\n  email:\n    smtp_user: user@example.com\n",
+            encoding="utf-8",
+        )
+        config = Config(config_dir=tmp_path)
+        assert config.get("push.wecom") is None
+        assert config.get("push.email.smtp_user") == "user@example.com"
+
     def test_default_push_section(self, tmp_path):
         cfg = Config(config_dir=tmp_path)
         assert cfg.get("push.enabled") is True
@@ -93,4 +102,4 @@ class TestPushConfig:
         assert cfg.get("push.email.smtp_host") == "smtp.qq.com"
         assert cfg.get("push.email.smtp_port") == 465
         assert cfg.get("push.email.smtp_user") == ""
-        assert cfg.get("push.wecom.to_user") == "@all"
+        assert cfg.get("push.wecom") is None

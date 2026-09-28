@@ -1,6 +1,24 @@
 """指数充实器 — 分位计算、标签映射，计算结果不入缓存"""
 from data.schemas import IndexAnalysisContext
 
+INDEX_TAG_LABELS = {
+    "bull": "多头",
+    "shake": "震荡",
+    "bear": "空头",
+    "undervalued": "低估",
+    "neutral": "中性",
+    "overvalued": "高估",
+    "invalid": "无效",
+    "positive": "积极",
+    "negative": "消极",
+    "na": "不适用",
+}
+
+
+def index_tag_label(tag: str) -> str:
+    """将内部指数标签转换为报告展示文案。"""
+    return INDEX_TAG_LABELS.get(tag, tag)
+
 
 def compute_percentile(current: float, historical: list[float]) -> float | None:
     """计算当前值在历史序列中的分位（0-100），值越小分位越低

@@ -1,5 +1,7 @@
 """本地不可变快照存储测试。"""
 
+import sqlite3
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -18,6 +20,7 @@ def _item(status: Literal["fresh", "stale", "failed"] = "fresh") -> SnapshotItem
         category="a_share_large",
         status=status,
         observed_at=datetime.now().astimezone(),
+        data_source="TencentETFDataProvider",
         close=3.8,
         amount=1_000_000,
         score=80.0,
@@ -49,6 +52,20 @@ def test_running_run_is_invisible_and_completed_run_is_readable():
         assert snapshot is not None
         assert snapshot["run_id"] == run_id
         assert snapshot["items"][0]["symbol"] == "510300"
+        assert snapshot["items"][0]["data_source"] == "TencentETFDataProvider"
+
+
+def test_store_migrates_existing_snapshot_items_with_data_source_column():
+    with TemporaryDirectory(dir=Path.cwd()) as tmp_dir:
+        db_path = Path(tmp_dir) / "radar.db"
+        with closing(sqlite3.connect(db_path)) as conn, conn:
+            conn.execute("CREATE TABLE snapshot_items (run_id TEXT NOT NULL, symbol TEXT NOT NULL)")
+
+        RadarStore(db_path)
+
+        with closing(sqlite3.connect(db_path)) as conn:
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(snapshot_items)")}
+        assert "data_source" in columns
 
 
 def test_completed_run_is_immutable_and_failed_run_keeps_old_snapshot():
@@ -65,6 +82,24 @@ def test_completed_run_is_immutable_and_failed_run_keeps_old_snapshot():
         latest = store.latest_completed("cn_hk_etf")
         assert latest is not None
         assert latest["run_id"] == old_run
+
+
+def test_latest_failure_since_only_returns_newer_failed_refreshes():
+    with TemporaryDirectory(dir=Path.cwd()) as tmp_dir:
+        store = RadarStore(Path(tmp_dir) / "radar.db")
+        completed = _create_run(store)
+        store.add_item(completed, _item())
+        store.complete_run(completed)
+        snapshot = store.get_snapshot(completed)
+        assert snapshot is not None
+        failed = _create_run(store)
+        store.fail_run(failed, "腾讯日线请求失败")
+
+        failure = store.latest_failure_since("cn_hk_etf", snapshot["completed_at"])
+
+        assert failure is not None
+        assert failure["run_id"] == failed
+        assert failure["error_summary"] == "腾讯日线请求失败"
 
 
 def test_copy_healthy_item_and_status_summary():

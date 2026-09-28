@@ -170,6 +170,8 @@ class IndustryData(BaseModel):
     industry: str
     sector: str
     peers: list[str] = Field(default_factory=list)
+    # 与 peers 一一对应的公司名称；旧快照缺失时允许前端仅展示代码。
+    peer_names: dict[str, str] = Field(default_factory=dict)
     peer_scope: str = ""  # "申万二级" / "申万一级"；空值表示仅有展示级行业信息
     peer_industry: str = ""
     resolved_sw_level1: str = ""

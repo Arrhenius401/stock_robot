@@ -3,10 +3,15 @@
 from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from urllib.error import URLError
 
 import pytest
 
-from radar.data import OfficialExchangeETFDataProvider, RadarDataError
+from radar.data import (
+    OfficialExchangeETFDataProvider,
+    ProviderCircuitOpenError,
+    RadarDataError,
+)
 
 
 def _config(path: Path, template: str, *, enabled: bool = True) -> None:
@@ -53,3 +58,23 @@ def test_official_exchange_skips_disabled_source_without_network_request():
 
         with pytest.raises(RadarDataError, match="尚未启用"):
             provider.fetch_daily("510300", date(2024, 1, 1), date(2024, 1, 3))
+
+
+def test_official_exchange_opens_circuit_after_network_failure():
+    with TemporaryDirectory(dir=Path.cwd()) as tmp_dir:
+        config = Path(tmp_dir) / "sources.yaml"
+        _config(config, "https://query.sse.com.cn/etf/{symbol}")
+        calls = 0
+
+        def unavailable(url: str) -> bytes:
+            nonlocal calls
+            calls += 1
+            raise URLError("offline")
+
+        provider = OfficialExchangeETFDataProvider(config_path=config, downloader=unavailable)
+
+        with pytest.raises(RadarDataError, match="已熔断"):
+            provider.fetch_daily("510300", date(2024, 1, 1), date(2024, 1, 3))
+        with pytest.raises(ProviderCircuitOpenError):
+            provider.fetch_daily("510500", date(2024, 1, 1), date(2024, 1, 3))
+        assert calls == 1

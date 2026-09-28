@@ -120,3 +120,38 @@ class IndexReportBuilder:
 
         coeff = round(max(0.1, min(0.9, 0.5 + net * 0.4)), 2)
         return comment, coeff
+
+
+def render_index_report_markdown(report: IndexReport) -> str:
+    """将指数结构化报告渲染为可保存、可下载的 Markdown。"""
+    template_dir = Path(__file__).parent.parent / "report" / "templates"
+    env = Environment(
+        loader=FileSystemLoader(str(template_dir)),
+        trim_blocks=True,
+        lstrip_blocks=True,
+    )
+    from index.enricher import INDEX_TAG_LABELS
+    from report.builder import _md_table
+
+    env.filters["md_table"] = _md_table
+    template = env.get_template("index_report.jinja2")
+    return template.render(
+        code=report.code,
+        name=report.name,
+        generated_at=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
+        overview=report.overview,
+        section_technical=report.section_technical,
+        section_valuation=report.section_valuation,
+        section_capital=report.section_capital,
+        section_macro=report.section_macro,
+        section_sentiment=report.section_sentiment,
+        tag_technical=report.tag_technical,
+        tag_valuation=report.tag_valuation,
+        tag_capital=report.tag_capital,
+        tag_macro=report.tag_macro,
+        tag_sentiment=report.tag_sentiment,
+        composite_comment=report.composite_comment,
+        position_coeff=report.position_coeff,
+        visible_sections=report.visible_sections,
+        tag_labels=INDEX_TAG_LABELS,
+    )

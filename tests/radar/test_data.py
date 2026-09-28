@@ -4,6 +4,7 @@ from datetime import date
 
 import pandas as pd
 import pytest
+import requests
 
 from radar.data import (
     AkShareETFDataProvider,
@@ -12,6 +13,7 @@ from radar.data import (
     RadarDataError,
     RequestPacer,
     SinaETFDataProvider,
+    TencentETFDataProvider,
 )
 
 
@@ -86,3 +88,33 @@ def test_fallback_uses_sina_after_primary_failure():
     result = provider.fetch_daily("510300", date(2024, 1, 1), date(2024, 1, 31))
 
     assert result.loc[0, "close"] == 3.8
+
+
+def test_fallback_reports_the_provider_that_supplied_daily_history():
+    primary = AkShareETFDataProvider(daily_fetcher=lambda **_: (_ for _ in ()).throw(ConnectionError()))
+    raw = pd.DataFrame({
+        "date": ["2024-01-02"], "open": [3.7], "high": [3.9], "low": [3.6],
+        "close": [3.8], "volume": [100],
+    })
+    provider = FallbackETFDataProvider((primary, SinaETFDataProvider(fetcher=lambda symbol: raw)))
+
+    _, source = provider.fetch_daily_with_source("510300", date(2024, 1, 1), date(2024, 1, 31))
+
+    assert source == "SinaETFDataProvider"
+
+
+def test_tencent_provider_opens_circuit_after_network_failure():
+    calls = 0
+
+    def unavailable(symbol: str, start: date, end: date) -> pd.DataFrame:
+        nonlocal calls
+        calls += 1
+        raise requests.ConnectionError("offline")
+
+    provider = TencentETFDataProvider(fetcher=unavailable)
+
+    with pytest.raises(RadarDataError, match="已熔断"):
+        provider.fetch_daily("510300", date(2024, 1, 1), date(2024, 1, 31))
+    with pytest.raises(ProviderCircuitOpenError):
+        provider.fetch_daily("510500", date(2024, 1, 1), date(2024, 1, 31))
+    assert calls == 1

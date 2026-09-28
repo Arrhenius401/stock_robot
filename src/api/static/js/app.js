@@ -1,24 +1,32 @@
-// 入口：导航接线、工作台覆盖层与各视图初始化。
-import { bus, switchView } from "./state.js";
+// 应用主入口：导航接线、工作台覆盖层与各视图初始化。
+import { bus, store, switchView } from "./state.js";
 import { initChat } from "./chat.js";
-import { initReportView, openReport } from "./report.js";
+import { initReportView, openReport } from "./report.js?v=20260916-report-readability";
 import { initReportDrawer } from "./report-drawer.js";
 import { closeReportDrawer } from "./report-drawer.js";
 import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js";
-import { initIndexView } from "./indexview.js";
-import { initReportLibrary } from "./report-library.js";
+import { initIndexView } from "./indexview.js?v=20260918-report-parity";
+import { initReportLibrary } from "./report-library.js?v=20260927-page-heading-1";
 import { initSessions, initSessionStartup } from "./sessions.js";
-import { initSubscriptions } from "./subscriptions.js";
+import { initSubscriptions } from "./subscriptions.js?v=20260928-email-visibility-6";
 import { initSettings } from "./settings.js";
-import { initRadar } from "./radar.js";
+import { initLogs } from "./logs.js?v=20260927-page-heading-1";
+
+const SIDEBAR_WIDTH_KEY = "stockRobot.sidebarWidth";
+const SIDEBAR_MIN_WIDTH = 210;
+const SIDEBAR_MAX_WIDTH = 420;
+const HASH_VIEWS = new Set([
+  "chat", "report", "index", "radar", "report-library", "subscriptions", "logs", "settings",
+]);
 
 const VIEW_TITLES = {
   chat: "会话研究",
-  report: "个股报告",
-  index: "指数分析",
+  report: "股指分析",
+  index: "股指分析",
   radar: "配置雷达",
   "report-library": "报告库",
   subscriptions: "订阅推送",
+  logs: "日志",
   settings: "配置",
 };
 
@@ -33,6 +41,22 @@ function updateViewTitle(view) {
 
 function mainContent() {
   return document.getElementById("workspaceMain");
+}
+
+function viewFromHash() {
+  const view = window.location.hash.slice(1).split("/")[0];
+  return HASH_VIEWS.has(view) ? view : null;
+}
+
+function syncViewFromHash() {
+  const view = viewFromHash();
+  if (view && view !== store.currentView) switchView(view);
+}
+
+function updateSimpleViewHash(view) {
+  if (view === "radar") return;
+  const nextHash = `#${view}`;
+  if (window.location.hash !== nextHash) window.history.replaceState(null, "", nextHash);
 }
 
 function focusVisible(target) {
@@ -80,6 +104,61 @@ function initWorkspaceShell() {
   const layout = document.getElementById("appLayout");
   const search = document.getElementById("globalStockSearch");
   const searchForm = search?.closest("form");
+  const sidebar = document.getElementById("sidebar");
+  const sidebarResizer = document.getElementById("sidebarResizer");
+  let resizePointerId = null;
+  let appliedSidebarWidth = null;
+
+  function sidebarWidthFromStorage() {
+    try {
+      const width = Number(window.sessionStorage?.getItem(SIDEBAR_WIDTH_KEY));
+      return Number.isFinite(width) ? width : null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function applySidebarWidth(width) {
+    if (!layout) return;
+    const bounded = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width));
+    appliedSidebarWidth = bounded;
+    layout.style.setProperty("--sidebar-width", `${bounded}px`);
+  }
+
+  function finishSidebarResize() {
+    if (resizePointerId === null) return;
+    resizePointerId = null;
+    document.body.classList.remove("sidebar-resizing");
+    layout?.classList.remove("sidebar-resizing");
+    try {
+      if (appliedSidebarWidth !== null) {
+        window.sessionStorage?.setItem(SIDEBAR_WIDTH_KEY, String(Math.round(appliedSidebarWidth)));
+      }
+    } catch (_error) {
+      // 浏览器禁用会话存储时仅放弃记忆，不影响本次拖拽。
+    }
+  }
+
+  const savedSidebarWidth = sidebarWidthFromStorage();
+  if (savedSidebarWidth !== null) applySidebarWidth(savedSidebarWidth);
+  sidebarResizer?.addEventListener("pointerdown", (event) => {
+    if (!layout || !sidebar || sidebar.classList.contains("collapsed") || isNarrowScreen()) return;
+    event.preventDefault();
+    resizePointerId = event.pointerId;
+    sidebarResizer.setPointerCapture?.(event.pointerId);
+    document.body.classList.add("sidebar-resizing");
+    layout.classList.add("sidebar-resizing");
+  });
+  document.addEventListener("pointermove", (event) => {
+    if (resizePointerId !== event.pointerId || !layout) return;
+    applySidebarWidth(event.clientX - layout.getBoundingClientRect().left);
+  });
+  document.addEventListener("pointerup", (event) => {
+    if (resizePointerId === event.pointerId) finishSidebarResize();
+  });
+  document.addEventListener("pointercancel", (event) => {
+    if (resizePointerId === event.pointerId) finishSidebarResize();
+  });
 
   toggle?.addEventListener("click", () => {
     const opening = !document.body.classList.contains("workspace-nav-open");
@@ -125,7 +204,17 @@ function init() {
     node.addEventListener("click", () => {
       const focusTarget = isNarrowScreen() ? mainContent() : node;
       resetWorkspaceOverlays({ focusTarget });
+      updateSimpleViewHash(node.dataset.view);
       switchView(node.dataset.view);
+    });
+  });
+  document.querySelectorAll("[data-analysis-mode]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const mode = node.dataset.analysisMode;
+      if (mode === store.currentView) return;
+      updateSimpleViewHash(mode);
+      switchView(mode);
+      document.querySelector(`#view-${mode} [data-analysis-mode="${mode}"]`)?.focus();
     });
   });
   // 全局连接状态条：网络层失败（conn-down）/恢复（conn-up）时切换显隐。
@@ -141,12 +230,22 @@ function init() {
   initReportView();
   initReportDrawer();
   initIndexView();
-  initRadar();
   initReportLibrary();
   initSessions();
   initSubscriptions();
+  initLogs();
   initSettings();
-  initSessionStartup().catch((error) => console.error("会话初始化失败:", error));
+  window.addEventListener("hashchange", syncViewFromHash);
+  initSessionStartup()
+    .catch((error) => console.error("会话初始化失败:", error))
+    .finally(() => import("./allocation-view.js?v=20260927-page-heading-1")
+      .then(({ initRadar: initializeRadar }) => initializeRadar())
+      .catch((error) => {
+        console.error("配置雷达初始化失败:", error);
+        const radarContent = document.getElementById("radarContent");
+        if (radarContent) radarContent.textContent = "配置雷达暂时无法初始化，请刷新后重试。";
+      }))
+    .finally(syncViewFromHash);
 }
 
 init();

@@ -1,0 +1,11 @@
+version: 1
+benchmarks:
+  - id: money_fund
+    name: 中证货币型基金指数
+    symbol: H11025
+  - id: csi_300
+    name: 沪深300
+    symbol: '000300'
+  - id: csi_all_bond
+    name: 中证全债指数
+    symbol: H11001

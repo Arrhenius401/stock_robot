@@ -38,6 +38,7 @@ class TestIndexTechnicalAnalyzer:
         assert result.status in ("ok", "partial")
         assert "tag" in result.metrics
         assert result.metrics["tag"] in ("bull", "shake", "bear")
+        assert "多头" in result.summary
 
     def test_analyze_no_data(self):
         target = AnalysisTarget(

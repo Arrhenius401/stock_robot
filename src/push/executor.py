@@ -49,14 +49,16 @@ class PushExecutor:
             raise ValueError(f"无效的股票代码: {raw}")
         if item.kind == "index":
             if OVERSEAS_PATTERN.match(raw.strip().upper()):
-                return raw.strip().upper(), "index", None
+                symbol = raw.strip().upper()
+                return symbol, "index", self._mapping.lookup(symbol)
             if validate_index_symbol(raw):
                 idx_norm = normalize_index_symbol(raw)
                 # 查映射表取名称/市场；未收录的 A 股指数由 _push_index 兜底
                 return idx_norm, "index", self._mapping.lookup(idx_norm)
             raise ValueError(f"无效的指数代码: {raw}")
         if OVERSEAS_PATTERN.match(raw.strip().upper()):
-            return raw.strip().upper(), "index", None
+            symbol = raw.strip().upper()
+            return symbol, "index", self._mapping.lookup(symbol)
         idx_norm = normalize_index_symbol(raw)
         entry = self._mapping.lookup(idx_norm)
         if entry is not None:
@@ -65,31 +67,48 @@ class PushExecutor:
             return normalize_symbol(raw), "stock", None
         raise ValueError(f"无效的代码: {raw}")
 
-    def run_subscription(self, sub: Subscription) -> dict:
-        """逐标的串行推送；单标的失败隔离并记录执行结果"""
+    def run_subscription(self, sub: Subscription, run_id: int | None = None) -> dict:
+        """逐标的串行推送；运行记录在首次执行前持久化。"""
+        if run_id is None:
+            run_id = self._store.queue_run(sub, "manual")
+        run = self._store.get_run(run_id)
+        if run is None:
+            raise ValueError("运行记录不存在")
+        sub = Subscription.model_validate(run["subscription_snapshot"])
         failures: list[str] = []
         ok = 0
-        backend = get_backend(sub.channel, self._config)
-        for item in sub.symbols:
-            raw = item.symbol
-            try:
-                self._push_one(item, sub.channel, backend)
-                ok += 1
-            except Exception as e:  # noqa: BLE001 — 单标的失败不影响整体
-                logger.error("推送 %s 失败: %s", raw, e)
-                failures.append(f"{raw}: {e}")
-        self._store.record_run(sub.id or 0, len(sub.symbols), ok, failures)
-        return {"total": len(sub.symbols), "ok": ok, "failures": failures}
+        self._store.start_run(run_id)
+        try:
+            backend = get_backend(sub.channel, self._config)
+            for item in sub.symbols:
+                raw = item.symbol
+                self._store.set_current(run_id, raw)
+                try:
+                    self._push_one(item, sub.channel, backend)
+                    ok += 1
+                    self._store.advance_run(run_id, success=True)
+                except Exception as exc:  # noqa: BLE001 — 单标的失败不影响整体
+                    logger.error("推送 %s 失败: %s", raw, exc)
+                    failure = f"{raw}: {exc}"
+                    failures.append(failure)
+                    self._store.advance_run(run_id, success=False, failure=failure)
+        except Exception as exc:
+            logger.exception("订阅 %s 运行失败", sub.id)
+            failures.append(f"推送初始化失败: {exc}")
+            self._store.finish_run(run_id, error=failures[-1])
+            return {"run_id": run_id, "total": len(sub.symbols), "ok": ok, "failures": failures}
+        self._store.finish_run(run_id)
+        return {"run_id": run_id, "total": len(sub.symbols), "ok": ok, "failures": failures}
 
     def _push_one(self, item: SubscriptionSymbol, channel: str, backend) -> None:
         normalized, kind, entry = self._classify(item)
         if kind == "stock":
-            self._push_stock(normalized, channel, backend)
+            self._push_stock(normalized, channel, backend, item.display_name)
         else:
             self._push_index(normalized, entry, item.index_style, channel, backend)
 
-    def _push_stock(self, symbol: str, channel: str, backend) -> None:
-        name = resolve_name(symbol) or symbol
+    def _push_stock(self, symbol: str, channel: str, backend, display_name: str = "") -> None:
+        name = display_name or resolve_name(symbol) or symbol
         results, commentary, ctx = self._core.pipeline.run(symbol, name)
         signal_cfg = load_signal_config(self._config)
         if channel == "email":

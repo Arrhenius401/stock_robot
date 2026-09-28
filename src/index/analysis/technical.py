@@ -3,7 +3,7 @@ from typing import Any, Literal
 
 from analysis.base import AnalysisModule
 from data.schemas import AnalysisResult, IndexAnalysisContext, SufficiencyLevel
-from index.enricher import tag_technical
+from index.enricher import index_tag_label, tag_technical
 
 
 class IndexTechnicalAnalyzer(AnalysisModule):
@@ -49,7 +49,7 @@ class IndexTechnicalAnalyzer(AnalysisModule):
                                   summary="行情数据不足", metrics=metrics)
 
         status = "partial" if len(closes) < 20 else "ok"
-        summary = f"最新价 {latest_close:.2f}，趋势: {trend_tag}"
+        summary = f"最新价 {latest_close:.2f}，趋势：{index_tag_label(trend_tag)}"
 
         return AnalysisResult(dimension=self.dimension, status=status,
                               summary=summary, metrics=metrics)

@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from http.client import RemoteDisconnected
 
 import pandas as pd
@@ -369,6 +369,7 @@ def test_fetch_industry_excludes_target_from_comparable_peers(mocker):
     assert result.peer_scope == "申万二级"
     assert result.peer_industry == "养殖业"
     assert result.peers == ["002157"]
+    assert result.peer_names == {"002157": "正邦科技"}
     assert [peer.symbol for peer in result.top_peers] == ["002157"]
     assert result._target_rank == 1
     backfill.assert_called_once_with(["002714", "002157"], "农林牧渔", "养殖业")
@@ -506,14 +507,15 @@ def test_fetch_news_uses_individual_notice(mocker):
     """公告使用个股接口，失败时仅新闻不报错"""
     import pandas as pd
 
+    today = datetime.now().astimezone().date().isoformat()
     news_df = pd.DataFrame({
         "关键词": ["000001"], "新闻标题": ["测试新闻"], "新闻内容": ["内容"],
-        "发布时间": ["2026-08-23 10:00:00"],
+        "发布时间": [f"{today} 10:00:00"],
     })
     notice_df = pd.DataFrame({
         "代码": ["000001"], "名称": ["平安银行"],
         "公告标题": ["平安银行:关于职工董事任职资格核准的公告"],
-        "公告类型": ["高管人员任职变动"], "公告日期": ["2026-08-22"],
+        "公告类型": ["高管人员任职变动"], "公告日期": [today],
     })
     mocker.patch("data.akshare._ak_news", return_value=news_df)
     mocker.patch("akshare.stock_individual_notice_report", return_value=notice_df)
@@ -531,9 +533,10 @@ def test_fetch_news_notice_fail_keeps_news(mocker):
     """公告接口失败时仅新闻，不抛异常"""
     import pandas as pd
 
+    today = datetime.now().astimezone().date().isoformat()
     news_df = pd.DataFrame({
         "关键词": ["000001"], "新闻标题": ["测试新闻"], "新闻内容": ["内容"],
-        "发布时间": ["2026-08-23 10:00:00"],
+        "发布时间": [f"{today} 10:00:00"],
     })
     mocker.patch("data.akshare._ak_news", return_value=news_df)
     mocker.patch("akshare.stock_individual_notice_report",

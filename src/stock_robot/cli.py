@@ -1,7 +1,8 @@
 """Stock Robot CLI — AI 驱动的股票分析研报助手"""
 import logging
 import os
-from datetime import timedelta
+from copy import deepcopy
+from datetime import date, timedelta
 
 os.environ["TQDM_DISABLE"] = "1"
 
@@ -17,6 +18,28 @@ console = Console()
 logger = logging.getLogger(__name__)
 
 from utils.config import Config
+
+_RUNTIME_LOG_HANDLER_NAME = "stock-robot-runtime-log"
+
+
+def _configure_runtime_log(config: Config) -> Path:
+    """为 Web 服务增加可供界面读取的本地运行日志。"""
+    root_logger = logging.getLogger()
+    for existing_handler in root_logger.handlers:
+        if existing_handler.get_name() != _RUNTIME_LOG_HANDLER_NAME:
+            continue
+        existing_path = getattr(existing_handler, "baseFilename", None)
+        if isinstance(existing_path, str):
+            return Path(existing_path)
+    # 同机多个 Web 服务可并存，按进程隔离文件，避免日志页混入其他服务的记录。
+    log_path = config.config_dir / f"runtime-{os.getpid()}.log"
+    handler = logging.FileHandler(log_path, encoding="utf-8")
+    handler.set_name(_RUNTIME_LOG_HANDLER_NAME)
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s %(message)s"))
+    root_logger.addHandler(handler)
+    root_logger.setLevel(logging.INFO)
+    return log_path
 
 
 def _create_cli_progress():
@@ -234,36 +257,9 @@ def _render_index_report(report):
 
 def _render_index_report_md(report) -> str:
     """将 IndexReport 渲染为纯 Markdown 文本"""
-    from datetime import datetime
+    from index.build_single import render_index_report_markdown
 
-    from jinja2 import Environment, FileSystemLoader
-
-    from report.builder import _md_table
-
-    template_dir = Path(__file__).parent.parent / "report" / "templates"
-    env = Environment(loader=FileSystemLoader(str(template_dir)),
-                      trim_blocks=True, lstrip_blocks=True)
-    env.filters["md_table"] = _md_table
-    template = env.get_template("index_report.jinja2")
-    return template.render(
-        code=report.code,
-        name=report.name,
-        generated_at=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
-        overview=report.overview,
-        section_technical=report.section_technical,
-        section_valuation=report.section_valuation,
-        section_capital=report.section_capital,
-        section_macro=report.section_macro,
-        section_sentiment=report.section_sentiment,
-        tag_technical=report.tag_technical,
-        tag_valuation=report.tag_valuation,
-        tag_capital=report.tag_capital,
-        tag_macro=report.tag_macro,
-        tag_sentiment=report.tag_sentiment,
-        composite_comment=report.composite_comment,
-        position_coeff=report.position_coeff,
-        visible_sections=report.visible_sections,
-    )
+    return render_index_report_markdown(report)
 
 
 def _render_compare_table(compare) -> Table | str:
@@ -614,11 +610,48 @@ def _resolve_api_bind(host: str | None, port: int | None, config: Config) -> tup
     return resolved_host, resolved_port
 
 
-def _run_web_server(app, host: str, port: int) -> None:
-    """运行 Web 服务。"""
+def _runtime_uvicorn_log_config(runtime_log_path: Path) -> dict:
+    """构建同时写入控制台和本次服务日志的 Uvicorn 配置。"""
+    from uvicorn.config import LOGGING_CONFIG
+
+    log_config = deepcopy(LOGGING_CONFIG)
+    log_config["formatters"]["runtime_default"] = {
+        "()": "uvicorn.logging.DefaultFormatter",
+        "fmt": "%(asctime)s %(levelprefix)s %(message)s",
+        "use_colors": False,
+    }
+    log_config["formatters"]["runtime_access"] = {
+        "()": "uvicorn.logging.AccessFormatter",
+        "fmt": '%(asctime)s %(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s',
+        "use_colors": False,
+    }
+    log_config["handlers"]["runtime_default"] = {
+        "class": "logging.FileHandler",
+        "encoding": "utf-8",
+        "filename": str(runtime_log_path),
+        "formatter": "runtime_default",
+    }
+    log_config["handlers"]["runtime_access"] = {
+        "class": "logging.FileHandler",
+        "encoding": "utf-8",
+        "filename": str(runtime_log_path),
+        "formatter": "runtime_access",
+    }
+    log_config["loggers"]["uvicorn"]["handlers"].append("runtime_default")
+    log_config["loggers"]["uvicorn.access"]["handlers"].append("runtime_access")
+    return log_config
+
+
+def _run_web_server(app, host: str, port: int, runtime_log_path: Path) -> None:
+    """运行 Web 服务，并将访问日志写入本次服务的日志文件。"""
     import uvicorn
 
-    uvicorn.run(app, host=host, port=port)
+    uvicorn.run(
+        app,
+        host=host,
+        port=port,
+        log_config=_runtime_uvicorn_log_config(runtime_log_path),
+    )
 
 
 @main.command("run")
@@ -630,17 +663,28 @@ def run(host, port):
     from api.bootstrap import build_agent_core
 
     config = Config()
+    runtime_log_path = _configure_runtime_log(config)
+    try:
+        runtime_log_offset = runtime_log_path.stat().st_size
+    except FileNotFoundError:
+        runtime_log_offset = 0
     bind_host, bind_port = _resolve_api_bind(host, port, config)
     with _create_cli_progress() as progress:
         task_id = progress.add_task("正在构建 Agent 核心", total=3)
         core = build_agent_core(config)
         progress.update(task_id, completed=1, description="正在创建 Web 应用")
-        app = create_app(core=core)
+        app = create_app(
+            core=core,
+            log_start_offset=runtime_log_offset,
+            runtime_log_path=runtime_log_path,
+        )
         progress.update(task_id, completed=3, description="正在启动 HTTP 服务")
 
-    logger.info("Stock Robot API 启动于 http://%s:%d", bind_host, bind_port)
-    console.print(f"[green]Web 服务正在运行: http://{bind_host}:{bind_port}[/green]")
-    _run_web_server(app, bind_host, bind_port)
+    web_url = f"http://{bind_host}:{bind_port}"
+    logger.info("Stock Robot API 启动于 %s", web_url)
+    logger.info("Web 服务正在运行: %s", web_url)
+    console.print(f"[green]Web 服务正在运行: {web_url}[/green]")
+    _run_web_server(app, bind_host, bind_port, runtime_log_path)
 
 
 @main.command()
@@ -961,13 +1005,13 @@ def rag_stats():
 
 @main.group()
 def subscribe():
-    """管理每日定时推送订阅（邮件/企业微信）"""
+    """管理每日邮箱推送订阅"""
 
 
 @subscribe.command("add")
 @click.option("--name", required=True, help="订阅名称")
 @click.option("--symbols", required=True, help="标的代码，逗号/空格分隔")
-@click.option("--channel", type=click.Choice(["email", "wecom"]), required=True,
+@click.option("--channel", type=click.Choice(["email"]), default="email",
               help="推送渠道")
 @click.option("--time", "push_time", required=True, help="每日推送时间 HH:MM")
 @click.option("--kind", type=click.Choice(["auto", "stock", "index"]),
@@ -981,6 +1025,7 @@ def subscribe_add(name, symbols, channel, push_time, kind, index_style):
     from typing import Any
 
     from push.models import Subscription
+    from push.names import resolve_subscription
     from push.store import PushStore
     from utils.config import Config
 
@@ -999,8 +1044,13 @@ def subscribe_add(name, symbols, channel, push_time, kind, index_style):
         time=push_time,
         created_at=datetime.now().astimezone().isoformat(),
     )
+    try:
+        resolve_subscription(sub)
+    except ValueError as exc:
+        raise click.BadParameter(str(exc), param_hint="--symbols") from exc
     sub_id = store.create(sub)
     console.print(f"[green]已创建订阅 #{sub_id}: {name}（{channel} {push_time}）[/green]")
+    console.print("[yellow]若 Web 服务正在运行，请重启服务以注册新的每日定时任务。[/yellow]")
 
 
 @subscribe.command("list")
@@ -1032,11 +1082,15 @@ def subscribe_list():
 @click.option("--id", "sub_id", type=int, required=True, help="订阅 ID")
 def subscribe_remove(sub_id):
     """删除订阅"""
-    from push.store import PushStore
+    from push.store import ActiveRunError, PushStore
     from utils.config import Config
 
     store = PushStore(Config().config_dir / "push.db")
-    if store.delete(sub_id):
+    try:
+        deleted = store.delete(sub_id)
+    except ActiveRunError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if deleted:
         console.print(f"[green]已删除订阅 #{sub_id}[/green]")
     else:
         console.print(f"[red]订阅 #{sub_id} 不存在[/red]")
@@ -1068,6 +1122,8 @@ def _set_enabled(sub_id: int, enabled: bool):
     sub.enabled = enabled
     store.update(sub)
     console.print(f"[green]订阅 #{sub_id} 已{'启用' if enabled else '停用'}[/green]")
+    if enabled:
+        console.print("[yellow]若 Web 服务正在运行，请重启服务以注册该每日定时任务。[/yellow]")
 
 
 @subscribe.command("run")
@@ -1075,7 +1131,7 @@ def _set_enabled(sub_id: int, enabled: bool):
 def subscribe_run(sub_id):
     """手动触发一次推送（同步执行，耗时取决于标的数）"""
     from push.executor import PushExecutor
-    from push.store import PushStore
+    from push.store import ActiveRunError, MissingSubscriptionError, PushStore
     from utils.config import Config
 
     config = Config()
@@ -1087,9 +1143,14 @@ def subscribe_run(sub_id):
     from api.bootstrap import build_agent_core
     core = build_agent_core(config)
     executor = PushExecutor(core, store, config)
+    try:
+        run_id = store.queue_run(sub, "manual")
+    except (ActiveRunError, MissingSubscriptionError) as exc:
+        raise click.ClickException(str(exc)) from exc
     with console.status("正在生成报告并推送..."):
-        result = executor.run_subscription(sub)
-    console.print(f"[green]推送完成: {result['ok']}/{result['total']} 成功[/green]")
+        result = executor.run_subscription(sub, run_id)
+    final_run = store.get_run(run_id)
+    console.print(f"[green]运行 #{run_id}：{final_run['status'] if final_run else 'unknown'}，{result['ok']}/{result['total']} 成功[/green]")
     for failure in result["failures"]:
         console.print(f"[yellow]失败: {failure}[/yellow]")
 
@@ -1099,6 +1160,7 @@ def _radar_services():
     from radar.data import (
         AkShareETFDataProvider,
         FallbackETFDataProvider,
+        LocalETFDataProvider,
         OfficialExchangeETFDataProvider,
         RequestPacer,
         SinaETFDataProvider,
@@ -1112,6 +1174,7 @@ def _radar_services():
     root = Path(__file__).parents[2]
     repository = UniverseRepository(root / "config" / "radar_universes")
     provider = FallbackETFDataProvider((
+        LocalETFDataProvider(config.config_dir / "radar_local_data" / "etf"),
         AkShareETFDataProvider(pacer=RequestPacer(config.get("radar.minimum_interval_seconds", 1.0))),
         TencentETFDataProvider(),
         SinaETFDataProvider(),
@@ -1161,6 +1224,64 @@ def radar_refresh(universe_id, full, as_of):
     console.print(f"[green]快照已完成: {run_id}[/green]")
 
 
+@radar.command("collect")
+@click.option("--hour", default=18, show_default=True, type=click.IntRange(0, 23))
+@click.option("--minute", default=30, show_default=True, type=click.IntRange(0, 59))
+@click.option("--once", is_flag=True, help="立即执行一次后退出")
+def radar_collect(hour: int, minute: int, once: bool):
+    """工作日收盘后自动刷新两个 ETF 池。"""
+    from radar.collector import RadarCollector
+    from radar.collector_store import CollectorStore
+
+    config, repository, _, refresher = _radar_services()
+    status_store = CollectorStore(config.config_dir / "radar_collector.db")
+    collector = RadarCollector(
+        lambda universe_id: refresher.refresh(universe_id),
+        tuple(item.id for item in repository.load_all()),
+        status_store.record,
+        status_store.record_started,
+        status_store.record_heartbeat,
+    )
+    if once:
+        for universe_id, result in collector.run_once().items():
+            console.print(f"{universe_id}: {result}")
+        return
+    console.print(f"[green]采集守护已启动：工作日 {hour:02d}:{minute:02d} 执行，按 Ctrl+C 退出。[/green]")
+    collector.serve(hour=hour, minute=minute)
+
+
+@radar.command("import-data")
+@click.option("--symbol", required=True, help="六位 ETF 代码")
+@click.option("--file", "source_file", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True, help="含日线的 CSV 文件")
+def radar_import_data(symbol: str, source_file: Path):
+    """导入本地 ETF 日线，供离线刷新与回测优先使用。"""
+    from radar.data import LocalETFDataProvider, RadarDataError
+
+    config = Config()
+    provider = LocalETFDataProvider(config.config_dir / "radar_local_data" / "etf")
+    try:
+        rows, start, end = provider.import_csv(symbol, source_file)
+    except RadarDataError as exc:
+        raise click.ClickException(str(exc)) from exc
+    console.print(f"[green]已导入 {symbol}: {rows} 行，覆盖 {start.isoformat()} 至 {end.isoformat()}[/green]")
+
+
+@radar.command("import-benchmark")
+@click.option("--benchmark", "benchmark_id", type=click.Choice(["money_fund", "csi_300", "csi_all_bond"]), required=True, help="雷达固定基准 ID")
+@click.option("--file", "source_file", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True, help="含日期和收盘价的 CSV 文件")
+def radar_import_benchmark(benchmark_id: str, source_file: Path):
+    """导入本地基准日线，供离线回测和标的比较优先使用。"""
+    from radar.benchmarks import LocalBenchmarkStore, RadarBenchmarkError
+
+    config = Config()
+    store = LocalBenchmarkStore(config.config_dir / "radar_local_data" / "benchmarks")
+    try:
+        rows, start, end = store.import_csv(benchmark_id, source_file)
+    except RadarBenchmarkError as exc:
+        raise click.ClickException(str(exc)) from exc
+    console.print(f"[green]已导入基准 {benchmark_id}: {rows} 行，覆盖 {start.isoformat()} 至 {end.isoformat()}[/green]")
+
+
 @radar.command("status")
 @click.option("--universe", "universe_id", required=True, help="标的池 ID")
 def radar_status(universe_id):
@@ -1200,14 +1321,25 @@ def radar_show(universe_id, run_id, category):
 @click.option("--start", required=True, type=click.DateTime(formats=["%Y-%m-%d"]))
 @click.option("--end", required=True, type=click.DateTime(formats=["%Y-%m-%d"]))
 @click.option("--strategy", default="core_rotation_v1", show_default=True)
-@click.option("--benchmark", help="可选的 ETF 基准代码")
-def radar_backtest(universe_id, start, end, strategy, benchmark):
+@click.option("--rerun", is_flag=True, help="忽略同参数的已完成产物并强制重新计算")
+def radar_backtest(universe_id, start, end, strategy, rerun):
     """运行 ETF 月度轮动研究回测并写入可审计产物。"""
-    from radar.artifacts import write_radar_backtest_artifacts
+    import pandas as pd
+
+    from radar.artifacts import (
+        find_reusable_radar_backtest,
+        write_radar_backtest_artifacts,
+    )
     from radar.backtest import run_monthly_rotation
+    from radar.benchmarks import (
+        RadarBenchmarkError,
+        fetch_benchmark_closes,
+        load_benchmarks,
+    )
     from radar.data import (
         AkShareETFDataProvider,
         FallbackETFDataProvider,
+        LocalETFDataProvider,
         OfficialExchangeETFDataProvider,
         RadarDataError,
         RequestPacer,
@@ -1230,7 +1362,43 @@ def radar_backtest(universe_id, start, end, strategy, benchmark):
         raise click.ClickException(str(exc)) from exc
     if selected_strategy.asset_type != universe.asset_type:
         raise click.ClickException("策略与标的池资产类型不一致")
+    try:
+        benchmark_catalog = load_benchmarks(root / "config" / "radar_benchmarks.yaml")
+    except RadarBenchmarkError as exc:
+        raise click.ClickException(str(exc)) from exc
+    configured_profiles = config.get("radar.cost_profiles", {})
+    raw_cost_profile = configured_profiles.get(selected_strategy.cost_profile) if isinstance(configured_profiles, dict) else None
+    if not isinstance(raw_cost_profile, dict):
+        raw_cost_profile = {"commission_rate": config.get("radar.etf_cost_rate", 0.0005), "slippage_rate": 0.0}
+    try:
+        commission_rate = float(raw_cost_profile["commission_rate"])
+        slippage_rate = float(raw_cost_profile["slippage_rate"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise click.ClickException(f"成本档 {selected_strategy.cost_profile} 配置无效") from exc
+    if commission_rate < 0 or slippage_rate < 0:
+        raise click.ClickException(f"成本档 {selected_strategy.cost_profile} 的费率不能为负")
+    cost_profile = {
+        "id": selected_strategy.cost_profile,
+        "commission_rate": commission_rate,
+        "slippage_rate": slippage_rate,
+    }
+    benchmark_specs = [item.model_dump() for item in benchmark_catalog.benchmarks]
+    if not rerun:
+        existing = find_reusable_radar_backtest(
+            root / "reports",
+            universe_id=universe.id,
+            strategy_id=strategy,
+            strategy_fingerprint=selected_strategy.fingerprint,
+            start_date=start.date(),
+            end_date=end.date(),
+            cost_profile=cost_profile,
+            benchmarks=benchmark_specs,
+        )
+        if existing is not None:
+            console.print(f"[green]复用已有回测产物: {existing}[/green]")
+            return existing
     provider = FallbackETFDataProvider((
+        LocalETFDataProvider(config.config_dir / "radar_local_data" / "etf"),
         AkShareETFDataProvider(pacer=RequestPacer(config.get("radar.minimum_interval_seconds", 1.0))),
         TencentETFDataProvider(),
         SinaETFDataProvider(),
@@ -1241,14 +1409,123 @@ def radar_backtest(universe_id, start, end, strategy, benchmark):
         histories = {item.symbol: provider.fetch_daily(item.symbol, data_start, end.date()) for item in universe.instruments}
     except RadarDataError as exc:
         raise click.ClickException(f"回测历史数据不可用: {exc}") from exc
-    if benchmark:
-        try:
-            provider.fetch_daily(benchmark, data_start, end.date())
-        except Exception as exc:  # 基准数据源错误需在写入产物前失败
-            raise click.ClickException(f"基准数据不可用: {benchmark}") from exc
-    result = run_monthly_rotation(histories, {item.symbol: item.category for item in universe.instruments}, start.date(), end.date(), weights=selected_strategy.weights)
-    output = write_radar_backtest_artifacts(result, universe_id=universe.id, universe_version=universe.version, strategy_id=strategy, strategy_fingerprint=selected_strategy.fingerprint, start_date=start.date(), end_date=end.date(), benchmark=benchmark)
+    try:
+        benchmarks = {
+            item.id: fetch_benchmark_closes(
+                item,
+                start.date(),
+                end.date(),
+                local_directory=config.config_dir / "radar_local_data" / "benchmarks",
+            )
+            for item in benchmark_catalog.benchmarks
+        }
+    except RadarBenchmarkError as exc:
+        raise click.ClickException(f"基准数据不可用: {exc}") from exc
+    result = run_monthly_rotation(
+        histories,
+        {item.symbol: item.category for item in universe.instruments},
+        start.date(),
+        end.date(),
+        commission_rate=commission_rate,
+        slippage_rate=slippage_rate,
+        weights=selected_strategy.weights,
+        benchmarks=benchmarks,
+    )
+    def coverage(frame):
+        dates = pd.to_datetime(frame["date"], errors="coerce").dropna()
+        return {
+            "start_date": dates.min().date().isoformat() if not dates.empty else None,
+            "end_date": dates.max().date().isoformat() if not dates.empty else None,
+            "rows": len(frame),
+        }
+
+    data_coverage = {
+        "requested_history_start": data_start.isoformat(),
+        "formal_start": start.date().isoformat(), "formal_end": end.date().isoformat(),
+        "instruments": {symbol: coverage(frame) for symbol, frame in histories.items()},
+        "benchmarks": {benchmark_id: {
+            "start_date": str(values.index.min()),
+            "end_date": str(values.index.max()), "rows": len(values),
+        } for benchmark_id, values in benchmarks.items()},
+    }
+    output = write_radar_backtest_artifacts(
+        result,
+        universe_id=universe.id,
+        universe_version=universe.version,
+        strategy_id=strategy,
+        strategy_fingerprint=selected_strategy.fingerprint,
+        start_date=start.date(),
+        end_date=end.date(),
+        benchmarks=benchmark_specs,
+        cost_rate=commission_rate,
+        strategy_snapshot=selected_strategy.model_dump(mode="json"),
+        cost_profile=cost_profile,
+        data_coverage=data_coverage,
+        data_providers={
+            "etf": ["AkShareETFDataProvider", "TencentETFDataProvider", "SinaETFDataProvider", "OfficialExchangeETFDataProvider"],
+            "benchmarks": ["AkShare CSI 指数日线"],
+        },
+    )
     console.print(f"[green]回测产物已保存: {output}[/green]")
+    return output
+
+
+@radar.command("backtest-walkforward")
+@click.option("--universe", "universe_id", required=True, help="标的池 ID")
+@click.option("--start", required=True, type=click.DateTime(formats=["%Y-%m-%d"]))
+@click.option("--end", required=True, type=click.DateTime(formats=["%Y-%m-%d"]))
+@click.option("--window-years", default=2, show_default=True, type=click.IntRange(min=1), help="固定且不重叠的窗口年数")
+@click.option("--strategy", default="core_rotation_v1", show_default=True)
+@click.option("--rerun", is_flag=True, help="忽略可复用的单段回测产物")
+@click.pass_context
+def radar_backtest_walkforward(ctx, universe_id, start, end, window_years, strategy, rerun):
+    """按固定多窗口生成 ETF 策略稳健性报告。"""
+    from radar.walkforward import (
+        fixed_windows,
+        summarize_windows,
+        write_walkforward_artifacts,
+    )
+
+    config = Config()
+    if not _check_disclaimer(config):
+        return
+    try:
+        windows = fixed_windows(start.date(), end.date(), window_years)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    outputs: dict[tuple[date, date], Path] = {}
+    failures: dict[tuple[date, date], str] = {}
+    for window in windows:
+        if not window.available:
+            continue
+        try:
+            output = ctx.invoke(
+                radar_backtest,
+                universe_id=universe_id,
+                start=start.replace(year=window.start_date.year, month=window.start_date.month, day=window.start_date.day),
+                end=end.replace(year=window.end_date.year, month=window.end_date.month, day=window.end_date.day),
+                strategy=strategy,
+                rerun=rerun,
+            )
+            if isinstance(output, Path):
+                outputs[(window.start_date, window.end_date)] = output
+            else:
+                failures[(window.start_date, window.end_date)] = "单段回测未生成产物"
+        except click.ClickException as exc:
+            failures[(window.start_date, window.end_date)] = exc.message
+    summary = summarize_windows(windows, outputs, failures)
+    output = write_walkforward_artifacts(
+        summary,
+        universe_id=universe_id,
+        strategy_id=strategy,
+        start_date=start.date(),
+        end_date=end.date(),
+        window_years=window_years,
+        reports_dir=Path(__file__).parents[2] / "reports",
+    )
+    console.print(f"[green]稳健性报告已保存: {output}[/green]")
+    return output
 
 
 if __name__ == "__main__":

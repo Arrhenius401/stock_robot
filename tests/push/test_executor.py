@@ -18,11 +18,15 @@ class _Pipeline:
 
 
 class _IndexPipeline:
+    def __init__(self):
+        self.targets = []
+
     def run(self, targets):
         from datetime import date
 
         from data.schemas import IndexReport
         target = targets[0]
+        self.targets.extend(targets)
         report = IndexReport(
             code=target.symbol, name=target.name, date=date(2026, 8, 19),
             overview={}, section_technical={"趋势": "多头"}, section_valuation={},
@@ -57,6 +61,20 @@ class _Config:
 
 
 class TestPushExecutor:
+    def test_backend_initialization_failure_is_recorded(self, mocker, tmp_path):
+        from push.store import PushStore
+        store = PushStore(tmp_path / "push.db")
+        sub_id = store.create(Subscription(name="t", symbols=["600519"], channel="email", time="08:00"))  # pyright: ignore[reportArgumentType]
+        mocker.patch("push.executor.get_backend", side_effect=ValueError("SMTP 未配置"))
+        sub = store.get(sub_id)
+        assert sub is not None
+        result = PushExecutor(_Core(), store, _Config()).run_subscription(sub)
+        run = store.last_run(sub_id)
+        assert result["ok"] == 0
+        assert run is not None
+        assert run["status"] == "failed"
+        assert "SMTP 未配置" in run["failures"][0]
+
     def test_stock_email_sends_full(self, mocker, tmp_path):
         from push.store import PushStore
         store = PushStore(tmp_path / "push.db")
@@ -76,11 +94,11 @@ class TestPushExecutor:
         assert run is not None
         assert run["ok"] == 1
 
-    def test_stock_wecom_sends_summary(self, mocker, tmp_path):
+    def test_stock_email_sends_report(self, mocker, tmp_path):
         from push.store import PushStore
         store = PushStore(tmp_path / "push.db")
         sub_id = store.create(Subscription(name="t", symbols=[SubscriptionSymbol(symbol="600519")],
-                                           channel="wecom", time="08:00"))
+                                           channel="email", time="08:00"))
         backend = _Backend()
         mocker.patch("push.executor.get_backend", return_value=backend)
         mocker.patch("push.executor.resolve_name", return_value="平安银行")
@@ -89,14 +107,13 @@ class TestPushExecutor:
         assert sub is not None
         result = executor.run_subscription(sub)
         assert result["ok"] == 1
-        assert "操作信号" in backend.calls[0]["content"]  # 摘要含信号
-        assert "综合解读" not in backend.calls[0]["content"]
+        assert "综合解读" in backend.calls[0]["content"]
 
-    def test_index_wecom_sends_summary(self, mocker, tmp_path):
+    def test_index_email_sends_report(self, mocker, tmp_path):
         from push.store import PushStore
         store = PushStore(tmp_path / "push.db")
         sub_id = store.create(Subscription(name="t", symbols=[SubscriptionSymbol(symbol="000300")],
-                                           channel="wecom", time="08:00"))
+                                           channel="email", time="08:00"))
         backend = _Backend()
         mocker.patch("push.executor.get_backend", return_value=backend)
         mocker.patch("push.executor.resolve_name", return_value="平安银行")
@@ -106,7 +123,7 @@ class TestPushExecutor:
         result = executor.run_subscription(sub)
         assert result["ok"] == 1
         assert "沪深300" in backend.calls[0]["content"]
-        assert "技术：bull" in backend.calls[0]["content"]
+        assert backend.calls[0]["content_type"] == "markdown"
 
     def test_failed_symbol_isolated(self, mocker, tmp_path):
         from push.store import PushStore
@@ -136,7 +153,7 @@ class TestPushExecutor:
         sub_id = store.create(Subscription(
             name="t",
             symbols=[SubscriptionSymbol(symbol="000001", kind="stock")],
-            channel="wecom", time="08:00"))
+            channel="email", time="08:00"))
         backend = _Backend()
         mocker.patch("push.executor.get_backend", return_value=backend)
         mocker.patch("push.executor.resolve_name", return_value="平安银行")
@@ -145,7 +162,7 @@ class TestPushExecutor:
         assert sub is not None
         result = executor.run_subscription(sub)
         assert result["ok"] == 1
-        assert "操作信号" in backend.calls[0]["content"]  # 走股票摘要
+        assert "综合解读" in backend.calls[0]["content"]  # 走股票完整报告
         assert "指数报告" not in backend.calls[0]["title"]
 
     def test_explicit_index_000001(self, mocker, tmp_path):
@@ -157,7 +174,7 @@ class TestPushExecutor:
             name="t",
             symbols=[SubscriptionSymbol(symbol="000001", kind="index",
                                         index_style="broad")],
-            channel="wecom", time="08:00"))
+            channel="email", time="08:00"))
         backend = _Backend()
         mocker.patch("push.executor.get_backend", return_value=backend)
         mocker.patch("push.executor.resolve_name", return_value="平安银行")
@@ -168,6 +185,25 @@ class TestPushExecutor:
         assert result["ok"] == 1
         assert "上证指数" in backend.calls[0]["content"]
 
+    def test_overseas_index_uses_mapped_name_and_market(self, mocker, tmp_path):
+        from push.store import PushStore
+        store = PushStore(tmp_path / "push.db")
+        sub_id = store.create(Subscription(
+            name="海外指数", symbols=[SubscriptionSymbol(symbol="HSI", kind="index",
+                                                   index_style="overseas")],
+            channel="email", time="08:00"))
+        backend = _Backend()
+        mocker.patch("push.executor.get_backend", return_value=backend)
+        core = _Core()
+        sub = store.get(sub_id)
+        assert sub is not None
+        result = PushExecutor(core, store, _Config()).run_subscription(sub)
+        assert result["ok"] == 1
+        target = core.index_pipeline.targets[0]
+        assert (target.symbol, target.name, target.market, target.index_style) == (
+            "HSI", "恒生指数", "hk", "overseas")
+        assert "恒生指数" in backend.calls[0]["title"]
+
     def test_invalid_explicit_kind_fails_isolated(self, mocker, tmp_path):
         """显式 kind 校验失败：该标的失败但不影响其他"""
         from push.models import SubscriptionSymbol
@@ -177,7 +213,7 @@ class TestPushExecutor:
             name="t",
             symbols=[SubscriptionSymbol(symbol="600519", kind="stock"),
                      SubscriptionSymbol(symbol="ABC123", kind="index")],
-            channel="wecom", time="08:00"))
+            channel="email", time="08:00"))
         backend = _Backend()
         mocker.patch("push.executor.get_backend", return_value=backend)
         mocker.patch("push.executor.resolve_name", return_value="平安银行")

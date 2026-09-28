@@ -40,12 +40,6 @@ DEFAULT_CONFIG = {
             "smtp_password": "",
             "to_addr": "",
         },
-        "wecom": {
-            "corp_id": "",
-            "agent_id": "",
-            "secret": "",
-            "to_user": "@all",
-        },
     },
     "signal": {
         "thresholds": {
@@ -80,6 +74,13 @@ DEFAULT_CONFIG = {
     "radar": {
         "history_days": 400,
         "minimum_interval_seconds": 1.0,
+        "etf_cost_rate": 0.0005,
+        "cost_profiles": {
+            "etf_default": {
+                "commission_rate": 0.0003,
+                "slippage_rate": 0.0002,
+            },
+        },
     },
 }
 
@@ -101,6 +102,8 @@ class Config:
             user_config = yaml.safe_load(f) or {}
         merged = self._deep_copy(DEFAULT_CONFIG)
         self._merge(merged, user_config)
+        # 旧配置中的企微凭据不再载入运行时；下次保存配置时自然移除。
+        merged["push"].pop("wecom", None)
         return merged
 
     def _write_default(self):

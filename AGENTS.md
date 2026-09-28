@@ -1,5 +1,14 @@
 # AGENTS.md
 
+## CodeGraph 使用
+
+仓库根目录存在 `.codegraph/` 时，定位或理解代码应先使用 CodeGraph，再考虑 `rg` 或直接读取源码。当前项目已建立索引，已验证 MCP 工具 `mcp__codegraph__codegraph_explore` 可用。
+
+- 若工具未直接显示，先在可用工具中搜索 `codegraph_explore`，不要据此认定 CodeGraph 不可用。
+- 调用时传入 `projectPath: "D:\\code\\stock_robot"` 和具体的文件名、符号名或问题；返回的带行号源码可直接用于分析，必要时再按符号缩小查询。
+- 只有确认 `Get-Command codegraph` 能找到命令时才使用 CLI 后备方案。当前环境没有 `codegraph` 命令，优先使用 MCP。
+- 若 `.codegraph/` 不存在，则跳过 CodeGraph；是否建立索引由用户决定。
+
 ## 项目概述
 
 Stock Robot — AI 驱动的股票分析研报助手。输入 A 股代码，输出多维度分析报告。
@@ -60,12 +69,12 @@ chore(项目): 初始化项目脚手架
 - 涉及类型系统边界行为（Protocol/ClassVar 结构匹配、`cast` 到 Literal、`# pyright: ignore` 规则码）先用 10 行临时探针 + `pyright <探针>` 验证再大规模应用
 - `mcp__ide__getDiagnostics` 依赖 IDE 连接，时有时无，**不可作为复查依赖**
 
+推荐入口为 `.\scripts\verify.ps1 -Scope Changed`；它按 Git 改动选择最小验证集，无法安全归类时自动回退全量。提交前使用 `-Source Staged`，全量使用 `-Scope Full`。
+
 ### 环境事实（勿重复探测）
 
 - `python`/`pip` 裸命令指向 Anaconda（`D:\Private File\Anaconda`）——**所有 Python 命令显式用 `.venv/Scripts/python`**；Anaconda 缺 pytest-asyncio，用它跑 async 测试会误报失败
-- `pyright` 在 `C:\Users\25618\AppData\Roaming\Python\Python312\Scripts\pyright`，直接命令可用；`.venv` 中未安装
-- `ruff` 不在 PATH，用 VS Code 扩展 bundled 二进制（**版本号会随扩展升级变化，必须用通配符**）：
-  `~/.vscode/extensions/charliermarsh.ruff-*/bundled/libs/bin/ruff.exe`
+- 首次开发环境同步执行 `.\scripts\bootstrap-dev.ps1`；它将 Ruff、Pyright、pytest 固定到 `.venv`，不依赖 VS Code 扩展或用户目录中的全局工具。
 - 环境探测合并为一条命令（`which python ruff pyright`），不要逐个探测
 
 ### 异常处理
@@ -115,10 +124,30 @@ pyright                     # 0 错误
 ### Web UI 与会话流验收（重要）
 
 - 前端、会话或 SSE 改动不能只靠静态测试、Mock 页面或截图交付；必须通过项目真实启动路径
-  `./.venv/Scripts/stock-robot.exe api`（PowerShell）启动，并在浏览器中完成一次真实发送与响应验证。
+  `./.venv/Scripts/stock-robot.exe run --host 127.0.0.1 --port 8765`（PowerShell）启动，并在浏览器中完成一次真实发送与响应验证。
 - 排查启动问题时，先确认 `Get-Command stock-robot` 指向的可执行文件及其 Python 环境；项目开发、验证和启动优先使用 `.venv`，避免用户目录下的全局旧安装掩盖依赖问题。
 - 流式会话事件须严格区分：`thinking` 仅用于可折叠分析过程，`text_delta` 用于即时正文片段，最终 `text` 用于完整正文收敛；验证时覆盖首条消息、断连、切换会话与返回原会话，确保用户始终能看到加载、正文或可重试错误，不能静默。
 - 变更历史消息解析时，必须把用户提供的原始异常样本加入回归测试，覆盖旧内容块格式、HTML 实体/尾随空白和正文/思考拆分；不要只使用理想化 JSON。
+
+### Web 功能页布局规范
+
+- 各功能页复用同一套内容区坐标，不要分别设置页标题、首个组件和后续模块的外边距。当前约定：桌面左边距 24px、标题距内容区顶部 24px；宽度上限 980px；标题到首个组件 16px。760px 以下左边距 12px、标题距顶部 16px。用共享 CSS 变量或规则表达这些尺寸。
+- 页面主标题只保留一个可见的 `h1`，副标题紧随其后；内容区内部标题使用下级标题。标题与主要卡片、工具栏、列表和表单应共用左侧对齐线。统一外层布局时保留各模块内部控件的顺序、状态和交互。
+- 有独立滚动容器的页面，可见内容宽度会受到滚动条占位影响。验收时分别比较左边缘、顶部间距和内容宽度；不要为了像素等宽而隐藏必要的滚动条。
+- 修改布局后，在真实服务中逐页测量标题与首个主要组件的 `getBoundingClientRect()`，覆盖股指分析的个股与指数、配置雷达、报告库、订阅推送、日志和配置；至少检查宽屏与 390px 窄屏，确认无水平溢出、控件遮挡，并查看实际渲染截图。样式资源变更后更新缓存版本，确保浏览器加载新 CSS。
+
+### 配置雷达与图表验收
+
+- UI 效果图只用于确认信息架构；实现前必须读取现有页面的 CSS 变量、卡片结构和控件状态，沿用当前视觉体系，不能因效果图而重绘侧栏、导航或整页主题。
+- 标的历史表现和“同池策略参考”必须明确区分：前者随 ETF/股票变化，后者是池级轮动策略。任何详情页都不得将池级收益、最大回撤或成交记录表述为单标的业绩。
+- 长区间回测以完整已完成产物为缓存源。较短区间应从覆盖它的曲线切片、重新归一化并重算窗口指标；切换已有区间不应重复运行策略。前端会话缓存的键必须包含标的、快照日期和区间。
+- 曲线图应把归一化净值转换为相对区间起点的累计收益率后再标轴。图例、横轴日期、纵轴收益率和悬浮节点数据是同一组件的验收项；真实浏览器中至少验证一次鼠标悬浮时两条线的同日数据。
+- 图表区间控制固定在对应图表横轴下方，并保持等宽；基准切换、警告、成本、成交记录和研究提示等原有文字不得因布局重构而丢失。
+
+### 受限环境下的测试
+
+- 若系统临时目录不可写，Pytest 使用项目内临时目录，例如 `.venv/Scripts/python -m pytest -q --basetemp=tmp/pytest-run`，完成后删除该目录；不要把测试产物提交。
+- 全量测试失败时必须保留首个完整异常和失败测试清单，区分本次改动与既有失败；不能将“命令被执行窗口截断”或“输出为空”表述为测试通过。
 
 ### 子代理执行（Subagent-Driven，控制 token 消耗）
 
