@@ -8,7 +8,7 @@ import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./w
 import { initIndexView } from "./indexview.js?v=20260918-report-parity";
 import { initReportLibrary } from "./report-library.js?v=20260927-page-heading-1";
 import { initSessions, initSessionStartup } from "./sessions.js";
-import { initSubscriptions } from "./subscriptions.js?v=20260928-email-visibility-6";
+import { initSubscriptions } from "./subscriptions.js?v=20260928-run-notice-2";
 import { initSettings } from "./settings.js";
 import { initLogs } from "./logs.js?v=20260927-page-heading-1";
 

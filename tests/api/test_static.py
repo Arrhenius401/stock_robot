@@ -2017,7 +2017,7 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         assert 'id="subName"' not in html
         assert 'id="subChannel"' not in html
         assert "企业微信" not in html
-        assert "20260928-email-visibility-6" in html
+        assert "20260928-run-notice-2" in html
         script = (await client.get("/js/subscriptions.js")).text
         assert "searchPushSymbols" in script
         assert "批量添加" not in script
@@ -2057,6 +2057,79 @@ if (parsed.pathname !== "/api/v1/push/symbols" ||
   throw new Error("订阅搜索请求未按 API 契约编码");
 }
 """.replace("__SUBSCRIPTIONS_URL__", subscription_url).replace("__API_URL__", api_url)
+        _run_node(tmp_path, script)
+
+    def test_subscription_run_notice_tracks_status_and_detail_scope(self, tmp_path):
+        """主动推送提示随运行进度变化，只在所属详情展示并在结束后消失。"""
+        subscription_url = json.dumps(_module_url("src/api/static/js/subscriptions.js"))
+        api_url = json.dumps(_module_url("src/api/static/js/api.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        script = _DOM_STUB + (r"""
+Element.prototype.append = function (...children) { children.forEach((child) => this.appendChild(child)); };
+const querySelectorAll = Element.prototype.querySelectorAll;
+Element.prototype.querySelectorAll = function (selector) {
+  if (/^[a-z]+$/.test(selector)) return descendants(this).slice(1)
+    .filter((item) => item.tagName.toLowerCase() === selector);
+  return querySelectorAll.call(this, selector);
+};
+for (const id of ["subEmailBtn", "subNewBtn", "subsModal", "subsModalClose",
+  "subsList", "subsDetail", "subsNotice"]) makeElement(id);
+const close = document.createElement("button");
+document.getElementById("subsModal").hidden = true;
+document.getElementById("subsModal").querySelector = () => close;
+document.getElementById("subsDetail").hidden = true;
+document.getElementById("subsNotice").hidden = true;
+const timers = new Map();
+let timerId = 0;
+globalThis.setTimeout = (callback, delay) => { timers.set(++timerId, { callback, delay }); return timerId; };
+globalThis.clearTimeout = (id) => timers.delete(id);
+async function fire(delay) {
+  const entry = [...timers].find(([, timer]) => timer.delay === delay);
+  if (!entry) throw new Error(`未安排 ${delay} 毫秒定时器：${document.getElementById("subsDetail").textContent}`);
+  timers.delete(entry[0]);
+  await entry[1].callback();
+}
+const { api } = await import(__API_URL__);
+const { store } = await import(__STATE_URL__);
+const { initSubscriptions } = await import(__SUBSCRIPTIONS_URL__);
+store.currentView = "subscriptions";
+const first = { id: 2, name: "第一订阅", time: "08:00", enabled: true,
+  symbols: [{ symbol: "000001", kind: "stock" }] };
+const second = { ...first, id: 3, name: "第二订阅" };
+let run = null;
+api.listSubscriptions = async () => ({ subscriptions: [first, second] });
+api.getSubscription = async (id) => ({ subscription: id === 2 ? first : second });
+api.listSubscriptionRuns = async (id) => ({ runs: id === 2 && run ? [run] : [] });
+api.triggerSubscription = async () => {
+  run = { id: 99, status: "queued", trigger: "manual", total: 2, processed: 0, ok: 0 };
+  return { run_id: 99 };
+};
+api.getSubscriptionRun = async () => ({ ...run });
+initSubscriptions();
+await new Promise((resolve) => setImmediate(resolve));
+await document.getElementById("subsList").children[0].click();
+await document.getElementById("subsRunNow").click();
+const notice = document.getElementById("subsNotice");
+if (notice.hidden || !notice.textContent.includes("已排队")) throw new Error("排队提示未显示在详情中");
+run = { ...run, status: "running", processed: 1, ok: 1 };
+await fire(2500);
+if (!notice.textContent.includes("正在推送") || !notice.textContent.includes("1/2")) {
+  throw new Error("运行状态未更新提示");
+}
+run = { ...run, status: "succeeded", processed: 2, ok: 2 };
+await fire(2500);
+if (!notice.textContent.includes("推送完成") || !notice.textContent.includes("2/2")) {
+  throw new Error("完成状态未更新提示");
+}
+await document.getElementById("subsDetail").children[0].click();
+if (!notice.hidden) throw new Error("返回列表后仍显示原订阅提示");
+await new Promise((resolve) => setImmediate(resolve));
+await document.getElementById("subsList").children[1].click();
+if (!notice.hidden) throw new Error("其他订阅详情显示了原订阅提示");
+await fire(7000);
+if (!notice.hidden || notice.textContent) throw new Error("结束提示未在限时后清除");
+""".replace("__SUBSCRIPTIONS_URL__", subscription_url)
+            .replace("__API_URL__", api_url).replace("__STATE_URL__", state_url))
         _run_node(tmp_path, script)
 
     @pytest.mark.asyncio

@@ -38,7 +38,7 @@
 **同行业公司：**
 {% for peer in r.metrics["peers"] %}
 {% set peer_name = r.metrics.get("peer_names", {}).get(peer) %}
-- {% if peer_name %}{{ peer_name }}（{{ peer }}）{% else %}{{ peer }}{% endif %}
+- {{ peer_name ~ '（' ~ peer ~ '）' if peer_name else peer }}
 {% endfor %}
 {% endif %}
 {% if r.metrics.get("headlines") %}

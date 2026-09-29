@@ -1187,7 +1187,15 @@ def create_app(
 
         def send_test() -> None:
             backend = get_backend("email", snapshot.config)
-            backend.send(title="[Stock Robot] 邮箱测试", content="Stock Robot 邮箱推送测试成功。", content_type="html")
+            backend.send(
+                title="[Stock Robot] 邮箱排版测试",
+                content=(
+                    "# 邮箱推送测试\n\n邮件发送与报告排版均已启用。\n\n"
+                    "| 项目 | 示例 |\n|---|---|\n| 表格 | 可见边框与表头 |\n\n"
+                    "- 列表内容应逐项显示\n- 完整研报会使用相同排版\n"
+                ),
+                content_type="markdown",
+            )
 
         try:
             await asyncio.to_thread(send_test)

@@ -135,6 +135,8 @@ class TestSubscriptionsAPI:
         response = client.post("/api/v1/push/email/test")
         assert response.status_code == 502
         assert "secret-123" not in response.text
+        assert backend.return_value.send.call_args.kwargs["content_type"] == "markdown"
+        assert "| 项目 | 示例 |" in backend.return_value.send.call_args.kwargs["content"]
 
     def test_active_run_conflict_and_detail(self, tmp_path):
         from push.store import PushStore
