@@ -102,7 +102,7 @@ function displaySecret(path) {
   const value = revealedSecrets.get(path);
   const visible = value !== undefined;
   state.input.type = visible ? "text" : "password";
-  state.input.placeholder = visible ? "" : (state.masked || "未配置");
+  state.input.placeholder = visible ? "" : (state.configured ? "************" : "未配置");
   state.button.setAttribute("aria-label", visible ? "隐藏完整密钥" : "显示完整密钥");
   state.button.innerHTML = visible
     ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 10.7a3 3 0 0 0 4.2 4.2M9.9 4.2A10.8 10.8 0 0 1 12 4c5.5 0 9.5 4.5 10 8-.2 1.3-1 3-2.3 4.4M6.2 6.2C3.9 7.8 2.4 10.2 2 12c.5 3.5 4.5 8 10 8 1.2 0 2.3-.2 3.3-.6"/></svg>'
@@ -206,6 +206,7 @@ function addSecretField(container, field, secret) {
     input,
     button: toggle,
     masked: secret.masked || "",
+    configured: Boolean(secret.configured),
     revealedValue: undefined,
   };
   secretDisplays.set(field.path, state);

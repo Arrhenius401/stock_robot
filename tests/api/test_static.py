@@ -1803,9 +1803,12 @@ if (!document.getElementById("settingsDirtyBar").hidden) {
 }
 const apiKey = document.getElementById("settings-llm-api_key");
 if (byClass(settingsContent, "settings-secret-value").length
-    || apiKey.value || apiKey.placeholder !== "sk-ab*****wxyz"
+    || apiKey.value || apiKey.placeholder !== "************"
     || apiKey.type !== "password") {
-  throw new Error("密钥应使用单一输入框展示掩码，且不保留额外展示列");
+  throw new Error("密钥默认应显示星号提示，且不保留额外展示列");
+}
+if (document.getElementById("settings-llm-api_key-status")) {
+  throw new Error("密钥输入框不应重复显示配置状态");
 }
 const toggle = byClass(settingsContent, "settings-secret-toggle")[0];
 if (toggle.getAttribute("aria-label") !== "显示完整密钥") {
@@ -1817,7 +1820,7 @@ if (credentialCalls !== 1 || apiKey.value !== "sk-actual-secret-wxyz" || apiKey.
   throw new Error("睁眼未按需读取或展示完整密钥");
 }
 await toggle.click();
-if (credentialCalls !== 1 || apiKey.value || apiKey.placeholder !== "sk-ab*****wxyz"
+if (credentialCalls !== 1 || apiKey.value || apiKey.placeholder !== "************"
     || apiKey.type !== "password"
     || toggle.getAttribute("aria-label") !== "显示完整密钥") {
   throw new Error("闭眼未擦除完整密钥并恢复掩码");
@@ -2017,7 +2020,7 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         assert 'id="subName"' not in html
         assert 'id="subChannel"' not in html
         assert "企业微信" not in html
-        assert "20260928-run-notice-2" in html
+        assert "20260929-secret-status-2" in html
         script = (await client.get("/js/subscriptions.js")).text
         assert "searchPushSymbols" in script
         assert "批量添加" not in script
