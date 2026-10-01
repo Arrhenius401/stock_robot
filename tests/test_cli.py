@@ -56,26 +56,28 @@ def test_radar_import_benchmark_writes_local_history(mocker, tmp_path):
 
 
 def test_radar_collect_once_prints_each_pool(mocker, tmp_path):
+    worker = mocker.patch("radar.collector_service.build_collector").return_value
+    worker.enqueue_manual.return_value = [{"id": "task", "universe_id": "cn_hk_etf"}]
+    worker.execute_one.return_value = False
+    worker.store.get_run.return_value = {"status": "completed", "snapshot_run_id": "run-cn_hk_etf"}
+    result = CliRunner().invoke(main, ["radar", "collect", "--once"])
+    assert result.exit_code == 0
+    assert "run-cn_hk_etf" in result.output
+
+
+def test_radar_collect_daemon_exits_when_autostart_is_disabled(mocker, tmp_path):
     from utils.config import Config
 
-    class _Repository:
-        @staticmethod
-        def load_all():
-            return [type("Universe", (), {"id": "cn_hk_etf"})(), type("Universe", (), {"id": "overseas_etf"})()]
-
-    class _Refresher:
-        @staticmethod
-        def refresh(universe_id):
-            return f"run-{universe_id}"
-
     config = Config(config_dir=tmp_path / "config")
-    mocker.patch("stock_robot.cli._radar_services", return_value=(config, _Repository(), None, _Refresher()))
+    (config.config_dir / "radar_collector.disabled").write_text("disabled\n")
+    services = mocker.patch("stock_robot.cli._radar_services")
+    mocker.patch("stock_robot.cli.Config", return_value=config)
 
-    result = CliRunner().invoke(main, ["radar", "collect", "--once"])
+    result = CliRunner().invoke(main, ["radar", "collect"])
 
     assert result.exit_code == 0
-    assert "cn_hk_etf: run-cn_hk_etf" in result.output
-    assert "overseas_etf: run-overseas_etf" in result.output
+    assert "自动采集已关闭" in result.output
+    services.assert_not_called()
 
 
 class TestCLI:

@@ -2020,7 +2020,7 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         assert 'id="subName"' not in html
         assert 'id="subChannel"' not in html
         assert "企业微信" not in html
-        assert "20260929-secret-status-2" in html
+        assert "20261001-collector-2" in html
         script = (await client.get("/js/subscriptions.js")).text
         assert "searchPushSymbols" in script
         assert "批量添加" not in script
@@ -2061,6 +2061,48 @@ if (parsed.pathname !== "/api/v1/push/symbols" ||
 }
 """.replace("__SUBSCRIPTIONS_URL__", subscription_url).replace("__API_URL__", api_url)
         _run_node(tmp_path, script)
+
+    def test_collector_auto_switch_is_independent_and_stale_responses_ignored(self, tmp_path):
+        """自动计划不调用系统启动接口，离开视图后的响应不得更新旧卡片。"""
+        module_url = json.dumps(_module_url("src/api/static/js/collector-settings.js"))
+        api_url = json.dumps(_module_url("src/api/static/js/api.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        script = _DOM_STUB + r"""
+Object.defineProperty(Element.prototype, "isConnected", { get() { return Boolean(this.parentNode); } });
+const { api } = await import(__API_URL__);
+const { store } = await import(__STATE_URL__);
+const { mountCollectorSettings } = await import(__COLLECTOR_URL__);
+store.currentView="settings";
+let settings={enabled:false,hour:18,minute:30,revision:0};
+const data=()=>({settings:{...settings},service_online:true,items:[{universe_id:"pool"}],runtime:{},runs:[]});
+api.radarCollectorStatus=async()=>data();
+api.updateRadarCollectorConfig=async values=>{settings={...values,revision:1};return settings;};
+api.updateRadarCollectorStartup=()=>{throw new Error("业务开关不得调用系统启动");};
+let scheduled=[];
+window.setTimeout=fn=>{scheduled.push(fn);return scheduled.length;};
+window.clearTimeout=()=>{};
+const container=makeElement("settingsContent");
+const controller=mountCollectorSettings(container);
+await new Promise(resolve=>setImmediate(resolve));
+const panel=byClass(container,"collector-panel")[0];
+if(!panel.textContent.includes("已关闭") || !panel.textContent.includes("可手动采集") || !panel.textContent.includes("下次计划：—")) throw new Error("关闭态未清晰显示");
+const toggle=byClass(panel,"collector-switch")[0];
+toggle.checked=true;
+await toggle.dispatch("change");
+if(!settings.enabled || !panel.textContent.includes("18:30")) throw new Error("自动设置未保存");
+controller.pause();
+let resolveLate;
+api.radarCollectorStatus=()=>new Promise(resolve=>{resolveLate=resolve;});
+controller.start();
+const before=panel.textContent;
+controller.pause();
+resolveLate({...data(),runtime:{last_error:"迟到错误"}});
+await new Promise(resolve=>setImmediate(resolve));
+if(panel.textContent!==before) throw new Error("离开页面后迟到响应修改了卡片");
+controller.dispose();
+""".replace("__COLLECTOR_URL__",module_url).replace("__API_URL__",api_url).replace("__STATE_URL__",state_url)
+        _run_node(tmp_path, script)
+
 
     def test_subscription_run_notice_tracks_status_and_detail_scope(self, tmp_path):
         """主动推送提示随运行进度变化，只在所属详情展示并在结束后消失。"""

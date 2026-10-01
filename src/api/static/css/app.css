@@ -1337,3 +1337,23 @@ body.subs-modal-open { overflow: hidden; }
   .radar-benchmark-switch { justify-content: flex-start; }
   .radar-curve-legend { justify-content: flex-start; flex-wrap: wrap; gap: 8px 12px; }
 }
+
+/* 自动采集区域沿用配置页坐标和主题，只添加卡片内部与弹窗规则。 */
+.collector-card-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px; }
+.collector-card-head h2 { margin:0; }
+.collector-switch { flex-shrink:0; accent-color:var(--accent); }
+.collector-note { color:var(--text-3); font-size:12px; line-height:1.7; margin-top:10px; overflow-wrap:anywhere; }
+.collector-service-state { border-top:1px solid var(--border-soft); margin-top:18px; padding-top:16px; font-size:12px; }
+.collector-service-state.online { color:#187554; }
+.collector-service-state.offline { color:#b42b36; }
+.collector-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; }
+.collector-message { color:var(--text-3); font-size:12px; line-height:1.7; margin-top:12px; overflow-wrap:anywhere; }
+.collector-dialog { inset:0; margin:auto; width:min(460px,calc(100% - 24px)); max-height:calc(100dvh - 32px); overflow:auto; padding:22px; border:1px solid var(--border); border-radius:12px; color:var(--text-2); background:var(--surface); box-shadow:var(--shadow-overlay); }
+.collector-dialog::backdrop { background:rgba(23,32,51,.28); }
+.collector-dialog-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:20px; }
+.collector-dialog-head h2 { font-size:17px; color:var(--text); }
+.collector-form { display:grid; gap:12px; }
+.collector-dialog-footer { display:flex; justify-content:flex-end; gap:8px; margin-top:20px; }
+.collector-history-row { padding:12px 0; border-bottom:1px solid var(--border-soft); }
+.collector-history-row h3 { font-size:13px; color:var(--text); }
+.collector-history-row button { margin-top:10px; }

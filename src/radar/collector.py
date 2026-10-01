@@ -22,17 +22,21 @@ class RadarCollector:
         record: Callable[[str, str, str | None], None] | None = None,
         record_started: Callable[[], None] | None = None,
         record_heartbeat: Callable[[], None] | None = None,
+        should_continue: Callable[[], bool] | None = None,
     ):
         self._refresh = refresh
         self._universe_ids = universe_ids
         self._record = record
         self._record_started_callback = record_started
         self._record_heartbeat_callback = record_heartbeat
+        self._should_continue = should_continue or (lambda: True)
 
     def run_once(self) -> dict[str, str]:
         """执行一次采集；单池失败不阻断其他池。"""
         results: dict[str, str] = {}
         for universe_id in self._universe_ids:
+            if not self._should_continue():
+                break
             try:
                 run_id = self._refresh(universe_id)
                 results[universe_id] = run_id
@@ -54,6 +58,8 @@ class RadarCollector:
 
     def serve(self, *, hour: int, minute: int) -> None:
         """前台运行工作日定时采集。"""
+        if not self._should_continue():
+            return
         scheduler = BlockingScheduler(timezone="Asia/Shanghai")
         self._record_runtime(self._record_started_callback)
         scheduler.add_job(
@@ -69,6 +75,20 @@ class RadarCollector:
             "interval",
             minutes=5,
             id="radar-collector-heartbeat",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+        def stop_if_disabled() -> None:
+            if not self._should_continue():
+                logger.info("自动采集已关闭，采集守护退出")
+                scheduler.shutdown(wait=False)
+
+        scheduler.add_job(
+            stop_if_disabled,
+            "interval",
+            seconds=5,
+            id="radar-collector-stop-check",
             replace_existing=True,
             max_instances=1,
             coalesce=True,

@@ -21,7 +21,7 @@ async function request(path, options = {}) {
   });
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) {
-    const err = new Error(data.detail || data.error || `HTTP ${resp.status}`);
+    const err = new Error((typeof data.detail === "object" ? data.detail?.message : data.detail) || data.error || `HTTP ${resp.status}`);
     err.status = resp.status;  // 附带状态码：422 输入校验错误由视图层特殊处理
     throw err;
   }
@@ -36,7 +36,7 @@ export async function consumeSSE(url, body, handlers) {
   });
   if (!resp.ok || !resp.body) {
     const data = await resp.json().catch(() => ({}));
-    throw new Error(data.detail || data.error || `HTTP ${resp.status}`);
+    throw new Error((typeof data.detail === "object" ? data.detail?.message : data.detail) || data.error || `HTTP ${resp.status}`);
   }
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
@@ -169,6 +169,12 @@ export const api = {
   refreshRadar(universeId) {
     return request("/api/v1/radar/refresh", { method: "POST", body: JSON.stringify({ universe_id: universeId }) });
   },
+  radarCollectorConfig() { return request("/api/v1/radar/collector/config"); },
+  updateRadarCollectorConfig(body) { return request("/api/v1/radar/collector/config", { method:"PUT", body:JSON.stringify(body) }); },
+  createRadarCollectorRuns(body) { return request("/api/v1/radar/collector/runs", { method:"POST", body:JSON.stringify(body) }); },
+  retryRadarCollectorRun(id) { return request(`/api/v1/radar/collector/runs/${encodeURIComponent(id)}/retry`, { method:"POST" }); },
+  radarCollectorStartup() { return request("/api/v1/radar/collector/startup"); },
+  updateRadarCollectorStartup(enabled) { return request("/api/v1/radar/collector/startup", { method:"PUT", body:JSON.stringify({enabled}) }); },
   radarCollectorAutostart() {
     return request("/api/v1/radar/collector/autostart");
   },

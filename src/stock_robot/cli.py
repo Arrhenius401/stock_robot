@@ -2,7 +2,7 @@
 import logging
 import os
 from copy import deepcopy
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 os.environ["TQDM_DISABLE"] = "1"
 
@@ -1225,29 +1225,102 @@ def radar_refresh(universe_id, full, as_of):
 
 
 @radar.command("collect")
-@click.option("--hour", default=18, show_default=True, type=click.IntRange(0, 23))
-@click.option("--minute", default=30, show_default=True, type=click.IntRange(0, 59))
-@click.option("--once", is_flag=True, help="立即执行一次后退出")
-def radar_collect(hour: int, minute: int, once: bool):
-    """工作日收盘后自动刷新两个 ETF 池。"""
-    from radar.collector import RadarCollector
-    from radar.collector_store import CollectorStore
+@click.option("--hour", type=click.IntRange(0, 23), help="旧参数：时间改由持久设置管理")
+@click.option("--minute", type=click.IntRange(0, 59), help="旧参数：时间改由持久设置管理")
+@click.option("--once", is_flag=True, help="执行当前持久队列一次后退出")
+@click.option("--universe", default=None, help="只采集指定启用池")
+@click.option("--date", "target_date", type=click.DateTime(formats=["%Y-%m-%d"]), default=None)
+def radar_collect(hour: int | None, minute: int | None, once: bool, universe: str | None, target_date: datetime | None):
+    """兼容旧采集命令；单次与服务共用持久队列和执行锁。"""
+    from radar.collector_service import build_collector
 
-    config, repository, _, refresher = _radar_services()
-    status_store = CollectorStore(config.config_dir / "radar_collector.db")
-    collector = RadarCollector(
-        lambda universe_id: refresher.refresh(universe_id),
-        tuple(item.id for item in repository.load_all()),
-        status_store.record,
-        status_store.record_started,
-        status_store.record_heartbeat,
-    )
-    if once:
-        for universe_id, result in collector.run_once().items():
-            console.print(f"{universe_id}: {result}")
+    if not once:
+        # 旧启动器迁移完成前保留关闭标记，防止残留启动器唤起旧入口。
+        if (Config().config_dir / "radar_collector.disabled").is_file():
+            console.print("[yellow]自动采集已关闭，旧启动入口不启动；新服务请使用 radar daemon。[/yellow]")
+            return
+        if hour is not None or minute is not None:
+            console.print("[yellow]采集时间改由持久设置管理，旧时间参数不覆盖已保存设置。[/yellow]")
+        _serve_radar_collector()
         return
-    console.print(f"[green]采集守护已启动：工作日 {hour:02d}:{minute:02d} 执行，按 Ctrl+C 退出。[/green]")
-    collector.serve(hour=hour, minute=minute)
+    worker = build_collector()
+    try:
+        runs = worker.enqueue_manual(datetime.now().astimezone(), universe, target_date.date() if target_date else None)
+        while worker.execute_one():
+            pass
+        for run in runs:
+            result = worker.store.get_run(run["id"])
+            if result is not None:
+                console.print(f"{run['universe_id']}: {result['status']} {result.get('snapshot_run_id') or ''}")
+    except (ValueError, RuntimeError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _serve_radar_collector() -> None:
+    """退出信号交给执行器安全边界，自动关闭不退出此服务。"""
+    import signal
+
+    from filelock import Timeout
+
+    from radar.collector_service import build_collector
+
+    worker = build_collector()
+    from radar.collector_startup import CollectorStartup
+
+    def migrate() -> None:
+        migration = CollectorStartup(Path.cwd()).migrate_legacy(state_dir=worker.state_dir)
+        for error in migration.get("errors", []):
+            worker.store.record_event("warning", str(error))
+        if migration.get("unsafe_overlap"):
+            raise click.ClickException("无法确认旧采集进程已退出，请先停止旧进程后重试")
+
+    old_handlers = {}
+    for signum in (signal.SIGINT, signal.SIGTERM):
+        old_handlers[signum] = signal.signal(signum, lambda *_args: worker.stop())
+    console.print("[green]采集服务已启动，按持久计划执行；自动关闭时保持待命。[/green]")
+    try:
+        worker.serve(startup_hook=migrate)
+    except Timeout as exc:
+        raise click.ClickException("此项目已有采集服务运行") from exc
+    finally:
+        for signum, handler in old_handlers.items():
+            signal.signal(signum, handler)
+
+
+@radar.command("daemon")
+def radar_daemon():
+    """启动独立常驻采集服务，工作目录应固定为项目根。"""
+    _serve_radar_collector()
+
+
+@radar.command("collector-status")
+def radar_collector_status():
+    """显示持久计划及服务最近心跳，不启动采集。"""
+    from radar.collector_service import build_collector
+
+    worker = build_collector(refresh_calendar=False)
+    settings = worker.store.settings()
+    console.print(f"自动采集：{'启用' if settings['enabled'] else '关闭'} · {settings['hour']:02d}:{settings['minute']:02d}（北京时间）")
+    console.print(worker.store.runtime())
+
+
+@radar.command("service-unit")
+@click.option("--user", required=True, help="Linux 普通服务账户")
+@click.option("--output", type=click.Path(path_type=Path), default=None)
+def radar_service_unit(user: str, output: Path | None):
+    """生成 Linux systemd 模板，安装需部署人员执行。"""
+    from radar.collector_startup import CollectorStartup
+
+    startup = CollectorStartup(Path.cwd())
+    try:
+        unit = startup.linux_unit(user)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if output is None:
+        console.print(unit, markup=False)
+    else:
+        output.write_text(unit, encoding="utf-8")
+        console.print(f"已生成 {output}，安装为 /etc/systemd/system/{startup.unit_name} 后执行 systemctl daemon-reload 与 enable --now。")
 
 
 @radar.command("import-data")
@@ -1406,8 +1479,19 @@ def radar_backtest(universe_id, start, end, strategy, rerun):
     ))
     data_start = start.date() - timedelta(days=500)
     try:
-        histories = {item.symbol: provider.fetch_daily(item.symbol, data_start, end.date()) for item in universe.instruments}
-    except RadarDataError as exc:
+        from radar.calendar import TradingCalendar
+        from radar.history import HistoryStore, HistorySynchronizer
+
+        calendar = TradingCalendar(config.config_dir / "radar_collector.db")
+        days = calendar.trading_days(data_start, end.date())
+        if not days:
+            raise RadarDataError("回测区间没有交易日")
+        target = days[-1]
+        cached_calendar = calendar.cached_data()
+        all_days = calendar.trading_days(cached_calendar.coverage_start, target) if cached_calendar else days
+        synchronizer = HistorySynchronizer(HistoryStore(config.config_dir / "radar.db"), provider)
+        histories = {item.symbol: synchronizer.read_or_sync(item.symbol, item.market, data_start, target, trading_days=all_days)[0] for item in universe.instruments}
+    except (RadarDataError, RuntimeError) as exc:
         raise click.ClickException(f"回测历史数据不可用: {exc}") from exc
     try:
         benchmarks = {

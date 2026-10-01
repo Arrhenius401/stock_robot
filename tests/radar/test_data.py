@@ -118,3 +118,38 @@ def test_tencent_provider_opens_circuit_after_network_failure():
     with pytest.raises(ProviderCircuitOpenError):
         provider.fetch_daily("510500", date(2024, 1, 1), date(2024, 1, 31))
     assert calls == 1
+
+
+def test_bounded_tencent_failure_still_falls_back_to_sina():
+    from radar.provider_request import ProviderRequestError
+
+    tencent = TencentETFDataProvider(fetcher=lambda *_: (_ for _ in ()).throw(ProviderRequestError("请求超时")))
+    raw = pd.DataFrame({"date": ["2026-09-30"], "open": [10.0], "high": [11.0], "low": [9.0], "close": [10.0], "volume": [100]})
+    fallback = FallbackETFDataProvider([tencent, SinaETFDataProvider(fetcher=lambda _: raw)])
+    result, source = fallback.fetch_daily_with_source("510300", date(2026, 9, 1), date(2026, 9, 30), require_target=True)
+    assert source == "SinaETFDataProvider"
+    assert result.iloc[-1]["date"] == date(2026, 9, 30)
+    with pytest.raises(ProviderCircuitOpenError):
+        tencent.fetch_daily("510300", date(2026, 9, 1), date(2026, 9, 30))
+
+
+@pytest.mark.parametrize("provider_name", ["SinaETFDataProvider", "TencentETFDataProvider", "AkShareETFDataProvider", "OfficialExchangeETFDataProvider"])
+def test_malformed_date_falls_back_to_healthy_provider(provider_name):
+    from radar import data
+
+    bad_frame = pd.DataFrame({"date": ["bad-date"], "open": [1.0], "high": [1.0], "low": [1.0], "close": [1.0], "volume": [1.0], "amount": [1.0]})
+    good_frame = bad_frame.copy()
+    good_frame["date"] = [date(2026, 9, 30)]
+    provider_class = getattr(data, provider_name)
+    if provider_name == "AkShareETFDataProvider":
+        primary = provider_class(daily_fetcher=lambda **kwargs: bad_frame)
+    elif provider_name == "OfficialExchangeETFDataProvider":
+        primary = provider_class(daily_fetcher=lambda *args: bad_frame)
+    else:
+        primary = provider_class(fetcher=lambda *args: bad_frame)
+    backup = data.SinaETFDataProvider(fetcher=lambda *args: good_frame)
+    frame, source = data.FallbackETFDataProvider([primary, backup]).fetch_daily_with_source(
+        "510300", date(2026, 9, 29), date(2026, 9, 30), require_target=True,
+    )
+    assert frame.iloc[-1]["date"] == date(2026, 9, 30)
+    assert source == "SinaETFDataProvider"

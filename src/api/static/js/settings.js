@@ -1,5 +1,6 @@
 // 配置管理视图：仅呈现受控配置 API 暴露的字段，密钥按需读取。
 import { api } from "./api.js";
+import { mountCollectorSettings } from "./collector-settings.js?v=20261001-collector-2";
 import { el, errorCard, skeleton } from "./components.js";
 import { bus, store } from "./state.js";
 
@@ -76,6 +77,7 @@ const revealGenerations = new Map();
 const pendingReveals = new Map();
 let initialized = false;
 let loaded = false;
+let collectorController = null;
 
 function content() {
   return document.getElementById("settingsContent");
@@ -278,63 +280,7 @@ function addSection(container, section, config) {
 }
 
 function addCollectorAutostart(container) {
-  if (typeof api.radarCollectorAutostart !== "function") return;
-  const panel = el("section", "panel settings-section collector-autostart");
-  panel.appendChild(el("h2", "settings-section-title", "配置雷达自动采集"));
-  panel.appendChild(el("p", "collector-autostart-description", "登录 Windows 后保持采集守护运行，并在每个工作日 18:30 自动更新两个 ETF 池。"));
-  const row = el("label", "collector-autostart-row");
-  const copy = el("span", "collector-autostart-copy");
-  const title = el("strong", "", "启用自动采集");
-  const status = el("span", "collector-autostart-status", "正在读取 Windows 任务状态…");
-  const detail = el("div", "collector-autostart-detail");
-  copy.appendChild(title);
-  copy.appendChild(status);
-  const input = document.createElement("input");
-  input.type = "checkbox";
-  input.role = "switch";
-  input.disabled = true;
-  input.setAttribute("aria-label", "启用配置雷达自动采集");
-  row.appendChild(copy);
-  row.appendChild(input);
-  panel.appendChild(row);
-  panel.appendChild(detail);
-  container.appendChild(panel);
-
-  const render = (payload) => {
-    input.checked = Boolean(payload.enabled);
-    input.disabled = !payload.supported;
-    if (!payload.supported) status.textContent = "当前系统不支持 Windows 任务计划程序";
-    else if (payload.enabled && payload.provider === "startup_folder") status.textContent = "已启用：Windows 任务计划不可用，登录后会使用启动文件夹托底。";
-    else if (payload.enabled) status.textContent = "已启用：本次已启动，后续登录会自动恢复。";
-    else if (payload.provider === "startup_folder") status.textContent = "未启用：开启后将使用当前用户的启动文件夹托底。";
-    else status.textContent = "未启用：开启后将创建当前用户的 Windows 启动任务。";
-  };
-  api.radarCollectorAutostart().then(render).catch((error) => {
-    input.disabled = true;
-    status.textContent = `无法读取自动采集状态：${error.message}`;
-  });
-  if (typeof api.radarCollectorStatus === "function") {
-    api.radarCollectorStatus().then((payload) => {
-      const next = payload.next_scheduled_at ? new Date(payload.next_scheduled_at).toLocaleString("zh-CN", { hour12: false }) : "未计算";
-      const heartbeat = payload.runtime?.heartbeat_at ? new Date(payload.runtime.heartbeat_at).toLocaleString("zh-CN", { hour12: false }) : "尚未检测到守护进程心跳";
-      const events = (payload.recent_events || []).slice(0, 3).map((item) => item.message).join(" · ");
-      detail.textContent = `下次预计执行：${next}｜最近心跳：${heartbeat}${events ? `｜最近事件：${events}` : ""}`;
-    }).catch(() => {
-      detail.textContent = "守护运行详情暂不可读取。";
-    });
-  }
-  input.addEventListener("change", async () => {
-    const requested = input.checked;
-    input.disabled = true;
-    status.textContent = requested ? "正在启用并启动采集守护…" : "正在关闭自动采集…";
-    try {
-      render(await api.updateRadarCollectorAutostart(requested));
-    } catch (error) {
-      input.checked = !requested;
-      input.disabled = false;
-      status.textContent = `自动采集设置失败：${error.message}`;
-    }
-  });
+  collectorController = mountCollectorSettings(container);
 }
 
 function messageBox() {
@@ -439,6 +385,8 @@ export function renderSettings(payload) {
   secretDisplays.clear();
   originals.clear();
   changed.clear();
+  collectorController?.dispose();
+  collectorController = null;
   box.replaceChildren();
   const paths = el("div", "settings-paths");
   paths.appendChild(el("div", "settings-path", `项目状态目录：${payload.paths.state_dir}`));
@@ -487,7 +435,9 @@ export function initSettings() {
   bus.addEventListener("view-change", (event) => {
     if (event.detail.view === "settings") {
       if (!loaded) loadSettings();
+      else collectorController?.start();
     } else {
+      collectorController?.pause();
       hideAllSecrets();
     }
   });
