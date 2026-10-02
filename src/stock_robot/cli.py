@@ -8,6 +8,7 @@ os.environ["TQDM_DISABLE"] = "1"
 
 import sys
 from pathlib import Path
+from typing import IO, Any
 
 import click
 from rich.console import Console
@@ -134,10 +135,83 @@ def _convert_value(value: str):
     return value
 
 
-@click.group()
+def _help_hint(ctx: click.Context) -> str:
+    """根据实际命令上下文生成终端帮助入口。"""
+    names = []
+    while ctx.parent is not None:
+        names.append(ctx.info_name or ctx.command.name or "")
+        ctx = ctx.parent
+    path = " ".join(reversed(names))
+    return f"运行 stock-robot help{' ' + path if path else ''} 查看详细用法。"
+
+
+class _HelpHintError(click.ClickException):
+    def __init__(self, original: click.ClickException, ctx: click.Context):
+        super().__init__(original.message)
+        self.original, self.ctx = original, ctx
+
+    def show(self, file: IO[str] | None = None) -> None:
+        self.original.show(file)
+        click.echo(_help_hint(self.ctx), file=file, err=file is None)
+
+
+class _HelpHintCommand(click.Command):
+    def get_usage(self, ctx: click.Context) -> str:
+        return f"{super().get_usage(ctx)}\n\n{_help_hint(ctx)}"
+
+    def invoke(self, ctx: click.Context) -> Any:
+        try:
+            return super().invoke(ctx)
+        except (SystemExit, click.exceptions.Exit) as exc:
+            code = exc.exit_code if isinstance(exc, click.exceptions.Exit) else exc.code
+            if code not in (None, 0):
+                click.echo(_help_hint(ctx), err=True)
+            raise
+        except click.ClickException as exc:
+            if isinstance(exc, click.UsageError):
+                raise
+            # Click 的 message 与退出码只读，派生类保留原退出码而不改原异常。
+            error_type = type("_HelpHintError", (_HelpHintError,), {"exit_code": exc.exit_code})
+            raise error_type(exc, ctx) from exc
+
+
+class _HelpHintGroup(click.Group):
+    command_class = _HelpHintCommand
+    # Click 使用 type 表示嵌套组沿用当前组类型。
+    group_class = type
+
+    def get_usage(self, ctx: click.Context) -> str:
+        return f"{super().get_usage(ctx)}\n\n{_help_hint(ctx)}"
+
+
+@click.group(cls=_HelpHintGroup, invoke_without_command=True, no_args_is_help=False,
+             epilog="运行 stock-robot help <命令> 查看详细用法。")
 @click.version_option(version="0.1.0")
-def main():
+@click.pass_context
+def main(ctx: click.Context):
     """Stock Robot — AI 驱动的股票分析研报助手"""
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+@main.command("help")
+@click.argument("command_path", nargs=-1, metavar="[命令路径]...")
+@click.pass_context
+def help_command(ctx: click.Context, command_path: tuple[str, ...]) -> None:
+    """查看总体帮助或指定命令的帮助，例如 help index、help config set。"""
+    target_ctx = ctx.find_root()
+    for position, name in enumerate(command_path):
+        group = target_ctx.command
+        if not isinstance(group, click.Group):
+            parent_path = " ".join(command_path[:position])
+            raise click.UsageError(f"命令 {parent_path!r} 没有子命令，无法查找 {name!r}", ctx)
+        command = group.get_command(target_ctx, name)
+        if command is None:
+            path = " ".join(command_path[:position + 1])
+            raise click.UsageError(f"没有命令：{path}", ctx)
+        # 仅构建帮助上下文，不解析参数或执行各级命令回调。
+        target_ctx = click.Context(command, info_name=name, parent=target_ctx)
+    click.echo(target_ctx.get_help())
 
 
 @main.command()
@@ -718,7 +792,8 @@ def _run_agent_query(query, planner, executor, memory, renderer, chat_responder)
 def _run_interactive_chat(planner, executor, memory, renderer, chat_responder):
     """交互式对话循环"""
     console.print("[bold]Stock Robot Agent[/bold] — AI 驱动的投资研究助手")
-    console.print("输入你的投研问题，或输入 /exit 退出。输入 /help 查看可用指令。\n")
+    console.print("输入你的投研问题；输入 /help 查看聊天命令，输入 /exit 退出。")
+    console.print("[dim]终端命令帮助：stock-robot help[/dim]\n")
 
     while True:
         try:

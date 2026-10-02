@@ -87,6 +87,18 @@ stock-robot config set llm.enabled false           # 全局关闭
 
 ## 命令详解
 
+### help — 查看命令帮助
+
+```bash
+stock-robot help                 # 总体帮助，等同于 stock-robot --help
+stock-robot help index           # 指数分析帮助，等同于 stock-robot index --help
+stock-robot help config set      # 多级命令帮助，等同于 stock-robot config set --help
+```
+
+`help` 复用当前注册的命令和参数说明，支持逐级命令路径；不存在的命令会明确报错。原有各级 `--help` 保持可用，查看帮助不会执行分析、采集或配置修改。
+
+直接运行 `stock-robot` 会显示命令列表，并提示运行 `stock-robot help <命令>` 查看详细用法。命令或参数错误会提示对应入口，例如 `stock-robot help index`、`stock-robot help config set`，保留原错误原因和退出码。交互聊天启动时提示输入 `/help` 查看聊天命令，并明确终端帮助使用 `stock-robot help`；正常分析和 `chat --ask` 单次结果不会追加帮助提示。
+
 ### chat — AI Agent 对话式投研（新增）
 
 进入交互式 AI Agent 对话模式。Agent 会自动拆解复杂投研任务、选择合适的工具、逐步执行并汇总结果。
