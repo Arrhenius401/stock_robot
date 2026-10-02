@@ -119,10 +119,9 @@ class IndexDataCollector:
     def _collect_strategy(self, ctx: IndexAnalysisContext, on_progress: ProgressCallback) -> IndexAnalysisContext:
         """策略仅访问适配的真实数据源，不走旧宽基估值或资金流接口。"""
         from data.index_mapping import IndexMapping
-        from index.strategy_data import StrategyDataProvider
         from index.valuation_data import StrategyValuationProvider
 
-        provider = StrategyDataProvider()
+        provider = StrategyValuationProvider()
         entry = IndexMapping().lookup(ctx.target.symbol)
         price_provider = entry.provider if entry and entry.provider else "csi"
         ctx.price_data = provider.fetch_prices(ctx.target.symbol, provider=price_provider)
@@ -137,7 +136,7 @@ class IndexDataCollector:
         if on_progress:
             on_progress("collect", 2, total, "采集官方权重及年度专项数据")
         try:
-            ctx.valuation_data = StrategyValuationProvider().fetch(ctx.target.symbol, provider=price_provider)
+            ctx.valuation_data = provider.fetch(ctx.target.symbol, provider=price_provider)
         except Exception as exc:  # noqa: BLE001 — 估值数据源隔离，保留专项与行情分析
             logger.warning("策略指数 %s 官方估值采集失败: %s", ctx.target.symbol, exc)
             ctx.risk_flags.append("公开官方估值采集失败，稍后可重试")

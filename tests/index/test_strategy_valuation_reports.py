@@ -75,7 +75,10 @@ def test_strategy_collector_isolates_valuation_and_counts_progress(monkeypatch, 
         if fails:
             raise TimeoutError("估值超时")
         return context(pb=1.5).valuation_data
-    monkeypatch.setitem(sys.modules, "index.valuation_data", SimpleNamespace(StrategyValuationProvider=lambda: SimpleNamespace(fetch=fetch)))
+    class FakeValuationProvider(StrategyDataProvider):
+        def fetch(self, symbol, *, provider):
+            return fetch(symbol, provider=provider)
+    monkeypatch.setitem(sys.modules, "index.valuation_data", SimpleNamespace(StrategyValuationProvider=FakeValuationProvider))
     monkeypatch.setattr(StrategyDataProvider,"fetch_etf_prices", lambda *_a, **_k: [price])
     selected=target()
     if etf:

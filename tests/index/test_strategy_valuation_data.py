@@ -106,7 +106,7 @@ def test_history_failure_still_returns_factsheet_and_short_caches(provider, monk
     assert result.pb_as_of == END
     assert result.pb_sample_count == 0
     assert result.pb_percentile is None
-    assert writes == [300]
+    assert writes == [300, 86400]
 
 
 def test_snapshot_pe_keeps_unknown_basis_separate(provider, monkeypatch):
@@ -183,7 +183,8 @@ def test_successful_cache_has_distinct_epoch_and_prevents_network(provider, monk
     monkeypatch.setattr(provider, "_get_json", fail)
     monkeypatch.setattr(provider, "_factsheet", fail)
     assert provider.fetch("930740", end=END) == first
-    assert provider._read_cached("strategy_valuation_v1", f"csi:930740:{END}") is not None
+    assert provider._read_cached("valuation_factsheet", f"csi:930740:{END}")["ok"]
+    assert provider._read_cached("csi_history_status", f"930740:{END}")["ok"]
     assert provider._read_cached("strategy_valuation", f"csi:930740:{END}") is None
 
 

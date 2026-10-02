@@ -193,10 +193,13 @@ class StrategyDataProvider:
                              "changePct": finite_number(str(values[7]).replace("%", "")), "volume": values[9]})
             # 国证原始HTTP百分号已是百分数，区别于AkShare返回的小数。
             return parse_price_rows(symbol, rows, provider="csi")
-        data = self._get_json("https://www.csindex.com.cn/csindex-home/perf/index-perf", {
-            "indexCode": symbol, "startDate": start.strftime("%Y%m%d"), "endDate": end.strftime("%Y%m%d"),
-        })
-        return parse_price_rows(symbol, data.get("data") or [])
+        rows = self.fetch_official_history(symbol, end)
+        return parse_price_rows(symbol, [row for row in rows if (_date(row.get("tradeDate")) or date.min) >= start])
+
+    def fetch_official_history(self, symbol: str, end: date) -> list[dict]:
+        """CSI 同时提供行情与滚动 PE，统一缓存后供各消费方切片。"""
+        from index.official_history import OfficialHistoryStore
+        return OfficialHistoryStore(self).fetch(symbol, end)
 
     def _fallback_prices(self, symbol: str, provider: str, end: date) -> list[IndexPriceData]:
         # 独立的东财行情源；失败不会阻止官方源，日期范围一致。
