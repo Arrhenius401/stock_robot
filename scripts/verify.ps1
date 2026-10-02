@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
 按 Git 改动范围或全量执行项目校验。
 
@@ -49,11 +49,8 @@ if ($LASTEXITCODE -ne 0 -or -not $repositoryRoot) {
 }
 $repositoryRoot = [IO.Path]::GetFullPath($repositoryRoot)
 Set-Location $repositoryRoot
-$venvRoot = [IO.Path]::GetFullPath((Join-Path $repositoryRoot $VenvPath))
-$repositoryPrefix = "$repositoryRoot$([IO.Path]::DirectorySeparatorChar)"
-if (-not $venvRoot.StartsWith($repositoryPrefix, [StringComparison]::OrdinalIgnoreCase)) {
-    throw "虚拟环境必须位于仓库目录内。"
-}
+$venvRoot = if ([IO.Path]::IsPathRooted($VenvPath)) { [IO.Path]::GetFullPath($VenvPath) } else { [IO.Path]::GetFullPath((Join-Path $repositoryRoot $VenvPath)) }
+# 显式指定外部运行时只复用工具和依赖，不安装或修改其 editable 配置。
 $venvScripts = Join-Path $venvRoot "Scripts"
 $ruffPath = Join-Path $venvScripts "ruff.exe"
 $pyrightPath = Join-Path $venvScripts "pyright.exe"
@@ -102,8 +99,13 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/test_cli.py"
         continue
     }
-    if ($path -eq "scripts\verify.ps1") {
+    if ($path -in @("scripts\verify.ps1", "scripts\verify-runtime.py")) {
         Add-UniqueTarget $testTargets "tests/test_verify_script.py"
+        continue
+    }
+    if ($path -eq "scripts\probe-index-sources.py") {
+        Add-UniqueTarget $pythonTargets "scripts/probe-index-sources.py"
+        Add-UniqueTarget $testTargets "tests/index/test_source_probe.py"
         continue
     }
     if ($path -eq "scripts\run-radar-collector.py") {
@@ -115,6 +117,17 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/test_cli.py"
         Add-UniqueTarget $testTargets "tests/test_cli_index.py"
         Add-UniqueTarget $testTargets "tests/radar/test_collector_cli.py"
+        continue
+    }
+    if ($path.StartsWith("tests\resources\", [StringComparison]::OrdinalIgnoreCase)) {
+        # 静态资源变化必须验证所属业务模块，不能按非 Python 文件跳过。
+        $resourceParts = $path.Split("\")
+        $resourceTests = if ($resourceParts.Count -ge 4) { Join-Path "tests" $resourceParts[2] } else { "" }
+        if ($resourceTests -and (Test-Path -LiteralPath $resourceTests -PathType Container)) {
+            Add-UniqueTarget $testTargets $resourceTests
+        } else {
+            $unmappedFiles.Add($path)
+        }
         continue
     }
     if ($path.StartsWith("tests\", [StringComparison]::OrdinalIgnoreCase)) {
@@ -212,7 +225,7 @@ $testTargets.Clear()
 foreach ($target in $coveredTargets) { Add-UniqueTarget $testTargets $target }
 
 if ($PlanOnly) {
-    [ordered]@{ Scope = $Scope; PythonTargets = @($pythonTargets.ToArray()); PowerShellTargets = @($powershellTargets.ToArray()); TestTargets = @($testTargets.ToArray()); Warnings = @($planWarnings.ToArray()); UnmappedFiles = @($unmappedFiles.ToArray()) } | ConvertTo-Json -Depth 3
+    [ordered]@{ SourceRoot = $repositoryRoot; RuntimeRoot = $venvRoot; Scope = $Scope; PythonTargets = @($pythonTargets.ToArray()); PowerShellTargets = @($powershellTargets.ToArray()); TestTargets = @($testTargets.ToArray()); Warnings = @($planWarnings.ToArray()); UnmappedFiles = @($unmappedFiles.ToArray()) } | ConvertTo-Json -Depth 3
     exit 0
 }
 if ($Source -eq "Staged") { & git diff --cached --check } else { & git diff --check }
@@ -234,48 +247,43 @@ if ($requiresFullSuite) {
     Write-Host "按改动范围校验：$($changedFiles.Count) 个文件。"
 }
 
-if ($pythonTargets.Count -gt 0) {
-    foreach ($toolPath in @($ruffPath, $pyrightPath)) {
-        if (-not (Test-Path -LiteralPath $toolPath)) { throw "未找到开发工具：$toolPath。请先执行 .\scripts\bootstrap-dev.ps1。" }
-    }
-    & $ruffPath check @pythonTargets
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-    if ($requiresFullSuite) {
-        # 不传 "."，让 pyproject.toml 的 include 排除 tmp/ 与虚拟环境。
-        & $pyrightPath
-    } else {
-        & $pyrightPath @pythonTargets
-    }
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-} else {
-    Write-Host "本次没有 Python 改动，跳过 Ruff 与 Pyright。"
-}
-
-if ($testTargets.Count -eq 0) {
-    Write-Host "本次没有可执行测试目标。"
-    exit 0
-}
-if (-not (Test-Path -LiteralPath $pythonPath)) { throw "未找到项目 Python：$pythonPath。请先执行 .\scripts\bootstrap-dev.ps1。" }
-
-$runPrefix = if ($Scope -eq "Full") { "full" } else { "changed-$($Source.ToLowerInvariant())" }
-# 每次校验使用独立目录，避免先前被系统占用的失败产物阻塞后续校验。
-$runName = "$runPrefix-$PID-$([guid]::NewGuid().ToString('N'))"
+# 所有工具使用当前工作树源码；finally 恢复调用者的环境。
+$previousPythonPath = $env:PYTHONPATH
+$runName = "verify-$PID-$([guid]::NewGuid().ToString('N'))"
 $runDirectory = Get-RunDirectory $repositoryRoot $runName
-New-Item -ItemType Directory -Path $runDirectory -Force | Out-Null
-
-$baseTemp = Join-Path $runDirectory "basetemp"
-$cacheDirectory = Join-Path $runDirectory "cache"
-& $pythonPath -m pytest @testTargets -q "--basetemp=$baseTemp" "-o" "cache_dir=$cacheDirectory"
-$testExitCode = $LASTEXITCODE
-if ($testExitCode -eq 0) {
-    try {
-        Remove-Item -LiteralPath $runDirectory -Recurse -Force
-        Write-Host "校验通过，已清理测试临时目录。"
-    } catch [System.IO.IOException], [System.UnauthorizedAccessException] {
-        Write-Warning "校验通过，临时目录暂无法清理：$runDirectory；$($_.Exception.Message)"
+$verificationPassed = $false
+try {
+    $env:PYTHONPATH = "$(Join-Path $repositoryRoot 'src');$repositoryRoot"
+    New-Item -ItemType Directory -Path $runDirectory -Force | Out-Null
+    if ($pythonTargets.Count -gt 0 -or $testTargets.Count -gt 0) {
+        if (-not (Test-Path -LiteralPath $pythonPath)) { throw "未找到项目 Python：$pythonPath。请先执行 .\scripts\bootstrap-dev.ps1。" }
+        $pyrightConfig = Join-Path $runDirectory "pyrightconfig.json"
+        & $pythonPath (Join-Path $repositoryRoot "scripts/verify-runtime.py") --root $repositoryRoot --runtime $venvRoot --output $pyrightConfig
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
-} else {
-    Write-Warning "校验失败，已保留测试临时目录：$runDirectory"
+    if ($pythonTargets.Count -gt 0) {
+        foreach ($toolPath in @($ruffPath, $pyrightPath)) {
+            if (-not (Test-Path -LiteralPath $toolPath)) { throw "未找到开发工具：$toolPath。请先执行 .\scripts\bootstrap-dev.ps1。" }
+        }
+        & $ruffPath check @pythonTargets
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        if ($requiresFullSuite) { & $pyrightPath --project $pyrightConfig } else { & $pyrightPath --project $pyrightConfig @pythonTargets }
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    } else { Write-Host "本次没有 Python 改动，跳过 Ruff 与 Pyright。" }
+    if ($testTargets.Count -gt 0) {
+        & $pythonPath -m pytest @testTargets -q "--basetemp=$(Join-Path $runDirectory 'basetemp')" -o "cache_dir=$(Join-Path $runDirectory 'cache')"
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    } else { Write-Host "本次没有可执行测试目标。" }
+    $verificationPassed = $true
+} finally {
+    $env:PYTHONPATH = $previousPythonPath
+    if ($verificationPassed) {
+        try {
+            Remove-Item -LiteralPath $runDirectory -Recurse -Force
+            Write-Host "校验通过，已清理测试临时目录。"
+        } catch [System.IO.IOException], [System.UnauthorizedAccessException] {
+            Write-Warning "校验通过，临时目录暂无法清理：$runDirectory；$($_.Exception.Message)"
+        }
+    } else { Write-Warning "校验失败，已保留检查临时目录：$runDirectory" }
 }
-exit $testExitCode
+exit 0
