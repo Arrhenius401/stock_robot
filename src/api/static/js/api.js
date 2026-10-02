@@ -73,6 +73,10 @@ export const api = {
   analyze(symbol) {
     return request("/api/v1/analyze", { method: "POST", body: JSON.stringify({ symbol }) });
   },
+  indices(query = "") {
+    const suffix = query ? `?q=${encodeURIComponent(query)}` : "";
+    return request(`/api/v1/indices${suffix}`);
+  },
   index(symbols) {
     return request("/api/v1/index", { method: "POST", body: JSON.stringify({ symbols }) });
   },

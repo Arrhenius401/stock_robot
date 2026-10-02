@@ -305,7 +305,7 @@ class TestStaticUI:
         app_js = (await client.get("/js/app.js")).text
         api_js = (await client.get("/js/api.js")).text
 
-        assert 'import { initReportLibrary } from "./report-library.js?v=20260927-page-heading-1";' in app_js
+        assert 'import { initReportLibrary } from "./report-library.js?v=20261002-strategy-indices-3";' in app_js
         assert "initReportLibrary();" in app_js
         assert "listReports(" in api_js
         assert "getReport(" in api_js
@@ -314,7 +314,7 @@ class TestStaticUI:
 
     @pytest.mark.asyncio
     async def test_report_library_list_uses_single_equal_height_rows(self, client):
-        css = (await client.get("/css/app.css")).text
+        css = (await client.get("/css/app.css")).text.replace("\r\n", "\n")
 
         assert ".report-library-grid {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr);" in css
         assert "height: 96px;\n  min-height: 96px;" in css
@@ -658,6 +658,10 @@ await new Promise((resolve) => setTimeout(resolve, 0));
 if (!root.textContent.includes("累计收益") || !root.textContent.includes("+18.42%")
     || !root.textContent.includes("净值曲线") || !root.textContent.includes("交易明细")) {
   throw new Error("未渲染报告详情页的摘要与回测页签");
+}
+const markdownBody = byClass(root, "report-library-markdown")[0].innerHTML;
+if (markdownBody.includes("<h1>") || !markdownBody.includes("<h2>回测报告</h2>")) {
+  throw new Error("报告正文标题须低于唯一的页面主标题");
 }
 const buttons = descendants(root).filter((item) => item.tagName === "BUTTON");
 await buttons.find((item) => item.textContent.includes("净值曲线")).click();
@@ -2020,7 +2024,7 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         assert 'id="subName"' not in html
         assert 'id="subChannel"' not in html
         assert "企业微信" not in html
-        assert "20261001-collector-2" in html
+        assert "20261002-strategy-indices-3" in html
         script = (await client.get("/js/subscriptions.js")).text
         assert "searchPushSymbols" in script
         assert "批量添加" not in script

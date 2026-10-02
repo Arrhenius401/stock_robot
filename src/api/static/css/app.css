@@ -1357,3 +1357,13 @@ body.subs-modal-open { overflow: hidden; }
 .collector-history-row { padding:12px 0; border-bottom:1px solid var(--border-soft); }
 .collector-history-row h3 { font-size:13px; color:var(--text); }
 .collector-history-row button { margin-top:10px; }
+
+/* 策略指数目录沿用查询卡片的共享坐标与现有主题。 */
+.index-directory { width: min(980px, calc(100% - var(--page-inset) - var(--page-inset))); margin: 12px var(--page-inset) 0; flex-shrink: 0; }
+.index-directory summary { cursor: pointer; }
+.index-directory input { width: 100%; padding: 8px 10px; margin: 8px 0; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; }
+#indexDirectoryResults { max-height: 180px; overflow-y: auto; }
+.index-directory-group { margin-top: 10px; }
+.index-directory-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.index-directory-item { background: var(--panel-2); color: var(--text-2); border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px; text-align: left; overflow-wrap: anywhere; max-width: 100%; cursor: pointer; }
+.index-directory-item:hover { border-color: var(--accent); color: var(--text); }

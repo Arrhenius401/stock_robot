@@ -3,7 +3,7 @@ import { store, switchView } from "./state.js";
 import { api } from "./api.js";
 import { el, errorCard, skeleton,
          showEntryError, clearEntryError } from "./components.js";
-import { renderStockReport } from "./report-renderer.js?v=20260918-report-presentation-3";
+import { renderStockReport } from "./report-renderer.js?v=20261002-strategy-indices-3";
 
 const content = () => document.getElementById("reportContent");
 
@@ -11,6 +11,24 @@ let reqSeq = 0;  // 请求令牌：慢请求期间二次查询时，丢弃迟到
 
 export async function openReport(symbol, entryInputId = "stockInput") {
   const seq = ++reqSeq;
+  // 已知 ETF 使用跟踪指数入口；动态导入保持报告视图之间无循环依赖。
+  if (/^(?:5|1)\d{5}$/.test(String(symbol))) {
+    try {
+      const { getIndexDirectory, openIndex } = await import("./indexview.js?v=20261002-strategy-indices-3");
+      const directory = await getIndexDirectory();
+      if (seq !== reqSeq) return;
+      const etf = directory.etfs.find((item) => item.symbol === String(symbol));
+      if (etf) {
+        clearEntryError(entryInputId);
+        const input = document.getElementById("indexInput");
+        if (input) input.value = etf.symbol;
+        return openIndex(etf.symbol);
+      }
+    } catch (error) {
+      if (seq !== reqSeq) return;
+      console.warn("ETF 目录读取失败，继续原分析入口：", error.message);
+    }
+  }
   const prevView = store.currentView;  // 记录原视图：422 校验失败时回退
   switchView("report");
   if (store.reportCache[symbol]) {

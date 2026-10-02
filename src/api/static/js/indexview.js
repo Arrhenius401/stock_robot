@@ -2,7 +2,7 @@
 import { store, switchView } from "./state.js";
 import { api } from "./api.js";
 import { renderMarkdown } from "./markdown.js";
-import { appendReadableMetric, riskText } from "./report-renderer.js?v=20260918-report-presentation-4";
+import { appendReadableMetric, riskText } from "./report-renderer.js?v=20261002-strategy-indices-3";
 import { el, kv, tagChip, priceBar, errorCard, skeleton,
          showEntryError, clearEntryError } from "./components.js";
 
@@ -18,6 +18,8 @@ const TAGS = {
   sentiment: { positive: ["积极", "good"], neutral: ["中性", "mid"], negative: ["消极", "bad"] },
 };
 const SECTION_META = [
+  ["performance", "历史风险收益", "section_performance", ""],
+  ["strategy", "策略专项分析", "section_strategy", ""],
   ["technical", "技术面", "section_technical", "tag_technical"],
   ["valuation", "估值", "section_valuation", "tag_valuation"],
   ["capital", "资金面", "section_capital", "tag_capital"],
@@ -51,6 +53,7 @@ export async function openIndex(codes) {
   } catch (err) {
     if (seq !== reqSeq) return;
     if (err.status === 422) {
+      box.innerHTML = "";
       // 输入校验失败：回原视图 + 输入框旁红字，不渲染错误卡
       showEntryError("indexInput", err.message);
       switchView(prevView);
@@ -137,6 +140,23 @@ function reportCard(r) {
   }
   hdr.appendChild(priceBox);
   card.appendChild(hdr);
+  const requested = r.requested_instrument;
+  if (requested?.symbol) {
+    const panel = el("div", "panel");
+    panel.appendChild(el("div", "panel-title", "ETF 与跟踪指数"));
+    panel.appendChild(el("p", "dim-sum", `输入 ${requested.name || "ETF"}（${requested.symbol}），本报告分析其跟踪指数 ${r.name || ""}（${requested.index_symbol || r.code}）。ETF 表现使用独立序列和口径。`));
+    if (r.section_performance?.metrics?.etf_return_pct == null) {
+      panel.appendChild(el("p", "dim-sum", "ETF 自身表现数据暂不可用；指数收益不能替代 ETF 收益。"));
+    }
+    const link = el("button", "btn-refresh", "查看 ETF 配置雷达");
+    link.type = "button";
+    link.addEventListener("click", () => {
+      window.location.hash = `#radar/cn_hk_etf/latest/${encodeURIComponent(requested.symbol)}`;
+      switchView("radar");
+    });
+    panel.appendChild(link);
+    card.appendChild(panel);
+  }
 
   if (o.pe_ttm != null || o.pb != null || o.pe_percentile != null) {
     const panel = el("div", "panel");
@@ -184,9 +204,8 @@ function sectionCard(label, section, tag) {
   card.appendChild(head);
   if (section.status === "unavailable") {
     card.appendChild(el("div", "dim-sum", section.summary || "数据不可用"));
-    return card;
   }
-  if (section.summary) {
+  if (section.summary && section.status !== "unavailable") {
     const sum = el("div", "dim-sum");
     sum.innerHTML = renderMarkdown(section.summary);
     card.appendChild(sum);
@@ -196,7 +215,9 @@ function sectionCard(label, section, tag) {
   if (keys.length) {
     const mtr = el("div", "mtr");
     for (const k of keys) {
-      appendReadableMetric(mtr, k, metrics[k], metrics);
+      if (k === "indicators") appendStrategyIndicators(mtr, metrics[k]);
+      else if (k === "industry_weights") appendIndustryWeights(mtr, metrics[k]);
+      else appendReadableMetric(mtr, k, metrics[k], metrics);
     }
     card.appendChild(mtr);
   }
@@ -234,9 +255,114 @@ function compositeCard(r) {
   return card;
 }
 
+function appendStrategyIndicators(grid, indicators) {
+  for (const item of Array.isArray(indicators) ? indicators : []) {
+    const card = el("div", "report-metric-list-wrap");
+    card.appendChild(el("div", "k", item.label || "专项指标"));
+    const valid = item.value != null && Number.isFinite(Number(item.value));
+    card.appendChild(el("div", "v", valid ? `${Number(item.value).toFixed(2)}${item.unit || ""}` : "数据不可用"));
+    card.appendChild(el("p", "dim-sum", `权重覆盖率 ${item.coverage_pct == null ? "未知" : `${Number(item.coverage_pct).toFixed(2)}%`} · ${item.scope || "已覆盖样本估算"}`));
+    if (item.reason) card.appendChild(el("p", "dim-sum", String(item.reason)));
+    grid.appendChild(card);
+  }
+}
+
+function appendIndustryWeights(grid, weights) {
+  const card = el("div", "report-metric-list-wrap");
+  card.appendChild(el("div", "k", "行业权重（占完整指数）"));
+  const list = el("ul", "report-metric-list");
+  for (const item of Array.isArray(weights) ? weights : []) {
+    const weight = item.weight_pct == null ? "未知" : `${Number(item.weight_pct).toFixed(2)}%`;
+    list.appendChild(el("li", "", `${item.industry || "未知行业"}：${weight}`));
+  }
+  if (!list.children.length) list.appendChild(el("li", "", "暂无行业数据"));
+  card.appendChild(list);
+  grid.appendChild(card);
+}
+
+let directory = null;
+let directoryRequest = null;
+let directorySequence = 0;
+const initializedInputs = new WeakSet();
+
+export function getIndexDirectory() {
+  if (directory) return Promise.resolve(directory);
+  if (!directoryRequest) {
+    const request = api.indices().then((data) => {
+      const result = { indices: Array.isArray(data.indices) ? data.indices : [], etfs: Array.isArray(data.etfs) ? data.etfs : [] };
+      if (directoryRequest === request) directory = result;
+      return result;
+    }).finally(() => { if (directoryRequest === request) directoryRequest = null; });
+    directoryRequest = request;
+  }
+  return directoryRequest;
+}
+
+function matchesDirectory(item, query) {
+  const aliases = Array.isArray(item.aliases) ? item.aliases : [item.aliases || ""];
+  return [item.symbol, item.name, item.index_symbol, ...aliases].join(" ").toLowerCase().includes(query.toLowerCase());
+}
+
+function renderDirectory() {
+  const box = document.getElementById("indexDirectoryResults");
+  if (!box || !directory) return;
+  box.replaceChildren();
+  const query = document.getElementById("indexDirectorySearch")?.value.trim() || "";
+  const groups = new Map();
+  const labels = { broad: "宽基指数", sector: "行业指数", overseas: "海外指数", strategy: "策略指数" };
+  for (const item of directory.indices) {
+    if (!matchesDirectory(item, query)) continue;
+    const group = labels[item.index_style] || "其他指数";
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(item);
+  }
+  const etfs = directory.etfs.filter((item) => matchesDirectory(item, query));
+  if (etfs.length) groups.set("ETF（分析跟踪指数）", etfs);
+  for (const [label, items] of groups) {
+    const group = el("section", "index-directory-group");
+    group.appendChild(el("h3", "panel-title", label));
+    const list = el("div", "index-directory-list");
+    for (const item of items) {
+      const button = el("button", "index-directory-item", `${item.name} · ${item.symbol}${item.index_symbol ? ` → ${item.index_symbol}` : ""}`);
+      button.type = "button";
+      button.addEventListener("click", () => {
+        const input = document.getElementById("indexInput");
+        input.value = item.symbol;
+        clearEntryError("indexInput");
+        input.focus();
+      });
+      list.appendChild(button);
+    }
+    group.appendChild(list);
+    box.appendChild(group);
+  }
+  if (!groups.size) box.appendChild(el("p", "dim-sum", "没有匹配的指数或 ETF"));
+}
+
+export async function loadIndexDirectory(force = false) {
+  const seq = ++directorySequence;
+  const box = document.getElementById("indexDirectoryResults");
+  if (!box) return;
+  if (force) { directory = null; directoryRequest = null; }
+  box.replaceChildren(el("p", "dim-sum", "正在读取指数目录…"));
+  try {
+    await getIndexDirectory();
+    if (seq === directorySequence) renderDirectory();
+  } catch (error) {
+    if (seq !== directorySequence) return;
+    const retry = el("button", "btn-refresh", "重试读取目录");
+    retry.type = "button";
+    retry.addEventListener("click", () => loadIndexDirectory(true));
+    box.replaceChildren(el("p", "dim-sum", `指数目录读取失败：${error.message}`), retry);
+  }
+}
+
 export function initIndexView() {
   const input = document.getElementById("indexInput");
   const btn = document.getElementById("indexBtn");
+  if (!input || !btn || initializedInputs.has(input)) return;
+  initializedInputs.add(input);
+  document.getElementById("indexDirectorySearch")?.addEventListener("input", renderDirectory);
   btn.addEventListener("click", () => {
     clearEntryError("indexInput");  // 重新分析前清除上次校验红字
     // 空输入不触发：否则令牌自增会丢弃在途响应、骨架屏永久残留
@@ -246,4 +372,5 @@ export function initIndexView() {
     // IME 组合输入回车不触发（中文输入法候选确认）
     if (e.key === "Enter" && !e.isComposing) btn.click();
   });
+  return loadIndexDirectory();
 }

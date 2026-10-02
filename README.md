@@ -172,7 +172,7 @@ stock-robot index <指数代码> [指数代码...]
 
 | 选项 | 说明 |
 |------|------|
-| `--style, -s` | 手动指定指数类别：`broad` / `sector` / `overseas` |
+| `--style, -s` | 手动指定指数类别：`broad` / `sector` / `overseas` / `strategy` |
 | `--output, -o` | 输出格式：`terminal`（默认）/ `markdown` |
 | `--compare-only` | 仅输出多指数横向对比表格 |
 
@@ -184,6 +184,9 @@ stock-robot index 801080 --style sector              # 行业指数
 stock-robot index 000300 000905 000016               # 批量对比
 stock-robot index 000300 000905 --compare-only       # 仅对比表
 stock-robot index HSI SPX NDX                        # 海外指数
+stock-robot index 515300                             # 识别ETF并分析其跟踪指数930740
+stock-robot index "国证自由现金流"                     # 按名称分析策略指数
+stock-robot index H30269 930955                      # 红利低波50与100对比
 ```
 
 ---
@@ -336,6 +339,7 @@ stock-robot run --host 127.0.0.1 --port 8000
 - `POST /api/v1/chat` — Agent 对话（body: `{"message": "...", "session_id": "可选"}`）
 - `POST /api/v1/chat/stream` — SSE 流式对话（可能包含 `plan`、`progress`、`thinking`、`text_delta`、`tool_call`、`tool_result`、`text`、`result`、`artifact`、`session_title`、`error`、`done` 事件；`thinking` 为可折叠思考过程，`text_delta` 为即时正文片段，`text` 为最终完整正文）
 - `POST /api/v1/analyze` — 个股分析（body: `{"symbol": "600519"}`），返回完整报告 JSON（含 `signal` 操作信号字段：`level` 为 `attack`/`watch`/`defend`，`label`/`action`/`position` 为中文展示与动作建议；阈值与动作文案可在配置 `signal` 节自定义）
+- `GET /api/v1/indices?q=红利` — 指数名称、代码、别名检索及ETF跟踪目录
 - `POST /api/v1/index` — 指数分析（body: `{"symbols": ["000300", "000905"], "index_style": "可选"}`；单指数兼容 `{"symbol": "000300"}`；多指数响应含 `compare` 对比表）
 - `GET /api/v1/sessions`、`DELETE /api/v1/sessions/{id}`、`GET /api/v1/sessions/{id}/messages` — 会话管理（会话在发送首条消息时创建）
 - `GET /api/v1/config`、`PUT /api/v1/config`、`GET /api/v1/config/credentials/{key}` — 配置读取、局部更新和按需读取凭据
@@ -541,3 +545,26 @@ stock-robot radar backtest --universe overseas_etf --start 2022-01-01 --end 2025
 网络不可用时，可使用 `radar import-data` 导入单只 ETF 的本地 CSV。文件必须包含日期、开盘、最高、最低、收盘和成交额列（支持常见中文或英文列名，成交量可选）；同一代码的重复导入会按日期合并，并以新文件覆盖同日记录。导入后的文件保存于 `.stock_robot/radar_local_data/etf/`，刷新和 ETF 回测均优先读取它；只有本地缺失时才继续尝试网络数据源。完整离线回测还需分别通过 `radar import-benchmark` 导入 `money_fund`、`csi_300`、`csi_all_bond` 三条基准的日期与收盘价 CSV。
 
 回测以月末可得日线评分、下一交易日开盘成交、各类别冠军等权为约束，产物包含策略指纹、池版本、调仓日、费用和数据范围。评分与回测均为研究用途，不构成投资建议；历史结果不代表未来收益，海外 QDII ETF 还可能存在时差、溢价与申赎限制。
+
+
+## 策略指数与 ETF 跟踪分析
+
+Web 的“股指分析 → 指数”下方提供指数目录，按名称、代码或别名搜索，点击候选填入后生成研报。名称有歧义（例如“自由现金流”）时，需要选择具体指数。当前新增目录包括：
+
+| 代码 | 名称 |
+|---|---|
+| 000015 | 上证红利 |
+| 000922 | 中证红利 |
+| H30269 | 中证红利低波动 |
+| 930955 | 中证红利低波动100 |
+| 930740 | 沪深300红利低波动 |
+| 980092 | 国证自由现金流 |
+| 932365 | 中证全指自由现金流 |
+
+目录与官方来源维护在 `data/index_mapping.csv`，基金跟踪关系维护在 `data/etf_index_mapping.csv`。515300为嘉实沪深300红利低波动ETF，跟踪930740；不能与930955混用。输入已收录ETF代码时，页面标明ETF与跟踪指数关系，ETF独立表现与指数表现分别标注口径。
+
+策略报告包含通用风险收益（区间收益、年化波动、最大回撤、同日基准比较）及策略特征。红利侧关注股息率、分红连续性和稳定性；现金流侧使用年度经营活动现金流减资本开支计算自由现金流，展示收益率、持续性和盈利质量。报告还给出成分与行业集中度、数据日期、年度范围、指标覆盖率及缺失原因。
+
+新增策略指数分支目前尚未接入 PE/PB 和历史估值分位采集，因此“估值”栏显示不可用。股息率和自由现金流收益率属于专项指标，不能替代这一栏的 PE/PB 与历史分位。
+
+指数价格收益不含分红再投资，不能当作全收益；ETF复权收益也不是指数全收益。财务指标使用已公告的年度数据，采用当前成分权重描述当前组合特征，不用于重建历史成分回测。公开数据缺失时标明不可用或已覆盖样本估算，不能把缺失填零；数据源异常会显示失败并允许重试。目录收录表示已接入解析与数据路由，实际报告覆盖取决于当次公开数据可用性。
