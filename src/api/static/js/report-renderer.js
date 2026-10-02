@@ -12,6 +12,19 @@ const DIMENSIONS = [
 
 // 数据层字段只在内部协议中使用；界面统一显示业务中文名称。
 const METRIC_LABELS = {
+  pe_snapshot_basis: "单张PE计算口径", pe_snapshot_source_url: "单张PE官方来源",
+  pe_snapshot_as_of: "单张PE数据日期",
+  pe_snapshot: "官方单张市盈率",
+  pe_as_of: "PE数据日期",
+  pb_as_of: "PB数据日期",
+  pe_basis: "PE计算口径",
+  pb_basis: "PB计算口径",
+  pe_source_url: "PE官方来源",
+  pb_source_url: "PB官方来源",
+  pe_sample_count: "PE有效交易日样本数",
+  pb_sample_count: "PB有效交易日样本数",
+  valuation_notes: "估值数据覆盖说明",
+
   weight_as_of: "成分权重日期", market_cap_dates: "市值采样日期",
   benchmark_aligned_index_return_pct: "同日对齐指数收益率",
   etf_start_date: "ETF区间起始日期", etf_end_date: "ETF区间结束日期",
@@ -161,6 +174,21 @@ function appendListMetric(grid, key, value) {
 
 function appendMetrics(grid, key, value, prefix = "") {
   const label = prefix ? `${prefix} · ${metricLabel(key)}` : metricLabel(key);
+  if (key.endsWith("_source_url") && typeof value === "string" && /^https:\/\//i.test(value)) {
+    // 官方来源使用短链接文案，避免长网址撑出窄屏卡片。
+    const item = el("div");
+    item.appendChild(el("div", "k", label));
+    const content = el("div", "v");
+    const link = el("a", "", "查看官方来源");
+    link.href = value;
+    link.title = value;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    content.appendChild(link);
+    item.appendChild(content);
+    grid.appendChild(item);
+    return;
+  }
   if (value && typeof value === "object" && !Array.isArray(value)) {
     const entries = Object.entries(value);
     if (!entries.length) {

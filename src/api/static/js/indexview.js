@@ -2,7 +2,7 @@
 import { store, switchView } from "./state.js";
 import { api } from "./api.js";
 import { renderMarkdown } from "./markdown.js";
-import { appendReadableMetric, riskText } from "./report-renderer.js?v=20261002-strategy-indices-3";
+import { appendReadableMetric, riskText } from "./report-renderer.js?v=20261002-strategy-valuation-2";
 import { el, kv, tagChip, priceBar, errorCard, skeleton,
          showEntryError, clearEntryError } from "./components.js";
 
@@ -11,7 +11,7 @@ let reqSeq = 0;  // 请求令牌：慢请求期间二次查询时，丢弃迟到
 const TAGS = {
   technical: { bull: ["多头", "good"], shake: ["震荡", "mid"], bear: ["空头", "bad"] },
   valuation: { undervalued: ["低估", "good"], neutral: ["中性", "mid"],
-               overvalued: ["高估", "bad"], invalid: ["无效", "gray"] },
+               overvalued: ["高估", "bad"], invalid: ["暂无估值判断", "gray"] },
   capital: { positive: ["流入", "good"], neutral: ["中性", "mid"], negative: ["流出", "bad"] },
   macro: { positive: ["积极", "good"], neutral: ["中性", "mid"],
            negative: ["消极", "bad"], na: ["不适用", "gray"] },
@@ -158,15 +158,16 @@ function reportCard(r) {
     card.appendChild(panel);
   }
 
-  if (o.pe_ttm != null || o.pb != null || o.pe_percentile != null) {
+  if (o.pe_ttm != null || o.pe_snapshot != null || o.pb != null || o.pe_percentile != null) {
     const panel = el("div", "panel");
     panel.appendChild(el("div", "panel-title", "概览"));
     const kvs = el("div", "kv");
     if (o.pe_ttm != null) kvs.appendChild(kv("PE-TTM", `${o.pe_ttm}x`));
+    if (o.pe_ttm == null && o.pe_snapshot != null) kvs.appendChild(kv("官方单张PE", `${o.pe_snapshot}x`));
     if (o.pb != null) kvs.appendChild(kv("PB", String(o.pb)));
     if (o.pe_percentile != null) {
       const box = el("div");
-      box.appendChild(el("div", "k", `PE 分位（近 ${o.percentile_lookback_years || 5} 年）`));
+      box.appendChild(el("div", "k", o.strategy_valuation ? `PE 分位（近 ${o.percentile_lookback_years || 5} 年窗口内 ${o.pe_sample_count || 0} 个交易日）` : `PE 分位（近 ${o.percentile_lookback_years || 5} 年）`));
       const val = el("div", "v");
       val.appendChild(el("span", "", `${o.pe_percentile}%`));
       val.appendChild(priceBar(o.pe_percentile));

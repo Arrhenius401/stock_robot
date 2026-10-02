@@ -276,6 +276,19 @@ class IndexValuationData(BaseModel):
     percentile_sample_start: "date | None" = None
     percentile_sample_end: "date | None" = None
     valuation_valid: bool = True
+    pe_snapshot: float | None = None  # 单张未声明 TTM 的 PE，不进入滚动 PE 历史
+    pe_as_of: "date | None" = None
+    pb_as_of: "date | None" = None
+    pe_snapshot_as_of: "date | None" = None
+    pe_snapshot_basis: str = ""
+    pe_snapshot_source_url: str = ""
+    pe_basis: str = ""
+    pb_basis: str = ""
+    pe_source_url: str = ""
+    pb_source_url: str = ""
+    pe_sample_count: int = 0
+    pb_sample_count: int = 0
+    valuation_notes: list[str] = Field(default_factory=list)
 
 
 class CapitalFlowData(BaseModel):

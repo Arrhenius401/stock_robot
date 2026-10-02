@@ -93,7 +93,7 @@ if(analyzed.at(-1)!=="159998") throw new Error("目录失败阻断原入口");
 """
     script = script.replace("__API__", json.dumps(_module_url("src/api/static/js/api.js")))
     script = script.replace("__REPORT__", json.dumps(_module_url("src/api/static/js/report.js")))
-    script = script.replace("__INDEX__", json.dumps(_module_url("src/api/static/js/indexview.js") + "?v=20261002-strategy-indices-3"))
+    script = script.replace("__INDEX__", json.dumps(_module_url("src/api/static/js/indexview.js") + "?v=20261002-strategy-valuation-2"))
     _run_node(tmp_path, script)
 
 
@@ -123,3 +123,28 @@ if (!wrap.querySelector(".entry-error").textContent.includes("匹配到多个指
     script = script.replace("__API__", json.dumps(_module_url("src/api/static/js/api.js")))
     script = script.replace("__INDEX__", json.dumps(_module_url("src/api/static/js/indexview.js")))
     _run_node(tmp_path, script)
+
+
+def test_official_valuation_metadata_and_snapshot_labels(tmp_path):
+    """单张快照无分位时不会误标 TTM，覆盖说明与来源可见。"""
+    script = _DOM_STUB + r"""
+makeElement("indexInput", "input"); makeElement("indexContent");
+const {api} = await import(__API__);
+api.index=async()=>({reports:[{code:"980092",name:"国证自由现金流",visible_sections:["valuation"],
+overview:{pe_snapshot:12.2,pb:1.8,strategy_valuation:true},tag_valuation:"invalid",
+section_valuation:{status:"partial",summary:"官方单张PE 12.2，PB 1.8，没有有效PE历史分位，不判断高低估",metrics:{
+pe_snapshot:12.2,pb:1.8,pe_snapshot_as_of:"2026-09-30",pb_as_of:"2026-09-30",
+pe_basis:"官方单张未声明 TTM",pb_basis:"官方月度单张",pe_source_url:"https://official.example/factsheet.pdf",
+pb_source_url:"https://official.example/factsheet.pdf",pe_sample_count:0,pb_sample_count:0,
+valuation_notes:["公开官方PB日频历史不可用"]}}}]});
+const {openIndex}=await import(__INDEX__);
+await openIndex("980092");
+const box=document.getElementById("indexContent");
+for(const text of ["官方单张PE","单张PE数据日期","PB数据日期","PE计算口径","PB计算口径","PE官方来源","PB官方来源","PE有效交易日样本数","PB有效交易日样本数","估值数据覆盖说明","2026-09-30","查看官方来源","公开官方PB日频历史不可用"]) {
+ if(!box.textContent.includes(text)) throw new Error("估值报告缺少 "+text+"："+box.textContent);
+}
+if(box.textContent.includes("PE-TTM") || box.textContent.includes("None") || box.textContent.includes("无效")) throw new Error("快照估值错误标签");
+"""
+    script=script.replace("__API__",json.dumps(_module_url("src/api/static/js/api.js")))
+    script=script.replace("__INDEX__",json.dumps(_module_url("src/api/static/js/indexview.js")))
+    _run_node(tmp_path,script)

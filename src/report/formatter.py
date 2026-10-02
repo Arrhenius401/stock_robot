@@ -11,6 +11,20 @@ from rich.table import Table
 _SEP_RE = re.compile(r'^\|[-\s:|]+\|$')
 
 METRIC_DISPLAY_NAMES = {
+    "pe_snapshot_basis": "单张PE计算口径",
+    "pe_snapshot_source_url": "单张PE官方来源",
+    "pe_snapshot_as_of": "单张PE数据日期",
+    "pe_snapshot": "官方单张市盈率",
+    "pe_as_of": "PE数据日期",
+    "pb_as_of": "PB数据日期",
+    "pe_basis": "PE计算口径",
+    "pb_basis": "PB计算口径",
+    "pe_source_url": "PE官方来源",
+    "pb_source_url": "PB官方来源",
+    "pe_sample_count": "PE有效交易日样本数",
+    "pb_sample_count": "PB有效交易日样本数",
+    "valuation_notes": "估值数据覆盖说明",
+
     "latest_quarter": "最新财报季度",
     "revenue": "营业收入",
     "net_profit": "净利润",
