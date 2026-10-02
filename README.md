@@ -37,7 +37,7 @@ python3 -m venv .venv
 ```powershell
 .\scripts\bootstrap-dev.ps1
 
-# 仅校验当前工作区改动；无法安全归类时自动退回全量校验
+# 仅校验当前工作区改动；无法归类时提示手动指定范围，不自动全量
 .\scripts\verify.ps1 -Scope Changed
 
 # 校验暂存区，适合提交前使用
@@ -48,6 +48,8 @@ python3 -m venv .venv
 ```
 
 测试过程产生的缓存和临时文件统一存放于 `tmp/pytest/`：成功后自动删除，失败时保留用于排查。
+
+独立工作树可通过 `-VenvPath D:\code\stock_robot\.venv` 显式复用现有运行时；验证仍绑定当前工作树源码。官方数据探针、真实样本、缓存复用与分阶段审查流程见 [指数数据接入提效实施计划与操作说明](docs/superpowers/plans/2026-10/2026-10-02-index-data-efficiency-plan.md#操作说明)。
 
 ## 首次使用
 
