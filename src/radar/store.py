@@ -29,6 +29,7 @@ class RadarStore:
         score_profile: str,
         provider: str,
         as_of_date: str,
+        replaces_run_id: str | None = None,
     ) -> str:
         """创建不可见的运行，调用方完成全部项目后再提交。"""
         run_id = uuid.uuid4().hex
@@ -38,10 +39,10 @@ class RadarStore:
                 """
                 INSERT INTO snapshot_runs(
                     run_id, universe_id, universe_version, score_profile, provider,
-                    as_of_date, status, started_at
-                ) VALUES (?, ?, ?, ?, ?, ?, 'running', ?)
+                    as_of_date, status, started_at, replaces_run_id
+                ) VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?)
                 """,
-                (run_id, universe_id, universe_version, score_profile, provider, as_of_date, now),
+                (run_id, universe_id, universe_version, score_profile, provider, as_of_date, now, replaces_run_id),
             )
         return run_id
 
@@ -211,6 +212,10 @@ class RadarStore:
                 );
                 """
             )
+            conn.execute("BEGIN IMMEDIATE")
+            run_columns = {row["name"] for row in conn.execute("PRAGMA table_info(snapshot_runs)")}
+            if "replaces_run_id" not in run_columns:
+                conn.execute("ALTER TABLE snapshot_runs ADD COLUMN replaces_run_id TEXT")
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(snapshot_items)")}
             if "factors_json" not in columns:
                 conn.execute("ALTER TABLE snapshot_items ADD COLUMN factors_json TEXT")

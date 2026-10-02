@@ -315,7 +315,9 @@ function renderTrades(data) {
 
 function renderMarkdownTab(detail) {
   const markdown = el("article", "md report-library-markdown");
-  markdown.innerHTML = renderMarkdown(localizeReportMarkdown(detail.markdown || "暂无报告正文"));
+  // 正文标题低于页面主标题；只调整已安全渲染的标题标签，保留下载原文。
+  markdown.innerHTML = renderMarkdown(localizeReportMarkdown(detail.markdown || "暂无报告正文"))
+    .replace(/<(\/?)h([1-4])>/g, (_, closing, level) => `<${closing}h${Number(level) + 1}>`);
   return markdown;
 }
 

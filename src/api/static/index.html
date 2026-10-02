@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Stock Robot — AI 股票分析助手</title>
 <link rel="icon" type="image/png" href="/logo.png?v=2">
-<link rel="stylesheet" href="/css/app.css?v=20260928-email-visibility-6">
+<link rel="stylesheet" href="/css/app.css?v=20261002-strategy-valuation-2">
 </head>
 <body>
 <header class="topbar">
@@ -96,13 +96,19 @@
           </div>
           <div class="analysis-entry-controls">
             <div class="entry-input-wrap">
-              <input id="indexInput" autocomplete="off" aria-label="指数代码" placeholder="输入指数代码，空格分隔（000300 000905）">
-              <div class="analysis-entry-hint">输入多个指数代码，用空格分隔</div>
+              <input id="indexInput" autocomplete="off" aria-label="指数代码、名称或ETF代码" placeholder="指数代码、名称或 ETF，如 515300、国证自由现金流">
+              <div class="analysis-entry-hint">支持名称、别名与已关联 ETF；多个对象用空格分隔</div>
             </div>
             <button id="indexBtn" type="button">生成研报</button>
           </div>
         </div>
       </div>
+      <details class="panel index-directory" id="indexDirectory">
+        <summary class="panel-title">指数目录</summary>
+        <p class="dim-sum">目录表示可识别的研究对象；行情与专项数据可用性在报告中逐项说明。ETF 输入将分析其跟踪指数。</p>
+        <input id="indexDirectorySearch" type="search" autocomplete="off" aria-label="搜索指数目录" placeholder="按代码、名称或别名搜索">
+        <div id="indexDirectoryResults" aria-live="polite"></div>
+      </details>
       <div id="indexContent" class="report-content"></div>
     </div>
     <div class="view" id="view-radar">
@@ -143,6 +149,6 @@
     <div id="reportDrawerContent"></div>
   </aside>
 </div>
-    <script type="module" src="/js/app.js?v=20260928-email-visibility-6"></script>
+    <script type="module" src="/js/app.js?v=20261002-strategy-valuation-2"></script>
 </body>
 </html>

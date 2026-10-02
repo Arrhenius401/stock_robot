@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import sys
@@ -10,8 +11,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+from utils.paths import project_state_dir
+
 _TASK_NAME = "StockRobotRadarCollector"
 _MISSING_TASK_MARKERS = ("cannot find the file", "找不到指定的文件", "任务不存在")
+logger = logging.getLogger(__name__)
 
 
 class CollectorAutostartError(RuntimeError):
@@ -29,6 +33,7 @@ class CollectorAutostartStatus:
     schedule: dict[str, object]
     provider: str = "task_scheduler"
     scheduler_error: str | None = None
+    cleanup_pending: bool = False
 
     def to_dict(self) -> dict[str, object]:
         """转为 JSON 友好的状态。"""
@@ -40,6 +45,7 @@ class CollectorAutostartStatus:
             "schedule": self.schedule,
             "provider": self.provider,
             "scheduler_error": self.scheduler_error,
+            "cleanup_pending": self.cleanup_pending,
         }
 
 
@@ -51,11 +57,13 @@ class WindowsCollectorAutostart:
         *,
         executable: Path | None = None,
         startup_directory: Path | None = None,
+        state_directory: Path | None = None,
         runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
         platform_name: str | None = None,
     ) -> None:
         self._executable = executable or Path(sys.executable).with_name("stock-robot.exe")
         self._startup_directory = startup_directory or self._default_startup_directory()
+        self._state_directory = state_directory or project_state_dir()
         self._runner = runner
         self._platform_name = platform_name or os.name
 
@@ -86,7 +94,11 @@ class WindowsCollectorAutostart:
             raise CollectorAutostartError("采集启动项返回了无法解析的任务 XML") from exc
         enabled_node = root.find(".//{*}Enabled")
         enabled = enabled_node is None or (enabled_node.text or "true").strip().lower() == "true"
-        return CollectorAutostartStatus(True, True, enabled, _TASK_NAME, schedule)
+        disabled = not self.allows_daemon()
+        return CollectorAutostartStatus(
+            True, True, enabled and not disabled, _TASK_NAME, schedule,
+            cleanup_pending=enabled and disabled,
+        )
 
     def set_enabled(self, enabled: bool) -> CollectorAutostartStatus:
         """切换启动项；启用后立即拉起守护进程，无需等待下一次登录。"""
@@ -95,21 +107,53 @@ class WindowsCollectorAutostart:
         current = self.status()
         if enabled:
             if current.provider == "startup_folder":
-                self._create_startup_launcher()
+                if not self._launcher_path.is_file():
+                    self._create_startup_launcher()
+                self._clear_disabled()
             else:
                 try:
                     if not current.registered:
                         self._create_task()
-                    elif not current.enabled:
+                    elif not current.enabled and not current.cleanup_pending:
                         self._require_success(["/Change", "/TN", _TASK_NAME, "/Enable"], "无法启用采集启动项")
+                    self._clear_disabled()
                     self._require_success(["/Run", "/TN", _TASK_NAME], "采集启动项已启用，但无法立即启动")
                 except CollectorAutostartError:
+                    self._mark_disabled()
                     self._create_startup_launcher()
-        elif current.provider == "startup_folder":
-            self._remove_startup_launcher()
-        elif current.registered and current.enabled:
-            self._require_success(["/Change", "/TN", _TASK_NAME, "/Disable"], "无法关闭采集启动项")
+                    self._clear_disabled()
+        else:
+            self._mark_disabled()
+            try:
+                if current.provider == "startup_folder":
+                    self._remove_startup_launcher()
+                elif current.registered:
+                    self._require_success(["/Change", "/TN", _TASK_NAME, "/Disable"], "无法关闭采集启动项")
+            except CollectorAutostartError as exc:
+                # 项目内关闭标记仍会阻止守护运行；保留启动项以便之后清理。
+                logger.warning("采集启动项暂无法清理，已通过本地标记关闭: %s", exc)
         return self.status()
+
+    def allows_daemon(self) -> bool:
+        """启动项残留时仍以项目内关闭标记为准。"""
+        return not self._disabled_path.is_file()
+
+    @property
+    def _disabled_path(self) -> Path:
+        return self._state_directory / "radar_collector.disabled"
+
+    def _mark_disabled(self) -> None:
+        try:
+            self._state_directory.mkdir(parents=True, exist_ok=True)
+            self._disabled_path.write_text("disabled\n", encoding="utf-8")
+        except OSError as exc:
+            raise CollectorAutostartError(f"无法保存自动采集关闭状态：{exc}") from exc
+
+    def _clear_disabled(self) -> None:
+        try:
+            self._disabled_path.unlink(missing_ok=True)
+        except OSError as exc:
+            raise CollectorAutostartError(f"无法恢复自动采集：{exc}") from exc
 
     @staticmethod
     def _default_startup_directory() -> Path:
@@ -127,14 +171,17 @@ class WindowsCollectorAutostart:
     ) -> CollectorAutostartStatus | None:
         if not self._launcher_path.is_file() and scheduler_error is None:
             return None
+        registered = self._launcher_path.is_file()
+        disabled = not self.allows_daemon()
         return CollectorAutostartStatus(
             True,
-            self._launcher_path.is_file(),
-            self._launcher_path.is_file(),
+            registered,
+            registered and not disabled,
             _TASK_NAME,
             schedule,
             provider="startup_folder",
             scheduler_error=scheduler_error,
+            cleanup_pending=registered and disabled,
         )
 
     def _create_startup_launcher(self) -> None:

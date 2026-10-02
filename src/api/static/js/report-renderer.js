@@ -12,6 +12,23 @@ const DIMENSIONS = [
 
 // 数据层字段只在内部协议中使用；界面统一显示业务中文名称。
 const METRIC_LABELS = {
+  pe_snapshot_basis: "单张PE计算口径", pe_snapshot_source_url: "单张PE官方来源",
+  pe_snapshot_as_of: "单张PE数据日期",
+  pe_snapshot: "官方单张市盈率",
+  pe_as_of: "PE数据日期",
+  pb_as_of: "PB数据日期",
+  pe_basis: "PE计算口径",
+  pb_basis: "PB计算口径",
+  pe_source_url: "PE官方来源",
+  pb_source_url: "PB官方来源",
+  pe_sample_count: "PE有效交易日样本数",
+  pb_sample_count: "PB有效交易日样本数",
+  valuation_notes: "估值数据覆盖说明",
+
+  weight_as_of: "成分权重日期", market_cap_dates: "市值采样日期",
+  benchmark_aligned_index_return_pct: "同日对齐指数收益率",
+  etf_start_date: "ETF区间起始日期", etf_end_date: "ETF区间结束日期",
+  etf_sample_count: "ETF交易日样本数", etf_unavailable_reason: "ETF表现不可用原因",
   latest_close: "最新收盘价", latest_price: "最新价格", change_pct: "涨跌幅",
   year_high: "近一年最高价", year_low: "近一年最低价", price_position: "价格位置",
   latest_quarter: "最新财报季度", revenue: "营业收入", net_profit: "净利润",
@@ -32,6 +49,17 @@ const METRIC_LABELS = {
   sample_start: "样本起始日期", sample_end: "样本结束日期", tag: "信号标签",
   margin_balance: "融资余额", data_date: "数据日期", date: "数据日期",
 };
+
+Object.assign(METRIC_LABELS, {
+  start_date: "区间起始日期", end_date: "区间结束日期", sample_count: "行情样本数",
+  return_pct: "指数区间收益率", annualized_volatility_pct: "年化波动率", max_drawdown_pct: "最大回撤",
+  benchmark_symbol: "对照基准代码", benchmark_return_pct: "同日基准收益率", excess_return_pct: "同日超额收益率",
+  benchmark_sample_count: "基准交集样本数", benchmark_start_date: "基准交集起始日期", benchmark_end_date: "基准交集结束日期",
+  return_basis: "指数收益口径", etf_symbol: "ETF 代码", etf_return_pct: "ETF 区间收益率", etf_return_basis: "ETF 收益口径",
+  strategy_kind: "策略类型", source: "数据来源", as_of: "采样日期", member_count: "成分数量",
+  member_weight_coverage_pct: "成分权重覆盖率", top10_weight_pct: "前十大权重集中度", industry_coverage_pct: "行业权重覆盖率",
+  financial_years: "财报年度", errors: "数据缺失原因", methodology: "计算口径",
+});
 
 const RISK_LABELS = {
   roe_low: "净资产收益率偏低",
@@ -146,6 +174,21 @@ function appendListMetric(grid, key, value) {
 
 function appendMetrics(grid, key, value, prefix = "") {
   const label = prefix ? `${prefix} · ${metricLabel(key)}` : metricLabel(key);
+  if (key.endsWith("_source_url") && typeof value === "string" && /^https:\/\//i.test(value)) {
+    // 官方来源使用短链接文案，避免长网址撑出窄屏卡片。
+    const item = el("div");
+    item.appendChild(el("div", "k", label));
+    const content = el("div", "v");
+    const link = el("a", "", "查看官方来源");
+    link.href = value;
+    link.title = value;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    content.appendChild(link);
+    item.appendChild(content);
+    grid.appendChild(item);
+    return;
+  }
   if (value && typeof value === "object" && !Array.isArray(value)) {
     const entries = Object.entries(value);
     if (!entries.length) {
@@ -157,7 +200,10 @@ function appendMetrics(grid, key, value, prefix = "") {
     }
     return;
   }
-  grid.appendChild(kv(label, metricText(value)));
+  let text = metricText(value);
+  if (key.endsWith("_pct") && value != null && value !== "" && Number.isFinite(Number(value))) text = `${Number(Number(value).toFixed(2))}%`;
+  if (key === "strategy_kind") text = {dividend: "红利", dividend_low_volatility: "红利低波动", free_cash_flow: "自由现金流"}[value] || text;
+  grid.appendChild(kv(label, text));
 }
 
 export function appendReadableMetric(grid, key, value, context = {}) {

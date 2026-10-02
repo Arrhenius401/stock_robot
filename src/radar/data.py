@@ -16,6 +16,8 @@ import pandas as pd
 import requests
 import yaml
 
+from radar.provider_request import ProviderRequestError, bounded_provider_call
+
 
 class RadarDataError(Exception):
     """雷达数据源不可用或返回的数据不完整。"""
@@ -71,6 +73,8 @@ class RequestPacer:
 class AkShareETFDataProvider:
     """AkShare ETF 数据适配器；只支持 ETF，且每次调用受节流保护。"""
 
+    adjustment: ClassVar[str] = "qfq"
+
     _SPOT_COLUMNS: ClassVar[dict[str, str]] = {
         "代码": "symbol", "名称": "name", "最新价": "close", "成交额": "amount"
     }
@@ -94,6 +98,10 @@ class AkShareETFDataProvider:
         self._pacer = pacer or RequestPacer()
         self._spot_fetcher = spot_fetcher or self._akshare_spot
         self._daily_fetcher = daily_fetcher or self._akshare_daily
+        self._circuit_open = False
+
+    def reset_circuit(self) -> None:
+        """新的刷新尝试重新获得请求机会。"""
         self._circuit_open = False
 
     def supports(self, asset_type: str) -> bool:
@@ -147,7 +155,10 @@ class AkShareETFDataProvider:
         if "symbol" in normalized:
             normalized["symbol"] = normalized["symbol"].astype(str).str.zfill(6)
         if "date" in normalized:
-            normalized["date"] = pd.to_datetime(normalized["date"], errors="raise").dt.date
+            try:
+                normalized["date"] = pd.to_datetime(normalized["date"], errors="raise").dt.date
+            except (TypeError, ValueError) as exc:
+                raise RadarDataError("AkShare ETF 日期格式无效") from exc
         for column in {"open", "high", "low", "close", "volume", "amount"} & set(normalized.columns):
             normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
         return cast(pd.DataFrame, normalized[list(dict.fromkeys(columns.values()))])
@@ -163,17 +174,22 @@ class AkShareETFDataProvider:
     @staticmethod
     def _akshare_daily(**kwargs: str) -> pd.DataFrame:
         """调用 AkShare ETF 日线接口。"""
-        import akshare as ak
-
-        frame: Any = ak.fund_etf_hist_em(**kwargs)
+        frame: Any = bounded_provider_call("akshare", "fund_etf_hist_em", kwargs)
         return frame
 
 
 class SinaETFDataProvider:
     """新浪 ETF 日线适配器，用于 Eastmoney 不可用时的免费备源。"""
 
+    # 当前 SDK 未声明复权口径，不能把未知序列当作不复权混入缓存。
+    adjustment: ClassVar[str] = "unknown"
+
     def __init__(self, *, fetcher: Callable[[str], pd.DataFrame] | None = None):
         self._fetcher = fetcher or self._akshare_daily
+        self._circuit_open = False
+
+    def reset_circuit(self) -> None:
+        """新的刷新尝试重新获得请求机会。"""
         self._circuit_open = False
 
     def supports(self, asset_type: str) -> bool:
@@ -191,7 +207,7 @@ class SinaETFDataProvider:
         exchange_symbol = _sina_symbol(symbol)
         try:
             frame = self._fetcher(exchange_symbol)
-        except (requests.RequestException, URLError) as exc:
+        except (requests.RequestException, URLError, ProviderRequestError) as exc:
             self._circuit_open = True
             raise RadarDataError("新浪 ETF 网络请求失败，已熔断本轮请求") from exc
         except Exception as exc:  # 第三方 SDK/network 边界需转换为统一异常
@@ -201,7 +217,10 @@ class SinaETFDataProvider:
         if missing:
             raise RadarDataError(f"新浪 ETF 日线缺少字段: {', '.join(sorted(missing))}")
         normalized = frame.copy()
-        normalized["date"] = pd.to_datetime(normalized["date"], errors="raise").dt.date
+        try:
+            normalized["date"] = pd.to_datetime(normalized["date"], errors="raise").dt.date
+        except (ValueError, TypeError) as exc:
+            raise RadarDataError("ETF 日线日期格式无效") from exc
         for column in ("open", "high", "low", "close", "volume"):
             normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
         normalized["amount"] = normalized["close"] * normalized["volume"]
@@ -213,17 +232,21 @@ class SinaETFDataProvider:
     @staticmethod
     def _akshare_daily(symbol: str) -> pd.DataFrame:
         """延迟导入 AkShare；新浪接口需交易所前缀。"""
-        import akshare as ak
-
-        frame: Any = ak.fund_etf_hist_sina(symbol=symbol)
+        frame: Any = bounded_provider_call("akshare", "fund_etf_hist_sina", {"symbol": symbol})
         return frame
 
 
 class TencentETFDataProvider:
     """腾讯免费复权日线适配器，用于 AkShare 不可用时的独立备源。"""
 
+    adjustment: ClassVar[str] = "qfq"
+
     def __init__(self, *, fetcher: Callable[[str, date, date], pd.DataFrame] | None = None):
-        self._fetcher = fetcher or self._tencent_daily
+        self._fetcher = fetcher or self._bounded_tencent_daily
+        self._circuit_open = False
+
+    def reset_circuit(self) -> None:
+        """新的刷新尝试重新获得请求机会。"""
         self._circuit_open = False
 
     def supports(self, asset_type: str) -> bool:
@@ -242,7 +265,7 @@ class TencentETFDataProvider:
             raise ProviderCircuitOpenError("腾讯 ETF 数据源本轮已熔断")
         try:
             frame = self._fetcher(symbol, start, end)
-        except requests.RequestException as exc:
+        except (requests.RequestException, ProviderRequestError) as exc:
             self._circuit_open = True
             raise RadarDataError("腾讯 ETF 网络请求失败，已熔断本轮请求") from exc
         except (KeyError, TypeError, ValueError) as exc:
@@ -252,7 +275,10 @@ class TencentETFDataProvider:
         if missing:
             raise RadarDataError(f"腾讯 ETF 日线缺少字段: {', '.join(sorted(missing))}")
         normalized = frame.copy()
-        normalized["date"] = pd.to_datetime(normalized["date"], errors="raise").dt.date
+        try:
+            normalized["date"] = pd.to_datetime(normalized["date"], errors="raise").dt.date
+        except (ValueError, TypeError) as exc:
+            raise RadarDataError("ETF 日线日期格式无效") from exc
         for column in ("open", "high", "low", "close", "volume"):
             normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
         normalized["amount"] = normalized["close"] * normalized["volume"]
@@ -260,6 +286,11 @@ class TencentETFDataProvider:
         if result.empty:
             raise RadarDataError("腾讯 ETF 日线在请求区间没有数据")
         return cast(pd.DataFrame, result[["date", "open", "high", "low", "close", "volume", "amount"]])
+
+    @staticmethod
+    def _bounded_tencent_daily(symbol: str, start: date, end: date) -> pd.DataFrame:
+        """整个腾讯请求有硬截止，连接与缓慢响应不能无限延长。"""
+        return bounded_provider_call("radar.data", "TencentETFDataProvider._tencent_daily", args=(symbol, start, end))
 
     @staticmethod
     def _tencent_daily(symbol: str, start: date, end: date) -> pd.DataFrame:
@@ -300,7 +331,11 @@ class OfficialExchangeETFDataProvider:
     ):
         self._config_path = config_path or Path(__file__).parents[2] / "config" / "radar_exchange_sources.yaml"
         self._daily_fetcher = daily_fetcher
-        self._downloader = downloader or self._download
+        self._downloader = downloader or self._bounded_download
+        self._circuit_open = False
+
+    def reset_circuit(self) -> None:
+        """新的刷新尝试重新获得请求机会。"""
         self._circuit_open = False
 
     def supports(self, asset_type: str) -> bool:
@@ -322,7 +357,10 @@ class OfficialExchangeETFDataProvider:
             raise RadarDataError(f"交易所日终文件缺少字段: {', '.join(sorted(missing))}")
         if "volume" not in frame:
             frame["volume"] = pd.NA
-        frame["date"] = pd.to_datetime(frame["date"], errors="raise").dt.date
+        try:
+            frame["date"] = pd.to_datetime(frame["date"], errors="raise").dt.date
+        except (TypeError, ValueError) as exc:
+            raise RadarDataError("交易所 ETF 日期格式无效") from exc
         for column in required - {"date"}:
             frame[column] = pd.to_numeric(frame[column], errors="coerce")
         result = frame[(frame["date"] >= start) & (frame["date"] <= end)]
@@ -348,11 +386,16 @@ class OfficialExchangeETFDataProvider:
         try:
             content = self._downloader(url)
             return pd.read_csv(BytesIO(content), encoding=str(settings.get("encoding", "utf-8")))
-        except URLError as exc:
+        except (URLError, ProviderRequestError) as exc:
             self._circuit_open = True
             raise RadarDataError(f"{source.upper()} 官方日终网络请求失败，已熔断本轮请求") from exc
         except (OSError, UnicodeDecodeError, ValueError, pd.errors.ParserError) as exc:
             raise RadarDataError(f"{source.upper()} 官方日终文件下载或解析失败") from exc
+
+    @staticmethod
+    def _bounded_download(url: str) -> bytes:
+        """下载文件的总请求时间由隔离进程限制。"""
+        return bounded_provider_call("radar.data", "OfficialExchangeETFDataProvider._download", args=(url,))
 
     @staticmethod
     def _download(url: str) -> bytes:
@@ -469,6 +512,13 @@ class FallbackETFDataProvider:
             raise ValueError("至少需要一个 ETF 数据提供者")
         self._providers = tuple(providers)
 
+    def reset_circuit(self) -> None:
+        """仅在整个池新尝试开始时重置各源熔断。"""
+        for provider in self._providers:
+            reset = getattr(provider, "reset_circuit", None)
+            if reset is not None:
+                reset()
+
     def supports(self, asset_type: str) -> bool:
         return all(provider.supports(asset_type) for provider in self._providers)
 
@@ -486,13 +536,26 @@ class FallbackETFDataProvider:
         frame, _ = self.fetch_daily_with_source(symbol, start, end)
         return frame
 
-    def fetch_daily_with_source(self, symbol: str, start: date, end: date) -> tuple[pd.DataFrame, str]:
+    def fetch_daily_with_source(self, symbol: str, start: date, end: date, *, require_target: bool = False, trading_days: Sequence[date] | None = None) -> tuple[pd.DataFrame, str]:
         """获取日线并返回实际成功的提供者名称。"""
         errors: list[str] = []
         for provider in self._providers:
             try:
                 source = getattr(provider, "source_label", type(provider).__name__)
-                return provider.fetch_daily(symbol, start, end), source
+                frame = provider.fetch_daily(symbol, start, end)
+                if require_target:
+                    from radar.history import normalize_history
+
+                    frame = normalize_history(frame, start, end)
+                    if frame.iloc[-1]["date"] != end:
+                        raise RadarDataError(f"行情尚未更新到目标交易日 {end}")
+                    if trading_days:
+                        actual_start = max(start, frame.iloc[0]["date"])
+                        missing = {day for day in trading_days if actual_start <= day <= end} - set(frame["date"])
+                        if missing:
+                            raise RadarDataError("行情缺失交易日: " + ", ".join(str(day) for day in sorted(missing)[:5]))
+                frame.attrs["adjustment"] = getattr(provider, "adjustment", "unknown")
+                return frame, source
             except RadarDataError as exc:
                 errors.append(f"{type(provider).__name__}: {exc}")
         raise RadarDataError("；".join(errors))

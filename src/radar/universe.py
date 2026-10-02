@@ -66,7 +66,23 @@ class UniverseRepository:
         ]
         if len(candidates) != 1:
             raise UniverseConfigError(f"{target_date.isoformat()} 没有唯一生效的标的池: {universe_id}")
-        return candidates[0]
+        selected = candidates[0]
+        return selected.model_copy(update={"instruments": [
+            instrument for instrument in selected.instruments
+            if instrument.effective_from <= target_date
+            and (instrument.effective_until is None or target_date <= instrument.effective_until)
+        ]})
+
+    def enabled_on(self, target_date: date) -> list[RadarUniverse]:
+        """每个池按目标日期选择唯一版本，再过滤关闭池和无效成员。"""
+        universes = self.load_all()
+        identifiers = dict.fromkeys(item.id for item in universes if any(
+            instrument.effective_from <= target_date
+            and (instrument.effective_until is None or target_date <= instrument.effective_until)
+            for instrument in item.instruments
+        ))
+        selected = [self.active_on(identifier, target_date) for identifier in identifiers]
+        return [item for item in selected if item.enabled]
 
     @staticmethod
     def _validate_no_overlap(versions: list[RadarUniverse]) -> None:

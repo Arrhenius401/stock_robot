@@ -45,6 +45,9 @@ class IndexReportBuilder:
             section_capital=capital,
             section_macro=macro if "macro" in visible else None,
             section_sentiment=sentiment,
+            section_strategy=self._build_section(results_map, "index_strategy") if "strategy" in visible else None,
+            section_performance=self._build_section(results_map, "index_performance") if "performance" in visible else None,
+            requested_instrument=ctx.requested_instrument,
             tag_technical=tags.get("index_technical", "shake"),
             tag_valuation=tags.get("index_valuation", "invalid"),
             tag_capital=tags.get("index_capital_flow", "neutral"),
@@ -70,6 +73,9 @@ class IndexReportBuilder:
             sections.update({"capital", "macro"})
         elif index_style == "sector":
             sections.add("capital")
+        elif index_style == "strategy":
+            sections.update({"strategy", "performance"})
+            sections.discard("sentiment")
         elif index_style == "overseas":
             sections.add("macro")
         return sections
@@ -86,6 +92,9 @@ class IndexReportBuilder:
             "change_pct": change_pct,
             "pe_ttm": val.pe_ttm if val else None,
             "pb": val.pb if val else None,
+            "pe_snapshot": val.pe_snapshot if val else None,
+            "pe_sample_count": val.pe_sample_count if val else 0,
+            "strategy_valuation": ctx.target.index_style == "strategy",
             "pe_percentile": val.pe_percentile if val else None,
             "valuation_valid": val.valuation_valid if val else True,
             "percentile_lookback_years": val.percentile_lookback_years if val else 5,
@@ -145,6 +154,9 @@ def render_index_report_markdown(report: IndexReport) -> str:
         section_capital=report.section_capital,
         section_macro=report.section_macro,
         section_sentiment=report.section_sentiment,
+        section_strategy=getattr(report, "section_strategy", None),
+        section_performance=getattr(report, "section_performance", None),
+        requested_instrument=getattr(report, "requested_instrument", None),
         tag_technical=report.tag_technical,
         tag_valuation=report.tag_valuation,
         tag_capital=report.tag_capital,

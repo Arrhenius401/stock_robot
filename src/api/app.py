@@ -743,6 +743,24 @@ def create_app(
         return StreamingResponse(event_stream(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "Connection": "keep-alive"})
 
+    @app.get("/api/v1/indices")
+    async def index_catalog(q: str = ""):
+        """公开指数目录与人工核验的ETF跟踪关系，查询不触发行情采集。"""
+        from dataclasses import asdict
+
+        from data.index_mapping import ETFIndexMapping, IndexMapping
+
+        mapping = IndexMapping()
+        etfs = [item for item in ETFIndexMapping().entries()
+                if not q.strip() or q.strip().casefold() in f"{item.symbol} {item.name}".casefold()]
+        matches = {entry.symbol: entry for entry in mapping.search(q)}
+        for item in etfs:
+            entry = mapping.lookup(item.index_symbol)
+            if entry is not None:
+                matches[entry.symbol] = entry
+        return {"indices": [asdict(entry) for entry in matches.values()],
+                "etfs": [asdict(item) for item in etfs]}
+
     @app.post("/api/v1/analyze")
     async def analyze(request: Request):
         body = await request.json()
@@ -833,7 +851,9 @@ def create_app(
         if agent_core is None:
             raise HTTPException(status_code=503, detail="Agent 核心未注入")
 
-        from data.index_mapping import IndexMapping
+        from dataclasses import asdict
+
+        from data.index_mapping import ETFIndexMapping, IndexMapping
         from data.schemas import AnalysisTarget
         from utils.symbols import normalize_index_symbol, validate_index_symbol
 
@@ -841,30 +861,47 @@ def create_app(
         mapping = IndexMapping()
         targets: list[AnalysisTarget] = []
         errors: list[str] = []
+        etf_mapping = ETFIndexMapping()
+        requested: dict[str, dict] = {}
         for sym in symbols:
-            if not validate_index_symbol(sym):
-                errors.append(f"无效的指数代码: {sym}")
+            etf = etf_mapping.lookup(sym)
+            raw_index = etf.index_symbol if etf else sym
+            try:
+                entry = mapping.resolve(raw_index)
+            except ValueError as exc:
+                errors.append(str(exc))
                 continue
-            normalized = normalize_index_symbol(sym)
-            entry = mapping.lookup(normalized)
+            if entry is None and not validate_index_symbol(raw_index):
+                errors.append(f"无效的指数代码或名称: {sym}，请在指数目录中选择")
+                continue
+            normalized = normalize_index_symbol(raw_index)
             if entry is None:
-                if index_style not in ("broad", "sector", "overseas"):
+                if index_style not in ("broad", "sector", "overseas", "strategy"):
                     errors.append(
-                        f"无法识别指数 {normalized}，请指定 index_style (broad/sector/overseas)")
+                        f"无法识别指数 {normalized}，请在指数目录中选择或指定 index_style")
                     continue
-                targets.append(AnalysisTarget(
+                target = AnalysisTarget(
                     target_type="index", symbol=normalized, name=normalized,
-                    market="a-shares", index_style=index_style))
+                    market="a-shares", index_style=index_style)
             else:
-                targets.append(AnalysisTarget(
-                    target_type="index", symbol=normalized, name=entry.name,
-                    market=entry.market, index_style=entry.index_style))
+                target = AnalysisTarget(
+                    target_type="index", symbol=getattr(entry, "symbol", normalized),
+                    name=entry.name, market=entry.market, index_style=entry.index_style)
+            if any(existing.symbol == target.symbol for existing in targets):
+                errors.append(f"重复指数 {target.symbol} 已跳过，请分别分析ETF与其指数")
+                continue
+            if etf:
+                target.requested_instrument = asdict(etf)
+                requested[target.symbol] = asdict(etf)
+            targets.append(target)
         if not targets:
             raise HTTPException(status_code=422, detail="；".join(errors))
 
         try:
             result = await asyncio.to_thread(agent_core.index_pipeline.run, targets)
             for report in result.reports:
+                if report.code in requested:
+                    report.requested_instrument = requested[report.code]
                 _save_web_index_report(report)
             compare = None
             if result.compare is not None:
@@ -1187,7 +1224,15 @@ def create_app(
 
         def send_test() -> None:
             backend = get_backend("email", snapshot.config)
-            backend.send(title="[Stock Robot] 邮箱测试", content="Stock Robot 邮箱推送测试成功。", content_type="html")
+            backend.send(
+                title="[Stock Robot] 邮箱排版测试",
+                content=(
+                    "# 邮箱推送测试\n\n邮件发送与报告排版均已启用。\n\n"
+                    "| 项目 | 示例 |\n|---|---|\n| 表格 | 可见边框与表头 |\n\n"
+                    "- 列表内容应逐项显示\n- 完整研报会使用相同排版\n"
+                ),
+                content_type="markdown",
+            )
 
         try:
             await asyncio.to_thread(send_test)

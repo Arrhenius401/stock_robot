@@ -6,10 +6,13 @@ import { invalidateSettings } from "./settings.js";
 const ACTIVE = new Set(["queued", "running"]);
 const RUN_STATUS = { queued: "排队中", running: "运行中", succeeded: "成功",
   partial: "部分成功", failed: "失败", interrupted: "已中断" };
+const NOTICE_DURATION_MS = 7000;
 let requestToken = 0;
 let modalToken = 0;
 let selectedId = null;
 let pollTimer = null;
+let noticeTimer = null;
+let noticeState = null;
 let returnFocus = null;
 let initialized = false;
 
@@ -26,11 +29,48 @@ function action(label, className, handler) {
   result.addEventListener("click", handler);
   return result;
 }
-function notice(message, error = false) {
+function syncNotice() {
   const box = get("subsNotice");
-  box.textContent = message;
-  box.className = `subs-notice ${error ? "error" : "success"}`;
-  box.hidden = !message;
+  const state = noticeState;
+  const visible = Boolean(state && store.currentView === "subscriptions"
+    && (state.scope === "detail" ? selectedId === state.subscriptionId : selectedId === null));
+  box.hidden = !visible;
+  box.textContent = visible ? state.message : "";
+  box.className = `subs-notice ${state?.error ? "error" : "success"}`;
+}
+function clearNotice() {
+  if (noticeTimer !== null) clearTimeout(noticeTimer);
+  noticeTimer = null;
+  noticeState = null;
+  syncNotice();
+}
+function notice(message, error = false, options = {}) {
+  if (noticeTimer !== null) clearTimeout(noticeTimer);
+  noticeTimer = null;
+  if (!message) { clearNotice(); return; }
+  noticeState = { message, error, scope: options.scope || (selectedId === null ? "list" : "detail"),
+    subscriptionId: options.subscriptionId ?? selectedId, runId: options.runId ?? null };
+  syncNotice();
+  if (options.dismissAfter === false) return;
+  const state = noticeState;
+  noticeTimer = setTimeout(() => { if (noticeState === state) clearNotice(); }, NOTICE_DURATION_MS);
+}
+function updateRunNotice(subscriptionId, run) {
+  if (!noticeState || noticeState.subscriptionId !== subscriptionId
+      || String(noticeState.runId) !== String(run.id)) return;
+  const processed = run.processed || 0;
+  const total = run.total || 0;
+  const ok = run.ok || 0;
+  let message;
+  if (run.status === "queued") message = `推送已排队，运行编号 ${run.id}`;
+  else if (run.status === "running") message = `正在推送 · 已处理 ${processed}/${total}，成功 ${ok}`;
+  else if (run.status === "succeeded") message = `推送完成 · 成功 ${ok}/${total}`;
+  else if (run.status === "partial") message = `推送完成 · 成功 ${ok}/${total}，部分失败`;
+  else if (run.status === "failed") message = `推送失败 · 成功 ${ok}/${total}`;
+  else message = `推送已中断 · 成功 ${ok}/${total}`;
+  notice(message, ["partial", "failed", "interrupted"].includes(run.status), {
+    scope: "detail", subscriptionId, runId: run.id, dismissAfter: !ACTIVE.has(run.status),
+  });
 }
 function symbolChip(item, remove = null) {
   const chip = element("span", "subs-symbol-chip");
@@ -68,6 +108,7 @@ function schedulePoll(run) {
     try {
       const current = await api.getSubscriptionRun(id, run.id);
       if (selectedId !== id || store.currentView !== "subscriptions") return;
+      updateRunNotice(id, current);
       const card = [...get("subsDetail").querySelectorAll(".subs-run")]
         .find((item) => item.dataset.runId === String(run.id));
       if (card) {
@@ -84,7 +125,8 @@ function schedulePoll(run) {
       schedulePoll(current);
     } catch (error) {
       if (selectedId !== id || store.currentView !== "subscriptions") return;
-      notice(`运行进度读取失败：${error.message}；稍后自动重试。`, true);
+      notice(`运行进度读取失败：${error.message}；稍后自动重试。`, true,
+        { scope: "detail", subscriptionId: id, runId: run.id, dismissAfter: false });
       schedulePoll(run);
     }
   }, 2500);
@@ -670,6 +712,7 @@ function renderDetail(sub, runs) {
     ++requestToken;
     selectedId = null;
     stopPoll();
+    syncNotice();
     root.hidden = true;
     get("subsList").hidden = false;
     loadList();
@@ -690,7 +733,8 @@ function renderDetail(sub, runs) {
     run.disabled = true;
     try {
       const result = await api.triggerSubscription(sub.id);
-      notice(`推送已排队，运行编号 ${result.run_id}`);
+      notice(`推送已排队，运行编号 ${result.run_id}`, false,
+        { scope: "detail", subscriptionId: sub.id, runId: result.run_id, dismissAfter: false });
       await openDetail(sub.id, true);
     } catch (error) {
       notice(error.status === 409 ? "该订阅已有推送任务正在运行。" : `推送失败：${error.message}`, true);
@@ -716,6 +760,7 @@ function renderDetail(sub, runs) {
         await api.deleteSubscription(sub.id);
         selectedId = null;
         stopPoll();
+        syncNotice();
         root.hidden = true;
         get("subsList").hidden = false;
         notice("订阅已删除");
@@ -731,11 +776,14 @@ function renderDetail(sub, runs) {
   if (!runs.length) history.append(element("p", "subs-muted", "尚无推送记录。"));
   else for (const item of runs) history.append(runCard(item, sub.id));
   root.append(history);
+  const noticedRun = runs.find((item) => String(item.id) === String(noticeState?.runId));
+  if (noticedRun) updateRunNotice(sub.id, noticedRun);
   schedulePoll(active);
 }
 
 async function openDetail(id, quiet = false) {
   selectedId = id;
+  syncNotice();
   const token = ++requestToken;
   get("subsList").hidden = true;
   const root = get("subsDetail");
@@ -750,6 +798,7 @@ async function openDetail(id, quiet = false) {
     root.replaceChildren(element("p", "subs-loading error", `订阅详情读取失败：${error.message}`),
       action("返回列表", "subs-btn", () => {
         selectedId = null;
+        syncNotice();
         root.hidden = true;
         get("subsList").hidden = false;
         loadList();
@@ -777,7 +826,8 @@ export function initSubscriptions() {
   });
   bus.addEventListener("view-change", (event) => {
     ++requestToken;
-    if (event.detail.view !== "subscriptions") { stopPoll(); closeModal(); return; }
+    if (event.detail.view !== "subscriptions") { stopPoll(); closeModal(); syncNotice(); return; }
+    syncNotice();
     api.getPushStatus().then((status) => {
       if (store.currentView === "subscriptions" && !status.enabled && get("subsNotice").hidden) {
         notice("自动推送已在全局配置中关闭；仍可手动推送和试发邮箱。");

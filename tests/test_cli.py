@@ -1,6 +1,7 @@
 from datetime import date
 
 import pandas as pd
+import pytest
 from click.testing import CliRunner
 
 from backtest.models import (
@@ -10,6 +11,79 @@ from backtest.models import (
     BenchmarkSpec,
 )
 from stock_robot.cli import main
+
+
+@pytest.mark.parametrize("path", [[], ["index"], ["radar"], ["config", "set"]])
+def test_help_command_matches_native_help(path):
+    runner = CliRunner()
+    result = runner.invoke(main, ["help", *path])
+    expected = runner.invoke(main, [*path, "--help"])
+    assert result.exit_code == 0, result.output
+    assert result.output == expected.output
+
+
+@pytest.mark.parametrize("path", [["missing"], ["radar", "missing"], ["index", "missing"]])
+def test_help_command_rejects_unknown_or_leaf_paths(path):
+    result = CliRunner().invoke(main, ["help", *path])
+    assert result.exit_code == 2
+    assert "missing" in result.output
+
+
+def test_help_command_supports_deep_paths_without_running_callbacks(monkeypatch):
+    import click
+
+    callbacks = []
+    def unexpected_callback(*_args, **_kwargs):
+        callbacks.append(True)
+    leaf = click.Command("leaf", callback=unexpected_callback,
+                         params=[click.Argument(["required"])], help="测试深层帮助")
+    nested = click.Group("nested", commands={"leaf": leaf}, callback=unexpected_callback)
+    group = click.Group("help-test", commands={"nested": nested}, callback=unexpected_callback)
+    monkeypatch.setitem(main.commands, "help-test", group)
+    runner = CliRunner()
+    result = runner.invoke(main, ["help", "help-test", "nested", "leaf"])
+    assert result.exit_code == 0, result.output
+    assert callbacks == []
+    expected = runner.invoke(main, ["help-test", "nested", "leaf", "--help"])
+    assert "REQUIRED" in result.output
+    assert result.output == expected.output
+
+
+def test_empty_invocation_shows_help_hint_without_business_calls(mocker):
+    config = mocker.patch("stock_robot.cli.Config")
+    pipeline = mocker.patch("stock_robot.cli._build_pipeline")
+    result = CliRunner().invoke(main, [], prog_name="stock-robot")
+    assert result.exit_code == 0, result.output
+    assert "Commands:" in result.output
+    assert "stock-robot help <命令>" in result.output
+    config.assert_not_called()
+    pipeline.assert_not_called()
+
+
+@pytest.mark.parametrize("arguments,path", [
+    (["missing"], ""),
+    (["--missing-option"], ""),
+    (["index"], "index"),
+    (["index", "--missing-option"], "index"),
+    (["radar", "missing"], "radar"),
+    (["config", "set"], "config set"),
+    (["run", "--port", "bad"], "run"),
+])
+def test_usage_error_points_to_matching_help(arguments, path):
+    result = CliRunner().invoke(main, arguments, prog_name="stock-robot")
+    assert result.exit_code == 2
+    hint = f"运行 stock-robot help{' ' + path if path else ''} 查看详细用法。"
+    assert hint in result.stderr
+    assert "Error:" in result.stderr
+    assert hint not in result.stdout
+
+
+def test_business_input_error_keeps_reason_and_adds_help(mocker):
+    mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
+    result = CliRunner().invoke(main, ["analyze", "abc"])
+    assert result.exit_code == 1
+    assert "abc" in result.stdout
+    assert "运行 stock-robot help analyze 查看详细用法。" in result.stderr
 
 
 def test_create_cli_progress_uses_shared_transient_columns():
@@ -56,26 +130,28 @@ def test_radar_import_benchmark_writes_local_history(mocker, tmp_path):
 
 
 def test_radar_collect_once_prints_each_pool(mocker, tmp_path):
+    worker = mocker.patch("radar.collector_service.build_collector").return_value
+    worker.enqueue_manual.return_value = [{"id": "task", "universe_id": "cn_hk_etf"}]
+    worker.execute_one.return_value = False
+    worker.store.get_run.return_value = {"status": "completed", "snapshot_run_id": "run-cn_hk_etf"}
+    result = CliRunner().invoke(main, ["radar", "collect", "--once"])
+    assert result.exit_code == 0
+    assert "run-cn_hk_etf" in result.output
+
+
+def test_radar_collect_daemon_exits_when_autostart_is_disabled(mocker, tmp_path):
     from utils.config import Config
 
-    class _Repository:
-        @staticmethod
-        def load_all():
-            return [type("Universe", (), {"id": "cn_hk_etf"})(), type("Universe", (), {"id": "overseas_etf"})()]
-
-    class _Refresher:
-        @staticmethod
-        def refresh(universe_id):
-            return f"run-{universe_id}"
-
     config = Config(config_dir=tmp_path / "config")
-    mocker.patch("stock_robot.cli._radar_services", return_value=(config, _Repository(), None, _Refresher()))
+    (config.config_dir / "radar_collector.disabled").write_text("disabled\n")
+    services = mocker.patch("stock_robot.cli._radar_services")
+    mocker.patch("stock_robot.cli.Config", return_value=config)
 
-    result = CliRunner().invoke(main, ["radar", "collect", "--once"])
+    result = CliRunner().invoke(main, ["radar", "collect"])
 
     assert result.exit_code == 0
-    assert "cn_hk_etf: run-cn_hk_etf" in result.output
-    assert "overseas_etf: run-overseas_etf" in result.output
+    assert "自动采集已关闭" in result.output
+    services.assert_not_called()
 
 
 class TestCLI:
@@ -114,6 +190,7 @@ class TestCLI:
         runner = CliRunner()
         result = runner.invoke(main, ["analyze", "000001", "--no-llm"])
         assert result.exit_code == 0
+        assert "查看详细用法" not in result.output
         assert mock_save.call_args.kwargs["category"] == "stock"
 
     def test_config_set_and_get(self):

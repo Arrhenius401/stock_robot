@@ -43,10 +43,34 @@ def test_collector_registers_weekday_shanghai_schedule_and_runtime_heartbeat(moc
 
     collector.serve(hour=18, minute=30)
 
-    assert scheduler.add_job.call_count == 2
+    assert scheduler.add_job.call_count == 3
     _, kwargs = scheduler.add_job.call_args_list[0]
     assert kwargs["id"] == "radar-collector"
     assert kwargs["max_instances"] == 1
     assert scheduler.add_job.call_args_list[1].kwargs["id"] == "radar-collector-heartbeat"
+    assert scheduler.add_job.call_args_list[2].kwargs["id"] == "radar-collector-stop-check"
+    assert scheduler.add_job.call_args_list[2].kwargs["seconds"] == 5
     assert runtime == ["started"]
     scheduler.start.assert_called_once()
+
+
+def test_collector_stops_when_autostart_is_disabled(mocker):
+    scheduler = mocker.Mock()
+    mocker.patch("radar.collector.BlockingScheduler", return_value=scheduler)
+    enabled = True
+    refreshed: list[str] = []
+    collector = RadarCollector(
+        lambda universe_id: refreshed.append(universe_id) or universe_id,
+        ("cn_hk_etf",), should_continue=lambda: enabled,
+    )
+
+    collector.serve(hour=18, minute=30)
+    assert scheduler.add_job.call_count == 3
+    stop_job = scheduler.add_job.call_args_list[2].args[0]
+    assert scheduler.add_job.call_args_list[2].kwargs["id"] == "radar-collector-stop-check"
+
+    enabled = False
+    stop_job()
+    assert collector.run_once() == {}
+    assert refreshed == []
+    scheduler.shutdown.assert_called_once_with(wait=False)

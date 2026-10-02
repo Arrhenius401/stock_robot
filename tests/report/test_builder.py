@@ -113,6 +113,7 @@ class TestReportBuilder:
 
         assert "工商银行（601398）" in report
         assert "建设银行（601939）" in report
+        assert "- 工商银行（601398）\n- 建设银行（601939）" in report
         assert "peer_names" not in report
         assert "- 业绩增长超预期" in report
         assert "- 机构上调目标价" in report

@@ -30,7 +30,9 @@ class IndexDataCollector:
             self._registry.register_data_source(self._adapter)
 
     def collect(self, target: AnalysisTarget, on_progress: ProgressCallback = None) -> IndexAnalysisContext:
-        ctx = IndexAnalysisContext(target=target)
+        ctx = IndexAnalysisContext(target=target, requested_instrument=target.requested_instrument)
+        if target.index_style == "strategy":
+            return self._collect_strategy(ctx, on_progress)
 
         # 预计算采集步骤
         steps: list[tuple[str, str, Callable]] = []
@@ -111,4 +113,47 @@ class IndexDataCollector:
             if on_progress:
                 on_progress("collect", i + 1, total, label)
 
+        return ctx
+
+
+    def _collect_strategy(self, ctx: IndexAnalysisContext, on_progress: ProgressCallback) -> IndexAnalysisContext:
+        """策略仅访问适配的真实数据源，不走旧宽基估值或资金流接口。"""
+        from data.index_mapping import IndexMapping
+        from index.valuation_data import StrategyValuationProvider
+
+        provider = StrategyValuationProvider()
+        entry = IndexMapping().lookup(ctx.target.symbol)
+        price_provider = entry.provider if entry and entry.provider else "csi"
+        ctx.price_data = provider.fetch_prices(ctx.target.symbol, provider=price_provider)
+        total = 5 if ctx.requested_instrument else 4
+        if on_progress:
+            on_progress("collect", 1, total, "采集策略指数价格行情")
+        if not ctx.price_data:
+            ctx.risk_flags.append("官方与独立回退行情源均未取得真实价格")
+            return ctx
+        ctx.strategy_data = provider.collect(ctx.target)
+        ctx.risk_flags.extend(ctx.strategy_data.errors)
+        if on_progress:
+            on_progress("collect", 2, total, "采集官方权重及年度专项数据")
+        try:
+            ctx.valuation_data = provider.fetch(ctx.target.symbol, provider=price_provider)
+        except Exception as exc:  # noqa: BLE001 — 估值数据源隔离，保留专项与行情分析
+            logger.warning("策略指数 %s 官方估值采集失败: %s", ctx.target.symbol, exc)
+            ctx.risk_flags.append("公开官方估值采集失败，稍后可重试")
+        if on_progress:
+            on_progress("collect", 3, total, "采集公开官方估值及历史PE")
+        benchmark = entry.base_index if entry and entry.base_index else "000300"
+        ctx.benchmark_prices = provider.fetch_prices(benchmark, provider="csi")
+        if not ctx.benchmark_prices:
+            ctx.risk_flags.append("同日基准行情不可用，不能计算超额收益")
+        if on_progress:
+            on_progress("collect", 4, total, "采集对比基准价格行情")
+        if ctx.requested_instrument:
+            symbol = str(ctx.requested_instrument.get("symbol", ""))
+            if symbol:
+                ctx.etf_prices = provider.fetch_etf_prices(symbol)
+            if not ctx.etf_prices:
+                ctx.risk_flags.append("ETF自身前复权行情不可用；指数价格表现不能替代ETF表现")
+            if on_progress:
+                on_progress("collect", 5, total, "采集ETF独立前复权行情")
         return ctx

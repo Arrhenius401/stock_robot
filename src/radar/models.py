@@ -51,6 +51,7 @@ class RadarUniverse(BaseModel):
     asset_type: Literal["etf", "stock"]
     score_profile: str
     description: str = Field(min_length=1)
+    enabled: bool = True
     instruments: list[RadarInstrument] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -68,6 +69,13 @@ class RadarUniverse(BaseModel):
                 raise ValueError(f"标的代码重复: {instrument.symbol}")
             symbols.add(instrument.symbol)
         return self
+
+
+    @property
+    def fingerprint(self) -> str:
+        """稳定记录池配置，作为同日任务幂等依据。"""
+        raw = json.dumps(self.model_dump(mode="json"), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
 class RadarStrategy(BaseModel):

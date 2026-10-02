@@ -1,3 +1,4 @@
+from pathlib import Path
 from subprocess import CompletedProcess
 
 from radar.collector_autostart import WindowsCollectorAutostart
@@ -87,3 +88,43 @@ def test_enable_falls_back_to_current_user_startup_launcher(tmp_path):
 
     assert disabled.enabled is False
     assert not (tmp_path / "Startup" / "stock-robot-radar-collector.cmd").exists()
+
+
+def test_disable_remains_effective_when_startup_launcher_cannot_be_removed(tmp_path, monkeypatch):
+    executable = tmp_path / "project" / ".venv" / "Scripts" / "stock-robot.exe"
+    executable.parent.mkdir(parents=True)
+    executable.touch()
+    startup = tmp_path / "Startup"
+    launcher = startup / "stock-robot-radar-collector.cmd"
+    startup.mkdir()
+    launcher.write_text("radar collect")
+
+    def runner(_command: list[str], **_kwargs: object) -> CompletedProcess[str]:
+        return _result(code=1, stderr="ERROR: The system cannot find the path specified.")
+
+    original_unlink = Path.unlink
+
+    def deny_launcher_unlink(path: Path, missing_ok: bool = False) -> None:
+        if path == launcher:
+            raise PermissionError(5, "拒绝访问", str(path))
+        original_unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", deny_launcher_unlink)
+    manager = WindowsCollectorAutostart(
+        executable=executable, startup_directory=startup,
+        state_directory=tmp_path / "state", runner=runner, platform_name="nt",
+    )
+
+    disabled = manager.set_enabled(False)
+
+    assert disabled.enabled is False
+    assert disabled.cleanup_pending is True
+    assert launcher.exists()
+    assert manager.allows_daemon() is False
+    assert manager.status().enabled is False
+
+    enabled = manager.set_enabled(True)
+
+    assert enabled.enabled is True
+    assert enabled.cleanup_pending is False
+    assert manager.allows_daemon() is True

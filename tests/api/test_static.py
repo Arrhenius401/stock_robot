@@ -305,7 +305,7 @@ class TestStaticUI:
         app_js = (await client.get("/js/app.js")).text
         api_js = (await client.get("/js/api.js")).text
 
-        assert 'import { initReportLibrary } from "./report-library.js?v=20260927-page-heading-1";' in app_js
+        assert 'import { initReportLibrary } from "./report-library.js?v=20261002-strategy-valuation-2";' in app_js
         assert "initReportLibrary();" in app_js
         assert "listReports(" in api_js
         assert "getReport(" in api_js
@@ -314,7 +314,7 @@ class TestStaticUI:
 
     @pytest.mark.asyncio
     async def test_report_library_list_uses_single_equal_height_rows(self, client):
-        css = (await client.get("/css/app.css")).text
+        css = (await client.get("/css/app.css")).text.replace("\r\n", "\n")
 
         assert ".report-library-grid {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr);" in css
         assert "height: 96px;\n  min-height: 96px;" in css
@@ -658,6 +658,10 @@ await new Promise((resolve) => setTimeout(resolve, 0));
 if (!root.textContent.includes("累计收益") || !root.textContent.includes("+18.42%")
     || !root.textContent.includes("净值曲线") || !root.textContent.includes("交易明细")) {
   throw new Error("未渲染报告详情页的摘要与回测页签");
+}
+const markdownBody = byClass(root, "report-library-markdown")[0].innerHTML;
+if (markdownBody.includes("<h1>") || !markdownBody.includes("<h2>回测报告</h2>")) {
+  throw new Error("报告正文标题须低于唯一的页面主标题");
 }
 const buttons = descendants(root).filter((item) => item.tagName === "BUTTON");
 await buttons.find((item) => item.textContent.includes("净值曲线")).click();
@@ -1803,9 +1807,12 @@ if (!document.getElementById("settingsDirtyBar").hidden) {
 }
 const apiKey = document.getElementById("settings-llm-api_key");
 if (byClass(settingsContent, "settings-secret-value").length
-    || apiKey.value || apiKey.placeholder !== "sk-ab*****wxyz"
+    || apiKey.value || apiKey.placeholder !== "************"
     || apiKey.type !== "password") {
-  throw new Error("密钥应使用单一输入框展示掩码，且不保留额外展示列");
+  throw new Error("密钥默认应显示星号提示，且不保留额外展示列");
+}
+if (document.getElementById("settings-llm-api_key-status")) {
+  throw new Error("密钥输入框不应重复显示配置状态");
 }
 const toggle = byClass(settingsContent, "settings-secret-toggle")[0];
 if (toggle.getAttribute("aria-label") !== "显示完整密钥") {
@@ -1817,7 +1824,7 @@ if (credentialCalls !== 1 || apiKey.value !== "sk-actual-secret-wxyz" || apiKey.
   throw new Error("睁眼未按需读取或展示完整密钥");
 }
 await toggle.click();
-if (credentialCalls !== 1 || apiKey.value || apiKey.placeholder !== "sk-ab*****wxyz"
+if (credentialCalls !== 1 || apiKey.value || apiKey.placeholder !== "************"
     || apiKey.type !== "password"
     || toggle.getAttribute("aria-label") !== "显示完整密钥") {
   throw new Error("闭眼未擦除完整密钥并恢复掩码");
@@ -2017,7 +2024,7 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         assert 'id="subName"' not in html
         assert 'id="subChannel"' not in html
         assert "企业微信" not in html
-        assert "20260928-email-visibility-6" in html
+        assert "20261002-strategy-valuation-2" in html
         script = (await client.get("/js/subscriptions.js")).text
         assert "searchPushSymbols" in script
         assert "批量添加" not in script
@@ -2057,6 +2064,121 @@ if (parsed.pathname !== "/api/v1/push/symbols" ||
   throw new Error("订阅搜索请求未按 API 契约编码");
 }
 """.replace("__SUBSCRIPTIONS_URL__", subscription_url).replace("__API_URL__", api_url)
+        _run_node(tmp_path, script)
+
+    def test_collector_auto_switch_is_independent_and_stale_responses_ignored(self, tmp_path):
+        """自动计划不调用系统启动接口，离开视图后的响应不得更新旧卡片。"""
+        module_url = json.dumps(_module_url("src/api/static/js/collector-settings.js"))
+        api_url = json.dumps(_module_url("src/api/static/js/api.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        script = _DOM_STUB + r"""
+Object.defineProperty(Element.prototype, "isConnected", { get() { return Boolean(this.parentNode); } });
+const { api } = await import(__API_URL__);
+const { store } = await import(__STATE_URL__);
+const { mountCollectorSettings } = await import(__COLLECTOR_URL__);
+store.currentView="settings";
+let settings={enabled:false,hour:18,minute:30,revision:0};
+const data=()=>({settings:{...settings},service_online:true,items:[{universe_id:"pool"}],runtime:{},runs:[]});
+api.radarCollectorStatus=async()=>data();
+api.updateRadarCollectorConfig=async values=>{settings={...values,revision:1};return settings;};
+api.updateRadarCollectorStartup=()=>{throw new Error("业务开关不得调用系统启动");};
+let scheduled=[];
+window.setTimeout=fn=>{scheduled.push(fn);return scheduled.length;};
+window.clearTimeout=()=>{};
+const container=makeElement("settingsContent");
+const controller=mountCollectorSettings(container);
+await new Promise(resolve=>setImmediate(resolve));
+const panel=byClass(container,"collector-panel")[0];
+if(!panel.textContent.includes("已关闭") || !panel.textContent.includes("可手动采集") || !panel.textContent.includes("下次计划：—")) throw new Error("关闭态未清晰显示");
+const toggle=byClass(panel,"collector-switch")[0];
+toggle.checked=true;
+await toggle.dispatch("change");
+if(!settings.enabled || !panel.textContent.includes("18:30")) throw new Error("自动设置未保存");
+controller.pause();
+let resolveLate;
+api.radarCollectorStatus=()=>new Promise(resolve=>{resolveLate=resolve;});
+controller.start();
+const before=panel.textContent;
+controller.pause();
+resolveLate({...data(),runtime:{last_error:"迟到错误"}});
+await new Promise(resolve=>setImmediate(resolve));
+if(panel.textContent!==before) throw new Error("离开页面后迟到响应修改了卡片");
+controller.dispose();
+""".replace("__COLLECTOR_URL__",module_url).replace("__API_URL__",api_url).replace("__STATE_URL__",state_url)
+        _run_node(tmp_path, script)
+
+
+    def test_subscription_run_notice_tracks_status_and_detail_scope(self, tmp_path):
+        """主动推送提示随运行进度变化，只在所属详情展示并在结束后消失。"""
+        subscription_url = json.dumps(_module_url("src/api/static/js/subscriptions.js"))
+        api_url = json.dumps(_module_url("src/api/static/js/api.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        script = _DOM_STUB + (r"""
+Element.prototype.append = function (...children) { children.forEach((child) => this.appendChild(child)); };
+const querySelectorAll = Element.prototype.querySelectorAll;
+Element.prototype.querySelectorAll = function (selector) {
+  if (/^[a-z]+$/.test(selector)) return descendants(this).slice(1)
+    .filter((item) => item.tagName.toLowerCase() === selector);
+  return querySelectorAll.call(this, selector);
+};
+for (const id of ["subEmailBtn", "subNewBtn", "subsModal", "subsModalClose",
+  "subsList", "subsDetail", "subsNotice"]) makeElement(id);
+const close = document.createElement("button");
+document.getElementById("subsModal").hidden = true;
+document.getElementById("subsModal").querySelector = () => close;
+document.getElementById("subsDetail").hidden = true;
+document.getElementById("subsNotice").hidden = true;
+const timers = new Map();
+let timerId = 0;
+globalThis.setTimeout = (callback, delay) => { timers.set(++timerId, { callback, delay }); return timerId; };
+globalThis.clearTimeout = (id) => timers.delete(id);
+async function fire(delay) {
+  const entry = [...timers].find(([, timer]) => timer.delay === delay);
+  if (!entry) throw new Error(`未安排 ${delay} 毫秒定时器：${document.getElementById("subsDetail").textContent}`);
+  timers.delete(entry[0]);
+  await entry[1].callback();
+}
+const { api } = await import(__API_URL__);
+const { store } = await import(__STATE_URL__);
+const { initSubscriptions } = await import(__SUBSCRIPTIONS_URL__);
+store.currentView = "subscriptions";
+const first = { id: 2, name: "第一订阅", time: "08:00", enabled: true,
+  symbols: [{ symbol: "000001", kind: "stock" }] };
+const second = { ...first, id: 3, name: "第二订阅" };
+let run = null;
+api.listSubscriptions = async () => ({ subscriptions: [first, second] });
+api.getSubscription = async (id) => ({ subscription: id === 2 ? first : second });
+api.listSubscriptionRuns = async (id) => ({ runs: id === 2 && run ? [run] : [] });
+api.triggerSubscription = async () => {
+  run = { id: 99, status: "queued", trigger: "manual", total: 2, processed: 0, ok: 0 };
+  return { run_id: 99 };
+};
+api.getSubscriptionRun = async () => ({ ...run });
+initSubscriptions();
+await new Promise((resolve) => setImmediate(resolve));
+await document.getElementById("subsList").children[0].click();
+await document.getElementById("subsRunNow").click();
+const notice = document.getElementById("subsNotice");
+if (notice.hidden || !notice.textContent.includes("已排队")) throw new Error("排队提示未显示在详情中");
+run = { ...run, status: "running", processed: 1, ok: 1 };
+await fire(2500);
+if (!notice.textContent.includes("正在推送") || !notice.textContent.includes("1/2")) {
+  throw new Error("运行状态未更新提示");
+}
+run = { ...run, status: "succeeded", processed: 2, ok: 2 };
+await fire(2500);
+if (!notice.textContent.includes("推送完成") || !notice.textContent.includes("2/2")) {
+  throw new Error("完成状态未更新提示");
+}
+await document.getElementById("subsDetail").children[0].click();
+if (!notice.hidden) throw new Error("返回列表后仍显示原订阅提示");
+await new Promise((resolve) => setImmediate(resolve));
+await document.getElementById("subsList").children[1].click();
+if (!notice.hidden) throw new Error("其他订阅详情显示了原订阅提示");
+await fire(7000);
+if (!notice.hidden || notice.textContent) throw new Error("结束提示未在限时后清除");
+""".replace("__SUBSCRIPTIONS_URL__", subscription_url)
+            .replace("__API_URL__", api_url).replace("__STATE_URL__", state_url))
         _run_node(tmp_path, script)
 
     @pytest.mark.asyncio

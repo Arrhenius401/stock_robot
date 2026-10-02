@@ -1,0 +1,61 @@
+{
+  "code": "200",
+  "msg": "Success",
+  "data": [
+    {
+      "tradeDate": "20260928",
+      "indexCode": "930740",
+      "indexNameCnAll": "沪深300红利低波动指数",
+      "indexNameCn": "300红利低波",
+      "indexNameEnAll": "CSI 300 Dividend Low Volatility Index",
+      "indexNameEn": "CSI 300 Dividend LV",
+      "open": 6930.93,
+      "high": 6975.07,
+      "low": 6926.55,
+      "close": 6953.52,
+      "change": 17.73,
+      "changePct": 0.26,
+      "tradingVol": 4170199819.0,
+      "tradingValue": 417.85,
+      "consNumber": 50.0,
+      "peg": 9.02
+    },
+    {
+      "tradeDate": "20260929",
+      "indexCode": "930740",
+      "indexNameCnAll": "沪深300红利低波动指数",
+      "indexNameCn": "300红利低波",
+      "indexNameEnAll": "CSI 300 Dividend Low Volatility Index",
+      "indexNameEn": "CSI 300 Dividend LV",
+      "open": 6947.31,
+      "high": 6977.96,
+      "low": 6933.79,
+      "close": 6957.64,
+      "change": 4.13,
+      "changePct": 0.06,
+      "tradingVol": 3709892993.0,
+      "tradingValue": 350.89,
+      "consNumber": 50.0,
+      "peg": 9.02
+    },
+    {
+      "tradeDate": "20260930",
+      "indexCode": "930740",
+      "indexNameCnAll": "沪深300红利低波动指数",
+      "indexNameCn": "300红利低波",
+      "indexNameEnAll": "CSI 300 Dividend Low Volatility Index",
+      "indexNameEn": "CSI 300 Dividend LV",
+      "open": 6955.11,
+      "high": 7040.09,
+      "low": 6953.99,
+      "close": 7025.76,
+      "change": 68.11,
+      "changePct": 0.98,
+      "tradingVol": 3959400993.0,
+      "tradingValue": 415.77,
+      "consNumber": 50.0,
+      "peg": 9.12
+    }
+  ],
+  "success": true
+}

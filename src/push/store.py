@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +20,26 @@ def _now() -> str:
 def _process_alive(pid: int | None) -> bool:
     if pid is None or pid <= 0:
         return False
+    if sys.platform == "win32":
+        # Windows 的 os.kill(pid, 0) 会发出控制信号，必须改用只读句柄查询。
+        import ctypes
+        from ctypes import wintypes
+
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel.WaitForSingleObject.restype = wintypes.DWORD
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel.CloseHandle.restype = wintypes.BOOL
+        handle = kernel.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE，仅等待状态。
+        if not handle:
+            # 不存在的 PID 返回 ERROR_INVALID_PARAMETER；权限不足时保守保留活动运行。
+            return ctypes.get_last_error() != 87
+        try:
+            return kernel.WaitForSingleObject(handle, 0) != 0
+        finally:
+            kernel.CloseHandle(handle)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:

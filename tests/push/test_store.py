@@ -1,3 +1,4 @@
+import os
 import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -5,7 +6,12 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from push.models import Subscription
-from push.store import ActiveRunError, MissingSubscriptionError, PushStore
+from push.store import (
+    ActiveRunError,
+    MissingSubscriptionError,
+    PushStore,
+    _process_alive,
+)
 
 
 def _sub(**kw: object):
@@ -14,6 +20,29 @@ def _sub(**kw: object):
                   "created_at": "2026-08-20T08:00:00+08:00"}
     base.update(kw)
     return Subscription(**base)
+
+
+def test_process_probe_does_not_signal_current_process(mocker):
+    kill = mocker.patch("push.store.os.kill", side_effect=AssertionError("不得发送信号"))
+    mocker.patch("push.store.sys.platform", "win32")
+    kernel = mocker.Mock()
+    kernel.OpenProcess.return_value = 123
+    kernel.WaitForSingleObject.return_value = 258
+    mocker.patch("ctypes.WinDLL", return_value=kernel, create=True)
+    assert _process_alive(os.getpid()) is True
+    kill.assert_not_called()
+    kernel.CloseHandle.assert_called_once_with(123)
+
+
+@pytest.mark.parametrize("handle,wait,error,expected", [(123, 0, 0, False), (0, 0, 87, False), (0, 0, 5, True)])
+def test_windows_process_probe_exit_and_access_denied(mocker, handle, wait, error, expected):
+    mocker.patch("push.store.sys.platform", "win32")
+    kernel = mocker.Mock()
+    kernel.OpenProcess.return_value = handle
+    kernel.WaitForSingleObject.return_value = wait
+    mocker.patch("ctypes.WinDLL", return_value=kernel, create=True)
+    mocker.patch("ctypes.get_last_error", return_value=error, create=True)
+    assert _process_alive(12345) is expected
 
 
 class TestPushStore:

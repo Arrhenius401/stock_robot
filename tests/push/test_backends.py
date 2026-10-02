@@ -1,7 +1,7 @@
 import pytest
 
 from push.backends import get_backend
-from push.backends.email import EmailBackend
+from push.backends.email import EmailBackend, render_email_html
 from push.backends.wecom import WeComBackend
 
 
@@ -42,11 +42,40 @@ class TestEmailBackend:
         subject = str(email.header.make_header(email.header.decode_header(msg["Subject"])))
         payload = msg.get_payload()
         assert isinstance(payload, list)
-        decoded = cast(Message, payload[0]).get_payload(decode=True)
+        assert len(payload) == 2
+        assert cast(Message, payload[0]).get_content_type() == "text/plain"
+        assert cast(Message, payload[1]).get_content_type() == "text/html"
+        decoded = cast(Message, payload[1]).get_payload(decode=True)
         assert isinstance(decoded, bytes)
         body = decoded.decode("utf-8")
         assert "标题" in subject
         assert "<strong>加粗</strong>" in body  # markdown 已转 HTML
+
+    def test_email_report_tables_and_lists_have_inline_layout(self):
+        report = (
+            "# 平安银行（000001）分析报告\n\n"
+            "## 基础概况\n\n| 指标 | 数值 |\n|---|---|\n| ROE | 0.0522 |\n\n"
+            "**同行业公司：**\n\n- 工商银行（601398）\n- 建设银行（601939）\n"
+        )
+
+        body = render_email_html(report)
+
+        assert '<table style="width:100%;border-collapse:collapse;' in body
+        assert '<th style="border:1px solid #d6e0eb;' in body
+        assert '<td style="border:1px solid #d6e0eb;' in body
+        assert "<li style=" in body
+        assert body.count("<li style=") == 2
+        assert "ROE" in body and "0.0522" in body
+
+    def test_email_html_omits_unsafe_markup(self):
+        body = render_email_html(
+            '<script>window.bad = true</script><p>正文 <a href="javascript:alert(1)">链接</a></p>',
+            "html",
+        )
+
+        assert "window.bad" not in body
+        assert "javascript:" not in body
+        assert "<p style=" in body
 
     def test_send_starttls_587(self, mocker):
         smtp_cls = mocker.patch("smtplib.SMTP")

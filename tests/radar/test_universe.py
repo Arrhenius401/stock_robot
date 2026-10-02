@@ -96,3 +96,26 @@ def test_initial_universes_are_separate_and_loadable():
     assert {item.exposure_region for item in cn_hk.instruments} == {"CN", "HK"}
     assert not {item.exposure_region for item in overseas.instruments} & {"CN", "HK"}
     assert cn_hk.asset_type == overseas.asset_type == "etf"
+
+
+def test_enabled_selection_filters_members_and_versions(tmp_path):
+    import yaml
+
+    (tmp_path / "one.yaml").write_text(yaml.safe_dump(_universe(instruments=[
+        _instrument(), _instrument("510500", effective_from="2027-01-01")
+    ])), encoding="utf-8")
+    (tmp_path / "disabled.yaml").write_text(yaml.safe_dump(_universe(id="disabled", enabled=False)), encoding="utf-8")
+    selected = UniverseRepository(tmp_path).enabled_on(date(2026, 9, 30))
+    assert len(selected) == 1
+    assert selected[0].enabled is True
+    assert [item.symbol for item in selected[0].instruments] == ["510300"]
+    assert selected[0].fingerprint
+
+
+def test_enabled_selection_rejects_distinct_overlapping_versions(tmp_path):
+    import yaml
+
+    (tmp_path / "one.yaml").write_text(yaml.safe_dump(_universe()), encoding="utf-8")
+    (tmp_path / "two.yaml").write_text(yaml.safe_dump(_universe(version=2, instruments=[_instrument("510500")])), encoding="utf-8")
+    with pytest.raises(UniverseConfigError, match="唯一"):
+        UniverseRepository(tmp_path).enabled_on(date(2026, 9, 30))

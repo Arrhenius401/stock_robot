@@ -1,5 +1,5 @@
 // 配置雷达基础视图：使用浏览器兼容语法直接消费完成快照。
-var allocationState = { universes: [], universeId: null, snapshot: null, collectorStatus: null, detail: null, benchmark: "csi_300", backtestPeriod: "inception", performancePeriod: "inception", performanceCache: {}, refreshMessage: "" };
+var allocationState = { universes: [], universeId: null, snapshot: null, collectorStatus: null, detail: null, benchmark: "csi_300", backtestPeriod: "inception", performancePeriod: "inception", performanceCache: {}, refreshMessage: "", refreshTasks: {} };
 
 function allocationRoot() { return document.getElementById("radarContent"); }
 
@@ -301,7 +301,7 @@ function allocationPollBacktest(taskId, section, item, period) {
       if (!allocationBacktestSectionIsCurrent(section, item) || allocationState.backtestPeriod !== period) return;
       if (task.status === "completed") {
         allocationLoadBacktest(section, item, true, period);
-      } else if (task.status === "failed") {
+      } else if (task.status === "failed" || task.status === "cancelled") {
         section.appendChild(allocationElement("p", "radar-note", "策略回测未完成：" + (task.error || "后端未返回原因。")));
       } else {
         allocationPollBacktest(taskId, section, item, period);
@@ -409,6 +409,12 @@ function allocationHeader() {
   actions.appendChild(feedback);
   controls.append(selector, actions);
   header.append(meta, controls);
+  var pendingTask = allocationState.refreshTasks[allocationState.universeId];
+  if (pendingTask) {
+    refresh.disabled = true;
+    refresh.textContent = "更新中…";
+    allocationPollRefresh(pendingTask, refresh, feedback);
+  }
   return header;
 }
 
@@ -428,25 +434,33 @@ function allocationRefreshFeedback(button, feedback, message) {
 }
 
 function allocationPollRefresh(taskId, button, feedback) {
+  var universeId = allocationState.universeId;
   window.setTimeout(function () {
+    if (window.location.hash.indexOf("#radar") !== 0 || !button.isConnected || universeId !== allocationState.universeId) return;
     allocationRequest("/api/v1/radar/refresh/" + encodeURIComponent(taskId)).then(function (task) {
-      if (task.status === "completed") {
+      if (window.location.hash.indexOf("#radar") !== 0 || !button.isConnected || universeId !== allocationState.universeId) return;
+      if (task.status === "completed" || task.status === "partial") {
+        delete allocationState.refreshTasks[universeId];
         allocationState.performanceCache = {};
-        allocationState.refreshMessage = "数据更新完成，已载入最新快照。";
+        allocationState.refreshMessage = task.status === "partial" ? "部分标的更新失败，已载入可用快照；可在采集记录中重试失败项。" : "数据更新完成，已载入最新快照。";
         allocationLoad();
-      } else if (task.status === "failed") {
+      } else if (task.status === "failed" || task.status === "cancelled") {
+        delete allocationState.refreshTasks[universeId];
         allocationRefreshFeedback(button, feedback, "数据更新失败：" + (task.error || "后端未返回原因。"));
       } else {
+        feedback.textContent = task.status === "retry_wait" ? "部分行情失败，等待重试。" : "正在更新数据…";
         allocationPollRefresh(taskId, button, feedback);
       }
     }).catch(function (error) {
-      allocationRefreshFeedback(button, feedback, "无法获取更新状态：" + error.message);
+      if (window.location.hash.indexOf("#radar") !== 0 || !button.isConnected || universeId !== allocationState.universeId) return;
+    allocationRefreshFeedback(button, feedback, "无法获取更新状态：" + error.message);
     });
   }, 1200);
 }
 
 function allocationStartRefresh(button, feedback) {
   if (!allocationState.universeId) return;
+  var universeId = allocationState.universeId;
   button.disabled = true;
   button.textContent = "更新中…";
   feedback.textContent = "正在后台更新当前标的池，完成后自动刷新榜单。";
@@ -455,18 +469,20 @@ function allocationStartRefresh(button, feedback) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ universe_id: allocationState.universeId })
   }).then(function (task) {
+    allocationState.refreshTasks[universeId] = task.task_id;
+    if (universeId !== allocationState.universeId || !button.isConnected) return;
     allocationPollRefresh(task.task_id, button, feedback);
   }).catch(function (error) {
+    if (window.location.hash.indexOf("#radar") !== 0 || !button.isConnected || universeId !== allocationState.universeId) return;
     allocationRefreshFeedback(button, feedback, "无法启动数据更新：" + error.message);
   });
 }
 
 function allocationDataStatus(item) {
-  var observed = item.observed_at ? String(item.observed_at).slice(0, 10) : "";
   var snapshotDate = allocationState.snapshot && allocationState.snapshot.as_of_date ? String(allocationState.snapshot.as_of_date).slice(0, 10) : "";
-  var date = observed || snapshotDate;
+  var date = snapshotDate;
   if (item.status === "fresh") return date || "已更新";
-  if (item.status === "stale") return date ? "沿用 " + date : "沿用历史";
+  if (item.status === "stale") return "沿用历史";
   if (item.status === "failed") return "不可用";
   return "—";
 }
@@ -524,7 +540,7 @@ function allocationCollectionStatus(snapshot) {
   });
   var schedule = collector.schedule || {};
   var time = String(schedule.hour == null ? 18 : schedule.hour).padStart(2, "0") + ":" + String(schedule.minute == null ? 30 : schedule.minute).padStart(2, "0");
-  section.appendChild(allocationElement("p", "radar-meta", "计划：工作日 " + time + " 自动采集；失败时保留上一次完成榜单。"));
+  section.appendChild(allocationElement("p", "radar-meta", schedule.enabled ? "计划：交易日 " + time + "（北京时间）自动采集；失败时保留上一次完成榜单。" : "自动采集已关闭，可手动更新；失败时保留上一次完成榜单。"));
   return section;
 }
 

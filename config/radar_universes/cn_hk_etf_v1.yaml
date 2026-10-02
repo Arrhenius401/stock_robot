@@ -14,7 +14,7 @@ instruments:
   - {symbol: '588000', name: 科创50ETF, asset_type: etf, category: cn_equity, market: SSE, exposure_region: CN, effective_from: 2020-10-01, min_avg_amount: 10000000}
   - {symbol: '159915', name: 创业板ETF, asset_type: etf, category: cn_equity, market: SZSE, exposure_region: CN, effective_from: 2011-01-01, min_avg_amount: 10000000}
   - {symbol: '510880', name: 红利ETF, asset_type: etf, category: cn_equity, market: SSE, exposure_region: CN, effective_from: 2007-01-01, min_avg_amount: 3000000}
-  - {symbol: '515300', name: 红利低波ETF, asset_type: etf, category: cn_equity, market: SSE, exposure_region: CN, effective_from: 2019-01-01, min_avg_amount: 3000000}
+  - {symbol: '515300', name: 嘉实沪深300红利低波动ETF, asset_type: etf, category: cn_equity, market: SSE, exposure_region: CN, effective_from: 2019-01-01, min_avg_amount: 3000000}
   - {symbol: '512480', name: 半导体ETF, asset_type: etf, category: cn_equity, market: SSE, exposure_region: CN, effective_from: 2019-06-01, min_avg_amount: 5000000}
   - {symbol: '512010', name: 医药ETF, asset_type: etf, category: cn_equity, market: SSE, exposure_region: CN, effective_from: 2013-01-01, min_avg_amount: 3000000}
   - {symbol: '510900', name: H股ETF, asset_type: etf, category: hk_equity, market: SSE, exposure_region: HK, effective_from: 2012-01-01, min_avg_amount: 3000000}

@@ -33,7 +33,7 @@ class IndexCompareReportBuilder:
                 "pb_pct": f"{val.pb_percentile:.0f}%" if isinstance(val, IndexValuationData) and val.pb_percentile is not None else "N/A",
                 "trend": report.tag_technical,
                 "valuation": report.tag_valuation,
-                "capital": report.tag_capital,
+                "capital": "N/A" if ctx.target.index_style == "strategy" else report.tag_capital,
                 "composite": report.composite_comment,
             })
         return CompareTable(headers=headers, rows=rows)

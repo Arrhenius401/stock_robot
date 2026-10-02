@@ -14,6 +14,7 @@ dependencies = [
     "pyyaml>=6.0",
     "akshare>=1.14",
     "pandas>=2.0",
+    "pypdf>=5,<7",  # 解析官方指数单张中的月末估值
     "jinja2>=3.1",
     "vectorbt>=1.1,<2",
     "plotly<7",  # vectorbt 1.1.0 与 plotly 7 不兼容，固化 6.x 约束
