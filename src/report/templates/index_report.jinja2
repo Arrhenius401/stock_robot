@@ -3,6 +3,10 @@
 
 > 生成时间：{{ generated_at }}
 
+{% if requested_instrument %}
+> 输入识别为ETF：{{ requested_instrument.name }}（{{ requested_instrument.symbol }}），跟踪指数 {{ code }}。下面指数与ETF表现分别标明口径。
+{% endif %}
+
 ## 概览
 
 | 指标 | 数值 |
@@ -68,12 +72,14 @@
 
 ---
 
+{% if "sentiment" in visible_sections %}
 ## 舆情面
 
 {% if section_sentiment.status != "unavailable" %}
 {{ section_sentiment.summary }}
 {% else %}
 暂无有效市场舆情信号。
+{% endif %}
 {% endif %}
 
 ---
@@ -84,9 +90,72 @@
 |------|------|
 | 技术面 | {{ tag_labels.get(tag_technical, tag_technical) }} |
 | 估值面 | {{ tag_labels.get(tag_valuation, tag_valuation) }} |
+{% if "capital" in visible_sections %}
 | 资金面 | {{ tag_labels.get(tag_capital, tag_capital) }} |
+{% endif %}
+{% if "macro" in visible_sections %}
 | 宏观面 | {{ tag_labels.get(tag_macro, tag_macro) }} |
+{% endif %}
+{% if "sentiment" in visible_sections %}
 | 舆情面 | {{ tag_labels.get(tag_sentiment, tag_sentiment) }} |
+{% endif %}
 
 **综合定性：** {{ composite_comment }}
 **建议仓位参考系数：** {{ position_coeff if position_coeff is not none else "N/A" }}
+
+
+{% if "performance" in visible_sections and section_performance %}
+## 风险收益分析
+
+{{ section_performance.summary }}
+{% set p = section_performance.metrics %}
+
+| 指标 | 数值 |
+|------|------|
+| 行情区间 | {{ p.start_date or "N/A" }} 至 {{ p.end_date or "N/A" }} |
+| 有效交易日 | {{ p.sample_count or "N/A" }} |
+| 区间收益率 | {{ "%.2f%%"|format(p.return_pct) if p.return_pct is number else "N/A" }} |
+| 年化波动率 | {{ "%.2f%%"|format(p.annualized_volatility_pct) if p.annualized_volatility_pct is number else "N/A" }} |
+| 最大回撤 | {{ "%.2f%%"|format(p.max_drawdown_pct) if p.max_drawdown_pct is number else "N/A" }} |
+| 基准 | {{ p.benchmark_symbol or "N/A" }} |
+| 同日指数区间收益 | {{ "%.2f%%"|format(p.benchmark_aligned_index_return_pct) if p.benchmark_aligned_index_return_pct is number else "N/A" }} |
+| 基准区间收益 | {{ "%.2f%%"|format(p.benchmark_return_pct) if p.benchmark_return_pct is number else "N/A" }} |
+| 同日基准超额收益 | {{ "%.2f%%"|format(p.excess_return_pct) if p.excess_return_pct is number else "N/A" }} |
+| 基准共同交易日区间 | {{ p.benchmark_start_date or "N/A" }} 至 {{ p.benchmark_end_date or "N/A" }}（{{ p.benchmark_sample_count or 0 }} 日） |
+
+> 收益口径：{{ p.return_basis or "价格指数，不含分红" }}。
+{% if p.etf_symbol %}
+
+ETF {{ p.etf_symbol }} 自身区间收益：{{ "%.2f%%"|format(p.etf_return_pct) if p.etf_return_pct is number else "不可用" }}。
+> ETF口径：{{ p.etf_return_basis }}，区间 {{ p.etf_start_date or "N/A" }} 至 {{ p.etf_end_date or "N/A" }}。{{ p.etf_unavailable_reason or "" }}
+{% endif %}
+{% endif %}
+
+{% if "strategy" in visible_sections and section_strategy %}
+## 策略专项分析
+
+{{ section_strategy.summary }}
+{% set s = section_strategy.metrics %}
+
+来源：{{ s.source or "不可用" }}。采样日：{{ s.as_of or "N/A" }}；官方权重日：{{ s.weight_as_of or "N/A" }}。
+财报年度：{{ s.financial_years|join("、") if s.financial_years else "N/A" }}；同日股价及市值日期：{{ s.market_cap_dates|join("、") if s.market_cap_dates else "不可用" }}。
+
+| 指标 | 数值 | 官方权重覆盖率 | 估算范围 / 不可用原因 |
+|------|------|------|------|
+{% for i in s.indicators or [] %}
+| {{ i.label }} | {{ "%.4f"|format(i.value) ~ i.unit if i.value is number else "不可用" }} | {{ "%.2f%%"|format(i.coverage_pct) }} | {{ i.scope }}{% if i.reason %}；{{ i.reason }}{% endif %} |
+{% endfor %}
+
+前十大集中度：{{ "%.2f%%"|format(s.top10_weight_pct) if s.top10_weight_pct is number else "不可用" }}；行业分类覆盖率：{{ "%.2f%%"|format(s.industry_coverage_pct) if s.industry_coverage_pct is number else "不可用" }}。
+
+| 行业 | 原始官方权重 |
+|------|------|
+{% for i in s.industry_weights or [] %}
+| {{ i.industry }} | {{ "%.2f%%"|format(i.weight_pct) }} |
+{% endfor %}
+
+> {{ s.methodology or "官方成分和财务数据不可用" }}
+{% for error in s.errors or [] %}
+- {{ error }}
+{% endfor %}
+{% endif %}

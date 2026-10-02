@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, StrictBool, field_validator
 
 Channel = Literal["email"]
 SymbolKind = Literal["stock", "index", "auto"]
-IndexStyle = Literal["broad", "sector", "overseas"]
+IndexStyle = Literal["broad", "sector", "overseas", "strategy"]
 
 TIME_PATTERN = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 

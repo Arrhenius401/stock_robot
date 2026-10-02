@@ -23,15 +23,19 @@ INDEX_DIMENSION_LABELS = {
     "index_capital_flow": "资金面分析",
     "index_macro": "宏观分析",
     "index_sentiment": "舆情分析",
+    "index_strategy": "策略专项分析",
+    "index_performance": "风险收益分析",
 }
 
 # dimension → 适用的 index_style
 INDEX_DIMENSION_STYLES = {
-    "index_technical": ("broad", "sector", "overseas"),
-    "index_valuation": ("broad", "sector", "overseas"),
+    "index_technical": ("broad", "sector", "overseas", "strategy"),
+    "index_valuation": ("broad", "sector", "overseas", "strategy"),
     "index_capital_flow": ("broad", "sector"),
     "index_macro": ("broad", "overseas"),
     "index_sentiment": ("broad", "sector", "overseas"),
+    "index_strategy": ("strategy",),
+    "index_performance": ("strategy",),
 }
 
 
@@ -56,7 +60,9 @@ class IndexPipeline:
     def _init_analysis_modules(self) -> list:
         from index.analysis.capital_flow import CapitalFlowAnalyzer
         from index.analysis.macro import MacroAnalyzer
+        from index.analysis.performance import IndexPerformanceAnalyzer
         from index.analysis.sentiment import IndexSentimentAnalyzer
+        from index.analysis.strategy import IndexStrategyAnalyzer
         from index.analysis.technical import IndexTechnicalAnalyzer
         from index.analysis.valuation import IndexValuationAnalyzer
 
@@ -66,6 +72,8 @@ class IndexPipeline:
             CapitalFlowAnalyzer(),
             MacroAnalyzer(),
             IndexSentimentAnalyzer(),
+            IndexStrategyAnalyzer(),
+            IndexPerformanceAnalyzer(),
         ]
 
     def run(self, targets: list[AnalysisTarget],
@@ -77,6 +85,8 @@ class IndexPipeline:
         for target in targets:
             try:
                 ctx = self._collector.collect(target, on_progress=on_progress)
+                if target.index_style == "strategy" and len(ctx.price_data) < 2:
+                    raise ValueError("策略指数真实行情不足，官方及独立回退源未取得可分析序列")
 
                 # 按 index_style 过滤适用的分析模块
                 applicable_modules = [

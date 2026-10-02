@@ -73,6 +73,9 @@ def validate_index_symbol(symbol: str) -> bool:
     import re
     # 支持 sh000001 / sz399001 / 000001 / HSI / SPX 等格式
     cleaned = symbol.strip().upper()
+    # 中证策略指数允许 H 加五位数字，避免放宽任意混合代码。
+    if re.fullmatch(r"H\d{5}", cleaned):
+        return True
     # 海外指数：大写字母组合
     if re.match(r"^[A-Z]{2,10}$", cleaned):
         return True
@@ -88,6 +91,9 @@ def normalize_index_symbol(symbol: str) -> str:
     """清理前缀，A 股指数补零到 6 位；海外指数保留大写"""
     import re
     cleaned = symbol.strip().upper()
+    # 中证字母数字代码保留大写。
+    if re.fullmatch(r"H\d{5}", cleaned):
+        return cleaned
     # 海外指数直接返回大写
     if re.match(r"^[A-Z]{2,10}$", cleaned):
         return cleaned

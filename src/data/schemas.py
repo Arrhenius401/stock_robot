@@ -197,7 +197,7 @@ class AnalysisResult(BaseModel):
     dimension: Literal[
         "financial", "technical", "valuation", "industry", "sentiment",
         "index_technical", "index_valuation", "index_capital_flow",
-        "index_macro", "index_sentiment",
+        "index_macro", "index_sentiment", "index_strategy", "index_performance",
     ]
     status: Literal["ok", "partial", "unavailable"]
     summary: str
@@ -253,7 +253,8 @@ class AnalysisTarget(BaseModel):
     symbol: str
     name: str
     market: str = "a-shares"
-    index_style: Literal["broad", "sector", "overseas"] | None = None
+    index_style: Literal["broad", "sector", "overseas", "strategy"] | None = None
+    requested_instrument: dict[str, Any] | None = None
 
 
 class IndexPriceData(PriceData):
@@ -298,6 +299,41 @@ class MacroContext(BaseModel):
     pmi_percentile: float | None = None
 
 
+class AnnualFinancialSnapshot(BaseModel):
+    """公告已知的年度数据，现金金额为元，市值和价格有独立采样日。"""
+    report_date: date
+    available_date: date
+    operating_cash_flow: float | None = None
+    capital_expenditure: float | None = None
+    net_profit: float | None = None
+    market_cap: float | None = None
+    total_debt: float | None = None  # 参考企业价值口径采用报表总负债
+    cash: float | None = None
+    dividend_per_share: float | None = None
+    close_price: float | None = None
+    market_cap_date: "date | None" = None
+
+
+class ConstituentSnapshot(BaseModel):
+    """官方成分及百分数权重，不将缺失样本重新归一为完整指数。"""
+    symbol: str
+    name: str = ""
+    weight: float
+    industry: str | None = None
+    annual_financials: list[AnnualFinancialSnapshot] = Field(default_factory=list)
+
+
+class StrategySnapshot(BaseModel):
+    """策略采样快照，缺失项与采样口径随报告保存。"""
+    source: str
+    as_of: date
+    weight_as_of: "date | None" = None
+    members: list[ConstituentSnapshot] = Field(default_factory=list)
+    coverage: dict[str, float] = Field(default_factory=dict)
+    errors: list[str] = Field(default_factory=list)
+    strategy_kind: str = ""
+
+
 class IndexAnalysisContext(BaseModel):
     """指数分析上下文 — 管道的核心数据容器"""
     target: AnalysisTarget
@@ -309,6 +345,10 @@ class IndexAnalysisContext(BaseModel):
     sufficiency: DataSufficiency | None = None
     enriched_sentiment: EnrichedSentiment | None = None
     risk_flags: list[str] = Field(default_factory=list)
+    strategy_data: StrategySnapshot | None = None
+    benchmark_prices: list[IndexPriceData] = Field(default_factory=list)
+    etf_prices: list[IndexPriceData] = Field(default_factory=list)
+    requested_instrument: dict[str, Any] | None = None
 
 
 class IndexReport(BaseModel):
@@ -322,6 +362,9 @@ class IndexReport(BaseModel):
     section_capital: dict
     section_macro: dict | None
     section_sentiment: dict
+    section_strategy: dict | None = None
+    section_performance: dict | None = None
+    requested_instrument: dict[str, Any] | None = None
 
     tag_technical: Literal["bull", "shake", "bear"]
     tag_valuation: Literal["undervalued", "neutral", "overvalued", "invalid"]

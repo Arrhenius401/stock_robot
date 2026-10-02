@@ -653,6 +653,14 @@ class AkShareAdapter(DataSource):
     def _fetch_index_price(self, symbol: str, index_style: str) -> list[IndexPriceData]:
         from data.schemas import IndexPriceData
 
+        if index_style == "strategy":
+            from data.index_mapping import IndexMapping
+            from index.strategy_data import StrategyDataProvider
+
+            entry = IndexMapping().lookup(symbol)
+            provider = entry.provider if entry and entry.provider else "csi"
+            return StrategyDataProvider().fetch_prices(symbol, provider=provider)
+
         try:
             # 宽基指数使用 stock_zh_index_daily_em（主源，东方财富）
             if index_style == "broad":

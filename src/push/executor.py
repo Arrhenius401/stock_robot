@@ -139,7 +139,7 @@ class PushExecutor:
         target = AnalysisTarget(
             target_type="index", symbol=symbol, name=name,
             market=market,
-            index_style=cast(Literal["broad", "sector", "overseas"], style),
+            index_style=cast(Literal["broad", "sector", "overseas", "strategy"], style),
         )
         result = self._core.index_pipeline.run([target])
         if not result.reports:

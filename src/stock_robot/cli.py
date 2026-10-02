@@ -220,43 +220,16 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
 
 
 def _render_index_report(report):
-    """将 IndexReport 渲染为终端可读的 Rich Markdown"""
-    from datetime import datetime
+    """终端与下载报告复用同一渲染入口。"""
+    from rich.markdown import Markdown
 
-    from jinja2 import Environment, FileSystemLoader
+    from index.build_single import render_index_report_markdown
 
-    from report.builder import _md_table
-
-    template_dir = Path(__file__).parent.parent / "report" / "templates"
-    env = Environment(loader=FileSystemLoader(str(template_dir)),
-                      trim_blocks=True, lstrip_blocks=True)
-    env.filters["md_table"] = _md_table
-    template = env.get_template("index_report.jinja2")
-    md = template.render(
-        code=report.code,
-        name=report.name,
-        generated_at=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
-        overview=report.overview,
-        section_technical=report.section_technical,
-        section_valuation=report.section_valuation,
-        section_capital=report.section_capital,
-        section_macro=report.section_macro,
-        section_sentiment=report.section_sentiment,
-        tag_technical=report.tag_technical,
-        tag_valuation=report.tag_valuation,
-        tag_capital=report.tag_capital,
-        tag_macro=report.tag_macro,
-        tag_sentiment=report.tag_sentiment,
-        composite_comment=report.composite_comment,
-        position_coeff=report.position_coeff,
-        visible_sections=report.visible_sections,
-    )
-    from report.formatter import ReportFormatter
-    return ReportFormatter.to_rich_markdown(md)
+    return Markdown(render_index_report_markdown(report))
 
 
 def _render_index_report_md(report) -> str:
-    """将 IndexReport 渲染为纯 Markdown 文本"""
+    """渲染可保存的完整指数报告。"""
     from index.build_single import render_index_report_markdown
 
     return render_index_report_markdown(report)
@@ -283,14 +256,16 @@ def _render_compare_table(compare) -> Table | str:
 
 @main.command()
 @click.argument("symbols", nargs=-1, required=True)
-@click.option("--style", "-s", type=click.Choice(["broad", "sector", "overseas"]),
+@click.option("--style", "-s", type=click.Choice(["broad", "sector", "overseas", "strategy"]),
               help="指数类别（默认自动检测）")
 @click.option("--output", "-o", type=click.Choice(["terminal", "markdown"]),
               default="terminal", help="输出格式")
 @click.option("--compare-only", is_flag=True, help="仅输出横向对比表格")
 def index(symbols, style, output, compare_only):
     """分析指数并生成报告"""
-    from data.index_mapping import IndexMapping
+    from dataclasses import asdict
+
+    from data.index_mapping import ETFIndexMapping, IndexMapping
     from data.schemas import AnalysisTarget
     from index.pipeline import IndexPipeline
     from utils.config import Config
@@ -303,32 +278,29 @@ def index(symbols, style, output, compare_only):
     mapping = IndexMapping()
     targets = []
 
+    etf_mapping = ETFIndexMapping()
     for raw in symbols:
-        if not validate_index_symbol(raw):
-            console.print(f"[red]无效的指数代码: {raw}[/red]")
-            sys.exit(1)
-
-        normalized = normalize_index_symbol(raw)
-        entry = mapping.lookup(normalized)
-
+        etf = etf_mapping.lookup(raw)
+        raw_index = etf.index_symbol if etf else raw
+        try:
+            entry = mapping.resolve(raw_index)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        if entry is None and not validate_index_symbol(raw_index):
+            raise click.ClickException(f"无效的指数代码或名称: {raw}")
+        normalized = normalize_index_symbol(raw_index)
         if entry is None:
             if style is None:
-                console.print(
-                    f"[red]无法识别指数 {normalized}，"
-                    f"请用 --style 指定类别 (broad/sector/overseas)[/red]"
-                )
-                sys.exit(1)
-            index_style = style
-            name = raw
-            market = "a-shares"
+                raise click.ClickException(
+                    f"无法识别指数 {normalized}，请用 --style 指定类别 (broad/sector/overseas/strategy)")
+            index_style, name, market = style, raw, "a-shares"
         else:
-            index_style = entry.index_style
-            name = entry.name
-            market = entry.market
-
+            index_style, name, market = entry.index_style, entry.name, entry.market
+            normalized = entry.symbol
         targets.append(AnalysisTarget(
-            target_type="index", symbol=normalized,
-            name=name, market=market, index_style=index_style,
+            target_type="index", symbol=normalized, name=name,
+            market=market, index_style=index_style,
+            requested_instrument=asdict(etf) if etf else None,
         ))
 
     pipeline = IndexPipeline()
@@ -1016,7 +988,7 @@ def subscribe():
 @click.option("--time", "push_time", required=True, help="每日推送时间 HH:MM")
 @click.option("--kind", type=click.Choice(["auto", "stock", "index"]),
               default="auto", help="标的类型（默认 auto 自动判定）")
-@click.option("--index-style", type=click.Choice(["broad", "sector", "overseas"]),
+@click.option("--index-style", type=click.Choice(["broad", "sector", "overseas", "strategy"]),
               default=None, help="指数风格（kind=index 时使用）")
 def subscribe_add(name, symbols, channel, push_time, kind, index_style):
     """创建订阅"""
