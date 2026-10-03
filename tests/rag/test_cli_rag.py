@@ -33,3 +33,43 @@ class TestCLIRagGroup:
         main_func = __import__("stock_robot.cli", fromlist=["main"]).main
         result = runner.invoke(main_func, ["chat", "--help"])
         assert result.exit_code == 0
+
+
+@pytest.mark.parametrize("command", ["stats", "clean", "ingest"])
+def test_rag_missing_chromadb_has_install_hint(monkeypatch, tmp_path, command):
+    import builtins
+
+    from rag.engine import RAGEngine
+    from stock_robot.cli import main
+
+    original_import = builtins.__import__
+
+    def import_without_chromadb(name, *args, **kwargs):
+        if name == "chromadb":
+            raise ModuleNotFoundError("No module named 'chromadb'", name="chromadb")
+        return original_import(name, *args, **kwargs)
+
+    # 保留模块可导入，复现构造函数内部缺少可选包的真实失败点。
+    assert RAGEngine is not None
+    monkeypatch.setattr(builtins, "__import__", import_without_chromadb)
+    args = ["rag", command]
+    if command == "ingest":
+        doc = tmp_path / "sample.md"
+        doc.write_text("# 测试报告", encoding="utf-8")
+        args += [str(doc), "--source-type", "research_reports"]
+    result = CliRunner().invoke(main, args)
+    assert result.exit_code != 0
+    assert 'pip install -e ".[rag]"' in result.output
+
+
+def test_rag_internal_import_error_is_not_optional_dependency_hint(monkeypatch):
+    from rag.engine import RAGEngine
+    from stock_robot.cli import _create_rag_engine
+
+    def broken_init(self):
+        raise ModuleNotFoundError("内部模块缺失", name="stock_robot_internal")
+
+    monkeypatch.setattr(RAGEngine, "__init__", broken_init)
+    with pytest.raises(ModuleNotFoundError) as caught:
+        _create_rag_engine()
+    assert caught.value.name == "stock_robot_internal"
