@@ -94,6 +94,10 @@ stock-robot radar universe list           # 查看配置雷达标的池
 
 技术栈：Python、Pydantic、Click/Rich、AkShare、FastAPI、SQLite；分析管道按数据、分析、LLM 与报告层组织。开发规范见 [AGENTS.md](AGENTS.md)。
 
+知识库（RAG）为可选能力：普通安装不包含 chromadb、sentence-transformers，需要时执行 `python -m pip install -e ".[rag]"`（使用当前独立环境的解释器）。不安装 RAG 时分析、报告、指数、回测与订阅仍可使用，Web 对话不注册知识库检索工具。运行包含 RAG 的开发测试使用 `.[dev,rag]`；`scripts/bootstrap-dev.ps1` 会同步这两个 extra。
+
+自举部署使用从 `uv.lock` 导出的 `requirements-core.lock.txt` 或 `requirements-rag.lock.txt`：先以 `--require-hashes -r <清单>` 安装依赖，再以 `--no-deps -e .` 安装项目。清单需在依赖或锁文件变化后重新导出，不包含当前项目和开发 extra；目标平台实际可安装性仍须验证。
+
 ```powershell
 .\scripts\bootstrap-dev.ps1
 .\scripts\verify.ps1 -Scope Changed                 # 当前改动
