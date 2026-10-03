@@ -12,20 +12,12 @@ export function mountCollectorSettings(container) {
   const panel = el("section", "panel settings-section collector-panel");
   const head = el("div", "collector-card-head");
   head.appendChild(el("h2", "settings-section-title", "配置雷达自动采集"));
-  const setup = el("button", "btn-sm", "设置");
+  const setup = el("button", "btn-sm", "系统登录启动");
   setup.type = "button";
   head.appendChild(setup);
-  const row = el("label", "collector-autostart-row");
-  const copy = el("span", "collector-autostart-copy");
-  copy.appendChild(el("strong", "", "自动采集"));
-  const schedule = el("span", "collector-autostart-status", "正在读取计划…");
-  copy.appendChild(schedule);
-  const toggle = el("input", "collector-switch");
-  toggle.type = "checkbox";
-  toggle.setAttribute("role", "switch");
-  toggle.setAttribute("aria-label", "启用配置雷达自动采集");
-  toggle.disabled = true;
-  append(row,copy, toggle);
+  const row = el("div", "collector-note");
+  const schedule = el("span", "collector-autostart-status", "正在读取已保存计划…");
+  row.appendChild(schedule);
   const scope = el("p", "collector-note");
   const status = el("div", "collector-service-state");
   status.setAttribute("aria-live", "polite");
@@ -48,8 +40,7 @@ export function mountCollectorSettings(container) {
     payload = data;
     const config = data.settings || data.schedule;
     if (!config) return;
-    toggle.checked = config.enabled;
-    toggle.disabled = busy;
+
     schedule.textContent = config.enabled ? `交易日 ${String(config.hour).padStart(2,"0")}:${String(config.minute).padStart(2,"0")}（北京时间）` : "已关闭 · 可手动采集";
     scope.textContent = data.config_error ? "标的池配置不可用" : `全部已启用标的池 · ${(data.items || []).length} 个`;
     const active = (data.runs || []).find(run => run.status === "running");
@@ -110,21 +101,6 @@ export function mountCollectorSettings(container) {
     modal = node;
     return body;
   }
-  async function saveConfig(values) {
-    return api.updateRadarCollectorConfig({ enabled:values.enabled, hour:values.hour, minute:values.minute, revision:values.revision ?? payload.settings.revision });
-  }
-  toggle.addEventListener("change", async () => {
-    if (!payload) return;
-    const generation = epoch;
-    busy = true;
-    toggle.disabled = true;
-    try {
-      const settings = await saveConfig({...payload.settings, enabled:toggle.checked});
-      if (alive(generation)) { payload.settings = settings; notify("自动采集设置已保存"); render(payload); const data = await api.radarCollectorStatus(); if (alive(generation)) render(data); }
-    } catch (error) {
-      if (alive(generation)) { toggle.checked = payload.settings.enabled; notify(error.message); }
-    } finally { busy = false; if (alive(generation)) render(payload); }
-  });
   runNow.addEventListener("click", async () => {
     if (!payload?.service_online) { notify("采集服务离线。请在项目目录运行 stock-robot radar daemon，服务在线后再试。"); return; }
     const generation = epoch;
@@ -169,33 +145,21 @@ export function mountCollectorSettings(container) {
   setup.onclick = async () => {
     if(!payload?.settings) return;
     const generation=epoch;
-    const originalSettings={...payload.settings};
-    const body=dialog("自动采集设置", "settings");
+
+    const body=dialog("系统登录启动", "settings");
     const node=modal;
     const form=el("form", "collector-form");
-    const label=el("label", "settings-field");
-    label.appendChild(el("span", "settings-label", "交易日采集时间（北京时间）"));
-    const control=el("span", "settings-control");
-    const time=el("input"); time.type="time"; time.required=true;
-    time.value=`${String(payload.settings.hour).padStart(2,"0")}:${String(payload.settings.minute).padStart(2,"0")}`;
-    control.appendChild(time); label.appendChild(control); form.appendChild(label);
-    form.appendChild(el("p","collector-note","采集范围：全部已启用标的池。新增池自动加入，停用池自动退出。"));
-    form.appendChild(el("p","collector-note","恢复后补采：更新到最近已结束交易日，并补齐缺失行情，不逐日生成历史快照。"));
+    form.appendChild(el("p", "collector-note", "登录启动项独立管理并立即生效。自动采集计划请在上方表单修改后统一保存。"));
     const startupBox=el("div", "collector-note", "正在读取系统启动设置…"); form.appendChild(startupBox);
     const errorBox=el("p", "collector-message"); errorBox.setAttribute("role","status"); form.appendChild(errorBox);
     const footer=el("div","collector-dialog-footer");
     const cancel=el("button","btn-sm","取消"); cancel.type="button"; cancel.onclick=()=>node.close();
-    const save=el("button","settings-save","保存设置"); save.type="submit";
+    const save=el("button","settings-save","保存系统启动设置"); save.type="submit";
     append(footer,cancel,save); form.appendChild(footer); body.appendChild(form);
     let startup=null, startupToggle=null;
     form.onsubmit=async event=>{
       event.preventDefault(); save.disabled=true;
       try {
-        const [hour,minute]=time.value.split(":").map(Number);
-        const settings=await saveConfig({...originalSettings,hour,minute});
-        if(!alive(generation) || modal!==node) return;
-        payload.settings=settings;
-        Object.assign(originalSettings, settings);
         if(startupToggle && startupToggle.checked!==startup.enabled) await api.updateRadarCollectorStartup(startupToggle.checked);
         if(alive(generation) && modal===node) { node.close(); notify("采集设置已保存"); const data=await api.radarCollectorStatus(); if(alive(generation)) render(data); }
       } catch(error) { if(alive(generation) && modal===node) errorBox.textContent=error.message; }

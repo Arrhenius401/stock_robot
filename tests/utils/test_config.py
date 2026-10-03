@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from utils.config import Config
 
 
@@ -10,8 +8,8 @@ class TestConfig:
 
         assert Config().config_dir == tmp_path / ".stock_robot"
 
-    def test_default_config_has_required_sections(self):
-        cfg = Config(config_dir=Path("/nonexistent"))
+    def test_default_config_has_required_sections(self, tmp_path):
+        cfg = Config(config_dir=tmp_path)
         assert "llm" in cfg.data
         assert "data" in cfg.data
         assert cfg.data["llm"]["enabled"] is True
@@ -33,8 +31,8 @@ data:
         assert cfg.data["llm"]["model"] == "claude-opus-4-7"
         assert cfg.data["data"]["cache_ttl"] == 3600
 
-    def test_get_returns_nested_value(self):
-        cfg = Config(config_dir=Path("/nonexistent"))
+    def test_get_returns_nested_value(self, tmp_path):
+        cfg = Config(config_dir=tmp_path)
         assert cfg.get("llm.provider") == "openai"
         assert cfg.get("nonexistent.key", "fallback") == "fallback"
 
@@ -51,16 +49,16 @@ data:
         Config(config_dir=tmp_path)
         assert config_file.exists()
 
-    def test_disclaimer_flag_defaults_to_false(self):
-        cfg = Config(config_dir=Path("/nonexistent"))
+    def test_disclaimer_flag_defaults_to_false(self, tmp_path):
+        cfg = Config(config_dir=tmp_path)
         assert cfg.data["data"]["disclaimer_accepted"] is False
 
-    def test_default_config_has_base_url(self):
-        cfg = Config(config_dir=Path("/nonexistent"))
+    def test_default_config_has_base_url(self, tmp_path):
+        cfg = Config(config_dir=tmp_path)
         assert cfg.data["llm"]["base_url"] == ""
 
-    def test_default_config_has_api_and_signal_sections(self):
-        cfg = Config(config_dir=Path("/nonexistent"))
+    def test_default_config_has_api_and_signal_sections(self, tmp_path):
+        cfg = Config(config_dir=tmp_path)
         assert cfg.data["api"] == {"host": "127.0.0.1", "port": 25618}
         assert cfg.data["signal"]["thresholds"] == {"attack": 7, "watch": 4}
         assert set(cfg.data["signal"]["actions"]) == {"attack", "watch", "defend"}
@@ -68,8 +66,8 @@ data:
         assert cfg.data["signal"]["actions"]["watch"] == {"action": "持有观察，等待明确方向", "position": "30%-50%"}
         assert cfg.data["signal"]["actions"]["defend"] == {"action": "减仓或回避", "position": "0%-20%"}
 
-    def test_default_config_has_backtest_section(self):
-        cfg = Config(config_dir=Path("/nonexistent"))
+    def test_default_config_has_backtest_section(self, tmp_path):
+        cfg = Config(config_dir=tmp_path)
         assert cfg.get("backtest.default_strategy") == "report_technical"
         assert cfg.get("backtest.default_benchmark") == "money_fund"
         assert cfg.get("backtest.initial_cash") == 100000.0

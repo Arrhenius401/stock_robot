@@ -190,18 +190,20 @@ class CollectorWorker:
             if startup_hook is not None:
                 startup_hook()
             self.store.record_started(worker_id=self.worker_id)
-            previous_revision: int | None = None
+            previous_schedule: tuple[bool, int, int] | None = None
             previous_poll: datetime | None = None
             previous_error: str | None = None
             while not self._stopping.is_set():
                 now = datetime.now(SHANGHAI)
                 self.store.recover_expired()
                 settings = self.store.settings()
+                schedule = (settings['enabled'], settings['hour'], settings['minute'])
                 try:
                     # 关闭自动时也预热日历，网页手动请求只读此缓存。
                     self.calendar.latest_completed(now)
                     resumed = previous_poll is None or (now - previous_poll).total_seconds() > 60 or now < previous_poll
-                    self.coordinate(now, recovery=resumed or previous_error is not None or previous_revision != settings['revision'])
+                    # 文件版本负责并发保存；只有采集计划变化才触发补采。
+                    self.coordinate(now, recovery=resumed or previous_error is not None or previous_schedule != schedule)
                     previous_error = None
                     self.store.record_heartbeat(worker_id=self.worker_id)
                 except (ValueError, RuntimeError, UniverseConfigError, ScoreProfileConfigError, OSError) as exc:
@@ -211,7 +213,7 @@ class CollectorWorker:
                         self.store.record_event('error', message)
                     previous_error = message
                     self.store.record_heartbeat(worker_id=self.worker_id, phase='blocked', error_summary=message)
-                previous_revision = settings['revision']
+                previous_schedule = schedule
                 previous_poll = now
                 self.execute_one()
                 self._stopping.wait(5)

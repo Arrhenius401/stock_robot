@@ -74,7 +74,7 @@ def test_get_config_only_returns_safe_whitelist_and_read_only_paths(config_clien
 
     assert response.status_code == 200
     payload = response.json()
-    assert set(payload) == {"config", "paths"}
+    assert set(payload) == {"config", "paths", "revision"}
     assert payload["paths"] == {
         "state_dir": str(config.config_dir),
         "config_file": str(config.config_dir / "config.yaml"),

@@ -88,6 +88,8 @@ export function invalidateSessionRuns(sessionId) {
 
 export function switchView(name) {
   if (!document.getElementById(`view-${name}`)) return;
+  const before = new CustomEvent("before-view-change", { detail: { view: name }, cancelable: true });
+  if (!bus.dispatchEvent(before)) return false;
   store.currentView = name;
   document.querySelectorAll(".view").forEach((v) => {
     v.classList.toggle("active", v.id === `view-${name}`);
@@ -96,4 +98,5 @@ export function switchView(name) {
     n.classList.toggle("on", n.dataset.view === (name === "index" ? "report" : name));
   });
   bus.dispatchEvent(new CustomEvent("view-change", { detail: { view: name } }));
+  return true;
 }

@@ -79,7 +79,7 @@ class CollectorConfigRequest(BaseModel):
     enabled: bool = Field(strict=True)
     hour: int = Field(strict=True, ge=0, le=23)
     minute: int = Field(strict=True, ge=0, le=59)
-    revision: int = Field(strict=True, ge=0)
+    revision: str = Field(strict=True, min_length=1)
 
 
 class CollectorRunRequest(BaseModel):

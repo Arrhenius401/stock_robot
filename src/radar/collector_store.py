@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from utils.config import Config, ConfigRevisionConflict
+
 
 class CollectorRevisionConflict(ValueError):
     """设置已被另一个页面修改。"""
@@ -81,6 +83,10 @@ class CollectorStore:
             for name in ("worker_id", "phase", "last_error"):
                 if name not in columns:
                     conn.execute(f"ALTER TABLE collector_runtime ADD COLUMN {name} TEXT")
+            legacy = dict(conn.execute("SELECT enabled,hour,minute FROM collector_settings WHERE singleton=1").fetchone())
+            legacy["enabled"] = bool(legacy["enabled"])
+        config = Config(config_dir=self.db_path.parent, collector_db_path=self.db_path)
+        config.migrate_collector(legacy)
 
     def record(self, universe_id: str, status: str, result: str | None = None) -> None:
         """原子更新单个池的最近一次采集结果。"""
@@ -167,30 +173,34 @@ class CollectorStore:
         ]
 
     def settings(self) -> dict[str, Any]:
-        """读取跨进程持久设置，未知旧状态采用关闭默认值。"""
-        with closing(self._connect()) as conn:
-            row = conn.execute("SELECT enabled,hour,minute,revision FROM collector_settings WHERE singleton=1").fetchone()
-        result = dict(row)
-        result["enabled"] = bool(result["enabled"])
+        """每次从 YAML 读取，使独立守护进程观察配置变化。"""
+        config = Config(config_dir=self.db_path.parent)
+        with config.write_lock():
+            config.reload()
+            result = dict(config.get("radar.collector"))
+            result["revision"] = config.revision
+        if not result["enabled"]:
+            self.cancel_automatic()
         return result
 
-    def update_settings(self, *, enabled: bool, hour: int, minute: int, revision: int) -> dict[str, Any]:
+    def update_settings(self, *, enabled: bool, hour: int, minute: int, revision: str) -> dict[str, Any]:
         """带修订号更新；关闭只取消自动任务。"""
         if not isinstance(enabled, bool) or type(hour) is not int or type(minute) is not int or not 0 <= hour <= 23 or not 0 <= minute <= 59:
             raise ValueError("无效的自动采集设置")
+        config = Config(config_dir=self.db_path.parent)
+        try:
+            config.update({"radar": {"collector": {"enabled": enabled, "hour": hour, "minute": minute}}}, revision=revision)
+        except ConfigRevisionConflict as exc:
+            raise CollectorRevisionConflict("设置修订冲突，请重新加载") from exc
         with closing(self._connect()) as conn, conn:
-            conn.execute("BEGIN IMMEDIATE")
-            changed = conn.execute(
-                "UPDATE collector_settings SET enabled=?,hour=?,minute=?,revision=revision+1 WHERE singleton=1 AND revision=?",
-                (enabled, hour, minute, revision),
-            )
-            if not changed.rowcount:
-                raise CollectorRevisionConflict("设置修订冲突，请重新加载")
-            if not enabled:
-                conn.execute("UPDATE collector_runs SET status='cancelled',phase='cancelled',updated_at=? WHERE source!='manual' AND status IN ('queued','retry_wait')", (_utc_iso(),))
-                conn.execute("UPDATE collector_runs SET cancel_requested=1 WHERE source!='manual' AND status='running'")
             self._event(conn, None, "info", f"自动采集设置已保存，启用={enabled}")
         return self.settings()
+
+    def cancel_automatic(self) -> None:
+        """关闭自动采集时保留所有人工任务。"""
+        with closing(self._connect()) as conn, conn:
+            conn.execute("UPDATE collector_runs SET status='cancelled',phase='cancelled',updated_at=? WHERE source!='manual' AND status IN ('queued','retry_wait')", (_utc_iso(),))
+            conn.execute("UPDATE collector_runs SET cancel_requested=1 WHERE source!='manual' AND status='running'")
 
     def promote_manual(self, run_id: str) -> dict[str, Any]:
         """人工请求接管已有任务；执行中的所有权保持不变。"""
@@ -326,12 +336,13 @@ class CollectorStore:
     def retry(self, run_id: str, manual: bool = True, now: datetime | None = None) -> dict[str, Any]:
         """仅重置失败项，自动重试最多三次，人工重试重新获得预算。"""
         instant = _instant(now)
+        enabled = Config(config_dir=self.db_path.parent).get("radar.collector.enabled")
         with closing(self._connect()) as conn, conn:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute("SELECT status,attempt,source FROM collector_runs WHERE id=?", (run_id,)).fetchone()
             if row is None or row["status"] not in {"failed", "partial", "cancelled"}:
                 raise ValueError("任务当前不能重试")
-            if not manual and row["source"] != "manual" and not conn.execute("SELECT enabled FROM collector_settings WHERE singleton=1").fetchone()["enabled"]:
+            if not manual and row["source"] != "manual" and not enabled:
                 raise ValueError("自动采集已关闭，不能自动重试")
             if not manual and row["attempt"] >= 3:
                 raise ValueError("自动重试次数已耗尽")

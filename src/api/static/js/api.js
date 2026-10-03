@@ -22,6 +22,7 @@ async function request(path, options = {}) {
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) {
     const err = new Error((typeof data.detail === "object" ? data.detail?.message : data.detail) || data.error || `HTTP ${resp.status}`);
+    err.detail = data.detail;
     err.status = resp.status;  // 附带状态码：422 输入校验错误由视图层特殊处理
     throw err;
   }
@@ -116,9 +117,16 @@ export const api = {
   getCredential(key) {
     return request(`/api/v1/config/credentials/${key}`);
   },
-  updateConfig(config) {
+  updateConfig(config, revision) {
     // PUT 响应含 persisted/applied/restart_required 与可选 reload_error，由设置页决定是否重绘
-    return request("/api/v1/config", { method: "PUT", body: JSON.stringify({ config }) });
+    return request("/api/v1/config", { method: "PUT", body: JSON.stringify({ config, revision }) });
+  },
+  getConfigFile() { return request("/api/v1/config/file"); },
+  previewConfigFile(source, update) {
+    return request("/api/v1/config/file/preview", { method: "POST", body: JSON.stringify({ source, update }) });
+  },
+  updateConfigFile(source, revision, update) {
+    return request("/api/v1/config/file", { method: "PUT", body: JSON.stringify({ source, revision, update }) });
   },
   getRuntimeLogs(level = "") {
     const suffix = level ? `?level=${encodeURIComponent(level)}` : "";

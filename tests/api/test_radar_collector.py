@@ -38,7 +38,7 @@ def test_plan_settings_are_durable_and_revision_conflict_is_409(collector_api):
     saved = client.put("/api/v1/radar/collector/config", json=body)
     assert saved.status_code == 200
     assert saved.json()["hour"] == 19
-    assert saved.json()["revision"] == body["revision"] + 1
+    assert saved.json()["revision"] != body["revision"]
     assert client.put("/api/v1/radar/collector/config", json=body).status_code == 409
     other = TestClient(create_app(core=None, push=False))
     assert other.get("/api/v1/radar/collector/config").json()["minute"] == 15
@@ -88,7 +88,7 @@ def test_status_uses_freshness_and_calendar_cache_only(collector_api, monkeypatc
     store.record_started(worker_id="live-worker", phase="syncing")
     store.record_heartbeat(worker_id="live-worker", phase="blocked", error_summary="日历不可用")
     monkeypatch.setattr("radar.calendar.fetch_akshare_calendar", lambda **_: pytest.fail("配置查询不得联网"))
-    saved = store.update_settings(enabled=True, hour=19, minute=15, revision=0)
+    saved = store.update_settings(enabled=True, hour=19, minute=15, revision=store.settings()["revision"])
     response = client.get("/api/v1/radar/collector/status")
     assert response.status_code == 200
     payload = response.json()
@@ -106,7 +106,7 @@ def test_status_uses_freshness_and_calendar_cache_only(collector_api, monkeypatc
 
 def test_missing_calendar_reports_null_next_plan_without_network(collector_api, monkeypatch):
     client, store, _ = collector_api
-    store.update_settings(enabled=True, hour=18, minute=30, revision=0)
+    store.update_settings(enabled=True, hour=18, minute=30, revision=store.settings()["revision"])
     with closing(sqlite3.connect(store.db_path)) as conn, conn:
         conn.execute("DELETE FROM radar_calendar_cache")
     monkeypatch.setattr("radar.calendar.fetch_akshare_calendar", lambda **_: pytest.fail("查询不得联网"))
@@ -162,7 +162,7 @@ def test_startup_is_local_only_and_linux_read_only(collector_api, monkeypatch):
     assert client.put("/api/v1/radar/collector/startup", json={"enabled": True}).status_code == 403
     remote = TestClient(create_app(core=None, push=False))
     assert remote.put("/api/v1/radar/collector/startup", json={"enabled": True}).status_code == 403
-    assert remote.put("/api/v1/radar/collector/config", json={"enabled": False, "hour": 18, "minute": 30, "revision": 0}).status_code == 200
+    assert remote.put("/api/v1/radar/collector/config", json={"enabled": False, "hour": 18, "minute": 30, "revision": remote.get("/api/v1/radar/collector/config").json()["revision"]}).status_code == 200
 
 
 def test_performance_reuses_covered_history_and_expands_only_earlier_range(collector_api, monkeypatch):
