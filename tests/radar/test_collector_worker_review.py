@@ -43,7 +43,7 @@ def test_startup_calendar_recovers_on_holiday_still_schedules_latest(
 
     monkeypatch.setattr(module, "datetime", Clock)
     store = CollectorStore(tmp_path / "collector.db")
-    store.update_settings(enabled=True, hour=18, minute=30, revision=0)
+    store.update_settings(enabled=True, hour=18, minute=30, revision=store.settings()["revision"])
     repository = UniverseRepository(
         Path(__file__).parents[2] / "config/radar_universes"
     )
