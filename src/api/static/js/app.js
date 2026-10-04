@@ -9,7 +9,7 @@ import { initIndexView } from "./indexview.js?v=20261002-strategy-valuation-2";
 import { initReportLibrary } from "./report-library.js?v=20261002-strategy-valuation-2";
 import { initSessions, initSessionStartup } from "./sessions.js?v=20261003-settings-5";
 import { initSubscriptions } from "./subscriptions.js?v=20260928-run-notice-2";
-import { initSettings } from "./settings.js?v=20261003-settings-5";
+import { initSettings } from "./settings.js?v=20261004-overseas-2";
 import { initLogs } from "./logs.js?v=20260927-page-heading-1";
 
 const SIDEBAR_WIDTH_KEY = "stockRobot.sidebarWidth";
@@ -239,7 +239,7 @@ function init() {
   window.addEventListener("hashchange", syncViewFromHash);
   initSessionStartup()
     .catch((error) => console.error("会话初始化失败:", error))
-    .finally(() => import("./allocation-view.js?v=20261001-collector-2")
+    .finally(() => import("./allocation-view.js?v=20261004-overseas-2")
       .then(({ initRadar: initializeRadar }) => initializeRadar())
       .catch((error) => {
         console.error("配置雷达初始化失败:", error);

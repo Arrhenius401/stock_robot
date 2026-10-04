@@ -14,9 +14,11 @@ from radar.data import (
     SinaETFDataProvider,
     TencentETFDataProvider,
 )
+from radar.overseas import OverseasService
 from radar.refresh import RadarRefresher
 from radar.store import RadarStore
 from radar.universe import UniverseRepository
+from radar.update_service import UpdateService
 from utils.config import Config
 
 
@@ -34,4 +36,7 @@ def build_collector(*, refresh_calendar: bool = True) -> CollectorWorker:
     refresher = RadarRefresher(repository, provider, market_store)
     store = CollectorStore(config.config_dir / 'radar_collector.db')
     calendar = TradingCalendar(config.config_dir / 'radar_collector.db', refresh_enabled=refresh_calendar)
-    return CollectorWorker(store, repository, calendar, refresher.refresh, state_dir=config.config_dir)
+    worker = CollectorWorker(store, repository, calendar, refresher.refresh, state_dir=config.config_dir)
+    if refresh_calendar:
+        worker.update_service = UpdateService(worker, market_store, OverseasService(market_store.db_path), manual_only=False)
+    return worker

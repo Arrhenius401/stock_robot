@@ -142,6 +142,7 @@ class SnapshotItem(BaseModel):
     category: str
     status: Literal["fresh", "stale", "failed"]
     observed_at: datetime | None = None
+    market_date: date | None = None
     source_run_id: str | None = None
     data_source: str | None = None
     close: float | None = None

@@ -36,6 +36,8 @@ class CollectorWorker:
         self.state_dir = state_dir.resolve()
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.worker_id = uuid.uuid4().hex
+        self.write_runtime = True
+        self.update_service: Any = None
         self._stopping = threading.Event()
         self._daemon_lock = FileLock(self.state_dir / 'radar_collector.service.lock')
         self._execute_lock = FileLock(self.state_dir / 'radar_collector.execute.lock')
@@ -81,11 +83,23 @@ class CollectorWorker:
         runs = self._enqueue(local, 'recovery' if recovery else 'automatic')
         return [self.store.retry(run['id'], manual=False) if run['status'] == 'cancelled' else run for run in runs]
 
-    def execute_one(self, now: datetime | None = None) -> bool:
+    @property
+    def execution_lock(self) -> FileLock:
+        """组合更新复用同一可重入锁实例，覆盖ETF与海外请求。"""
+        return self._execute_lock
+
+    def enqueue_automatic(self, now: datetime, universe_id: str) -> list[dict[str, Any]]:
+        """组合自动任务不将来源改成人工，不因海外检查重复ETF日期。"""
+        return self._enqueue(now, 'automatic', universe_id)
+
+    def execute_one(self, now: datetime | None = None, *, manual_only: bool = False,
+                    run_id: str | None = None) -> bool:
         """先取执行锁，再认领任务，防止不同进程同时发起数据请求。"""
         try:
             with self._execute_lock.acquire(timeout=0):
-                run = self.store.claim(self.worker_id, now, lease_seconds=90)
+                self.store.recover_expired(now)
+                run = self.store.claim(self.worker_id, now, lease_seconds=90,
+                                       manual_only=manual_only, run_id=run_id)
                 if run is None:
                     return False
                 self._execute(run)
@@ -104,7 +118,8 @@ class CollectorWorker:
                     if current is None or current['status'] != 'running':
                         return
                     self.store.renew_lease(run['id'], self.worker_id, lease_seconds=90)
-                    self.store.record_heartbeat(worker_id=self.worker_id, phase=current['phase'])
+                    if self.write_runtime:
+                        self.store.record_heartbeat(worker_id=self.worker_id, phase=current['phase'])
                 except (ValueError, sqlite3.Error) as exc:
                     logger.warning('采集心跳续租失败：%s', exc)
                     return
@@ -195,10 +210,11 @@ class CollectorWorker:
             previous_error: str | None = None
             while not self._stopping.is_set():
                 now = datetime.now(SHANGHAI)
-                self.store.recover_expired()
                 settings = self.store.settings()
                 schedule = (settings['enabled'], settings['hour'], settings['minute'])
                 try:
+                    if self.update_service is not None:
+                        self.update_service.schedule(now)
                     # 关闭自动时也预热日历，网页手动请求只读此缓存。
                     self.calendar.latest_completed(now)
                     resumed = previous_poll is None or (now - previous_poll).total_seconds() > 60 or now < previous_poll
@@ -215,5 +231,7 @@ class CollectorWorker:
                     self.store.record_heartbeat(worker_id=self.worker_id, phase='blocked', error_summary=message)
                 previous_schedule = schedule
                 previous_poll = now
+                if self.update_service is not None:
+                    self.update_service.execute_one()
                 self.execute_one()
                 self._stopping.wait(5)

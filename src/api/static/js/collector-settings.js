@@ -5,7 +5,7 @@ import { store } from "./state.js";
 
 const append = (parent, ...children) => children.forEach(child => parent.appendChild(child));
 const states = { queued:"已排队", running:"采集中", retry_wait:"等待重试", completed:"已完成", partial:"部分失败", failed:"失败", cancelled:"已取消" };
-const phases = { syncing:"补齐行情", preparing:"补齐行情", scoring:"计算评分", publishing:"发布快照", waiting:"等待执行", blocked:"计划不可执行" };
+const phases = { syncing:"补齐行情", preparing:"补齐行情", scoring:"计算评分", publishing:"发布快照", waiting:"等待执行", blocked:"计划不可执行", calendar:"准备交易日历", etf:"检查 ETF 行情", overseas:"获取海外指数行情", finalizing:"整理结果" };
 const stamp = value => value ? new Date(value).toLocaleString("zh-CN", {timeZone:"Asia/Shanghai",hour12:false}) : "—";
 
 export function mountCollectorSettings(container) {
@@ -41,14 +41,14 @@ export function mountCollectorSettings(container) {
     const config = data.settings || data.schedule;
     if (!config) return;
 
-    schedule.textContent = config.enabled ? `交易日 ${String(config.hour).padStart(2,"0")}:${String(config.minute).padStart(2,"0")}（北京时间）` : "已关闭 · 可手动采集";
+    schedule.textContent = config.enabled ? `每日 ${String(config.hour).padStart(2,"0")}:${String(config.minute).padStart(2,"0")} 检查海外收盘；ETF 按交易日采集（北京时间）` : "已关闭 · 可手动采集";
     scope.textContent = data.config_error ? "标的池配置不可用" : `全部已启用标的池 · ${(data.items || []).length} 个`;
     const active = (data.runs || []).find(run => run.status === "running");
     status.textContent = `${data.service_online ? "服务在线" : "服务离线"} · ${active ? (phases[active.phase] || "采集中") : (data.config_error || data.schedule_error || data.runtime?.last_error) ? "计划不可执行" : config.enabled ? "等待执行" : "待命，可手动采集"}`;
     status.className = `collector-service-state ${data.service_online ? "online" : "offline"}`;
     const last = (data.runs || []).find(run => ["completed","partial","failed"].includes(run.status));
-    latest.textContent = last ? `最近采集：${last.target_date} · ${states[last.status]}` : "最近采集：尚无记录";
-    next.textContent = config.enabled ? `下次计划：${stamp(data.next_scheduled_at)}${data.service_online ? "" : "（服务恢复后执行）"}` : "下次计划：—";
+    latest.textContent = last ? `最近采集：${last.etf?.target_date || last.target_date || '最近交易日'} · ${states[last.status]}` : "最近采集：尚无记录";
+    next.textContent = config.enabled ? `下次 ETF 采集：${stamp(data.next_scheduled_at)} · 海外检查：${stamp(data.next_overseas_check_at)}${data.service_online ? "" : "（服务恢复后执行）"}` : "下次计划：—";
     runNow.disabled = busy || Boolean(active);
     runNow.textContent = active ? "采集中…" : "立即采集";
     setup.disabled = !config || busy;
@@ -102,7 +102,6 @@ export function mountCollectorSettings(container) {
     return body;
   }
   runNow.addEventListener("click", async () => {
-    if (!payload?.service_online) { notify("采集服务离线。请在项目目录运行 stock-robot radar daemon，服务在线后再试。"); return; }
     const generation = epoch;
     busy = true;
     runNow.disabled = true;
@@ -119,17 +118,19 @@ export function mountCollectorSettings(container) {
     if (!runs.length) { body.appendChild(el("p", "collector-note", "尚无采集记录")); return; }
     for (const run of runs) {
       const item = el("section", "collector-history-row");
-      item.appendChild(el("h3", "", `${run.target_date} · ${run.universe_id} · ${states[run.status] || run.status}`));
+      item.appendChild(el("h3", "", `${run.etf?.target_date || run.target_date || '最近交易日'} · ${run.universe_id} · ${states[run.status] || run.status}`));
       item.appendChild(el("p", "collector-note", `${run.source === "manual" ? "手动采集" : run.source === "recovery" ? "恢复后补采" : "定时采集"} · 第 ${run.attempt} 次尝试 · ${phases[run.phase] || states[run.status] || run.phase}`));
       const end = ["queued","running","retry_wait"].includes(run.status) ? Date.now() : new Date(run.updated_at).getTime();
       const seconds = Math.max(0, Math.round((end - new Date(run.created_at).getTime()) / 1000));
       item.appendChild(el("p", "collector-note", `任务总耗时（含排队与重试等待）：${Number.isFinite(seconds) ? `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒` : "—"}`));
-      if(run.error_summary) item.appendChild(el("p", "collector-message", run.error_summary));
+      if(run.error || run.error_summary) item.appendChild(el("p", "collector-message", run.error || run.error_summary));
+      if(run.etf) item.appendChild(el("p", "collector-note", `ETF：${states[run.etf.status] || run.etf.status}${run.etf.error ? ` · ${run.etf.error}` : ""}`));
+      for(const entry of run.overseas?.items || []) item.appendChild(el("p", "collector-note", `${entry.symbol} · 海外行情截至 ${entry.as_of_date || "暂无"}${entry.error ? ` · ${entry.error}` : ""}`));
       for (const entry of run.items || []) item.appendChild(el("p", "collector-note", `${entry.symbol} · ${states[entry.status] || entry.status}${entry.error_summary ? `：${entry.error_summary}` : ""}`));
       if (["partial","failed","cancelled"].includes(run.status)) {
         const retry = el("button", "btn-sm", "重试失败项");
         retry.type = "button";
-        retry.disabled = !payload.service_online;
+        retry.disabled = false;
         retry.onclick = async () => {
           const generation=epoch;
           retry.disabled=true;

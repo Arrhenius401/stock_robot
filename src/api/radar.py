@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import subprocess
 import sys
 import threading
 import time as clock
 import uuid
-from datetime import date, datetime
+from contextlib import asynccontextmanager
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 from zoneinfo import ZoneInfo
@@ -40,11 +42,13 @@ from radar.data import (
     TencentETFDataProvider,
 )
 from radar.history import HistoryStore, HistorySynchronizer
+from radar.overseas import OverseasService
 from radar.performance import calculate_instrument_performance
 from radar.refresh import RadarRefresher
 from radar.score_profile import ScoreProfileConfigError, ScoreProfileRepository
 from radar.store import RadarStore
 from radar.universe import UniverseConfigError, UniverseRepository
+from radar.update_service import UpdateService, UpdateStore
 from utils.config import Config
 
 
@@ -92,6 +96,7 @@ class CollectorRunRequest(BaseModel):
 
 _STARTUP_HEARTBEAT_WAIT_SECONDS = 20.0
 _RESEARCH_NOTICE = "研究评分，不构成投资建议。"
+logger = logging.getLogger(__name__)
 
 
 def _collector_now() -> datetime:
@@ -125,8 +130,19 @@ def _require_collector_online(store: CollectorStore) -> None:
 
 
 def create_radar_router() -> APIRouter:
-    """创建仅依赖本地状态的雷达路由。"""
-    router = APIRouter(prefix="/api/v1/radar", tags=["radar"])
+    """查询只读本地数据；生命周期拥有一个人工更新线程。"""
+    manual_service: UpdateService | None = None
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        service = update_services()
+        service.start()
+        try:
+            yield
+        finally:
+            service.stop()
+
+    router = APIRouter(prefix="/api/v1/radar", tags=["radar"], lifespan=lifespan)
     tasks: dict[str, dict[str, Any]] = {}
     lock = threading.Lock()
 
@@ -144,29 +160,52 @@ def create_radar_router() -> APIRouter:
         ))
         return repository, store, RadarRefresher(repository, provider, store)
 
-    def collector_services() -> CollectorWorker:
+    def collector_services(*, refresh_calendar: bool = False) -> CollectorWorker:
         """复用本地依赖，日历实例严格只读，网页不发起行情采集。"""
         config = Config()
         repository, _, refresher = services()
         status_store = CollectorStore(config.config_dir / "radar_collector.db")
-        calendar = TradingCalendar(status_store.db_path, refresh_enabled=False)
+        calendar = TradingCalendar(status_store.db_path, refresh_enabled=refresh_calendar)
         return CollectorWorker(status_store, repository, calendar, refresher.refresh, state_dir=config.config_dir)
+
+    def update_services() -> UpdateService:
+        nonlocal manual_service
+        with lock:
+            if manual_service is None:
+                worker = collector_services(refresh_calendar=True)
+                manual_service = UpdateService(worker, RadarStore(worker.state_dir / "radar.db"),
+                                               OverseasService(worker.state_dir / "radar.db"))
+            return manual_service
 
     def settings_payload(status_store: CollectorStore) -> dict[str, Any]:
         return {**status_store.settings(), "timezone": "Asia/Shanghai"}
 
     def enqueue_manual(body: CollectorRunRequest) -> dict[str, Any]:
-        worker = collector_services()
-        _require_collector_online(worker.store)
+        service = update_services()
         try:
-            runs = worker.enqueue_manual(_collector_now(), body.universe_id, body.as_of)
-        except CalendarUnavailable as exc:
-            raise HTTPException(status_code=503, detail=f"采集计划暂不可执行: {exc}，请等待采集服务刷新日历") from exc
+            identifiers = [body.universe_id] if body.universe_id else [pool.id for pool in service.worker.repository.enabled_on(body.as_of or _collector_now().date())]
+            runs = [service.enqueue(identifier, body.as_of) for identifier in identifiers]
         except (ValueError, UniverseConfigError, ScoreProfileConfigError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         if not runs:
             raise HTTPException(status_code=422, detail="目标日期没有启用的标的池")
-        return {"runs": runs, "task_id": runs[0]["id"], "status": runs[0]["status"]}
+        return {**runs[0], "runs": runs}
+
+    @router.get("/updates/latest")
+    def latest_update(universe_id: str):
+        return UpdateStore(Config().config_dir / "radar_collector.db").latest(universe_id)
+
+    @router.get("/overseas")
+    def overseas_status(universe_id: str, snapshot_run_id: str | None = None):
+        repository, store, _ = services()
+        snapshot = store.get_snapshot(snapshot_run_id) if snapshot_run_id else store.latest_completed(universe_id)
+        if snapshot_run_id and (snapshot is None or snapshot["universe_id"] != universe_id):
+            raise HTTPException(status_code=404, detail="指定池的ETF快照不存在")
+        try:
+            universe = repository.active_on(universe_id, _collector_now().date())
+            return OverseasService(Config().config_dir / "radar.db").view(universe, snapshot, _collector_now())
+        except (ValueError, UniverseConfigError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     def snapshot_status_summary(snapshot: dict[str, Any]) -> dict[str, int]:
         """从指定快照计算状态，避免历史快照误用最新一次刷新的汇总。"""
@@ -241,8 +280,13 @@ def create_radar_router() -> APIRouter:
                 universe_ids = ()
             runtime = _collector_runtime(worker.store)
             next_scheduled_at = None
+            next_overseas_check_at = None
             schedule_error = None
             if settings["enabled"]:
+                overseas_check = now.replace(hour=settings["hour"], minute=settings["minute"], second=0, microsecond=0)
+                if overseas_check <= now:
+                    overseas_check += timedelta(days=1)
+                next_overseas_check_at = overseas_check.isoformat()
                 try:
                     next_scheduled_at = worker.calendar.next_scheduled(_collector_now(), settings["hour"], settings["minute"]).isoformat()
                 except CalendarUnavailable as exc:
@@ -252,6 +296,8 @@ def create_radar_router() -> APIRouter:
                 "items": worker.store.latest(universe_ids), "runtime": runtime,
                 "service_online": runtime["online"], "recent_events": worker.store.recent_events(),
                 "runs": worker.store.list_runs(), "next_scheduled_at": next_scheduled_at,
+                "next_overseas_check_at": next_overseas_check_at,
+                "manual_update_available": True,
                 "schedule_error": schedule_error, "config_error": config_error,
             }
         except (OSError, sqlite3.Error) as exc:
@@ -306,10 +352,17 @@ def create_radar_router() -> APIRouter:
 
     @router.get("/collector/runs")
     def list_collector_runs(limit: int = Query(default=20, ge=1, le=200)):
-        return CollectorStore(Config().config_dir / "radar_collector.db").list_runs(limit)
+        path = Config().config_dir / "radar_collector.db"
+        runs = UpdateStore(path).list_runs(limit) + CollectorStore(path).list_runs(limit)
+        return sorted(runs, key=lambda run: run["created_at"], reverse=True)[:limit]
 
     @router.get("/collector/runs/{run_id}")
     def get_collector_run(run_id: str):
+        try:
+            return UpdateStore(Config().config_dir / "radar_collector.db").get(run_id)
+        except ValueError:
+            # 旧ETF任务继续沿用原查询路径。
+            logger.debug("组合记录中未找到 %s，查询旧ETF任务", run_id)
         try:
             return CollectorStore(Config().config_dir / "radar_collector.db").get_run(run_id)
         except ValueError as exc:
@@ -318,13 +371,19 @@ def create_radar_router() -> APIRouter:
     @router.post("/collector/runs/{run_id}/retry", status_code=202)
     def retry_collector_run(run_id: str):
         status_store = CollectorStore(Config().config_dir / "radar_collector.db")
-        _require_collector_online(status_store)
+        try:
+            update = UpdateStore(status_store.db_path).get(run_id)
+        except ValueError:
+            update = None
+        if update is not None:
+            target = date.fromisoformat(update["target_date"]) if update["target_date"] else None
+            return update_services().enqueue(update["universe_id"], target)
         try:
             run = status_store.get_run(run_id)
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         if run["status"] in {"queued", "running", "retry_wait"}:
-            return run
+            return status_store.promote_manual(run_id) if run["source"] != "manual" else run
         try:
             return status_store.retry(run_id, manual=True)
         except ValueError as exc:
@@ -504,13 +563,18 @@ def create_radar_router() -> APIRouter:
 
     @router.post("/refresh", status_code=202)
     def refresh(body: RefreshRequest):
-        """兼容旧任务 ID，但执行已移到独立服务的持久队列。"""
+        """立即保存组合请求，人工更新不要求独立服务在线。"""
         if body.full:
             raise HTTPException(status_code=422, detail="持久采集按所需窗口补齐，暂不支持旧 full 参数；历史表现查询可按所需区间扩展行情")
         return enqueue_manual(CollectorRunRequest(universe_id=body.universe_id, as_of=body.as_of))
 
     @router.get("/refresh/{task_id}")
     def refresh_status(task_id: str):
+        try:
+            return UpdateStore(Config().config_dir / "radar_collector.db").get(task_id)
+        except ValueError:
+            # 兼容升级前的持久ETF任务ID。
+            logger.debug("组合记录中未找到 %s，查询旧ETF任务", task_id)
         try:
             run = CollectorStore(Config().config_dir / "radar_collector.db").get_run(task_id)
         except ValueError as exc:

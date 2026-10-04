@@ -1436,3 +1436,63 @@ body.subs-modal-open { overflow: hidden; }
  .settings-file-head h2 { font-size:16px; }
  .settings-code-lines { width:40px; padding-left:4px; padding-right:6px; }
 }
+
+/* 配置雷达独立更新浮层。 */
+.radar-update-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.radar-head-controls{justify-content:flex-start;gap:18px;}
+.radar-head-actions{justify-items:start;}
+.radar-head-actions .radar-meta{text-align:left;}
+.radar-update-toast{position:fixed;z-index:1050;top:120px;right:24px;width:min(440px,calc(100vw - 24px));padding:15px 18px;background:var(--panel);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow-overlay);color:var(--text);}
+.radar-update-toast.minimized{display:flex;align-items:center;min-width:224px;width:auto;min-height:46px;padding:4px 7px 4px 3px;background:var(--panel);border:1px solid var(--border);box-shadow:var(--shadow-overlay);}
+.radar-update-mini-grip{display:flex;align-items:center;justify-content:center;width:30px;align-self:stretch;flex:none;font-size:22px;color:var(--text-4);cursor:grab;touch-action:none;user-select:none;border-radius:6px;}
+.radar-update-mini-grip:hover{background:var(--surface-hover);color:var(--text-2);}
+.radar-update-mini-button{display:flex;align-items:center;gap:10px;min-height:38px;padding:7px 9px;border:0;border-radius:7px;background:transparent;color:var(--text-2);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;}
+.radar-update-mini-button:hover{background:var(--surface-hover);}
+.radar-update-status-icon{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--text-4);flex:none;vertical-align:middle;}
+.radar-update-status-icon.success{background:var(--ok);}
+.radar-update-status-icon.warning{background:var(--warn);}
+.radar-update-status-icon.loading{width:15px;height:15px;border:2px solid var(--border);border-top-color:var(--accent);border-right-color:var(--accent);background:transparent;animation:radar-update-status-spin .8s linear infinite;}
+@keyframes radar-update-status-spin{to{transform:rotate(360deg);}}
+.radar-update-toast-title strong{display:flex;align-items:center;gap:9px;}
+.radar-update-toast-title,.radar-update-dialog-head{cursor:grab;touch-action:none;user-select:none;}
+.radar-update-dragging,.radar-update-dragging [data-drag-handle]{cursor:grabbing;}
+[data-drag-handle]:focus-visible{outline:2px solid var(--accent);outline-offset:3px;}
+@media(prefers-reduced-motion:reduce){.radar-update-status-icon.loading{animation:none;}}
+.radar-update-toast-title{display:flex;justify-content:space-between;gap:14px;align-items:center;}
+.radar-update-toast-title strong{font-size:14px;}
+.radar-update-toast-title .subs-btn{padding:4px 8px;font-size:11px;}
+.radar-update-toast-stage{margin:12px 0;color:var(--text-2);font-size:13px;line-height:1.6;}
+.radar-update-steps{display:grid;grid-template-columns:1fr 1fr;list-style:none;gap:8px 12px;color:var(--text-3);font-size:11px;}
+.radar-update-steps li{display:flex;align-items:center;gap:5px;}
+.radar-update-steps li::before{content:'○';color:var(--text-4);}
+.radar-update-steps li.done::before{content:'✓';color:var(--ok);}
+.radar-update-steps li.current{color:var(--accent);font-weight:600;}
+.radar-update-steps li.current::before{content:'●';color:var(--accent);}
+.radar-update-dialog{position:fixed;inset:0;width:min(940px,calc(100vw - 48px));max-height:calc(100dvh - 60px);margin:auto;padding:0;border:1px solid var(--border);border-radius:14px;background:var(--panel);color:var(--text);box-shadow:var(--shadow-overlay);}
+.radar-update-dialog[open]{display:flex;flex-direction:column;}
+.radar-update-dialog::backdrop{background:rgba(20,35,58,.4);}
+.radar-update-dialog-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:17px 20px;border-bottom:1px solid var(--border-soft);}
+.radar-update-dialog-head h2{font-size:18px;}
+.radar-update-dialog-head button{font-size:20px;border:0;background:transparent;color:var(--text-3);padding:4px 8px;cursor:pointer;}
+.radar-update-dialog-body{overflow-y:auto;padding:16px 20px;min-height:0;}
+.radar-update-dialog-body>.radar-meta{margin-top:0;}
+.radar-update-dialog-body .panel{box-shadow:none;}
+.radar-update-dialog-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap;padding:12px 20px;border-top:1px solid var(--border-soft);}
+.radar-update-result-line{margin-top:10px;color:var(--text-2);}
+.radar-detail-head>.subs-btn{margin-left:auto;flex-shrink:0;}
+@media(max-width:760px){
+  body:has(#radarUpdateNotice:not(.minimized):not([hidden])) #view-radar{padding-top:230px;}
+  .radar-update-toast{top:156px;right:12px;}
+  .radar-update-dialog{width:100%;max-width:100vw;height:100dvh;max-height:100dvh;border-radius:0;border:0;}
+  .radar-update-dialog-head,.radar-update-dialog-body{padding:14px 12px;}
+  .radar-update-dialog-head{cursor:default;touch-action:auto;}
+  .radar-update-dialog-actions{padding:12px;}
+  .radar-detail-head{flex-wrap:wrap;}
+  .radar-detail-head>.subs-btn{margin-left:44px;}
+}
+
+.radar-update-toast[hidden]{display:none;}
+.radar-update-market-table{width:100%;border-collapse:collapse;font-size:12px;}
+.radar-update-market-table th,.radar-update-market-table td{padding:12px 10px;border-bottom:1px solid var(--border-soft);text-align:left;vertical-align:top;overflow-wrap:anywhere;}
+.radar-update-block{display:block;margin-top:5px;}
+@media(max-width:760px){.radar-update-market-table{font-size:11px;table-layout:fixed;}.radar-update-market-table th,.radar-update-market-table td{padding:9px 4px;}.radar-update-market-table th:first-child{width:32%;}}

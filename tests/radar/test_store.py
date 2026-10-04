@@ -39,6 +39,33 @@ def _create_run(store: RadarStore) -> str:
     )
 
 
+def test_legacy_stale_without_source_does_not_inherit_current_market_date(tmp_path):
+    """旧stale缺来源时不把本次目标日包装成真实行情日期。"""
+    store = RadarStore(tmp_path / "radar.db")
+    run_id = _create_run(store)
+    store.add_item(run_id, _item("stale"))
+    store.complete_run(run_id)
+    snapshot = store.get_snapshot(run_id)
+    assert snapshot is not None
+    assert snapshot["items"][0]["source_as_of_date"] is None
+    assert snapshot["items"][0]["market_date"] is None
+
+
+def test_legacy_stale_resolves_original_healthy_snapshot_date(tmp_path):
+    store = RadarStore(tmp_path / "radar.db")
+    source = _create_run(store)
+    store.add_item(source, _item())
+    store.complete_run(source)
+    current = store.create_run(universe_id="cn_hk_etf", universe_version=1,
+                               score_profile="core_rotation_v1", provider="test",
+                               as_of_date="2026-10-03")
+    store.add_item(current, _item("stale").model_copy(update={"source_run_id": source}))
+    store.complete_run(current)
+    snapshot = store.get_snapshot(current)
+    assert snapshot is not None
+    assert snapshot["items"][0]["source_as_of_date"] == "2026-09-04"
+
+
 def test_running_run_is_invisible_and_completed_run_is_readable():
     with TemporaryDirectory(dir=Path.cwd()) as tmp_dir:
         store = RadarStore(Path(tmp_dir) / "radar.db")

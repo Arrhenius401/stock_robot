@@ -264,20 +264,21 @@ class CollectorStore:
             ids = [row["id"] for row in conn.execute("SELECT id FROM collector_runs ORDER BY created_at DESC,rowid DESC LIMIT ?", (max(1, min(limit, 200)),))]
         return [self.get_run(run_id) for run_id in ids]
 
-    def claim(self, worker_id: str, now: datetime | None = None, lease_seconds: int = 60) -> dict[str, Any] | None:
+    def claim(self, worker_id: str, now: datetime | None = None, lease_seconds: int = 60,
+              *, manual_only: bool = False, run_id: str | None = None) -> dict[str, Any] | None:
         """事务内认领一个任务；单队列同时只允许一个执行者。"""
         instant = _instant(now)
         with closing(self._connect()) as conn, conn:
             conn.execute("BEGIN IMMEDIATE")
             if conn.execute("SELECT 1 FROM collector_runs WHERE status='running' LIMIT 1").fetchone():
                 return None
-            row = conn.execute("SELECT id FROM collector_runs WHERE status IN ('queued','retry_wait') AND available_at<=? ORDER BY created_at,rowid LIMIT 1", (instant.isoformat(),)).fetchone()
+            row = conn.execute("SELECT id FROM collector_runs WHERE status IN ('queued','retry_wait') AND available_at<=? AND (?=0 OR source='manual') AND (? IS NULL OR id=?) ORDER BY created_at,rowid LIMIT 1", (instant.isoformat(), int(manual_only), run_id, run_id)).fetchone()
             if row is None:
                 return None
-            run_id = row["id"]
+            claimed_id = str(row["id"])
             conn.execute("UPDATE collector_runs SET status='running',phase='preparing',attempt=attempt+1,worker_id=?,lease_until=?,updated_at=? WHERE id=?",
-                         (worker_id, (instant + timedelta(seconds=lease_seconds)).isoformat(), instant.isoformat(), run_id))
-        return self.get_run(run_id)
+                         (worker_id, (instant + timedelta(seconds=lease_seconds)).isoformat(), instant.isoformat(), claimed_id))
+        return self.get_run(claimed_id)
 
     @staticmethod
     def _owned(conn: sqlite3.Connection, run_id: str, worker_id: str | None) -> None:

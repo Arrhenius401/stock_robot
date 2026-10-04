@@ -2128,7 +2128,7 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         assert 'id="subName"' not in html
         assert 'id="subChannel"' not in html
         assert "企业微信" not in html
-        assert "20261003-settings-5" in html
+        assert "20261004-overseas-2" in html
         script = (await client.get("/js/subscriptions.js")).text
         assert "searchPushSymbols" in script
         assert "批量添加" not in script
@@ -2302,12 +2302,13 @@ if (!notice.hidden || notice.textContent) throw new Error("结束提示未在限
         assert "最近一次数据更新未发布新快照" in source
         assert "allocationSnapshotMeta(allocationState.snapshot)" in source
         assert 'allocationElement("div", "radar-head-controls")' in source
-        assert '"/api/v1/radar/refresh"' in source
+        update_source = (await client.get("/js/radar-update-ui.js")).text
+        assert "'/api/v1/radar/refresh'" in update_source
         assert '"/api/v1/radar/collector/status"' in source
         assert "function allocationDataStatus(item)" in source
         assert "allocationDataStatus(item)" in source
-        assert "allocationPollRefresh" in source
-        assert "数据更新完成，已载入最新快照。" in source
+        assert "createRadarUpdateUI" in source
+        assert "isActive(allocationState.universeId)" in source
         assert "沿用上次健康数据" in source
         assert "标的池轮动策略研究结果" in source
         assert "allocationBacktestSectionIsCurrent" in source
