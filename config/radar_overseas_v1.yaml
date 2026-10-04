@@ -11,6 +11,10 @@ indices:
     close_time: '16:00'
     series: price
     evidence: https://www.bosera.com/column/infoDetail.do?classid=0002000200020005&infoid=2976008
+    fallbacks:
+      - source: yahoo
+        code: '^GSPC'
+        expected_name: S&P 500
   ndx: &ndx
     index_name: 纳斯达克100
     code: '^NDX'
@@ -41,16 +45,20 @@ indices:
     close_time: '15:30'
     series: price
     evidence: https://www.huaan.com.cn/funds/513880/index.shtml
+    fallbacks:
+      - source: yahoo
+        code: '^N225'
+        expected_name: Nikkei 225
   dax: &dax
     index_name: DAX
-    code: DAX
-    source: unavailable
+    code: '^GDAXI'
+    source: yahoo
+    expected_name: DAX P
     currency: EUR
     timezone: Europe/Berlin
-    close_time: '17:30'
+    close_time: '18:00'
     series: total_return
-    unavailable_reason: DAX 总收益系列的数据源口径待核实
-    evidence: https://www.huaan.com.cn/etf/513030/sgshqd.jsp
+    evidence: https://www.stoxx.com/documents/stoxxnet/Documents/News/2023/June/Technical_Information_DAX_CA_20230602.pdf
   cac: &cac
     index_name: CAC40
     code: FCHI
@@ -61,6 +69,10 @@ indices:
     close_time: '17:35'
     series: price
     evidence: https://www.huaan.com.cn/upload2010/2026/01/15/091252386_0_f40aa45f-de2f-3747-979d-15e4dcdefce3.pdf
+    fallbacks:
+      - source: yahoo
+        code: '^FCHI'
+        expected_name: CAC 40
 mappings:
   '513500': *spx
   '513100': *ndx

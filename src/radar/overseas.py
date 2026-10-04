@@ -102,25 +102,36 @@ class OverseasService:
         _aware(now)
         if universe.id != 'overseas_etf':
             return self.view(universe, snapshot, now)
-        mappings = {self._key(mapping): mapping for item in universe.instruments
-                    if (mapping := self.mappings.get(item.symbol)) and mapping['source'] != 'unavailable'}
-        for key, mapping in mappings.items():
-            previous = self._cached(key)
-            try:
-                rows = parse_daily(mapping, self._fetch(mapping), now)
-                # 保存完整有效历史，以便旧 ETF 快照只读派生。
-                merged = {row['date']: row for row in previous['rows']}
-                merged.update({row['date']: row for row in rows})
-                self._save(key, now, [merged[day] for day in sorted(merged)], None)
-            except Exception as exc:  # noqa: BLE001 — 第三方网络及响应隔离，不影响其他指数
-                logger.warning('海外指数 %s 更新失败: %s', mapping['code'], exc)
-                if isinstance(exc, (requests.RequestException, OSError)):
-                    reason = '海外行情源连接失败，请稍后重试'
-                elif isinstance(exc, (ValueError, KeyError, TypeError, IndexError)):
-                    reason = '海外行情源返回的数据未通过日期或指数口径校验'
-                else:
-                    reason = '海外行情源暂不可用，请稍后重试'
-                self._save(key, now, previous['rows'], reason)
+        groups: dict[str, tuple[dict[str, Any], list[datetime | None]]] = {}
+        etf_items = {row['symbol']: row for row in (snapshot or {}).get('items', [])}
+        for item in universe.instruments:
+            mapping = self.mappings.get(item.symbol)
+            if mapping and mapping['source'] != 'unavailable':
+                group = groups.setdefault(self._key(mapping), (mapping, []))
+                cutoff = self._cutoff(etf_items.get(item.symbol), snapshot)
+                group[1].append(cutoff if cutoff and cutoff <= now else None)
+        for mapping, cutoffs in groups.values():
+            for candidate in self._candidates(mapping):
+                key = self._key(candidate)
+                previous = self._cached(key)
+                try:
+                    rows = parse_daily(candidate, self._fetch(candidate), now)
+                    # 只在同一来源缓存中合并，不拼接跨源收盘。
+                    merged = {row['date']: row for row in previous['rows']}
+                    merged.update({row['date']: row for row in rows})
+                    history = [merged[day] for day in sorted(merged)]
+                    self._save(key, now, history, None)
+                    if all(self._complete(history, cutoff) for cutoff in cutoffs):
+                        break
+                except Exception as exc:  # noqa: BLE001 — 第三方网络及响应隔离，不影响其他指数
+                    logger.warning('海外指数 %s 更新失败: %s', candidate['code'], exc)
+                    if isinstance(exc, (requests.RequestException, OSError)):
+                        reason = '海外行情源连接失败，请稍后重试'
+                    elif isinstance(exc, (ValueError, KeyError, TypeError, IndexError)):
+                        reason = '海外行情源返回的数据未通过日期或指数口径校验'
+                    else:
+                        reason = '海外行情源暂不可用，请稍后重试'
+                    self._save(key, now, previous['rows'], reason)
         return self.view(universe, snapshot, now)
 
     def view(self, universe: RadarUniverse, snapshot: dict[str, Any] | None, now: datetime) -> dict[str, Any]:
@@ -149,7 +160,11 @@ class OverseasService:
                 item['error'] = mapping['unavailable_reason']
                 items.append(item)
                 continue
-            cached = self._cached(self._key(mapping))
+            cutoff = self._cutoff(etf_items.get(instrument.symbol), snapshot)
+            if cutoff and cutoff > now:
+                cutoff = None
+            candidate, cached = self._select(mapping, cutoff, now)
+            item['source'] = candidate['source']
             item['checked_at'] = cached['checked_at']
             if cached['checked_at']:
                 checked.append(cached['checked_at'])
@@ -166,9 +181,6 @@ class OverseasService:
                 item['daily_change'] = last['close'] / rows[-2]['close'] - 1
             else:
                 reasons.append('缺少上一有效交易日收盘，无法计算最近一日涨跌')
-            cutoff = self._cutoff(etf_items.get(instrument.symbol), snapshot)
-            if cutoff and cutoff > now:
-                cutoff = None
             if cutoff:
                 item['etf_as_of_date'] = cutoff.date().isoformat()
                 baseline = [row for row in rows if datetime.fromisoformat(row['closed_at']) <= cutoff]
@@ -207,19 +219,54 @@ class OverseasService:
 
     def _fetch(self, mapping: dict[str, Any]) -> dict[str, Any]:
         if mapping['source'] == 'eastmoney':
-            url = 'https://push2his.eastmoney.com/api/qt/stock/kline/get'
+            urls = ['https://push2his.eastmoney.com/api/qt/stock/kline/get']
             params = {'secid': f"100.{mapping['code']}", 'klt': '101', 'fqt': '0',
                       'lmt': '320', 'end': '20500101', 'fields1': 'f1,f2,f3,f4,f5,f6',
                       'fields2': 'f51,f52,f53,f54,f55,f56,f57'}
         else:
-            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{mapping['code']}"
+            urls = [f"https://{host}.finance.yahoo.com/v8/finance/chart/{mapping['code']}"
+                    for host in ('query1', 'query2')]
             params = {'range': '1y', 'interval': '1d'}
-        response = requests.get(url, params=params, timeout=12, headers={'User-Agent': 'Mozilla/5.0'})
-        response.raise_for_status()
-        return response.json()
+        for index, url in enumerate(urls):
+            try:
+                response = requests.get(url, params=params, timeout=12, headers={'User-Agent': 'Mozilla/5.0'})
+                response.raise_for_status()
+            except requests.RequestException:
+                if index == len(urls) - 1:
+                    raise
+                logger.warning('海外指数 %s 首个网络入口失败，尝试备用入口', mapping['code'])
+                continue
+            return response.json()
+        raise RuntimeError('海外行情源未配置网络入口')
+
+    @staticmethod
+    def _candidates(mapping: dict[str, Any]) -> list[dict[str, Any]]:
+        primary = {key: value for key, value in mapping.items() if key != 'fallbacks'}
+        return [primary, *[dict(primary, **fallback) for fallback in mapping.get('fallbacks', [])]]
+
+    @staticmethod
+    def _complete(rows: list[dict[str, Any]], cutoff: datetime | None) -> bool:
+        return len(rows) > 1 and (cutoff is None or any(
+            datetime.fromisoformat(row['closed_at']) <= cutoff for row in rows))
+
+    def _select(self, mapping: dict[str, Any], cutoff: datetime | None,
+                now: datetime) -> tuple[dict[str, Any], dict[str, Any]]:
+        options = []
+        for candidate in self._candidates(mapping):
+            cached = self._cached(self._key(candidate))
+            cached['rows'] = [row for row in cached['rows']
+                              if datetime.fromisoformat(row['closed_at']) <= now]
+            rows = cached['rows']
+            # 完整区间优先，其次最新已完成收盘和健康状态；同等条件保留主源。
+            rank = (self._complete(rows, cutoff), bool(rows), rows[-1]['date'] if rows else '',
+                    not bool(cached['error']))
+            options.append((rank, candidate, cached))
+        _, candidate, cached = max(options, key=lambda option: option[0])
+        return candidate, cached
 
     def _key(self, mapping: dict[str, Any]) -> str:
-        payload = json.dumps({'version': self.version, 'mapping': mapping}, sort_keys=True)
+        identity = {key: value for key, value in mapping.items() if key != 'fallbacks'}
+        payload = json.dumps({'version': self.version, 'mapping': identity}, sort_keys=True)
         return hashlib.sha256(payload.encode()).hexdigest()
 
     def _cached(self, key: str) -> dict[str, Any]:

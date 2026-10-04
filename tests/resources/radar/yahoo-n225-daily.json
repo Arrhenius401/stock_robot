@@ -1,0 +1,137 @@
+{
+  "chart": {
+    "result": [
+      {
+        "meta": {
+          "currency": "JPY",
+          "symbol": "^N225",
+          "exchangeName": "OSA",
+          "fullExchangeName": "Osaka",
+          "instrumentType": "INDEX",
+          "firstTradeDate": -157420800,
+          "regularMarketTime": 1790923503,
+          "hasPrePostMarketData": false,
+          "gmtoffset": 32400,
+          "timezone": "JST",
+          "exchangeTimezoneName": "Asia/Tokyo",
+          "regularMarketPrice": 68309.46,
+          "regularMarketChangePercent": -0.939,
+          "fulldayPrice": 68309.46,
+          "fulldayChange": -647.258,
+          "fulldayChangePercent": -0.939,
+          "fiftyTwoWeekHigh": 72831.73,
+          "fiftyTwoWeekLow": 46544.05,
+          "regularMarketDayHigh": 68741.49,
+          "regularMarketDayLow": 68132.16,
+          "regularMarketVolume": 0,
+          "longName": "Nikkei 225",
+          "shortName": "Nikkei 225",
+          "chartPreviousClose": 44936.73,
+          "priceHint": 2,
+          "currentTradingPeriod": {
+            "pre": {
+              "timezone": "JST",
+              "start": 1790899200,
+              "end": 1790899200,
+              "gmtoffset": 32400
+            },
+            "regular": {
+              "timezone": "JST",
+              "start": 1790899200,
+              "end": 1790922600,
+              "gmtoffset": 32400
+            },
+            "post": {
+              "timezone": "JST",
+              "start": 1790922600,
+              "end": 1790922600,
+              "gmtoffset": 32400
+            }
+          },
+          "dataGranularity": "1d",
+          "range": "1y",
+          "validRanges": [
+            "1d",
+            "5d",
+            "1mo",
+            "3mo",
+            "6mo",
+            "1y",
+            "2y",
+            "5y",
+            "10y",
+            "ytd",
+            "max"
+          ]
+        },
+        "timestamp": [
+          1790294400,
+          1790553600,
+          1790640000,
+          1790726400,
+          1790812800,
+          1790899200
+        ],
+        "indicators": {
+          "quote": [
+            {
+              "open": [
+                65639.6171875,
+                66505.9375,
+                65557.9921875,
+                66128.59375,
+                67106.5234375,
+                68313.4609375
+              ],
+              "close": [
+                66364.203125,
+                65877.6171875,
+                65481.26953125,
+                66753.71875,
+                68956.71875,
+                68309.4609375
+              ],
+              "high": [
+                66410.2734375,
+                67034.7421875,
+                65805.078125,
+                66946.140625,
+                68995.296875,
+                68741.4921875
+              ],
+              "low": [
+                65639.6171875,
+                65877.6171875,
+                64699.48828125,
+                66014.4765625,
+                67081.65625,
+                68132.15625
+              ],
+              "volume": [
+                148900000,
+                161800000,
+                170800000,
+                203700000,
+                184600000,
+                179400000
+              ]
+            }
+          ],
+          "adjclose": [
+            {
+              "adjclose": [
+                66364.203125,
+                65877.6171875,
+                65481.26953125,
+                66753.71875,
+                68956.71875,
+                68309.4609375
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "error": null
+  }
+}

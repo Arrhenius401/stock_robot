@@ -1,0 +1,137 @@
+{
+  "chart": {
+    "result": [
+      {
+        "meta": {
+          "currency": "EUR",
+          "symbol": "^FCHI",
+          "exchangeName": "PAR",
+          "fullExchangeName": "Paris",
+          "instrumentType": "INDEX",
+          "firstTradeDate": 636278400,
+          "regularMarketTime": 1790957102,
+          "hasPrePostMarketData": false,
+          "gmtoffset": 7200,
+          "timezone": "CEST",
+          "exchangeTimezoneName": "Europe/Paris",
+          "regularMarketPrice": 7897.19,
+          "regularMarketChangePercent": 0.79,
+          "fulldayPrice": 7897.19,
+          "fulldayChange": 61.88,
+          "fulldayChangePercent": 0.79,
+          "fiftyTwoWeekHigh": 8755.03,
+          "fiftyTwoWeekLow": 7505.27,
+          "regularMarketDayHigh": 7927.88,
+          "regularMarketDayLow": 7836.27,
+          "regularMarketVolume": 0,
+          "longName": "CAC 40",
+          "shortName": "CAC 40",
+          "chartPreviousClose": 8056.63,
+          "priceHint": 2,
+          "currentTradingPeriod": {
+            "pre": {
+              "timezone": "CEST",
+              "end": 1790924400,
+              "start": 1790924400,
+              "gmtoffset": 7200
+            },
+            "regular": {
+              "timezone": "CEST",
+              "end": 1790955000,
+              "start": 1790924400,
+              "gmtoffset": 7200
+            },
+            "post": {
+              "timezone": "CEST",
+              "end": 1790955000,
+              "start": 1790955000,
+              "gmtoffset": 7200
+            }
+          },
+          "dataGranularity": "1d",
+          "range": "1y",
+          "validRanges": [
+            "1d",
+            "5d",
+            "1mo",
+            "3mo",
+            "6mo",
+            "1y",
+            "2y",
+            "5y",
+            "10y",
+            "ytd",
+            "max"
+          ]
+        },
+        "timestamp": [
+          1790319600,
+          1790578800,
+          1790665200,
+          1790751600,
+          1790838000,
+          1790924400
+        ],
+        "indicators": {
+          "quote": [
+            {
+              "close": [
+                8077.7998046875,
+                8078.47998046875,
+                8035.8701171875,
+                7964.509765625,
+                7835.31005859375,
+                7897.18994140625
+              ],
+              "volume": [
+                50628100,
+                48380800,
+                52890300,
+                74271700,
+                77083200,
+                71580700
+              ],
+              "open": [
+                8134.06005859375,
+                8110.919921875,
+                8086.16015625,
+                8034.22021484375,
+                7913.7099609375,
+                7847.9599609375
+              ],
+              "high": [
+                8136.2900390625,
+                8137.419921875,
+                8107.27978515625,
+                8068.509765625,
+                7935.85009765625,
+                7927.8798828125
+              ],
+              "low": [
+                8057.14990234375,
+                8071.58984375,
+                8023.97998046875,
+                7950.490234375,
+                7820.97998046875,
+                7836.27001953125
+              ]
+            }
+          ],
+          "adjclose": [
+            {
+              "adjclose": [
+                8077.7998046875,
+                8078.47998046875,
+                8035.8701171875,
+                7964.509765625,
+                7835.31005859375,
+                7897.18994140625
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "error": null
+  }
+}
