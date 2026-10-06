@@ -54,3 +54,22 @@ def test_claude_provider_without_model_uses_claude_default():
     model = create_chat_model(config)
     assert model is not None
     assert model.model == "claude-sonnet-4-6"
+
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def mock_model_capability_lookup(mocker):
+    return mocker.patch("agent.model_factory.model_output_limit", return_value=16000)
+
+
+@pytest.mark.parametrize("provider,budget,expected", [
+    ("openai", None, None), ("openai", 2000, 2000),
+    ("claude", None, 8192), ("claude", 2000, 2000),
+])
+def test_chat_model_uses_same_auto_and_manual_budget(provider, budget, expected):
+    config = FakeConfig({"llm": {"provider": provider, "api_key": "test", "max_tokens": budget}})
+    model = create_chat_model(config)
+    assert model is not None
+    assert model.max_tokens == expected

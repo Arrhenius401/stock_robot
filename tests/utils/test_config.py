@@ -101,3 +101,12 @@ class TestPushConfig:
         assert cfg.get("push.email.smtp_port") == 465
         assert cfg.get("push.email.smtp_user") == ""
         assert cfg.get("push.wecom") is None
+
+
+def test_output_budget_defaults_to_auto_without_overwriting_existing_integer(tmp_path):
+    config = Config(config_dir=tmp_path)
+    assert config.get("llm.max_tokens") is None
+    config.set("llm.max_tokens", 2000)
+    assert Config(config_dir=tmp_path).get("llm.max_tokens") == 2000
+    config.set("llm.max_tokens", None)
+    assert Config(config_dir=tmp_path).get("llm.max_tokens") is None

@@ -184,6 +184,8 @@ def _validate_leaf(value: Any, path: tuple[str, ...]) -> Any:
         if type(value) is not bool:
             _validation_error(path, "必须是布尔值")
         return value
+    if path == ("llm", "max_tokens") and value is None:
+        return None
     if path == ("llm", "temperature"):
         return _require_number(value, path, minimum=0, maximum=2)
     integer_ranges: dict[tuple[str, ...], tuple[int, int | None]] = {
@@ -344,6 +346,9 @@ def _validate_document(data: dict[str, Any]) -> dict[str, Any]:
     _deep_merge(merged, data)
 
     def known_types(value: Any, template: Any, path: tuple[str, ...]) -> None:
+        if path == ("llm", "max_tokens"):
+            _validate_leaf(value, path)
+            return
         if isinstance(template, dict):
             if not isinstance(value, dict):
                 _validation_error(path, "必须是对象")

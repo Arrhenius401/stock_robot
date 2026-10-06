@@ -475,3 +475,15 @@ def test_update_rejects_invalid_config_boundaries(config_client, body):
     response = client.put("/api/v1/config", json=body)
 
     assert response.status_code == 422
+
+
+@pytest.mark.parametrize("budget", [None, 2000])
+def test_output_budget_round_trips_through_config_api_and_hot_reload(runtime_config_client, budget):
+    config, runtime, client = runtime_config_client
+    response = client.put("/api/v1/config", json={"config": {"llm": {"max_tokens": budget}}})
+    assert response.status_code == 200
+    assert response.json()["config"]["llm"]["max_tokens"] == budget
+    assert response.json()["applied"] is True
+    assert runtime.reload_configs[-1].get("llm.max_tokens") == budget
+    assert Config(config_dir=config.config_dir).get("llm.max_tokens") == budget
+    assert client.get("/api/v1/config").json()["config"]["llm"]["max_tokens"] == budget

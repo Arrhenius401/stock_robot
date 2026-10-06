@@ -20,7 +20,7 @@ DEFAULT_CONFIG = {
         "api_key": "",
         "base_url": "",
         "temperature": 0.3,
-        "max_tokens": 2000,
+        "max_tokens": None,
         "retry_times": 2,
         "timeout_seconds": 60,
     },

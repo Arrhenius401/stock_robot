@@ -72,3 +72,20 @@ def test_save_response_revision_describes_its_own_snapshot(tmp_path, monkeypatch
     assert snapshot["config"]["llm"]["model"] == "this-window"
     assert snapshot["revision"] != client.get("/api/v1/config").json()["revision"]
     assert client.put("/api/v1/config", json={"config": {"llm": {"model": "stale"}}, "revision": snapshot["revision"]}).status_code == 409
+
+
+def test_yaml_output_budget_supports_auto_and_existing_integers(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    client = TestClient(create_app(push=False), client=("127.0.0.1", 12345))
+    for value in ("null", "2000"):
+        source = f"llm:\n  max_tokens: {value}\n"
+        preview = client.post("/api/v1/config/file/preview", json={"source": source})
+        assert preview.status_code == 200
+        expected = None if value == "null" else 2000
+        assert preview.json()["config"]["llm"]["max_tokens"] == expected
+        revision = client.get("/api/v1/config/file").json()["revision"]
+        result = client.put("/api/v1/config/file", json={"source": source, "revision": revision})
+        assert result.status_code == 200
+        assert Config().get("llm.max_tokens") == expected
+    for value in ("true", "0", "-1", "1.5", "auto"):
+        assert client.post("/api/v1/config/file/preview", json={"source": f"llm:\n  max_tokens: {value}\n"}).status_code == 422

@@ -16,7 +16,7 @@ const SECTIONS = [
       { path: "llm.api_key", label: "API Key", type: "secret" },
       { path: "llm.base_url", label: "Base URL", type: "text" },
       { path: "llm.temperature", label: "温度", type: "number", min: 0, max: 2, step: 0.1 },
-      { path: "llm.max_tokens", label: "最大 Token 数", type: "number", min: 1, max: 128000, step: 1 },
+      { path: "llm.max_tokens", label: "最大 Token 数", type: "number", min: 1, max: 128000, step: 1, nullable: true, placeholder: "自动（留空）" },
       { path: "llm.retry_times", label: "重试次数", type: "number", min: 0, max: 10, step: 1 },
       { path: "llm.timeout_seconds", label: "超时秒数", type: "number", min: 1, max: 600, step: 1 },
     ],
@@ -123,7 +123,7 @@ const FIELD_DESCRIPTIONS = {
   "llm.api_key": "模型服务访问凭据。",
   "llm.base_url": "留空使用服务商默认地址。",
   "llm.temperature": "较低数值使输出更稳定。",
-  "llm.max_tokens": "单次生成的长度上限。",
+  "llm.max_tokens": "留空自动选择输出预算；填写正整数限制单次输出。已有数值会保留，清空后切换自动。",
   "llm.retry_times": "请求失败后允许重试的次数。",
   "llm.timeout_seconds": "单次请求的等待上限。",
   "radar.collector.enabled": "关闭后仍可手动采集。",
@@ -193,6 +193,7 @@ function addLabeledField(container, field, value) {
   if (field.min !== undefined) input.min = String(field.min);
   if (field.max !== undefined) input.max = String(field.max);
   if (field.step !== undefined) input.step = String(field.step);
+  if (field.placeholder) input.placeholder = field.placeholder;
   originals.set(field.path, field.type === "checkbox" ? Boolean(value) : String(value ?? ""));
   const markChanged = () => {
     const next = field.type === "checkbox" ? Boolean(input.checked) : input.value;
@@ -386,7 +387,7 @@ function collectUpdate() {
         && (!input.value || input.value === secretDisplays.get(path)?.masked)) continue;
     let value;
     if (field.type === "checkbox") value = Boolean(input.checked);
-    else if (field.type === "number") value = Number(input.value);
+    else if (field.type === "number") value = field.nullable && input.value.trim() === "" ? null : Number(input.value);
     else value = input.value;
     setValue(update, path, value);
   }
