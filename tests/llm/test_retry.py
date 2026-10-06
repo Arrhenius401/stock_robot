@@ -65,3 +65,20 @@ class TestRetry:
 
         assert "解读完成" in result
         assert mock_client.messages.create.call_count == 2
+
+
+def test_shared_deadline_prevents_network_retry_after_budget_expires(mocker):
+    from types import SimpleNamespace
+
+    clock = [0.0]
+    mocker.patch("llm.base.time.monotonic", side_effect=lambda: clock[0])
+    client = MagicMock()
+    def consume_budget(**kwargs):
+        clock[0] = 10.0
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=None),
+            finish_reason="length")], usage=SimpleNamespace(completion_tokens=2000))
+    client.chat.completions.create.side_effect = consume_budget
+    mocker.patch("llm.openai.OpenAI", return_value=client)
+    result = OpenAIAdapter(api_key="test", timeout=10).generate("分析")
+    assert client.chat.completions.create.call_count == 1
+    assert "不可用" in result
