@@ -9,7 +9,7 @@ import { initIndexView } from "./indexview.js?v=20261002-strategy-valuation-2";
 import { initReportLibrary } from "./report-library.js?v=20261002-strategy-valuation-2";
 import { initSessions, initSessionStartup } from "./sessions.js?v=20261003-settings-5";
 import { initSubscriptions } from "./subscriptions.js?v=20260928-run-notice-2";
-import { initSettings } from "./settings.js?v=20261006-auto-budget-1";
+import { initSettings } from "./settings.js?v=20261007-auto-budget-2";
 import { initLogs } from "./logs.js?v=20260927-page-heading-1";
 
 const SIDEBAR_WIDTH_KEY = "stockRobot.sidebarWidth";
