@@ -1,8 +1,14 @@
 import copy
+import hashlib
+import os
+import sqlite3
+import tempfile
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
 import yaml
+from filelock import FileLock
 
 from utils.paths import project_state_dir
 
@@ -14,7 +20,7 @@ DEFAULT_CONFIG = {
         "api_key": "",
         "base_url": "",
         "temperature": 0.3,
-        "max_tokens": 2000,
+        "max_tokens": None,
         "retry_times": 2,
         "timeout_seconds": 60,
     },
@@ -72,6 +78,7 @@ DEFAULT_CONFIG = {
         },
     },
     "radar": {
+        "collector": {"enabled": False, "hour": 18, "minute": 30},
         "history_days": 400,
         "minimum_interval_seconds": 1.0,
         "etf_cost_rate": 0.0005,
@@ -85,34 +92,133 @@ DEFAULT_CONFIG = {
 }
 
 
+class ConfigRevisionConflict(ValueError):
+    """配置文件已被其他进程修改。"""
+
+
 class Config:
-    def __init__(self, config_dir: Path | None = None):
+    def __init__(self, config_dir: Path | None = None, *, collector_db_path: Path | None = None):
         if config_dir is None:
             config_dir = project_state_dir()
         self._config_dir = Path(config_dir)
         self._config_dir.mkdir(parents=True, exist_ok=True)
         self._config_path = self._config_dir / "config.yaml"
+        self._write_lock = FileLock(str(self._config_path) + ".lock", timeout=30)
+        self._collector_db_path = collector_db_path or self._config_dir / "radar_collector.db"
         self.data: dict[str, Any] = self._load()
 
     def _load(self) -> dict[str, Any]:
+        with self.write_lock():
+            return self._load_unlocked()
+
+    def _load_unlocked(self) -> dict[str, Any]:
         if not self._config_path.exists():
             self._write_default()
-            return self._deep_copy(DEFAULT_CONFIG)
         with open(self._config_path, "r", encoding="utf-8") as f:
             user_config = yaml.safe_load(f) or {}
+        legacy = self._legacy_collector()
+        if legacy and isinstance(user_config.get("radar", {}), dict):
+            collector = user_config.get("radar", {}).get("collector", {})
+            if isinstance(collector, dict) and set(legacy) - collector.keys():
+                with self.write_lock():
+                    user_config = yaml.safe_load(self.source) or {}
+                    collector = user_config.setdefault("radar", {}).setdefault("collector", {})
+                    for key, value in legacy.items():
+                        collector.setdefault(key, value)
+                    self._atomic_write(yaml.safe_dump(user_config, allow_unicode=True, sort_keys=False))
+        if legacy:
+            self._mark_collector_migrated()
         merged = self._deep_copy(DEFAULT_CONFIG)
         self._merge(merged, user_config)
-        # 旧配置中的企微凭据不再载入运行时；下次保存配置时自然移除。
+        # 旧企微凭据不载入运行时；原文件仍保留未展示字段。
         merged["push"].pop("wecom", None)
         return merged
 
+    def migrate_collector(self, legacy: dict[str, Any]) -> None:
+        """只补原文件缺失的采集字段，明确 YAML 值始终优先。"""
+        with self.write_lock():
+            if not self._legacy_collector():
+                self.data = self._load()
+                return
+            raw = yaml.safe_load(self.source) or {}
+            collector = raw.setdefault("radar", {}).setdefault("collector", {})
+            missing = {key: legacy[key] for key in ("enabled", "hour", "minute") if key not in collector}
+            if missing:
+                collector.update(missing)
+                self._atomic_write(yaml.safe_dump(raw, allow_unicode=True, sort_keys=False))
+            self._mark_collector_migrated()
+            self.data = self._load()
+
     def _write_default(self):
-        with open(self._config_path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(DEFAULT_CONFIG, f, allow_unicode=True, default_flow_style=False)
+        with self.write_lock():
+            if self._config_path.exists():
+                return
+            data = self._deep_copy(DEFAULT_CONFIG)
+            legacy = self._legacy_collector()
+            if legacy:
+                data["radar"]["collector"] = legacy
+            self._atomic_write(yaml.safe_dump(data, allow_unicode=True))
+            if legacy:
+                self._mark_collector_migrated()
 
     def _persist(self):
-        with open(self._config_path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(self.data, f, allow_unicode=True, default_flow_style=False)
+        # 运行时移除的弃用字段仍保留在原文件中，表单保存不删除未展示内容。
+        raw = yaml.safe_load(self.source) or {}
+        self._merge(raw, self.data)
+        self._atomic_write(yaml.safe_dump(raw, allow_unicode=True))
+
+    def _legacy_collector(self) -> dict[str, Any]:
+        if not self._collector_db_path.exists():
+            return {}
+        with closing(sqlite3.connect(self._collector_db_path)) as connection:
+            if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='config_migrations'").fetchone() and connection.execute("SELECT 1 FROM config_migrations WHERE name='collector-yaml'").fetchone():
+                return {}
+            if not connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='collector_settings'").fetchone():
+                return {}
+            row = connection.execute("SELECT enabled,hour,minute FROM collector_settings WHERE singleton=1").fetchone()
+            return {"enabled": bool(row[0]), "hour": row[1], "minute": row[2]} if row else {}
+
+    def _mark_collector_migrated(self) -> None:
+        """迁移标记防止用户删除 YAML 字段后旧数据库设置复活。"""
+        with closing(sqlite3.connect(self._collector_db_path)) as connection, connection:
+            connection.execute("CREATE TABLE IF NOT EXISTS config_migrations(name TEXT PRIMARY KEY)")
+            connection.execute("INSERT OR IGNORE INTO config_migrations VALUES('collector-yaml')")
+
+    def _atomic_write(self, source: str) -> None:
+        """同目录临时文件经同步后原子替换，失败保留原配置。"""
+        descriptor, name = tempfile.mkstemp(dir=self._config_dir, suffix=".yaml.tmp")
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as stream:
+                stream.write(source)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(name, self._config_path)
+        finally:
+            if os.path.exists(name):
+                os.unlink(name)
+
+    def write_lock(self):
+        """复用项目文件锁，串行化跨进程保存和迁移。"""
+        return self._write_lock
+
+    @property
+    def source(self) -> str:
+        return self._config_path.read_text(encoding="utf-8")
+
+    @property
+    def revision(self) -> str:
+        return hashlib.sha256(self._config_path.read_bytes()).hexdigest()
+
+    def replace_source(self, source: str, data: dict[str, Any], revision: str) -> str:
+        with self.write_lock():
+            if revision != self.revision:
+                raise ConfigRevisionConflict("配置已更改，请重新加载后再保存")
+            self._atomic_write(source)
+            merged = self._deep_copy(DEFAULT_CONFIG)
+            self._merge(merged, data)
+            merged["push"].pop("wecom", None)
+            self.data = merged
+            return self.revision
 
     def get(self, key: str, default: Any = None) -> Any:
         keys = key.split(".")
@@ -126,18 +232,32 @@ class Config:
 
     def set(self, key: str, value):
         keys = key.split(".")
-        node = self.data
-        for k in keys[:-1]:
-            if k not in node:
-                node[k] = {}
-            node = node[k]
-        node[keys[-1]] = value
-        self._persist()
+        update: dict[str, Any] = {}
+        target = update
+        for part in keys[:-1]:
+            target[part] = {}
+            target = target[part]
+        target[keys[-1]] = value
+        self.update(update)
 
-    def update(self, values: dict[str, Any]) -> None:
+    def update(self, values: dict[str, Any], revision: str | None = None) -> str:
         """深度合并一组配置，并仅执行一次持久化。"""
-        self._merge(self.data, self._deep_copy(values))
-        self._persist()
+        with self.write_lock():
+            if revision is not None and revision != self.revision:
+                raise ConfigRevisionConflict("配置已更改，请重新加载后再保存")
+            self.data = self._load()
+            before = self._deep_copy(self.data)
+            self._merge(self.data, self._deep_copy(values))
+            try:
+                self._persist()
+            except OSError:
+                self.data = before
+                raise
+            return self.revision
+
+    def reload(self) -> None:
+        """调用方可在文件锁内读取一致的配置及版本快照。"""
+        self.data = self._load()
 
     def get_llm_config(self) -> dict[str, Any]:
         return {k: v for k, v in self.data["llm"].items() if k != "api_key"}

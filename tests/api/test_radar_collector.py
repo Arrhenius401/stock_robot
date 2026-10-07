@@ -13,6 +13,7 @@ from api.app import create_app
 from radar.calendar import CalendarData, TradingCalendar
 from radar.collector_store import CollectorStore
 from radar.universe import UniverseConfigError, UniverseRepository
+from radar.update_service import UpdateStore
 from utils.config import Config
 
 
@@ -38,7 +39,7 @@ def test_plan_settings_are_durable_and_revision_conflict_is_409(collector_api):
     saved = client.put("/api/v1/radar/collector/config", json=body)
     assert saved.status_code == 200
     assert saved.json()["hour"] == 19
-    assert saved.json()["revision"] == body["revision"] + 1
+    assert saved.json()["revision"] != body["revision"]
     assert client.put("/api/v1/radar/collector/config", json=body).status_code == 409
     other = TestClient(create_app(core=None, push=False))
     assert other.get("/api/v1/radar/collector/config").json()["minute"] == 15
@@ -52,18 +53,19 @@ def test_plan_rejects_coerced_or_out_of_range_fields(collector_api, field, value
     assert client.put("/api/v1/radar/collector/config", json=body).status_code == 422
 
 
-def test_offline_manual_and_retry_do_not_create_an_unbounded_queue(collector_api):
+def test_offline_manual_and_retry_are_durable_and_do_not_require_daemon(collector_api):
     client, store, _ = collector_api
     response = client.post("/api/v1/radar/collector/runs", json={"universe_id": "cn_hk_etf"})
-    assert response.status_code == 503
-    assert "采集服务" in str(response.json())
+    assert response.status_code == 202
     assert store.list_runs() == []
     legacy = client.post("/api/v1/radar/refresh", json={"universe_id": "cn_hk_etf"})
-    assert legacy.status_code == 503
+    assert legacy.status_code == 202
+    assert legacy.json()["id"] == response.json()["id"]
+    assert len(UpdateStore(store.db_path).list_runs()) == 1
     run = store.enqueue("cn_hk_etf", date(2026, 9, 29), "test", "manual", ["510300"])
     store.finish(run["id"], "failed", "网络失败")
-    assert client.post(f'/api/v1/radar/collector/runs/{run["id"]}/retry').status_code == 503
-    assert store.get_run(run["id"])["status"] == "failed"
+    assert client.post(f'/api/v1/radar/collector/runs/{run["id"]}/retry').status_code == 202
+    assert store.get_run(run["id"])["status"] == "queued"
 
 
 def test_online_manual_deduplicates_and_survives_web_router_recreation(collector_api):
@@ -74,7 +76,7 @@ def test_online_manual_deduplicates_and_survives_web_router_recreation(collector
     second = client.post("/api/v1/radar/collector/runs", json={"universe_id": "cn_hk_etf"})
     assert second.status_code == 202
     assert first.json()["task_id"] == second.json()["task_id"]
-    assert len(store.list_runs()) == 1
+    assert len(UpdateStore(store.db_path).list_runs()) == 1
     other = TestClient(create_app(core=None, push=False))
     restored = other.get(f'/api/v1/radar/refresh/{first.json()["task_id"]}')
     assert restored.status_code == 200
@@ -88,7 +90,7 @@ def test_status_uses_freshness_and_calendar_cache_only(collector_api, monkeypatc
     store.record_started(worker_id="live-worker", phase="syncing")
     store.record_heartbeat(worker_id="live-worker", phase="blocked", error_summary="日历不可用")
     monkeypatch.setattr("radar.calendar.fetch_akshare_calendar", lambda **_: pytest.fail("配置查询不得联网"))
-    saved = store.update_settings(enabled=True, hour=19, minute=15, revision=0)
+    saved = store.update_settings(enabled=True, hour=19, minute=15, revision=store.settings()["revision"])
     response = client.get("/api/v1/radar/collector/status")
     assert response.status_code == 200
     payload = response.json()
@@ -97,6 +99,7 @@ def test_status_uses_freshness_and_calendar_cache_only(collector_api, monkeypatc
     assert payload["runtime"]["last_error"] == "日历不可用"
     assert payload["schedule"]["hour"] == saved["hour"]
     assert "19:15:00" in payload["next_scheduled_at"]
+    assert "19:15:00" in payload["next_overseas_check_at"]
     with closing(sqlite3.connect(store.db_path)) as conn, conn:
         conn.execute("UPDATE collector_runtime SET heartbeat_at=?", ((datetime.now().astimezone()-timedelta(seconds=61)).isoformat(),))
     payload = client.get("/api/v1/radar/collector/status").json()
@@ -106,12 +109,13 @@ def test_status_uses_freshness_and_calendar_cache_only(collector_api, monkeypatc
 
 def test_missing_calendar_reports_null_next_plan_without_network(collector_api, monkeypatch):
     client, store, _ = collector_api
-    store.update_settings(enabled=True, hour=18, minute=30, revision=0)
+    store.update_settings(enabled=True, hour=18, minute=30, revision=store.settings()["revision"])
     with closing(sqlite3.connect(store.db_path)) as conn, conn:
         conn.execute("DELETE FROM radar_calendar_cache")
     monkeypatch.setattr("radar.calendar.fetch_akshare_calendar", lambda **_: pytest.fail("查询不得联网"))
     payload = client.get("/api/v1/radar/collector/status").json()
     assert payload["next_scheduled_at"] is None
+    assert "18:30:00" in payload["next_overseas_check_at"]
     assert "日历" in payload["schedule_error"]
 
 
@@ -162,7 +166,7 @@ def test_startup_is_local_only_and_linux_read_only(collector_api, monkeypatch):
     assert client.put("/api/v1/radar/collector/startup", json={"enabled": True}).status_code == 403
     remote = TestClient(create_app(core=None, push=False))
     assert remote.put("/api/v1/radar/collector/startup", json={"enabled": True}).status_code == 403
-    assert remote.put("/api/v1/radar/collector/config", json={"enabled": False, "hour": 18, "minute": 30, "revision": 0}).status_code == 200
+    assert remote.put("/api/v1/radar/collector/config", json={"enabled": False, "hour": 18, "minute": 30, "revision": remote.get("/api/v1/radar/collector/config").json()["revision"]}).status_code == 200
 
 
 def test_performance_reuses_covered_history_and_expands_only_earlier_range(collector_api, monkeypatch):

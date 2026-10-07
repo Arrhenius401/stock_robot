@@ -5,11 +5,12 @@ from collections.abc import Callable
 from json import JSONDecodeError
 from typing import Any
 
+import yaml
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from api.runtime import RuntimeManager
-from utils.config import Config
+from utils.config import DEFAULT_CONFIG, Config, ConfigRevisionConflict
 
 _CREDENTIAL_PATHS = {
     "llm.api_key": ("llm", "api_key"),
@@ -17,6 +18,7 @@ _CREDENTIAL_PATHS = {
 }
 
 _EDITABLE_FIELDS: dict[str, Any] = {
+    "radar": {"collector": {"enabled": None, "hour": None, "minute": None}},
     "llm": {
         "provider": None,
         "model": None,
@@ -174,6 +176,7 @@ def _validate_leaf(value: Any, path: tuple[str, ...]) -> Any:
     if path == ("llm", "base_url"):
         return _require_string(value, path)
     if path in {
+        ("radar", "collector", "enabled"),
         ("llm", "enabled"),
         ("data", "disclaimer_accepted"),
         ("push", "enabled"),
@@ -181,9 +184,13 @@ def _validate_leaf(value: Any, path: tuple[str, ...]) -> Any:
         if type(value) is not bool:
             _validation_error(path, "必须是布尔值")
         return value
+    if path == ("llm", "max_tokens") and value is None:
+        return None
     if path == ("llm", "temperature"):
         return _require_number(value, path, minimum=0, maximum=2)
     integer_ranges: dict[tuple[str, ...], tuple[int, int | None]] = {
+        ("radar", "collector", "hour"): (0, 23),
+        ("radar", "collector", "minute"): (0, 59),
         ("llm", "max_tokens"): (1, 128000),
         ("llm", "retry_times"): (0, 10),
         ("llm", "timeout_seconds"): (1, 600),
@@ -285,6 +292,106 @@ def _is_loopback_client(request: Request) -> bool:
     return origin is None or origin == f"{request.url.scheme}://{request.url.netloc}"
 
 
+class _StrictLoader(yaml.SafeLoader):
+    """拒绝重复键，避免编辑器可见内容与实际应用值不同。"""
+
+    def construct_mapping(self, node, deep=False):
+        result = {}
+        for key_node, value_node in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            if not isinstance(key, str) or key in result:
+                raise yaml.MarkedYAMLError(problem="配置键必须为唯一字符串", problem_mark=key_node.start_mark)
+            result[key] = self.construct_object(value_node, deep=deep)
+        return result
+
+
+def _parse_source(source: Any) -> dict[str, Any]:
+    if not isinstance(source, str):
+        _validation_error(("source",), "必须是字符串")
+    try:
+        data = yaml.load(source, Loader=_StrictLoader)
+    except (yaml.YAMLError, ValueError, TypeError, RecursionError) as exc:
+        mark = getattr(exc, "problem_mark", None)
+        location = f"第 {mark.line + 1} 行，第 {mark.column + 1} 列：" if mark else ""
+        detail: dict[str, Any] = {"message": f"source: {location}YAML 格式或键无效"}
+        if mark:
+            detail["line"] = mark.line + 1
+            detail["column"] = mark.column + 1
+        raise HTTPException(422, detail=detail) from exc
+    if not isinstance(data, dict):
+        _validation_error(("source",), "顶层必须是对象")
+    active: set[int] = set()
+
+    def check(value: Any) -> None:
+        if isinstance(value, (dict, list)):
+            if id(value) in active:
+                _validation_error(("source",), "不允许循环引用")
+            active.add(id(value))
+            for child in value.values() if isinstance(value, dict) else value:
+                check(child)
+            active.remove(id(value))
+        elif not isinstance(value, (str, bool, int, float, type(None))):
+            _validation_error(("source",), "只支持对象、数组与基本值")
+        elif isinstance(value, float) and not math.isfinite(value):
+            _validation_error(("source",), "必须使用有限数字")
+    try:
+        check(data)
+    except RecursionError as exc:
+        raise HTTPException(422, detail="source: 配置嵌套过深") from exc
+    return data
+
+
+def _validate_document(data: dict[str, Any]) -> dict[str, Any]:
+    merged = copy.deepcopy(DEFAULT_CONFIG)
+    _deep_merge(merged, data)
+
+    def known_types(value: Any, template: Any, path: tuple[str, ...]) -> None:
+        if path == ("llm", "max_tokens"):
+            _validate_leaf(value, path)
+            return
+        if isinstance(template, dict):
+            if not isinstance(value, dict):
+                _validation_error(path, "必须是对象")
+            for key, expected in template.items():
+                if key in value:
+                    known_types(value[key], expected, (*path, key))
+        elif isinstance(template, bool):
+            if type(value) is not bool:
+                _validation_error(path, "必须是布尔值")
+        elif isinstance(template, (int, float)):
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value):
+                _validation_error(path, "必须是有限数字")
+            if isinstance(template, int) and type(value) is not int:
+                _validation_error(path, "必须是整数")
+            if value < 0:
+                _validation_error(path, "不能为负数")
+        elif not isinstance(value, type(template)):
+            _validation_error(path, "字段类型无效")
+    known_types(merged, DEFAULT_CONFIG, ())
+    for section in ("radar", "backtest"):
+        template = DEFAULT_CONFIG[section]["cost_profiles"]
+        default_profile = next(iter(template.values()))
+        for name, profile in merged[section]["cost_profiles"].items():
+            known_types(profile, default_profile, (section, "cost_profiles", name))
+    for name, benchmark in merged["backtest"]["benchmarks"].items():
+        known_types(benchmark, {"name": "", "symbol": ""}, ("backtest", "benchmarks", name))
+
+    def validate(node: Any, fields: dict[str, Any], path: tuple[str, ...] = ()) -> None:
+        if not isinstance(node, dict):
+            _validation_error(path, "必须是对象")
+        for key, field in fields.items():
+            current = (*path, key)
+            if isinstance(field, dict):
+                validate(node[key], field, current)
+            elif current in {("push", "email", "smtp_user"), ("push", "email", "to_addr")}:
+                _require_string(node[key], current)
+            else:
+                _validate_leaf(node[key], current)
+    validate(merged, _EDITABLE_FIELDS)
+    _validate_threshold_relation(merged, {})
+    return merged
+
+
 def create_configuration_router(
     config_factory: Callable[[], Config] | None = None,
     runtime: RuntimeManager | None = None,
@@ -298,13 +405,16 @@ def create_configuration_router(
     @router.get("/api/v1/config")
     async def get_public_config():
         config = get_config()
-        return JSONResponse({
-            "config": safe_config(config),
-            "paths": {
-                "state_dir": str(config.config_dir),
-                "config_file": str(config.config_dir / "config.yaml"),
-            },
-        })
+        with config.write_lock():
+            config.reload()
+            return JSONResponse({
+                "config": safe_config(config),
+                "revision": config.revision,
+                "paths": {
+                    "state_dir": str(config.config_dir),
+                    "config_file": str(config.config_dir / "config.yaml"),
+                },
+            })
 
     @router.get("/api/v1/config/credentials/{key}")
     async def get_credential(key: str, request: Request):
@@ -321,13 +431,22 @@ def create_configuration_router(
             body = await request.json()
         except JSONDecodeError as exc:
             raise HTTPException(status_code=422, detail="body: JSON 格式无效") from exc
-        if not isinstance(body, dict) or set(body) != {"config"}:
-            _validation_error(("body",), "只能包含 config")
+        if not isinstance(body, dict) or "config" not in body or set(body) - {"config", "revision"}:
+            _validation_error(("body",), "只能包含 config 和 revision")
         config = get_config()
         update = _validate_update(body["config"], _EDITABLE_FIELDS)
         _validate_threshold_relation(config.data, update)
         before_update = copy.deepcopy(config.data)
-        config.update(update)
+        try:
+            saved_revision = config.update(update, revision=body.get("revision"))
+        except ConfigRevisionConflict as exc:
+            raise HTTPException(409, detail=str(exc)) from exc
+        return saved_response(config, before_update, update, saved_revision)
+
+    def saved_response(config: Config, before_update: dict[str, Any], update: dict[str, Any], saved_revision: str):
+        if "radar" in update:
+            from radar.collector_store import CollectorStore
+            CollectorStore(config.config_dir / "radar_collector.db").settings()
         restart_required = _restart_required(update)
         applied = False
         reload_error: str | None = None
@@ -342,6 +461,7 @@ def create_configuration_router(
 
         response: dict[str, Any] = {
             "config": safe_config(config),
+            "revision": saved_revision,
             "paths": {
                 "state_dir": str(config.config_dir),
                 "config_file": str(config.config_dir / "config.yaml"),
@@ -353,5 +473,69 @@ def create_configuration_router(
         if reload_error is not None:
             response["reload_error"] = reload_error
         return JSONResponse(response)
+
+    @router.get("/api/v1/config/file")
+    async def get_file(request: Request):
+        if not _is_loopback_client(request):
+            raise HTTPException(403, detail="仅允许本机同源页面编辑完整配置")
+        config = get_config()
+        with config.write_lock():
+            return JSONResponse({"source": config.source, "revision": config.revision})
+
+    async def file_body(request: Request, *, save: bool):
+        if not _is_loopback_client(request):
+            raise HTTPException(403, detail="仅允许本机同源页面编辑完整配置")
+        try:
+            body = await request.json()
+        except JSONDecodeError as exc:
+            raise HTTPException(422, detail="body: JSON 格式无效") from exc
+        allowed = {"source", "update", "revision"} if save else {"source", "update"}
+        if not isinstance(body, dict) or "source" not in body or set(body) - allowed:
+            _validation_error(("body",), "完整编辑请求字段无效")
+        if save and not isinstance(body.get("revision"), str):
+            _validation_error(("revision",), "必须提供文件版本号")
+        data = _parse_source(body["source"])
+        update = _validate_update(body.get("update", {}), _EDITABLE_FIELDS)
+        _deep_merge(data, update)
+        try:
+            merged = _validate_document(data)
+        except HTTPException as exc:
+            message = str(exc.detail)
+            path = message.split(":", 1)[0].split(".")
+            node = yaml.compose(body["source"], Loader=yaml.SafeLoader)
+            for part in path:
+                if not isinstance(node, yaml.MappingNode):
+                    break
+                match = next((value for key, value in node.value if key.value == part), None)
+                if match is None:
+                    break
+                node = match
+            detail: dict[str, Any] = {"message": message, "path": ".".join(path)}
+            if node is not None:
+                detail["line"] = node.start_mark.line + 1
+                detail["column"] = node.start_mark.column + 1
+            raise HTTPException(422, detail=detail) from exc
+        source = yaml.safe_dump(data, allow_unicode=True, sort_keys=False) if update else body["source"]
+        return body, data, merged, source
+
+    @router.post("/api/v1/config/file/preview")
+    async def preview_file(request: Request):
+        _, _, merged, source = await file_body(request, save=False)
+        # 仅构造内存快照，不调用 Config 初始化或写入迁移。
+        snapshot = object.__new__(Config)
+        snapshot.data = merged
+        return JSONResponse({"source": source, "config": safe_config(snapshot)})
+
+    @router.put("/api/v1/config/file")
+    async def save_file(request: Request):
+        body, data, merged, source = await file_body(request, save=True)
+        config = get_config()
+        before = copy.deepcopy(config.data)
+        changed = {key: value for key, value in merged.items() if before.get(key) != value}
+        try:
+            saved_revision = config.replace_source(source, data, body["revision"])
+        except ConfigRevisionConflict as exc:
+            raise HTTPException(409, detail=str(exc)) from exc
+        return saved_response(config, before, changed, saved_revision)
 
     return router

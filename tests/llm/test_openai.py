@@ -44,12 +44,59 @@ class TestOpenAIAdapter:
         OpenAIAdapter(api_key="sk-test", base_url="https://api.deepseek.com/v1")
         mock_openai.assert_called_once_with(
             api_key="sk-test", base_url="https://api.deepseek.com/v1", timeout=60.0,
-            max_retries=0,
+            max_retries=0, http_client=mocker.ANY,
         )
 
     def test_no_base_url_omits_arg(self, mocker):
         mock_openai = mocker.patch("llm.openai.OpenAI", return_value=MagicMock())
         OpenAIAdapter(api_key="sk-test")
         mock_openai.assert_called_once_with(
-            api_key="sk-test", timeout=60.0, max_retries=0,
+            api_key="sk-test", timeout=60.0, max_retries=0, http_client=mocker.ANY,
         )
+
+
+def test_auto_budget_omits_max_tokens_and_manual_override_is_preserved(mocker):
+    from types import SimpleNamespace
+
+    client = MagicMock()
+    client.chat.completions.create.return_value = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content="正文"), finish_reason="stop")], usage=None)
+    mocker.patch("llm.openai.OpenAI", return_value=client)
+    adapter = OpenAIAdapter(api_key="test")
+    assert adapter.generate("分析") == "正文"
+    assert "max_tokens" not in client.chat.completions.create.call_args.kwargs
+    assert adapter.generate("分析", max_tokens=1234) == "正文"
+    assert client.chat.completions.create.call_args.kwargs["max_tokens"] == 1234
+
+
+def test_auto_length_recovery_is_bounded_and_explicit_limit_never_expands(mocker):
+    from types import SimpleNamespace
+
+    empty = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=None),
+        finish_reason="length")], usage=SimpleNamespace(completion_tokens=2000))
+    final = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="最终正文"),
+        finish_reason="stop")], usage=None)
+    client = MagicMock()
+    client.chat.completions.create.side_effect = [empty, final]
+    mocker.patch("llm.openai.OpenAI", return_value=client)
+    mocker.patch("llm.openai.model_output_limit", return_value=10000)
+    adapter = OpenAIAdapter(api_key="test")
+    assert adapter.generate("分析") == "最终正文"
+    assert client.chat.completions.create.call_count == 2
+    assert client.chat.completions.create.call_args.kwargs["max_tokens"] == 8192
+    client.chat.completions.create.reset_mock(side_effect=True)
+    client.chat.completions.create.return_value = empty
+    assert "长度上限" in adapter.generate("分析", max_tokens=2000)
+    assert client.chat.completions.create.call_count == 1
+
+
+def test_partial_text_is_retained_without_repeating_request(mocker, caplog):
+    from types import SimpleNamespace
+
+    client = MagicMock()
+    client.chat.completions.create.return_value = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content="已有部分正文"), finish_reason="length")], usage=None)
+    mocker.patch("llm.openai.OpenAI", return_value=client)
+    assert OpenAIAdapter(api_key="test").generate("分析") == "已有部分正文"
+    assert client.chat.completions.create.call_count == 1
+    assert "截断" in caplog.text

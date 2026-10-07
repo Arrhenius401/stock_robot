@@ -1,0 +1,83 @@
+# 已审核跟踪关系；价格系列与总收益系列禁止混用。
+version: 1
+indices:
+  spx: &spx
+    index_name: 标普500
+    code: SPX
+    source: eastmoney
+    expected_name: 标普500
+    currency: USD
+    timezone: America/New_York
+    close_time: '16:00'
+    series: price
+    evidence: https://www.bosera.com/column/infoDetail.do?classid=0002000200020005&infoid=2976008
+    fallbacks:
+      - source: yahoo
+        code: '^GSPC'
+        expected_name: S&P 500
+  ndx: &ndx
+    index_name: 纳斯达克100
+    code: '^NDX'
+    source: yahoo
+    expected_name: NASDAQ-100
+    currency: USD
+    timezone: America/New_York
+    close_time: '16:00'
+    series: price
+    evidence: https://www.gtfund.com/product/productlist/haiwai/513100/index.html
+  oil: &oil
+    index_name: 标普石油天然气勘探及生产精选行业指数
+    code: '^SPSIOP'
+    source: yahoo
+    expected_name: S&P Oil & Gas Exploration & Pro
+    currency: USD
+    timezone: America/New_York
+    close_time: '16:00'
+    series: price
+    evidence: https://etf.sse.com.cn/fundtrends/c/5731538.shtml
+  nikkei: &nikkei
+    index_name: 日经225
+    code: N225
+    source: eastmoney
+    expected_name: 日经225
+    currency: JPY
+    timezone: Asia/Tokyo
+    close_time: '15:30'
+    series: price
+    evidence: https://www.huaan.com.cn/funds/513880/index.shtml
+    fallbacks:
+      - source: yahoo
+        code: '^N225'
+        expected_name: Nikkei 225
+  dax: &dax
+    index_name: DAX
+    code: '^GDAXI'
+    source: yahoo
+    expected_name: DAX P
+    currency: EUR
+    timezone: Europe/Berlin
+    close_time: '18:00'
+    series: total_return
+    evidence: https://www.stoxx.com/documents/stoxxnet/Documents/News/2023/June/Technical_Information_DAX_CA_20230602.pdf
+  cac: &cac
+    index_name: CAC40
+    code: FCHI
+    source: eastmoney
+    expected_name: 法国CAC40
+    currency: EUR
+    timezone: Europe/Paris
+    close_time: '17:35'
+    series: price
+    evidence: https://www.huaan.com.cn/upload2010/2026/01/15/091252386_0_f40aa45f-de2f-3747-979d-15e4dcdefce3.pdf
+    fallbacks:
+      - source: yahoo
+        code: '^FCHI'
+        expected_name: CAC 40
+mappings:
+  '513500': *spx
+  '513100': *ndx
+  '513350': *oil
+  '513520': *nikkei
+  '513880': *nikkei
+  '513030': *dax
+  '513080': *cac

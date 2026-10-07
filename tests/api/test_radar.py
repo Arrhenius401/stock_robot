@@ -38,7 +38,7 @@ def test_radar_collector_status_exposes_each_pool_and_schedule(tmp_path, monkeyp
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["schedule"] == {"timezone": "Asia/Shanghai", "enabled": False, "hour": 18, "minute": 30, "revision": 0}
+    assert payload["schedule"] == {"timezone": "Asia/Shanghai", "enabled": False, "hour": 18, "minute": 30, "revision": config.revision}
     assert payload["next_scheduled_at"] is None
     assert payload["runtime"]["status"] == "never"
     assert payload["service_online"] is False

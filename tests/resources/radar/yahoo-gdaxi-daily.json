@@ -1,0 +1,137 @@
+{
+  "chart": {
+    "result": [
+      {
+        "meta": {
+          "currency": "EUR",
+          "symbol": "^GDAXI",
+          "exchangeName": "GER",
+          "fullExchangeName": "XETRA",
+          "instrumentType": "INDEX",
+          "firstTradeDate": 567849600,
+          "regularMarketTime": 1790956800,
+          "hasPrePostMarketData": false,
+          "gmtoffset": 7200,
+          "timezone": "CEST",
+          "exchangeTimezoneName": "Europe/Berlin",
+          "regularMarketPrice": 25231.2,
+          "regularMarketChangePercent": 1.17,
+          "fulldayPrice": 25231.2,
+          "fulldayChange": 291.85,
+          "fulldayChangePercent": 1.17,
+          "fiftyTwoWeekHigh": 26618.74,
+          "fiftyTwoWeekLow": 21863.81,
+          "regularMarketDayHigh": 25303.6,
+          "regularMarketDayLow": 24970.91,
+          "regularMarketVolume": 0,
+          "longName": "DAX P",
+          "shortName": "DAX                           P",
+          "chartPreviousClose": 24422.56,
+          "priceHint": 2,
+          "currentTradingPeriod": {
+            "pre": {
+              "timezone": "CEST",
+              "start": 1790917200,
+              "end": 1790924400,
+              "gmtoffset": 7200
+            },
+            "regular": {
+              "timezone": "CEST",
+              "start": 1790924400,
+              "end": 1790955000,
+              "gmtoffset": 7200
+            },
+            "post": {
+              "timezone": "CEST",
+              "start": 1790955000,
+              "end": 1790965800,
+              "gmtoffset": 7200
+            }
+          },
+          "dataGranularity": "1d",
+          "range": "1y",
+          "validRanges": [
+            "1d",
+            "5d",
+            "1mo",
+            "3mo",
+            "6mo",
+            "1y",
+            "2y",
+            "5y",
+            "10y",
+            "ytd",
+            "max"
+          ]
+        },
+        "timestamp": [
+          1790319600,
+          1790578800,
+          1790665200,
+          1790751600,
+          1790838000,
+          1790924400
+        ],
+        "indicators": {
+          "quote": [
+            {
+              "open": [
+                25441.7890625,
+                25443.98046875,
+                25374.33984375,
+                25490.669921875,
+                25058.080078125,
+                24995.2890625
+              ],
+              "high": [
+                25529.330078125,
+                25575.66015625,
+                25617.310546875,
+                25584.5,
+                25232.1796875,
+                25303.599609375
+              ],
+              "close": [
+                25408.640625,
+                25374.419921875,
+                25399.2109375,
+                25199.189453125,
+                24939.349609375,
+                25231.19921875
+              ],
+              "volume": [
+                52413000,
+                45976300,
+                53368100,
+                61566500,
+                61171700,
+                56407400
+              ],
+              "low": [
+                25347.30078125,
+                25360.3203125,
+                25338.029296875,
+                25190.330078125,
+                24831.599609375,
+                24970.91015625
+              ]
+            }
+          ],
+          "adjclose": [
+            {
+              "adjclose": [
+                25408.640625,
+                25374.419921875,
+                25399.2109375,
+                25199.189453125,
+                24939.349609375,
+                25231.19921875
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "error": null
+  }
+}

@@ -889,6 +889,20 @@ def rag():
     """知识库管理 — 文档摄入、清理、统计"""
 
 
+def _create_rag_engine():
+    """创建引擎，仅将明确缺失的可选包转成安装提示。"""
+    try:
+        from rag.engine import RAGEngine
+
+        return RAGEngine()
+    except ModuleNotFoundError as exc:
+        if exc.name not in {"chromadb", "sentence_transformers"}:
+            raise
+        raise click.ClickException(
+            f'RAG 可选依赖未安装（{exc.name}）。安装：pip install -e ".[rag]"'
+        ) from exc
+
+
 @rag.command("ingest")
 @click.argument("path")
 @click.option("--source-type", "-s", required=True,
@@ -909,13 +923,11 @@ def rag_ingest(path, source_type, title, date, symbol, tag):
     """
     import os
 
-    from rag.engine import RAGEngine
-
     console.print("[bold]正在摄入知识库...[/bold]")
     console.print(f"  类型: {source_type}")
     console.print(f"  路径: {path}")
 
-    engine = RAGEngine()
+    engine = _create_rag_engine()
     symbols = list(symbol)
     tags = list(tag)
 
@@ -975,9 +987,7 @@ def rag_ingest(path, source_type, title, date, symbol, tag):
               help="预览，不实际删除")
 def rag_clean(source_type, before_date, symbol, dry_run):
     """清理知识库中的文档"""
-    from rag.engine import RAGEngine
-
-    engine = RAGEngine()
+    engine = _create_rag_engine()
 
     if dry_run:
         console.print("[bold yellow]DRY RUN 模式 — 仅预览，不实际删除[/bold yellow]\n")
@@ -1024,9 +1034,7 @@ def rag_clean(source_type, before_date, symbol, dry_run):
 @rag.command("stats")
 def rag_stats():
     """查看知识库各 Collection 统计信息"""
-    from rag.engine import RAGEngine
-
-    engine = RAGEngine()
+    engine = _create_rag_engine()
     stats = engine.collection_stats()
     embedding_name = engine.embedding_name
 

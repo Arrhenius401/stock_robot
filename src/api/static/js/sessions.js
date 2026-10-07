@@ -228,12 +228,12 @@ export async function refreshSessionList() {
 }
 
 export async function selectSession(id) {
+  if (switchView("chat") === false) return;
   if (id === store.currentSessionId) return;
   if (isDraftSessionId(store.currentSessionId)) cancelSessionRuns(store.currentSessionId);
   const sequence = ++selectionSequence;
   closeReportDrawer();
   store.currentSessionId = id;
-  switchView("chat");
   clearChatScroll();
   const hasMessages = Object.hasOwn(store.sessionMessages, id);
   const hasArtifacts = Object.hasOwn(store.sessionArtifacts, id);
@@ -281,6 +281,7 @@ export function initSessions() {
   if (initialized) return;
   initialized = true;
   document.getElementById("newSessionBtn").addEventListener("click", () => {
+    if (switchView("chat") === false) return;
     const existingId = store.currentSessionId;
     const sessionId = isDraftSessionId(existingId) ? existingId : createDraftSession();
     if (!isDraftSessionId(existingId)) store.currentSessionId = sessionId;
@@ -289,7 +290,6 @@ export function initSessions() {
     store.sessionArtifacts[sessionId] = [];
     closeReportDrawer();
     document.getElementById("chatInput").value = "";
-    switchView("chat");
     renderMessageHistory([], []);
   });
   const collapseBtn = document.getElementById("collapseBtn");

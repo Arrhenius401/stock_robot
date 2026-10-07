@@ -94,6 +94,10 @@ stock-robot radar universe list           # 查看配置雷达标的池
 
 技术栈：Python、Pydantic、Click/Rich、AkShare、FastAPI、SQLite；分析管道按数据、分析、LLM 与报告层组织。开发规范见 [AGENTS.md](AGENTS.md)。
 
+知识库（RAG）为可选能力：普通安装不包含 chromadb、sentence-transformers，需要时执行 `python -m pip install -e ".[rag]"`（使用当前独立环境的解释器）。不安装 RAG 时分析、报告、指数、回测与订阅仍可使用，Web 对话不注册知识库检索工具。运行包含 RAG 的开发测试使用 `.[dev,rag]`；`scripts/bootstrap-dev.ps1` 会同步这两个 extra。
+
+自举部署使用从 `uv.lock` 导出的 `requirements-core.lock.txt` 或 `requirements-rag.lock.txt`：先以 `--require-hashes -r <清单>` 安装依赖，再以 `--no-deps -e .` 安装项目。清单需在依赖或锁文件变化后重新导出，不包含当前项目和开发 extra；目标平台实际可安装性仍须验证。
+
 ```powershell
 .\scripts\bootstrap-dev.ps1
 .\scripts\verify.ps1 -Scope Changed                 # 当前改动
@@ -105,3 +109,10 @@ stock-robot radar universe list           # 查看配置雷达标的池
 ## 免责声明
 
 本工具仅用于个人学习与研究。数据和观点不构成投资建议，数据准确性与时效性无法保证；使用者需自行判断并承担投资风险。
+
+
+### 模型输出预算
+
+`llm.max_tokens` 默认是 `null`（自动），配置页“最大 Token 数”留空即可。OpenAI兼容接口不传该参数，采用供应商默认预算；Anthropic等必填接口查询模型能力并缓存，选取不超过模型上限的预算，能力不可用时回退8192。供应商或代理仍可能限制输出，自动不代表无限生成。
+
+填写正整数表示显式输出上限，程序不会在截断恢复时突破它。旧配置中的数值（包括2000）原样保留，需清空字段才能切换自动；更换模型不会要求手动调整自动模式。长度截断会记录原因，已有正文保留；自动模式下的空正文只有在可提高预算且有剩余时间时才恢复一次。网络重试和恢复共用生成超时，不重复获得整段等待时间。

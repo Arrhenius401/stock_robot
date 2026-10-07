@@ -38,14 +38,15 @@ def test_settings_migration_and_revision(tmp_path):
     store = CollectorStore(tmp_path / "collector.db")
     store.record("old", "completed", "snapshot")
     assert store.settings()["enabled"] is False
-    updated = store.update_settings(enabled=True, hour=19, minute=15, revision=0)
-    assert updated["revision"] == 1
+    before_revision = store.settings()["revision"]
+    updated = store.update_settings(enabled=True, hour=19, minute=15, revision=store.settings()["revision"])
+    assert updated["revision"] != before_revision
     assert CollectorStore(store.db_path).settings() == updated
     with pytest.raises(ValueError, match="修订"):
-        store.update_settings(enabled=False, hour=18, minute=30, revision=0)
+        store.update_settings(enabled=False, hour=18, minute=30, revision=before_revision)
     assert store.latest(("old",))[0]["run_id"] == "snapshot"
     with pytest.raises(ValueError):
-        store.update_settings(enabled=True, hour=24, minute=0, revision=1)
+        store.update_settings(enabled=True, hour=24, minute=0, revision=store.settings()["revision"])
 
 
 def test_queue_idempotency_atomic_claim_and_expiry(tmp_path):
@@ -68,8 +69,8 @@ def test_queue_idempotency_atomic_claim_and_expiry(tmp_path):
 def test_retry_preserves_success_and_terminal_automatic_idempotency(tmp_path):
     store = CollectorStore(tmp_path / "collector.db")
     now = datetime.now(UTC) + timedelta(seconds=1)
+    store.update_settings(enabled=True, hour=18, minute=30, revision=store.settings()["revision"])
     run = store.enqueue("pool", "2026-09-29", "fp", "automatic", ["ok", "bad"])
-    store.update_settings(enabled=True, hour=18, minute=30, revision=0)
     for attempt in range(1, 4):
         claimed = store.claim("worker", now, 60)
         assert claimed is not None
@@ -93,12 +94,12 @@ def test_retry_preserves_success_and_terminal_automatic_idempotency(tmp_path):
 
 def test_disabling_cancels_automatic_only(tmp_path):
     store = CollectorStore(tmp_path / "collector.db")
-    store.update_settings(enabled=True, hour=18, minute=30, revision=0)
+    store.update_settings(enabled=True, hour=18, minute=30, revision=store.settings()["revision"])
     automatic = store.enqueue("pool", "2026-09-29", "a", "automatic", ["a"])
     store.claim("worker")
     queued = store.enqueue("pool", "2026-09-29", "b", "automatic", ["a"])
     manual = store.enqueue("pool", "2026-09-29", "c", "manual", ["a"])
-    store.update_settings(enabled=False, hour=18, minute=30, revision=1)
+    store.update_settings(enabled=False, hour=18, minute=30, revision=store.settings()["revision"])
     assert store.get_run(automatic["id"])["cancel_requested"] is True
     assert store.get_run(queued["id"])["status"] == "cancelled"
     assert store.get_run(manual["id"])["status"] == "queued"
@@ -186,14 +187,14 @@ def test_manual_background_retry_works_with_automatic_disabled(tmp_path):
 
 def test_recovery_cancel_and_reenable_preserve_success(tmp_path):
     store = CollectorStore(tmp_path / "collector.db")
-    store.update_settings(enabled=True, hour=18, minute=30, revision=0)
+    store.update_settings(enabled=True, hour=18, minute=30, revision=store.settings()["revision"])
     run = store.enqueue("pool", "2026-09-29", "fp", "recovery", ["ok", "pending"])
     store.claim("worker")
     store.record_item(run["id"], "ok", "completed", worker_id="worker")
-    store.update_settings(enabled=False, hour=18, minute=30, revision=1)
+    store.update_settings(enabled=False, hour=18, minute=30, revision=store.settings()["revision"])
     assert store.get_run(run["id"])["cancel_requested"]
     store.finish(run["id"], "cancelled", worker_id="worker")
-    store.update_settings(enabled=True, hour=18, minute=30, revision=2)
+    store.update_settings(enabled=True, hour=18, minute=30, revision=store.settings()["revision"])
     retried = store.retry(run["id"], manual=False)
     assert retried["source"] == "recovery"
     assert retried["items"][0]["status"] == "completed"
@@ -227,7 +228,7 @@ def test_promote_manual_detaches_from_automatic_cancel_without_losing_owner(tmp_
     store = CollectorStore(tmp_path / "collector.db")
     run = store.enqueue("pool", "2026-09-29", "fp", "automatic", ["a"])
     store.claim("worker")
-    store.update_settings(enabled=False, hour=18, minute=30, revision=0)
+    store.update_settings(enabled=False, hour=18, minute=30, revision=store.settings()["revision"])
     promoted = store.promote_manual(run["id"])
     assert promoted["source"] == "manual"
     assert promoted["cancel_requested"] is False

@@ -1334,7 +1334,14 @@ const { api } = await import(__API_URL__);
 const { store } = await import(__STATE_URL__);
 const { sendMessage } = await import(__CHAT_URL__);
 const { selectSession } = await import(__SESSIONS_URL__);
+const chatView = makeElement("view-chat");
+chatView.className = "view";
+store.currentView = "settings";
 store.currentSessionId = "s1";
+await selectSession("s1");
+if (store.currentView !== "chat" || !chatView.classList.contains("active")) {
+  throw new Error("从配置页点击当前会话未恢复聊天视图");
+}
 store.sessionDetails = {
   s1: { session_id: "s1", title: "会话一", updated_at: 2 },
   s2: { session_id: "s2", title: "会话二", updated_at: 1 },
@@ -1796,7 +1803,22 @@ api.updateConfig = async (config) => {
 store.currentView = "settings";
 initSettings();
 renderSettings(payload);
-for (const heading of ["LLM 设置", "数据与缓存", "服务设置", "推送设置", "信号策略"]) {
+const moduleButtons = byClass(settingsContent, "settings-module-button");
+if (moduleButtons.length !== 4) throw new Error("配置必须分为四个独立模块");
+if (!document.getElementById("settingsSaveBtn").innerHTML.includes("<svg")) {
+  throw new Error("保存按钮必须保留软盘图标");
+}
+const modelTabs = byClass(settingsContent, "settings-tab-button");
+if (modelTabs.length < 2) throw new Error("模型连接与生成参数必须按页签切换");
+await modelTabs[1].click();
+if (!byClass(settingsContent, "settings-tab-panel")[0].hidden) {
+  throw new Error("页签切换必须隐藏其他分组");
+}
+await modelTabs[0].click();
+await moduleButtons[1].click();
+if (!byClass(settingsContent, "settings-module")[0].hidden) throw new Error("切换后必须隐藏其他模块");
+await moduleButtons[0].click();
+for (const heading of ["模型连接", "数据与缓存", "服务设置", "推送设置", "信号策略"]) {
   if (!settingsContent.textContent.includes(heading)) throw new Error(`缺少分区: ${heading}`);
 }
 if (!settingsContent.textContent.includes("D:/project/.stock_robot")) {
@@ -1901,6 +1923,88 @@ if (model2.value !== "gpt-6" || document.getElementById("settingsDirtyBar").hidd
 }
 """.replace("__SETTINGS_URL__", settings_url).replace("__API_URL__", api_url)
         script = script.replace("__STATE_URL__", state_url)
+        _run_node(tmp_path, script)
+
+    def test_settings_file_preview_keeps_draft_and_saves_with_revision(self, tmp_path):
+        """完整文件预览不写盘，校验失败保留编辑文本，最终带版本保存。"""
+        script = _DOM_STUB + r"""
+document.body = makeElement("body");
+Element.prototype.showModal = function () { this.open = true; };
+Element.prototype.close = function () { this.open = false; for (const handler of this.listeners.close || []) handler({}); };
+const settingsContent = makeElement("settingsContent");
+makeElement("view-settings").className = "view active";
+const { api } = await import(__API_URL__);
+const { store, bus } = await import(__STATE_URL__);
+const { initSettings, renderSettings } = await import(__SETTINGS_URL__);
+store.currentView = "settings";
+let written = null, previews = [], rejectPreview = false;
+let unloadHandler;
+const originalWindowListener = window.addEventListener;
+window.addEventListener = (type, handler) => { if (type === "beforeunload") unloadHandler = handler; else originalWindowListener(type, handler); };
+const config = { llm: { model: "original" }, radar: { collector: { enabled: false, hour: 18, minute: 30 } } };
+const paths = { state_dir: "local", config_file: "local/config.yaml" };
+api.getConfigFile = async () => {
+  if (!document.getElementById("settings-llm-model").disabled) throw new Error("读取文件期间必须冻结表单，避免迟到草稿覆盖");
+  return { source: "custom: keep\n", revision: "r1" };
+};
+api.previewConfigFile = async (source, update) => {
+  previews.push({ source, update });
+  if (rejectPreview) throw new Error("YAML 第 2 行无效");
+  return { source, config: { ...config, llm: { model: "from-file" } } };
+};
+api.updateConfigFile = async (source, revision, update) => {
+  if (!document.getElementById("settings-llm-model").disabled
+      || !document.getElementById("settingsEditFileBtn").disabled
+      || !byClass(settingsContent, "settings-module-button")[0].disabled) throw new Error("保存期间必须冻结编辑和导航");
+  written = { source, revision, update };
+  return { persisted: true, applied: true, revision: "r2" };
+};
+api.getConfig = async () => ({ config, paths, revision: "r2" });
+initSettings(); renderSettings({ config, paths, revision: "r1" });
+const model = document.getElementById("settings-llm-model");
+model.value = "form-draft"; await model.dispatch("input");
+await byClass(settingsContent, "settings-module-button")[1].click();
+await byClass(settingsContent, "settings-module-button")[0].click();
+if (model.value !== "form-draft") throw new Error("模块切换丢失草稿");
+await document.getElementById("settingsEditFileBtn").click();
+if (previews[0].update.llm.model !== "form-draft" || written) throw new Error("打开文件应预览合并而不保存");
+const input = document.getElementById("settingsFileSource");
+input.value = "custom: changed\n";
+model.value = "original"; await model.dispatch("input");
+let unloadPrevented = false;
+unloadHandler({ preventDefault() { unloadPrevented = true; } });
+if (!unloadPrevented) throw new Error("编辑器未应用文本也必须提示离开");
+window.confirm = () => false;
+const leave = new Event("before-view-change", { cancelable: true });
+Object.defineProperty(leave, "detail", { value: { view: "logs" } });
+bus.dispatchEvent(leave);
+if (!leave.defaultPrevented) throw new Error("仅编辑器有修改时导航也必须确认");
+const dialog = byClass(document.body, "settings-file-dialog")[0];
+const apply = byClass(dialog, "settings-save")[0];
+rejectPreview = true;
+await apply.onclick();
+if (input.value !== "custom: changed\n" || !dialog.open || written) throw new Error("失败必须保留编辑器文本");
+rejectPreview = false; await apply.onclick();
+if (document.getElementById("settings-llm-model").value !== "from-file" || written) throw new Error("应用文件只更新表单草稿");
+let credentialReads = 0;
+api.getCredential = async () => { credentialReads += 1; return { value: "saved-secret" }; };
+const secretInput = document.getElementById("settings-llm-api_key");
+const secretToggle = byClass(settingsContent, "settings-secret-toggle")[0];
+await secretToggle.click();
+if (credentialReads) throw new Error("文件草稿不能揭示已保存的旧密钥");
+secretInput.value = "new-draft-secret"; await secretInput.dispatch("input");
+await secretToggle.click(); await secretToggle.click();
+await byClass(settingsContent, "settings-module-button")[1].click();
+await byClass(settingsContent, "settings-module-button")[0].click();
+if (credentialReads || secretInput.value !== "new-draft-secret" || secretInput.type !== "password") throw new Error("揭示、隐藏和模块切换必须保留新密钥草稿");
+const collector = document.getElementById("settings-radar-collector-enabled");
+collector.checked = true; await collector.dispatch("change");
+await document.getElementById("settingsSaveBtn").click();
+if (written.source !== "custom: changed\n" || written.revision !== "r1" || !written.update.radar.collector.enabled) throw new Error("保存必须携带文件、版本和后续表单草稿");
+if (written.update.llm.api_key !== "new-draft-secret") throw new Error("保存不能将新密钥替换为旧密钥");
+"""
+        for marker, name in [("__SETTINGS_URL__", "settings"), ("__API_URL__", "api"), ("__STATE_URL__", "state")]:
+            script = script.replace(marker, json.dumps(_module_url(f"src/api/static/js/{name}.js")))
         _run_node(tmp_path, script)
 
     def test_settings_loads_only_on_entry_and_offers_retry_after_failure(self, tmp_path):
@@ -2024,7 +2128,7 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         assert 'id="subName"' not in html
         assert 'id="subChannel"' not in html
         assert "企业微信" not in html
-        assert "20261002-strategy-valuation-2" in html
+        assert "20261004-overseas-2" in html
         script = (await client.get("/js/subscriptions.js")).text
         assert "searchPushSymbols" in script
         assert "批量添加" not in script
@@ -2080,7 +2184,7 @@ store.currentView="settings";
 let settings={enabled:false,hour:18,minute:30,revision:0};
 const data=()=>({settings:{...settings},service_online:true,items:[{universe_id:"pool"}],runtime:{},runs:[]});
 api.radarCollectorStatus=async()=>data();
-api.updateRadarCollectorConfig=async values=>{settings={...values,revision:1};return settings;};
+api.updateRadarCollectorConfig=()=>{throw new Error("采集计划应通过全局配置草稿保存");};
 api.updateRadarCollectorStartup=()=>{throw new Error("业务开关不得调用系统启动");};
 let scheduled=[];
 window.setTimeout=fn=>{scheduled.push(fn);return scheduled.length;};
@@ -2090,10 +2194,7 @@ const controller=mountCollectorSettings(container);
 await new Promise(resolve=>setImmediate(resolve));
 const panel=byClass(container,"collector-panel")[0];
 if(!panel.textContent.includes("已关闭") || !panel.textContent.includes("可手动采集") || !panel.textContent.includes("下次计划：—")) throw new Error("关闭态未清晰显示");
-const toggle=byClass(panel,"collector-switch")[0];
-toggle.checked=true;
-await toggle.dispatch("change");
-if(!settings.enabled || !panel.textContent.includes("18:30")) throw new Error("自动设置未保存");
+if(byClass(panel,"collector-switch").length) throw new Error("状态卡片不应提供立即保存的业务开关");
 controller.pause();
 let resolveLate;
 api.radarCollectorStatus=()=>new Promise(resolve=>{resolveLate=resolve;});
@@ -2201,12 +2302,13 @@ if (!notice.hidden || notice.textContent) throw new Error("结束提示未在限
         assert "最近一次数据更新未发布新快照" in source
         assert "allocationSnapshotMeta(allocationState.snapshot)" in source
         assert 'allocationElement("div", "radar-head-controls")' in source
-        assert '"/api/v1/radar/refresh"' in source
+        update_source = (await client.get("/js/radar-update-ui.js")).text
+        assert "'/api/v1/radar/refresh'" in update_source
         assert '"/api/v1/radar/collector/status"' in source
         assert "function allocationDataStatus(item)" in source
         assert "allocationDataStatus(item)" in source
-        assert "allocationPollRefresh" in source
-        assert "数据更新完成，已载入最新快照。" in source
+        assert "createRadarUpdateUI" in source
+        assert "isActive(allocationState.universeId)" in source
         assert "沿用上次健康数据" in source
         assert "标的池轮动策略研究结果" in source
         assert "allocationBacktestSectionIsCurrent" in source

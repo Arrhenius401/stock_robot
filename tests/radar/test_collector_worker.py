@@ -9,6 +9,7 @@ from filelock import FileLock
 from radar.collector_store import CollectorStore
 from radar.collector_worker import CollectorWorker
 from radar.universe import UniverseRepository
+from utils.config import Config
 
 
 class Calendar:
@@ -84,9 +85,9 @@ def test_failed_request_is_bounded_and_retries_only_failed_items(tmp_path):
 def test_manual_revives_cancelled_auto_task(tmp_path):
     service = worker(tmp_path, lambda *args, **kwargs: 'snapshot')
     now = datetime.now(ZoneInfo('Asia/Shanghai')) + timedelta(seconds=2)
-    service.store.update_settings(enabled=True, hour=18, minute=30, revision=0)
+    service.store.update_settings(enabled=True, hour=18, minute=30, revision=service.store.settings()["revision"])
     automatic = service.coordinate(now, recovery=True)[0]
-    service.store.update_settings(enabled=False, hour=18, minute=30, revision=1)
+    service.store.update_settings(enabled=False, hour=18, minute=30, revision=service.store.settings()["revision"])
     manual = service.enqueue_manual(now)[0]
     assert manual['id'] == automatic['id']
     assert manual['source'] == 'manual'
@@ -168,3 +169,29 @@ def test_all_pool_fingerprints_validated_before_enqueue(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match='评分配置损坏'):
         service.enqueue_manual(datetime.now(ZoneInfo('Asia/Shanghai')))
     assert service.store.list_runs() == []
+
+
+def test_unrelated_config_save_does_not_trigger_collector_recovery(tmp_path, monkeypatch):
+    """文件版本变化用于保存冲突，不能让无关配置触发提前补采。"""
+    service = worker(tmp_path, lambda *args, **kwargs: 'snapshot')
+    config = Config(config_dir=tmp_path)
+    config.update({'radar': {'collector': {'enabled': True}}})
+    recoveries = []
+
+    def coordinate(now, *, recovery=False):
+        recoveries.append(recovery)
+        return []
+
+    def tick(timeout):
+        if len(recoveries) == 1:
+            config.update({'llm': {'model': 'unrelated-model'}})
+        elif len(recoveries) == 2:
+            config.update({'radar': {'collector': {'minute': 45}}})
+        else:
+            service.stop()
+
+    monkeypatch.setattr(service, 'coordinate', coordinate)
+    monkeypatch.setattr(service, 'execute_one', lambda: False)
+    monkeypatch.setattr(service._stopping, 'wait', tick)
+    service.serve()
+    assert recoveries == [True, False, True]

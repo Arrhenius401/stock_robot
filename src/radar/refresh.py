@@ -125,6 +125,7 @@ class RadarRefresher:
                         category=instrument.category,
                         status="fresh",
                         observed_at=datetime.now().astimezone(),
+                        market_date=date.fromisoformat(str(last["date"])[:10]),
                         source_run_id=run_id,
                         data_source=data_sources[instrument.symbol],
                         close=float(last["close"]),

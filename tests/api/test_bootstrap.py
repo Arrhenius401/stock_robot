@@ -86,3 +86,12 @@ class TestBuildLLM:
         config.set("llm.api_key", "sk-test")
         with pytest.raises(RuntimeError, match="LLM 后端初始化失败"):
             build_agent_core(config, strict_llm=True)
+
+
+@pytest.mark.parametrize("provider", ["openai", "claude"])
+def test_build_llm_passes_auto_budget_without_replacing_it_with_2000(config, mocker, provider):
+    path = "llm.openai.OpenAIAdapter" if provider == "openai" else "llm.claude.ClaudeAdapter"
+    factory = mocker.patch(path)
+    config.update({"llm": {"provider": provider, "api_key": "test", "max_tokens": None}})
+    build_llm(config)
+    assert factory.call_args.kwargs["max_tokens"] is None

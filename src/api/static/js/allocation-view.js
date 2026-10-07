@@ -1,5 +1,8 @@
+import { createRadarUpdateUI } from "./radar-update-ui.js?v=20261004-overseas-2";
 // 配置雷达基础视图：使用浏览器兼容语法直接消费完成快照。
-var allocationState = { universes: [], universeId: null, snapshot: null, collectorStatus: null, detail: null, benchmark: "csi_300", backtestPeriod: "inception", performancePeriod: "inception", performanceCache: {}, refreshMessage: "", refreshTasks: {} };
+var allocationUpdates = null;
+var allocationLoadGeneration = 0;
+var allocationState = { universes: [], universeId: null, snapshot: null, snapshotHistorical: false, collectorStatus: null, detail: null, benchmark: "csi_300", backtestPeriod: "inception", performancePeriod: "inception", performanceCache: {} };
 
 function allocationRoot() { return document.getElementById("radarContent"); }
 
@@ -393,96 +396,38 @@ function allocationHeader() {
   selector.addEventListener("change", function () {
     allocationState.universeId = selector.value;
     allocationState.detail = null;
-    allocationState.refreshMessage = "";
     allocationLoad();
   });
   var meta = allocationElement("p", "radar-meta radar-head-title", allocationSnapshotMeta(allocationState.snapshot));
   var controls = allocationElement("div", "radar-head-controls");
   var actions = allocationElement("div", "radar-head-actions");
-  var refresh = allocationElement("button", "radar-refresh", "更新数据");
+  var busy = allocationUpdates && allocationUpdates.isActive(allocationState.universeId);
+  var refresh = allocationElement("button", "radar-refresh", busy ? "更新中…" : "更新数据");
   refresh.type = "button";
-  refresh.addEventListener("click", function () { allocationStartRefresh(refresh, feedback); });
-  actions.appendChild(refresh);
-  var feedback = allocationElement("p", "radar-meta");
-  feedback.setAttribute("role", "status");
-  feedback.textContent = allocationState.refreshMessage;
-  actions.appendChild(feedback);
+  refresh.disabled = busy;
+  refresh.onclick = function () { allocationUpdates.start(allocationState.universeId); };
+  var overseas = allocationElement("button", "subs-btn", "查看海外动态");
+  overseas.type = "button";
+  overseas.onclick = function () { allocationUpdates.open(allocationState.universeId, null, allocationState.snapshot, allocationState.snapshotHistorical); };
+  var buttons = allocationElement("div", "radar-update-actions"); buttons.append(overseas, refresh);
+  actions.append(buttons, allocationElement("p", "radar-meta", "手动更新可用 · 自动采集服务" + (allocationState.collectorStatus ? allocationState.collectorStatus.service_online ? "在线" : "离线" : "状态暂不可读取")));
   controls.append(selector, actions);
   header.append(meta, controls);
-  var pendingTask = allocationState.refreshTasks[allocationState.universeId];
-  if (pendingTask) {
-    refresh.disabled = true;
-    refresh.textContent = "更新中…";
-    allocationPollRefresh(pendingTask, refresh, feedback);
-  }
   return header;
 }
 
 function allocationSnapshotMeta(snapshot) {
   if (!snapshot) return "正在读取完成快照…";
-  var parts = ["数据截至 " + snapshot.as_of_date];
-  if (snapshot.completed_at) parts.push("刷新完成 " + String(snapshot.completed_at).replace("T", " ").replace(/([+-]\d\d:\d\d)$/, ""));
+  var parts = ["ETF 行情截至 " + snapshot.as_of_date];
   if (snapshot.provider) parts.push("采集通道 " + snapshot.provider);
   return parts.join(" · ");
 }
 
-function allocationRefreshFeedback(button, feedback, message) {
-  allocationState.refreshMessage = message;
-  button.disabled = false;
-  button.textContent = "更新数据";
-  feedback.textContent = message;
-}
-
-function allocationPollRefresh(taskId, button, feedback) {
-  var universeId = allocationState.universeId;
-  window.setTimeout(function () {
-    if (window.location.hash.indexOf("#radar") !== 0 || !button.isConnected || universeId !== allocationState.universeId) return;
-    allocationRequest("/api/v1/radar/refresh/" + encodeURIComponent(taskId)).then(function (task) {
-      if (window.location.hash.indexOf("#radar") !== 0 || !button.isConnected || universeId !== allocationState.universeId) return;
-      if (task.status === "completed" || task.status === "partial") {
-        delete allocationState.refreshTasks[universeId];
-        allocationState.performanceCache = {};
-        allocationState.refreshMessage = task.status === "partial" ? "部分标的更新失败，已载入可用快照；可在采集记录中重试失败项。" : "数据更新完成，已载入最新快照。";
-        allocationLoad();
-      } else if (task.status === "failed" || task.status === "cancelled") {
-        delete allocationState.refreshTasks[universeId];
-        allocationRefreshFeedback(button, feedback, "数据更新失败：" + (task.error || "后端未返回原因。"));
-      } else {
-        feedback.textContent = task.status === "retry_wait" ? "部分行情失败，等待重试。" : "正在更新数据…";
-        allocationPollRefresh(taskId, button, feedback);
-      }
-    }).catch(function (error) {
-      if (window.location.hash.indexOf("#radar") !== 0 || !button.isConnected || universeId !== allocationState.universeId) return;
-    allocationRefreshFeedback(button, feedback, "无法获取更新状态：" + error.message);
-    });
-  }, 1200);
-}
-
-function allocationStartRefresh(button, feedback) {
-  if (!allocationState.universeId) return;
-  var universeId = allocationState.universeId;
-  button.disabled = true;
-  button.textContent = "更新中…";
-  feedback.textContent = "正在后台更新当前标的池，完成后自动刷新榜单。";
-  allocationRequest("/api/v1/radar/refresh", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ universe_id: allocationState.universeId })
-  }).then(function (task) {
-    allocationState.refreshTasks[universeId] = task.task_id;
-    if (universeId !== allocationState.universeId || !button.isConnected) return;
-    allocationPollRefresh(task.task_id, button, feedback);
-  }).catch(function (error) {
-    if (window.location.hash.indexOf("#radar") !== 0 || !button.isConnected || universeId !== allocationState.universeId) return;
-    allocationRefreshFeedback(button, feedback, "无法启动数据更新：" + error.message);
-  });
-}
-
 function allocationDataStatus(item) {
   var snapshotDate = allocationState.snapshot && allocationState.snapshot.as_of_date ? String(allocationState.snapshot.as_of_date).slice(0, 10) : "";
-  var date = snapshotDate;
+  var date = item.market_date || item.source_as_of_date || snapshotDate;
   if (item.status === "fresh") return date || "已更新";
-  if (item.status === "stale") return "沿用历史";
+  if (item.status === "stale") return "沿用历史 · " + (date || "日期暂缺");
   if (item.status === "failed") return "不可用";
   return "—";
 }
@@ -491,6 +436,7 @@ function allocationShowList() {
   allocationState.detail = null;
   var root = allocationRoot();
   var snapshot = allocationState.snapshot;
+  if (!snapshot) { root.replaceChildren(allocationHeader(), allocationElement("p", "radar-note", "尚无完成快照，请更新数据。")); return; }
   root.replaceChildren(allocationHeader(), allocationCollectionStatus(snapshot), allocationDataAvailability(snapshot), allocationBacktestSection(null, true), allocationElement("p", "radar-note", snapshot.research_notice || "研究评分，不构成投资建议。"));
   var groups = {};
   snapshot.items.forEach(function (item) {
@@ -566,8 +512,12 @@ function allocationShowDetail(item, fromHistory) {
   var head = allocationElement("section", "radar-detail-head");
   var heading = allocationElement("div", "");
   heading.appendChild(allocationElement("h2", "", item.name + " · " + item.symbol));
-  heading.appendChild(allocationElement("p", "radar-meta", "ETF · 数据截至 " + allocationState.snapshot.as_of_date));
-  head.append(back, heading);
+  heading.appendChild(allocationElement("p", "radar-meta", "ETF · 场内行情截至 " + (item.market_date || item.source_as_of_date || allocationState.snapshot.as_of_date)));
+  var overseas = allocationElement("button", "subs-btn", "查看海外动态");
+  overseas.type = "button";
+  var detailUniverse = allocationState.universeId, detailSnapshot = allocationState.snapshot, detailHistorical = allocationState.snapshotHistorical;
+  overseas.onclick = function () { allocationUpdates.open(detailUniverse, item, detailSnapshot, detailHistorical); };
+  head.append(back, heading, overseas);
   var summary = allocationElement("section", "panel radar-detail-section");
   summary.appendChild(allocationElement("h3", "", "评分摘要"));
   var metrics = allocationElement("div", "radar-detail-metrics");
@@ -617,27 +567,43 @@ function allocationRestoreDetail() {
 }
 
 function allocationLoad() {
-  var root = allocationRoot();
+  var root = allocationRoot(), generation = ++allocationLoadGeneration, historical = false;
   root.replaceChildren(allocationElement("p", "radar-meta", "正在读取配置雷达快照…"));
-  allocationRequest("/api/v1/radar/universes")
-    .then(function (universes) {
-      allocationState.universes = universes;
-      if (!allocationState.universeId && universes.length) allocationState.universeId = universes[0].id;
-      return Promise.all([
-        allocationRequest("/api/v1/radar/snapshots/latest?universe_id=" + encodeURIComponent(allocationState.universeId)),
-        allocationRequest("/api/v1/radar/collector/status").catch(function () { return null; })
-      ]);
-    })
-    .then(function (payload) {
-      allocationState.snapshot = payload[0];
-      allocationState.collectorStatus = payload[1];
-      allocationShowList();
-      allocationRestoreDetail();
-    })
-    .catch(function (error) { root.replaceChildren(allocationHeader(), allocationElement("p", "radar-note", error.message)); });
+  allocationRequest("/api/v1/radar/universes").then(function (universes) {
+    if (generation !== allocationLoadGeneration) return null;
+    allocationState.universes = universes;
+    if (!allocationState.universeId && universes.length) allocationState.universeId = universes[0].id;
+    var universeId = allocationState.universeId;
+    allocationUpdates.recover(universeId);
+    return Promise.all([
+      allocationRequest("/api/v1/radar/snapshots/latest?universe_id=" + encodeURIComponent(universeId)).catch(function (error) { if (error.status === 404) return null; throw error; }).then(function (latest) {
+        var parts = window.location.hash.split("/"), requestedRun = parts.length >= 3 ? decodeURIComponent(parts[2]) : null;
+        if (requestedRun && decodeURIComponent(parts[1]) === universeId && (!latest || requestedRun !== latest.run_id)) {
+          historical = true;
+          return allocationRequest("/api/v1/radar/snapshots/" + encodeURIComponent(requestedRun));
+        }
+        return latest;
+      }),
+      allocationRequest("/api/v1/radar/collector/status").catch(function () { return null; })
+    ]);
+  }).then(function (payload) {
+    if (!payload || generation !== allocationLoadGeneration) return;
+    allocationState.snapshot = payload[0]; allocationState.snapshotHistorical = historical; allocationState.collectorStatus = payload[1];
+    allocationShowList(); allocationRestoreDetail();
+  }).catch(function (error) { if (generation === allocationLoadGeneration) root.replaceChildren(allocationHeader(), allocationElement("p", "radar-note", error.message)); });
 }
 
 export function initRadar() {
+  allocationUpdates = createRadarUpdateUI(allocationRequest, function (task, finished) {
+    if (task.universe_id !== allocationState.universeId || window.location.hash.indexOf("#radar") !== 0) return;
+    if (finished && !allocationState.snapshotHistorical) {
+      allocationState.performanceCache = {};
+      var runId = task.snapshot_run_id || task.run_id;
+      if (runId) window.history.replaceState(window.history.state, "", "#radar/" + encodeURIComponent(allocationState.universeId) + "/" + encodeURIComponent(runId) + (allocationState.detail ? "/" + encodeURIComponent(allocationState.detail.symbol) : ""));
+      allocationLoad();
+    }
+    else if (!allocationState.detail) { var current = allocationRoot().querySelector(".radar-head"); if (current) current.replaceWith(allocationHeader()); }
+  });
   var nav = document.querySelector('[data-view="radar"]');
   if (nav) nav.addEventListener("click", allocationLoad);
   if (window.location.hash.indexOf("#radar") === 0) {
@@ -645,9 +611,8 @@ export function initRadar() {
     allocationLoad();
   }
   window.addEventListener("popstate", function () {
-    if (!allocationState.snapshot || window.location.hash.indexOf("#radar") !== 0) return;
+    if (window.location.hash.indexOf("#radar") !== 0) return;
     allocationActivate();
-    allocationShowList();
-    allocationRestoreDetail();
+    allocationLoad();
   });
 }

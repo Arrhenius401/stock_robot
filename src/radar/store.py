@@ -53,9 +53,9 @@ class RadarStore:
                 """
                 INSERT INTO snapshot_items(
                     run_id, symbol, name, category, status, observed_at, source_run_id,
-                    data_source, close, amount, score, rank, grade, factors_json, error_summary
+                    data_source, close, amount, score, rank, grade, factors_json, error_summary, market_date
                 )
-                SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 WHERE EXISTS (
                     SELECT 1 FROM snapshot_runs WHERE run_id = ? AND status = 'running'
                 )
@@ -76,6 +76,7 @@ class RadarStore:
                     item.grade,
                     json.dumps(item.factors, ensure_ascii=False) if item.factors is not None else None,
                     item.error_summary,
+                    item.market_date.isoformat() if item.market_date else None,
                     run_id,
                 ),
             )
@@ -221,6 +222,8 @@ class RadarStore:
                 conn.execute("ALTER TABLE snapshot_items ADD COLUMN factors_json TEXT")
             if "data_source" not in columns:
                 conn.execute("ALTER TABLE snapshot_items ADD COLUMN data_source TEXT")
+            if "market_date" not in columns:
+                conn.execute("ALTER TABLE snapshot_items ADD COLUMN market_date TEXT")
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
@@ -231,7 +234,10 @@ class RadarStore:
     def _snapshot(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
         payload = dict(row)
         items = conn.execute(
-            "SELECT * FROM snapshot_items WHERE run_id = ? ORDER BY category, rank, symbol", (row["run_id"],)
+            """SELECT item.*,source.as_of_date AS source_as_of_date
+               FROM snapshot_items AS item LEFT JOIN snapshot_runs AS source
+               ON source.run_id=COALESCE(item.source_run_id,CASE WHEN item.status='fresh' THEN item.run_id END) AND source.status='completed'
+               WHERE item.run_id = ? ORDER BY item.category, item.rank, item.symbol""", (row["run_id"],)
         ).fetchall()
         payload["items"] = [
             {**dict(item), "factors": json.loads(item["factors_json"]) if item["factors_json"] else None}
