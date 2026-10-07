@@ -1,4 +1,7 @@
 .superpowers/
+.env
+.env.*
+!.env.example
 /docs/superpowers/previews/
 .worktrees/
 .codegraph/
