@@ -180,6 +180,8 @@ chore(项目): 初始化项目脚手架
 
 ## 技术栈
 
+知识库为可选 `rag` extra；业务核心安装不含 chromadb、sentence-transformers。完整开发环境使用 `.[dev,rag]`，bootstrap-dev.ps1 同步 dev 与 rag；依赖变化后须重新导出 core/rag 锁定安装清单并验证相关范围。
+
 - Python 3.11+
 - Pydantic v2, click, rich, AkShare, pandas, Jinja2, pytest
 - openai SDK + anthropic SDK

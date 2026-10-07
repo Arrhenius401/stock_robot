@@ -18,5 +18,5 @@ $repositoryRoot = [IO.Path]::GetFullPath($repositoryRoot)
 Set-Location $repositoryRoot
 
 $env:UV_CACHE_DIR = Join-Path $repositoryRoot "tmp\uv-cache"
-& uv sync --extra dev
+& uv sync --extra dev --extra rag
 exit $LASTEXITCODE
