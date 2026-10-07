@@ -6,10 +6,13 @@ import time
 from collections import OrderedDict
 from typing import Any
 
+from llm.transport import request_deadline
+
 logger = logging.getLogger(__name__)
 AUTO_BUDGET = 8192
 _cache: OrderedDict[tuple[str, str, str, str], tuple[float, int | None]] = OrderedDict()
 _cache_lock = threading.Lock()
+_pending: dict[tuple[str, str, str, str], threading.Event] = {}
 
 
 def normalize_budget(value: Any) -> int | None:
@@ -41,38 +44,51 @@ def model_output_limit(client: Any, model: str, *, protocol: str,
     timeout = remaining_time(query_deadline)
     credential = hashlib.sha256(str(client.api_key).encode()).hexdigest()
     key = (protocol, str(client.base_url), model, credential)
-    # 同一能力查询单飞；缓存不含Key明文，服务切换及凭据轮换不会误用旧结果。
-    if not _cache_lock.acquire(timeout=timeout):
-        return None
+    # 全局锁仅保护缓存；不同模型的SDK调用互不阻塞，同一键由事件单飞。
+    while True:
+        with _cache_lock:
+            cached = _cache.get(key)
+            if cached is not None and cached[0] > time.monotonic():
+                _cache.move_to_end(key)
+                return cached[1]
+            pending = _pending.get(key)
+            if pending is None:
+                pending = threading.Event()
+                _pending[key] = pending
+                break
+        if not pending.wait(timeout=timeout):
+            return None
+        timeout = remaining_time(query_deadline)
+
+    limit: int | None = None
+    token = request_deadline.set(query_deadline)
     try:
-        cached = _cache.get(key)
-        if cached is not None and cached[0] > time.monotonic():
-            _cache.move_to_end(key)
-            return cached[1]
-        limit: int | None = None
-        try:
-            timeout = remaining_time(query_deadline)
-            bounded_client = client.with_options(max_retries=0)
-            if protocol == "claude":
-                info = bounded_client.models.retrieve(model, timeout=timeout)
-                value = getattr(info, "max_tokens", None)
-                if type(value) is not int:
-                    value = getattr(info, "max_output_tokens", None)
-            else:
-                items = bounded_client.models.list(timeout=timeout).data
-                info = next((item for item in items if item.id == model), None)
+        timeout = remaining_time(query_deadline)
+        bounded_client = client.with_options(max_retries=0)
+        if protocol == "claude":
+            info = bounded_client.models.retrieve(model, timeout=timeout)
+            value = getattr(info, "max_tokens", None)
+            if type(value) is not int:
                 value = getattr(info, "max_output_tokens", None)
-            if type(value) is int and value > 0:
-                limit = value
-        except Exception as exc:  # noqa: BLE001 — 第三方模型元数据接口不统一，失败有界回退
-            logger.debug("模型能力查询不可用（%s），采用回退预算", type(exc).__name__)
-        _cache[key] = (time.monotonic() + (3600 if limit is not None else 300), limit)
-        _cache.move_to_end(key)
-        while len(_cache) > 128:
-            _cache.popitem(last=False)
-        return limit
+        else:
+            items = bounded_client.models.list(timeout=timeout).data
+            info = next((item for item in items if item.id == model), None)
+            value = getattr(info, "max_output_tokens", None)
+        if type(value) is int and value > 0:
+            limit = value
+    except Exception as exc:  # noqa: BLE001 — 第三方模型元数据接口不统一，失败有界回退
+        logger.debug("模型能力查询不可用（%s），采用回退预算", type(exc).__name__)
     finally:
-        _cache_lock.release()
+        request_deadline.reset(token)
+        with _cache_lock:
+            _cache[key] = (time.monotonic() + (3600 if limit is not None else 300), limit)
+            _cache.move_to_end(key)
+            while len(_cache) > 128:
+                _cache.popitem(last=False)
+            del _pending[key]
+            pending.set()
+    return limit
+
 
 
 def automatic_budget(limit: int | None) -> int:

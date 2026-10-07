@@ -125,7 +125,7 @@ const FIELD_DESCRIPTIONS = {
   "llm.temperature": "较低数值使输出更稳定。",
   "llm.max_tokens": "留空自动选择输出预算；填写正整数限制单次输出。已有数值会保留，清空后切换自动。",
   "llm.retry_times": "请求失败后允许重试的次数。",
-  "llm.timeout_seconds": "单次请求的等待上限。",
+  "llm.timeout_seconds": "一次生成的总等待上限，包含能力查询、重试和截断恢复。",
   "radar.collector.enabled": "关闭后仍可手动采集。",
   "radar.collector.hour": "北京时间，24 小时制。",
   "radar.collector.minute": "每小时的计划分钟。",

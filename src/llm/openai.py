@@ -12,6 +12,7 @@ from llm.budget import (
     recovery_budget,
     remaining_time,
 )
+from llm.transport import deadline_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +29,13 @@ class OpenAIAdapter(LLMBackend):
         # 禁用 SDK 内置重试（默认 2 次），重试策略由 _call_with_retry 统一控制，避免叠加放大请求数
         client_kwargs: dict[str, Any] = {
             "api_key": api_key, "timeout": timeout, "max_retries": 0,
+            "http_client": deadline_http_client(),
         }
         if base_url:
             client_kwargs["base_url"] = base_url
         self._client = OpenAI(**client_kwargs)
+        # 提前加载 SDK 延迟资源，避免首次导入占用生成截止预算。
+        _ = self._client.chat.completions
 
     @property
     def model_name(self) -> str:
@@ -66,7 +70,7 @@ class OpenAIAdapter(LLMBackend):
             content = choice.message.content or ""
             if choice.finish_reason == "length":
                 logger.warning("模型正文截断：finish_reason=length，正文字符数=%d", len(content))
-                if not content and budget is None:
+                if not content.strip() and budget is None:
                     remaining_time(deadline)
                     used = getattr(response.usage, "completion_tokens", None)
                     if type(used) is int and used > 0:
@@ -82,7 +86,7 @@ class OpenAIAdapter(LLMBackend):
                             content = choice.message.content or ""
                             if choice.finish_reason == "length":
                                 logger.warning("模型预算恢复后仍截断，正文字符数=%d", len(content))
-            if not content:
+            if not content.strip():
                 reason = "已达到长度上限" if choice.finish_reason == "length" else "模型未返回正文"
                 return f"（LLM 分析暂时不可用：{reason}）"
             return content

@@ -73,3 +73,29 @@ def test_chat_model_uses_same_auto_and_manual_budget(provider, budget, expected)
     model = create_chat_model(config)
     assert model is not None
     assert model.max_tokens == expected
+
+
+def test_deepseek_manual_budget_uses_supported_wire_field():
+    from agent.model_factory import create_chat_model
+
+    values = {"llm.provider": "openai", "llm.api_key": "test", "llm.model": "deepseek-v4-flash",
+              "llm.base_url": "https://api.deepseek.com/v1", "llm.max_tokens": 2000}
+    class Config:
+        def get(self, key, default=None):
+            return values.get(key, default)
+    model = create_chat_model(Config())
+    assert model is not None
+    payload = model._get_request_payload("验收")
+    assert payload["max_tokens"] == 2000
+    assert "max_completion_tokens" not in payload
+    values["llm.max_tokens"] = None
+    auto_model = create_chat_model(Config())
+    assert auto_model is not None
+    automatic = auto_model._get_request_payload("验收")
+    assert "max_tokens" not in automatic
+    assert "max_completion_tokens" not in automatic
+    values["llm.base_url"] = "https://proxy.example.com/v1"
+    values["llm.max_tokens"] = 2000
+    proxy_model = create_chat_model(Config())
+    assert proxy_model is not None
+    assert proxy_model._get_request_payload("验收")["max_completion_tokens"] == 2000

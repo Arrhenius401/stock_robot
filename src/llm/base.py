@@ -2,6 +2,8 @@ import logging
 import time
 from abc import ABC, abstractmethod
 
+from llm.transport import request_deadline
+
 logger = logging.getLogger(__name__)
 
 
@@ -28,7 +30,14 @@ class LLMBackend(ABC):
             if deadline is not None and time.monotonic() >= deadline:
                 raise TimeoutError("模型生成总时间预算已耗尽")
             try:
-                return fn()
+                token = request_deadline.set(deadline)
+                try:
+                    result = fn()
+                finally:
+                    request_deadline.reset(token)
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise TimeoutError("模型生成总时间预算已耗尽")
+                return result
             except Exception as e:
                 last_exc = e
                 if attempt < retry_times:

@@ -13,6 +13,7 @@ from llm.budget import (
     recovery_budget,
     remaining_time,
 )
+from llm.transport import deadline_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +32,13 @@ class ClaudeAdapter(LLMBackend):
         # 禁用 SDK 内置重试（默认 2 次），重试策略由 _call_with_retry 统一控制，避免叠加放大请求数
         client_kwargs: dict[str, Any] = {
             "api_key": api_key, "timeout": timeout, "max_retries": 0,
+            "http_client": deadline_http_client(),
         }
         if base_url:
             client_kwargs["base_url"] = base_url
         self._client = Anthropic(**client_kwargs)
+        # 提前加载 SDK 延迟资源，避免首次导入占用生成截止预算。
+        _ = self._client.messages
 
     @property
     def model_name(self) -> str:
@@ -74,7 +78,7 @@ class ClaudeAdapter(LLMBackend):
             content = self._extract_text(response)
             if response.stop_reason == "max_tokens":
                 logger.warning("模型正文截断：stop_reason=max_tokens，正文字符数=%d", len(content))
-                if not content and explicit is None:
+                if not content.strip() and explicit is None:
                     retry_budget = recovery_budget(budget, limit)
                     if retry_budget is not None:
                         response = self._call_with_retry(
@@ -84,7 +88,7 @@ class ClaudeAdapter(LLMBackend):
                         content = self._extract_text(response)
                         if response.stop_reason == "max_tokens":
                             logger.warning("模型预算恢复后仍截断，正文字符数=%d", len(content))
-            if not content:
+            if not content.strip():
                 reason = "已达到长度上限" if response.stop_reason == "max_tokens" else "模型未返回正文"
                 return f"（LLM 分析暂时不可用：{reason}）"
             return content

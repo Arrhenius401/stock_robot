@@ -67,7 +67,7 @@ class TestClaudeAdapter:
         ClaudeAdapter(api_key="sk-ant-test", base_url="https://api.deepseek.com/anthropic")
         mock_anthropic.assert_called_once_with(
             api_key="sk-ant-test", base_url="https://api.deepseek.com/anthropic", timeout=60.0,
-            max_retries=0,
+            max_retries=0, http_client=mocker.ANY,
         )
 
     def test_deepseek_compatible_endpoint_disables_thinking(self, mocker):
@@ -91,7 +91,7 @@ class TestClaudeAdapter:
         mock_anthropic = mocker.patch("llm.claude.Anthropic", return_value=MagicMock())
         ClaudeAdapter(api_key="sk-ant-test")
         mock_anthropic.assert_called_once_with(
-            api_key="sk-ant-test", timeout=60.0, max_retries=0,
+            api_key="sk-ant-test", timeout=60.0, max_retries=0, http_client=mocker.ANY,
         )
 
 
@@ -158,4 +158,93 @@ def test_missing_metadata_is_cached_and_does_not_prevent_generation(mocker):
     for _ in range(2):
         assert model_output_limit(client, "model", protocol="claude", deadline=None) is None
     assert client.models.retrieve.call_count == 1
+    clear_model_limit_cache()
+
+
+def test_cache_hit_does_not_wait_for_unrelated_query_and_same_key_is_single_flight():
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from types import SimpleNamespace
+
+    from llm.budget import automatic_budget, clear_model_limit_cache, model_output_limit
+    from llm.transport import request_deadline
+
+    clear_model_limit_cache()
+    entered = Event()
+    release = Event()
+    client = MagicMock()
+    client.api_key = "test"
+    client.base_url = "https://cache.example/v1"
+    client.with_options.return_value = client
+
+    def retrieve(model, **kwargs):
+        assert request_deadline.get() is not None
+        if model == "slow-model":
+            entered.set()
+            assert release.wait(timeout=2)
+        return SimpleNamespace(max_tokens=4096)
+
+    client.models.retrieve.side_effect = retrieve
+    assert model_output_limit(client, "cached-model", protocol="claude", deadline=None) == 4096
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(model_output_limit, client, "slow-model", protocol="claude", deadline=None)
+        try:
+            assert entered.wait(timeout=1)
+            second = executor.submit(model_output_limit, client, "slow-model", protocol="claude", deadline=None)
+            limit = model_output_limit(client, "cached-model", protocol="claude", deadline=time.monotonic() + 0.1)
+            assert automatic_budget(limit) == 4096
+        finally:
+            release.set()
+        assert first.result(timeout=1) == second.result(timeout=1) == 4096
+    assert client.models.retrieve.call_count == 2
+    assert request_deadline.get() is None
+    clear_model_limit_cache()
+
+
+def test_success_and_missing_metadata_cache_expire_at_their_respective_ttl(mocker):
+    from types import SimpleNamespace
+
+    from llm.budget import clear_model_limit_cache, model_output_limit
+
+    clock = [100.0]
+    mocker.patch("llm.budget.time.monotonic", side_effect=lambda: clock[0])
+    for limit, ttl in [(4096, 3600), (None, 300)]:
+        clear_model_limit_cache()
+        client = MagicMock()
+        client.api_key = "test"
+        client.base_url = "https://ttl.example/v1"
+        client.with_options.return_value = client
+        client.models.retrieve.return_value = SimpleNamespace(max_tokens=limit)
+        start = clock[0]
+        assert model_output_limit(client, "model", protocol="claude", deadline=None) == limit
+        clock[0] = start + ttl - 0.01
+        assert model_output_limit(client, "model", protocol="claude", deadline=None) == limit
+        assert client.models.retrieve.call_count == 1
+        clock[0] = start + ttl
+        assert model_output_limit(client, "model", protocol="claude", deadline=None) == limit
+        assert client.models.retrieve.call_count == 2
+    clear_model_limit_cache()
+
+
+def test_metadata_cache_capacity_evicts_least_recently_used_entry():
+    from types import SimpleNamespace
+
+    from llm.budget import clear_model_limit_cache, model_output_limit
+
+    clear_model_limit_cache()
+    client = MagicMock()
+    client.api_key = "test"
+    client.base_url = "https://capacity.example/v1"
+    client.with_options.return_value = client
+    client.models.retrieve.return_value = SimpleNamespace(max_tokens=4096)
+    for index in range(128):
+        assert model_output_limit(client, f"model-{index}", protocol="claude", deadline=None) == 4096
+    assert client.models.retrieve.call_count == 128
+    assert model_output_limit(client, "model-0", protocol="claude", deadline=None) == 4096
+    assert model_output_limit(client, "model-128", protocol="claude", deadline=None) == 4096
+    assert model_output_limit(client, "model-0", protocol="claude", deadline=None) == 4096
+    assert client.models.retrieve.call_count == 129
+    assert model_output_limit(client, "model-1", protocol="claude", deadline=None) == 4096
+    assert client.models.retrieve.call_count == 130
     clear_model_limit_cache()
