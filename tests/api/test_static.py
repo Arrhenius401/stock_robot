@@ -185,7 +185,11 @@ function byClass(node, className) {
 
 
 def _module_url(path: str) -> str:
-    return Path(path).resolve().as_uri()
+    url = Path(path).resolve().as_uri()
+    # 与聊天模块的正式导入保持同一 URL，避免产生两份抽屉状态单例。
+    if path.endswith("/report-drawer.js"):
+        url += "?v=20261008-report-quality-1"
+    return url
 
 
 def _run_node(tmp_path: Path, script: str) -> None:
@@ -342,7 +346,7 @@ class TestStaticUI:
     async def test_app_initializes_report_drawer(self, client):
         resp = await client.get("/js/app.js")
 
-        assert 'import { initReportDrawer } from "./report-drawer.js";' in resp.text
+        assert 'import { initReportDrawer } from "./report-drawer.js?v=20261008-report-quality-1";' in resp.text
         assert "initReportDrawer();" in resp.text
 
     def test_markdown_renderer_escapes_untrusted_input_and_formats_safe_blocks(self):
@@ -2128,7 +2132,7 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         assert 'id="subName"' not in html
         assert 'id="subChannel"' not in html
         assert "企业微信" not in html
-        assert "20261004-overseas-2" in html
+        assert 'href="/css/app.css?v=20261008-report-quality-1"' in html
         script = (await client.get("/js/subscriptions.js")).text
         assert "searchPushSymbols" in script
         assert "批量添加" not in script

@@ -1,8 +1,8 @@
 // 完整研报右侧抽屉：管理焦点、局部错误与请求竞态。
 import { api } from "./api.js";
 import { el } from "./components.js";
-import { normalizeArtifactReport, renderStockReport } from "./report-renderer.js?v=20260918-report-presentation-3";
-import { store } from "./state.js";
+import { normalizeArtifactReport, renderStockReport } from "./report-renderer.js?v=20261008-report-quality-1";
+import { store, switchView } from "./state.js";
 import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js";
 
 let initialized = false;
@@ -55,12 +55,36 @@ function buildNavigation(article) {
   }
 }
 
-function renderDrawerContent(artifact) {
-  const article = renderStockReport(normalizeArtifactReport(artifact), {
+function renderDrawerContent(artifact, commentaryState = {}) {
+  const report = normalizeArtifactReport(artifact);
+  const article = renderStockReport(report, {
     sectionIdPrefix: "drawer-",
+    ...commentaryState,
+    onConfigure: () => { closeReportDrawer(); switchView("config"); },
+    onRetryCommentary: report.commentary_retry_id ? () => retryCommentary(artifact) : null,
   });
   content().replaceChildren(article);
   buildNavigation(article);
+}
+
+async function retryCommentary(artifact) {
+  const sequence = ++requestSequence;
+  const id = artifactId(artifact);
+  const report = normalizeArtifactReport(artifact);
+  renderDrawerContent(artifact, { commentaryBusy: true });
+  try {
+    const payload = await api.retryCommentary(report.commentary_retry_id, {
+      artifact_id: id, session_id: artifact.session_id ?? store.currentSessionId,
+    });
+    if (artifact.payload?.commentary_retry_id !== report.commentary_retry_id) return;
+    artifact.payload = payload;
+    cacheArtifact(artifact);
+    if (!isCurrent(sequence, id)) return;
+    renderDrawerContent(artifact);
+  } catch (error) {
+    if (!isCurrent(sequence, id)) return;
+    renderDrawerContent(artifact, { commentaryError: error.message });
+  }
 }
 
 function isCurrent(sequence, id) {

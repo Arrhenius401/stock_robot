@@ -1496,3 +1496,53 @@ body.subs-modal-open { overflow: hidden; }
 .radar-update-market-table th,.radar-update-market-table td{padding:12px 10px;border-bottom:1px solid var(--border-soft);text-align:left;vertical-align:top;overflow-wrap:anywhere;}
 .radar-update-block{display:block;margin-top:5px;}
 @media(max-width:760px){.radar-update-market-table{font-size:11px;table-layout:fixed;}.radar-update-market-table th,.radar-update-market-table td{padding:9px 4px;}.radar-update-market-table th:first-child{width:32%;}}
+
+/* 个股研报统一字号和字段布局，仅影响共享研报容器。 */
+.stock-report { font-size: 15px; line-height: 1.65; }
+.stock-report .panel-title { font-size: 16px; color: var(--text); letter-spacing: 0; text-transform: none; }
+.stock-report .stock-name, .stock-report .stock-price { font-size: 20px; }
+.stock-report .stock-code, .stock-report .chg, .stock-report .k,
+.stock-report .mtr .k, .stock-report .kv .k, .stock-report .report-detail-row .k,
+.stock-report .report-summary-meta, .stock-report .score-note { font-size: 13px; }
+.stock-report .dim-sum, .stock-report .report-empty, .stock-report .mtr .v,
+.stock-report .kv .v, .stock-report .report-metric-list, .stock-report .report-detail-row .v,
+.stock-report .report-investment-summary, .stock-report .score-row { font-size: 15px; }
+.stock-report .badge, .stock-report .flag { font-size: 12px; }
+.stock-report .report-dimension-heading { gap: 12px; align-items: baseline; margin-bottom: 8px; }
+.stock-report .report-dimension-heading .panel-title { margin: 0; }
+.stock-report .dim-score { font-size: 16px; }
+.stock-report .report-section-heading { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.stock-report .report-section-heading .panel-title { margin: 0; }
+.stock-report .md td { font-size: 15px; }
+.stock-report .md th { font-size: 13px; }
+.stock-report .report-score-unavailable { font-size: 20px; }
+.stock-report .llm { border: 1px solid var(--border-soft); border-radius: 12px; background: var(--panel); }
+.stock-report .report-risk-item .v, .stock-report .report-quality-limitation dd { color: #a44932; }
+.stock-report .report-header { justify-content: space-between; flex-wrap: wrap; padding: 0 0 12px; }
+.stock-report .report-identity { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; min-width: 0; }
+.stock-report .report-investment-summary { margin: 12px 0; }
+.stock-report .report-summary-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; padding: 12px 0; border-top: 1px solid var(--border-soft); }
+.stock-report .report-summary-meta { display: flex; flex-wrap: wrap; gap: 8px 24px; border-top: 1px solid var(--border-soft); padding-top: 10px; color: var(--text-4); }
+.stock-report .report-quality-row { padding: 14px 0; border-top: 1px solid var(--border-soft); }
+.stock-report .report-quality-row:last-child { padding-bottom: 0; }
+.stock-report .report-quality-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.stock-report .report-quality-heading h3 { font-size: 15px; margin: 0; font-weight: 650; }
+.stock-report .report-quality-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 28px; margin: 0; }
+.stock-report .report-quality-field { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 10px; align-items: baseline; min-width: 0; }
+.stock-report .report-quality-field dt { font-size: 13px; color: var(--text-4); }
+.stock-report .report-quality-field dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.stock-report .report-quality-source { grid-column: 2; grid-row: 1; }
+.stock-report .report-quality-date { grid-column: 2; grid-row: 2; }
+.stock-report .report-quality-wide { grid-column: 1 / -1; }
+.stock-report .report-pending-list { padding-left: 20px; display: grid; gap: 8px; }
+.stock-report .report-commentary-error { color: var(--warn); font-size: 13px; margin-top: 8px; }
+.stock-report .report-retry-commentary, .stock-report .report-configure-commentary { margin-top: 10px; }
+.stock-report .mtr > div { min-width: 0; overflow-wrap: anywhere; }
+@media(max-width:760px) {
+  .stock-report .report-summary-facts, .stock-report .report-quality-fields { grid-template-columns: minmax(0, 1fr); }
+  .stock-report .report-quality-source, .stock-report .report-quality-date, .stock-report .report-quality-wide { grid-column: auto; grid-row: auto; }
+  .stock-report .report-dimension-heading { flex-wrap: wrap; }
+  .stock-report .report-detail-row { grid-template-columns: 60px minmax(0, 1fr); gap: 8px; }
+  .stock-report .score-big { align-items: flex-start; flex-wrap: wrap; }
+  .stock-report .score-rows { min-width: 100%; }
+}

@@ -2,7 +2,7 @@ import { api } from "./api.js";
 import { el, errorCard, skeleton } from "./components.js";
 import { renderMarkdown } from "./markdown.js";
 import { bus } from "./state.js";
-import { localizeReportMarkdown, renderStockMarkdownReport } from "./report-renderer.js?v=20260918-report-presentation-4";
+import { localizeReportMarkdown, renderStockMarkdownReport } from "./report-renderer.js?v=20261008-report-quality-1";
 
 const TYPE_LABELS = {
   stock: "个股",

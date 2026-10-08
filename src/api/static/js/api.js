@@ -74,6 +74,12 @@ export const api = {
   analyze(symbol) {
     return request("/api/v1/analyze", { method: "POST", body: JSON.stringify({ symbol }) });
   },
+  retryCommentary(reportToken, artifact = {}) {
+    return request("/api/v1/commentary/retry", {
+      method: "POST",
+      body: JSON.stringify({ report_token: reportToken, ...artifact }),
+    });
+  },
   indices(query = "") {
     const suffix = query ? `?q=${encodeURIComponent(query)}` : "";
     return request(`/api/v1/indices${suffix}`);

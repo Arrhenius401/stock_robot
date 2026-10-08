@@ -1,9 +1,9 @@
 // 个股报告视图：渲染 /api/v1/analyze 完整 JSON（纵向研报流）
-import { store, switchView } from "./state.js";
+import { store, switchView, bus } from "./state.js";
 import { api } from "./api.js";
 import { el, errorCard, skeleton,
          showEntryError, clearEntryError } from "./components.js";
-import { renderStockReport } from "./report-renderer.js?v=20261002-strategy-valuation-2";
+import { renderStockReport } from "./report-renderer.js?v=20261008-report-quality-1";
 
 const content = () => document.getElementById("reportContent");
 
@@ -56,7 +56,7 @@ export async function openReport(symbol, entryInputId = "stockInput") {
   }
 }
 
-function renderReport(d) {
+function renderReport(d, commentaryState = {}) {
   const box = content();
   const refresh = el("button", "btn-refresh", "刷新报告");
   refresh.addEventListener("click", () => {
@@ -65,8 +65,34 @@ function renderReport(d) {
     delete store.reportCache[symbol];
     openReport(symbol);
   });
-  box.replaceChildren(renderStockReport(d, { sectionIdPrefix: "page-" }), refresh);
+  box.replaceChildren(renderStockReport(d, {
+    sectionIdPrefix: "page-",
+    ...commentaryState,
+    onConfigure: () => switchView("config"),
+    onRetryCommentary: d.commentary_retry_id ? () => retryCommentary(d) : null,
+  }), refresh);
 }
+
+async function retryCommentary(report) {
+  const sequence = ++reqSeq;
+  const symbol = report.symbol || report.code;
+  renderReport(report, { commentaryBusy: true });
+  try {
+    const updated = await api.retryCommentary(report.commentary_retry_id);
+    // 只更新原批次的缓存；新分析、换页或换标的不会被迟到结果覆盖。
+    if (store.reportCache[symbol] !== report) return;
+    store.reportCache[symbol] = updated;
+    if (sequence !== reqSeq || store.currentView !== "report") return;
+    renderReport(updated);
+  } catch (error) {
+    if (sequence !== reqSeq || store.currentView !== "report") return;
+    renderReport(report, { commentaryError: error.message });
+  }
+}
+
+bus.addEventListener("view-change", (event) => {
+  if (event.detail.view !== "report") reqSeq += 1;
+});
 
 export function initReportView() {
   const input = document.getElementById("stockInput");
