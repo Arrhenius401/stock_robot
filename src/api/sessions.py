@@ -271,6 +271,15 @@ class SessionStore:
         return self._artifact_from_row(row) if row is not None else None
 
 
+    def update_artifact_payload(self, artifact_id: str, payload: dict) -> None:
+        """仅替换现有成果内容，保留报告所属会话和消息关系。"""
+        with self._lock, self._get_conn() as conn:
+            conn.execute(
+                "UPDATE artifacts SET payload_json=?, updated_at=? WHERE artifact_id=?",
+                (json.dumps(payload, ensure_ascii=False, default=str), time.time(), artifact_id),
+            )
+
+
 class SessionManager:
     """会话管理器 — 内存缓存 Memory + SQLite 持久化，线程安全"""
 
@@ -400,6 +409,11 @@ class SessionManager:
         """线程安全地读取单个结构化报告成果。"""
         with self._lock:
             return self._store.get_artifact(artifact_id)
+
+    def update_artifact_payload(self, artifact_id: str, payload: dict) -> None:
+        """AI解读更新后，返回会话仍能读到相同报告。"""
+        with self._lock:
+            self._store.update_artifact_payload(artifact_id, payload)
 
     def get_session_detail(self, session_id: str) -> dict | None:
         """返回会话消息与成果；会话不存在时返回 None。"""
