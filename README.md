@@ -1,8 +1,21 @@
-# Stock Robot
+<p align="center">
+  <img src="assets/logo-reimu-piggy-bank-v2.png" alt="Stock Robot Logo" width="192">
+</p>
 
-<img src="assets/logo-reimu-piggy-bank-v2.png" alt="Stock Robot Logo" width="96">
+<h1 align="center">Stock Robot</h1>
 
-AI 驱动的股票与指数分析研报助手，提供 Web 界面、CLI 和 HTTP API。数据采集与指标计算由代码完成，LLM 负责生成自然语言解读。
+<p align="center"><strong>AI 驱动的股票与指数分析研报助手</strong></p>
+<p align="center">Web · CLI · HTTP API · MCP · AstrBot</p>
+
+<p align="center">
+  <a href="#快速开始">快速开始</a> ·
+  <a href="docs/使用指南.md">使用指南</a> ·
+  <a href="docs/运行环境.md">运行环境</a> ·
+  <a href="https://github.com/Arrhenius401/astrbot_plugin_stock_robot">AstrBot 插件</a>
+</p>
+
+数据采集与指标计算由代码完成，LLM 负责生成自然语言解读。
+
 
 ## 核心能力
 
@@ -73,6 +86,12 @@ stock-robot radar universe list           # 查看配置雷达标的池
 
 直接运行 `stock-robot` 也会显示帮助；各级 `--help` 保持可用。完整命令示例、参数说明和配置方法见[使用指南](docs/使用指南.md)。
 
+## 模型输出预算
+
+`llm.max_tokens` 默认是 `null`（自动），配置页“最大 Token 数”留空即可。OpenAI兼容接口不传该参数，采用供应商默认预算；Anthropic等必填接口查询模型能力并缓存，选取不超过模型上限的预算，能力不可用时回退8192。供应商或代理仍可能限制输出，自动不代表无限生成。
+
+填写正整数表示显式输出上限，程序不会在截断恢复时突破它。旧配置中的数值（包括2000）原样保留，需清空字段才能切换自动；更换模型不会要求手动调整自动模式。长度截断会记录原因，已有正文保留；自动模式下的空正文只有在可提高预算且有剩余时间时才恢复一次。网络重试和恢复共用生成超时，不重复获得整段等待时间。
+
 ## 数据与使用边界
 
 - 个股分析支持 A 股；指数支持范围可在 Web“股指分析 → 指数”目录中搜索，目录数据维护于 `data/index_mapping.csv`。
@@ -109,10 +128,3 @@ stock-robot radar universe list           # 查看配置雷达标的池
 ## 免责声明
 
 本工具仅用于个人学习与研究。数据和观点不构成投资建议，数据准确性与时效性无法保证；使用者需自行判断并承担投资风险。
-
-
-### 模型输出预算
-
-`llm.max_tokens` 默认是 `null`（自动），配置页“最大 Token 数”留空即可。OpenAI兼容接口不传该参数，采用供应商默认预算；Anthropic等必填接口查询模型能力并缓存，选取不超过模型上限的预算，能力不可用时回退8192。供应商或代理仍可能限制输出，自动不代表无限生成。
-
-填写正整数表示显式输出上限，程序不会在截断恢复时突破它。旧配置中的数值（包括2000）原样保留，需清空字段才能切换自动；更换模型不会要求手动调整自动模式。长度截断会记录原因，已有正文保留；自动模式下的空正文只有在可提高预算且有剩余时间时才恢复一次。网络重试和恢复共用生成超时，不重复获得整段等待时间。
