@@ -191,7 +191,7 @@ class TestGenerateCommentary:
         assert isinstance(commentary["bulk"], str)
         assert len(llm.calls) == 1  # 单次批量调用，不再逐维度+总结
 
-    def test_batch_commentary_all_unavailable_still_does_batch(self):
+    def test_batch_commentary_all_unavailable_skips_batch(self):
         reg = Registry()
         llm = CountingLLM()
         pipeline = _make_hermetic_pipeline(reg, llm, "openai")
@@ -200,8 +200,8 @@ class TestGenerateCommentary:
             AnalysisResult(dimension="technical", status="unavailable", summary="x", metrics={}),
         ]
         commentary = pipeline._generate_commentary("600350", "山东高速", results)
-        assert "bulk" in commentary  # 批量调用仍然会执行
-        assert len(llm.calls) == 1
+        assert commentary == {}
+        assert len(llm.calls) == 0
 
 
 class TestCacheHealth:

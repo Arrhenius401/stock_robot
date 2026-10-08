@@ -119,6 +119,7 @@ class EnrichedSentiment(BaseModel):
 
 class FinancialData(BaseModel):
     """单期财务数据"""
+    _data_source: str = PrivateAttr(default="")
     symbol: str
     fiscal_quarter: date
     revenue: float | None = None
@@ -136,6 +137,7 @@ class FinancialData(BaseModel):
 
 class PriceData(BaseModel):
     """日线行情数据"""
+    _data_source: str = PrivateAttr(default="")
     symbol: str
     trade_date: date
     open: float = Field(ge=0)
@@ -148,6 +150,7 @@ class PriceData(BaseModel):
 
 class ValuationData(BaseModel):
     """估值指标"""
+    _data_source: str = PrivateAttr(default="")
     symbol: str
     date: date
     pe_ttm: float | None = None
@@ -166,6 +169,7 @@ class PeerBasicInfo(BaseModel):
 
 class IndustryData(BaseModel):
     """行业分类与同行业公司"""
+    _data_source: str = PrivateAttr(default="")
     symbol: str
     industry: str
     sector: str
@@ -185,6 +189,7 @@ class IndustryData(BaseModel):
 
 class NewsData(BaseModel):
     """新闻舆情数据"""
+    _data_source: str = PrivateAttr(default="")
     symbol: str
     date: date
     headlines: list[str] = Field(default_factory=list)
@@ -213,6 +218,15 @@ class AnalysisResult(BaseModel):
     industry_note: str = ""
 
 
+class DataCollectionRecord(BaseModel):
+    """采集出处与时效，旧缓存未知值保持空缺。"""
+    source: str = ""
+    collected_at: datetime | None = None
+    cache_status: Literal["live", "cache", "stale", "unknown"] = "unknown"
+    error_kind: str = ""
+    error_message: str = ""
+
+
 class AnalysisContext(BaseModel):
     """分析上下文 — 管道中传递的完整数据容器"""
     symbol: str
@@ -223,7 +237,8 @@ class AnalysisContext(BaseModel):
     valuation_data: ValuationData | None = None  # 只存当日单时点，日频序列走 enriched_valuation
     industry_data: IndustryData | None = None
     news_data: NewsData | None = None
-    collected_at: datetime = Field(default_factory=datetime.now)
+    collected_at: datetime = Field(default_factory=lambda: datetime.now().astimezone())
+    collection_records: dict[str, DataCollectionRecord] = Field(default_factory=dict)
 
     # 采集层 — 舆情原始数据
     raw_sentiment: RawSentimentData | None = None

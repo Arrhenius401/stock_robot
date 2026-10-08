@@ -156,7 +156,11 @@ class ValuationEnricher(DataEnricher):
         valid_pb = [d for d in daily_points if d.pb is not None]
         valid_count = max(len(valid_pe), len(valid_pb))
 
-        if ttm_profit <= 0 and valid_pb:
+        if valid_count < 30:
+            level = SufficiencyLevel.INSUFFICIENT
+            weight = 0.0
+            reason = f"有效估值点数仅 {valid_count}（<30），估值分析不可用"
+        elif ttm_profit <= 0 and valid_pb:
             level = SufficiencyLevel.PARTIAL
             weight = 0.5
             reason = f"TTM 净利润非正，PE 不适用；PB 有效点数 {len(valid_pb)}"
@@ -164,14 +168,10 @@ class ValuationEnricher(DataEnricher):
             level = SufficiencyLevel.SUFFICIENT
             weight = 1.0
             reason = f"有效估值点数 {valid_count}（≥120），可计算完整历史分位"
-        elif valid_count >= 30:
+        else:
             level = SufficiencyLevel.PARTIAL
             weight = 0.5
             reason = f"有效估值点数 {valid_count}（30–119），仅展示当前值不计算分位"
-        else:
-            level = SufficiencyLevel.INSUFFICIENT
-            weight = 0.0
-            reason = f"有效估值点数仅 {valid_count}（<30），估值分析不可用"
 
         pe_values = sorted([d.pe for d in valid_pe])
 

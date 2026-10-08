@@ -1,15 +1,23 @@
 """管道调度器 — 串联数据采集→分析→LLM 解读→报告输出的完整流程"""
 import json
 import logging
+import math
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date, datetime
 from pathlib import Path
 
 from core.circuit_breaker import CircuitBreaker
 from core.registry import Registry
 from data.cache import CacheManager
-from data.schemas import AnalysisContext, AnalysisResult, AnalysisTarget
+from data.schemas import (
+    AnalysisContext,
+    AnalysisResult,
+    AnalysisTarget,
+    DataCollectionRecord,
+    SufficiencyLevel,
+)
 from utils.config import Config
 
 logger = logging.getLogger(__name__)
@@ -117,6 +125,19 @@ class Pipeline:
         def fetch_one(data_type: str, stagger_index: int):
             # 递增错峰：第 n 个线程延迟 n*0.15s，减轻上游瞬时压力
             time.sleep(stagger_index * 0.15)
+            record = DataCollectionRecord()
+            raw_record = self._cache.get_metadata(data_type, symbol, "latest")
+            if raw_record:
+                try:
+                    record = DataCollectionRecord.model_validate_json(raw_record)
+                except ValueError:
+                    logger.debug("缓存采集记录损坏 %s/%s", symbol, data_type)
+            cached_record = record
+            stale_record = cached_record.model_copy(update={
+                "cache_status": "stale", "error_kind": "live_unavailable",
+                "error_message": "实时数据不可用，使用过期缓存",
+            })
+            failure_record = DataCollectionRecord(error_kind="empty", error_message="数据源未返回可用数据")
             stale_cached = None
             if data_type == "news" and not refresh_cache:
                 stale_cached = self._get_stale_cached(symbol, data_type)
@@ -125,13 +146,13 @@ class Pipeline:
                 cached = self._get_cached(symbol, data_type)
                 if cached is not None:
                     self._breaker.record_success(symbol, data_type)
-                    return data_type, cached
+                    return data_type, cached, record.model_copy(update={"cache_status": "cache"})
             if self._breaker.is_open(symbol, data_type):
                 logger.warning(f"断路器打开: {symbol}/{data_type}，跳过源头请求")
                 if stale_cached is not None:
                     logger.warning(f"{symbol}/{data_type} 断路器打开，使用过期缓存兜底")
-                    return data_type, stale_cached
-                return data_type, None
+                    return data_type, stale_cached, stale_record
+                return data_type, None, failure_record
 
             sources = self._registry.get_data_sources(market, data_type)
             for source in sources:
@@ -144,29 +165,52 @@ class Pipeline:
                                 sw_level2=ctx.sw_industry_level2,
                             )
                         result = source.fetch(symbol, **fetch_kwargs)
+                        diagnostic = None
+                        diagnostic_reader = getattr(source, "get_collection_error", None)
+                        if callable(diagnostic_reader):
+                            diagnostic = diagnostic_reader()
+                            if isinstance(diagnostic, DataCollectionRecord):
+                                failure_record = diagnostic
                         if result:
+                            record = DataCollectionRecord(
+                                source=getattr(result[0], "_data_source", "") or source.__class__.__name__,
+                                collected_at=datetime.now().astimezone(), cache_status="live",
+                            )
+                            if data_type == "price" and not self._is_healthy(data_type, result):
+                                logger.warning("行情格式校验失败 %s", symbol)
+                                failure_record = DataCollectionRecord(source=record.source,
+                                    error_kind="invalid_data", error_message="行情日期或价格格式无效")
+                                continue
                             if self._is_healthy(data_type, result):
-                                self._set_cache(symbol, data_type, result)
+                                self._set_cache(symbol, data_type, result, record)
                                 self._breaker.record_success(symbol, data_type)
                             else:
                                 # 退化结果：不落库（_set_cache 门控双保险），计失败促断路器
-                                self._set_cache(symbol, data_type, result)
+                                if isinstance(diagnostic, DataCollectionRecord):
+                                    record = record.model_copy(update={
+                                        "error_kind": diagnostic.error_kind,
+                                        "error_message": diagnostic.error_message,
+                                    })
+                                self._set_cache(symbol, data_type, result, record)
                                 self._breaker.record_failure(symbol, data_type)
                                 if data_type == "news" and stale_cached is not None:
                                     logger.warning(f"{symbol}/{data_type} 实时数据退化，使用过期缓存兜底")
                                     self._breaker.record_success(symbol, data_type)
-                                    return data_type, stale_cached
-                            return data_type, result
+                                    return data_type, stale_cached, stale_record
+                            return data_type, result, record
                     except Exception as e:  # noqa: BLE001 — 多数据源逐个尝试，单源失败降级
                         logger.warning(f"数据源 {source.__class__.__name__} 获取 {data_type} 失败: {e}")
+                        kind = "timeout" if isinstance(e, TimeoutError) or "Timeout" in type(e).__name__ else "fetch_failed"
+                        failure_record = DataCollectionRecord(source=source.__class__.__name__,
+                            error_kind=kind, error_message="数据请求超时" if kind == "timeout" else "数据请求失败")
                     if attempt == 0:
                         time.sleep(1)  # 重试前等待 1 秒
             self._breaker.record_failure(symbol, data_type)
             if stale_cached is not None:
                 logger.warning(f"{symbol}/{data_type} 实时采集失败，使用过期缓存兜底")
                 self._breaker.record_success(symbol, data_type)
-                return data_type, stale_cached
-            return data_type, None
+                return data_type, stale_cached, stale_record
+            return data_type, None, failure_record
 
         stagger_counter = 0
         with ThreadPoolExecutor(max_workers=5) as executor:
@@ -175,7 +219,8 @@ class Pipeline:
                 futures[executor.submit(fetch_one, dt, stagger_counter)] = dt
                 stagger_counter += 1
             for future in as_completed(futures):
-                data_type, result = future.result()
+                data_type, result, record = future.result()
+                ctx.collection_records[data_type] = record
                 if result is not None:
                     self._assign_to_context(ctx, data_type, result)
                     if data_type == "industry" and not ctx.sw_industry:
@@ -225,14 +270,19 @@ class Pipeline:
         enricher.register(ValuationEnricher())
         enricher.register(IndustryEnricher())
 
-        sentiment_enricher = SentimentEnricher()
-        if self._llm_enabled:
-            provider = self._config.get("llm.provider", "openai")
-            llm = self._registry.get_llm_backend(provider)
-            sentiment_enricher.set_llm(llm)
-        enricher.register(sentiment_enricher)
-
+        # 主要维度完成确定性充实后再决定是否允许舆情模型调用。
         ctx = enricher.enrich(ctx)
+        sentiment_enricher = SentimentEnricher()
+        has_main_data = any(
+            getattr(ctx.sufficiency, key).level != SufficiencyLevel.INSUFFICIENT
+            for key in ("price", "financial", "valuation", "industry")
+        )
+        if self._llm_enabled and (has_main_data or dimension == "sentiment"):
+            provider = self._config.get("llm.provider", "openai")
+            sentiment_enricher.set_llm(self._registry.get_llm_backend(provider))
+        sentiment_stage = ContextEnricher()
+        sentiment_stage.register(sentiment_enricher)
+        ctx = sentiment_stage.enrich(ctx)
 
         # 新增：加载行业配置
         industry_config = self._config_loader.load(ctx.sw_industry)
@@ -253,7 +303,7 @@ class Pipeline:
                     logger.error(f"分析模块 {mod.dimension} 执行失败: {e}")
                     results.append(AnalysisResult(
                         dimension=mod.dimension, status="unavailable",
-                        summary=f"分析模块异常: {e}", metrics={}))
+                        summary="分析模块暂时不可用", metrics={}))
                 completed += 1
                 if on_progress:
                     on_progress("analyze", completed, total,
@@ -275,6 +325,9 @@ class Pipeline:
                              on_progress: ProgressCallback = None) -> dict[str, str]:
         """单次批量 LLM 调用，生成四段结构化解读"""
         commentary = {}
+        if not any(r.dimension in ("financial", "technical", "valuation", "industry")
+                   and r.score is not None and r.status != "unavailable" for r in results):
+            return commentary
         provider = self._config.get("llm.provider", "openai")
         llm = self._registry.get_llm_backend(provider)
         if llm is None:
@@ -380,7 +433,8 @@ class Pipeline:
                 self._cache.invalidate(data_type, symbol, "latest")
                 return None
             return results
-        except Exception:  # noqa: BLE001 — 缓存损坏视为未命中
+        except (ValueError, TypeError, KeyError, AttributeError):
+            logger.debug("缓存格式无效 %s/%s", symbol, data_type)
             return None
 
     def _get_stale_cached(self, symbol: str, data_type: str) -> list | None:
@@ -400,7 +454,8 @@ class Pipeline:
                     if raw_sentiment is not None:
                         raw_sentiment._from_stale_cache = True
             return results
-        except Exception:  # noqa: BLE001 — 缓存损坏视为无兜底
+        except (ValueError, TypeError, KeyError, AttributeError):
+            logger.debug("过期缓存格式无效 %s/%s", symbol, data_type)
             return None
 
     def _is_healthy(self, data_type: str, data: list) -> bool:
@@ -415,8 +470,14 @@ class Pipeline:
             if all(f.total_equity is None and f.total_assets is None for f in data):
                 return False
         elif data_type == "price":
-            if len(data) < 60:
-                return False
+            for item in data:
+                values = (item.open, item.high, item.low, item.close, item.volume)
+                if (not isinstance(item.trade_date, date)
+                        or not all(math.isfinite(value) and value >= 0 for value in values)
+                        or min(item.open, item.close, item.low) <= 0
+                        or item.high < max(item.open, item.close, item.low)
+                        or item.low > min(item.open, item.close)):
+                    return False
         elif data_type == "valuation":
             if all(v.pe_ttm is None and v.pb is None for v in data):
                 return False
@@ -428,7 +489,8 @@ class Pipeline:
             return len(getattr(news, "headlines", []) or []) >= 3
         return True
 
-    def _set_cache(self, symbol: str, data_type: str, data: list):
+    def _set_cache(self, symbol: str, data_type: str, data: list,
+                   record: DataCollectionRecord | None = None):
         if not self._is_healthy(data_type, data):
             logger.info(f"缓存 {data_type}/{symbol} 数据退化，跳过持久化")
             return
@@ -447,7 +509,8 @@ class Pipeline:
                 dicts.append(d)
             serialized = json.dumps(dicts, ensure_ascii=False, default=str)
             ttl = self._config.get(f"data.cache_ttl.{TTL_KEY_MAP.get(data_type, 'daily')}", 86400)
-            self._cache.put(data_type, symbol, date_key, serialized, ttl_seconds=ttl)
+            self._cache.put(data_type, symbol, date_key, serialized, ttl_seconds=ttl,
+                            metadata=record.model_dump_json() if record else None)
             self._cache.cleanup_old_entries(data_type, symbol, date_key)
         except Exception as e:  # noqa: BLE001 — 缓存写入失败不影响分析结果
             logger.warning(f"缓存 {data_type} 失败: {e}")

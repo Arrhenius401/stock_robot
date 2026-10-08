@@ -54,7 +54,10 @@ class FinancialAnalyzer(AnalysisModule):
                 roe_trend.append({"quarter": d.fiscal_quarter.isoformat(), "roe": round(d.roe, 4)})
         metrics["roe_trend"] = roe_trend
 
-        status = "partial" if len(sorted_data) < 3 else "ok"
+        status = "ok" if (
+            len(sorted_data) >= 4
+            and context.sufficiency.financial.level == SufficiencyLevel.SUFFICIENT
+        ) else "partial"
         summary = self._build_summary(metrics, status)
 
         # 数据充足性检查
