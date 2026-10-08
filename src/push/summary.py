@@ -1,4 +1,5 @@
 """推送内容构建 — 股票/指数的微信摘要与邮箱全文"""
+from report.quality import build_data_quality
 from report.scoring import compute_price_info, compute_score_summary
 from report.signal import SIGNAL_LABELS, derive_signal
 
@@ -13,10 +14,16 @@ def build_stock_summary(symbol: str, name: str, results, ctx,
         pct = price["change_pct"]
         pct_txt = f"（{pct:+.2f}%）" if pct is not None else ""
         lines.append(f"> 最新收盘：{price['latest_price']} {pct_txt}")
-    level = derive_signal(summary.final_score, signal_cfg.thresholds)
-    action = signal_cfg.actions[level]
-    lines.append(f"> 操作信号：**{SIGNAL_LABELS[level]}**｜{action.action}（{action.position}）")
-    lines.append(f"> 综合得分：{summary.final_score}/10（风险扣分 {summary.risk_deduction}）")
+    quality = build_data_quality(ctx, results)
+    if quality["signal_allowed"] and summary.final_score is not None:
+        level = derive_signal(summary.final_score, signal_cfg.thresholds)
+        action = signal_cfg.actions[level]
+        lines.append(f"> 操作信号：**{SIGNAL_LABELS[level]}**｜{action.action}（{action.position}）")
+    else:
+        lines.append("> 数据依据不完整，暂无操作信号和仓位建议。")
+    score_text = f"{summary.final_score}/10" if quality["has_scored_data"] and summary.final_score is not None else "暂无"
+    lines.append(f"> 综合得分：{score_text}（风险扣分 {summary.risk_deduction}）")
+    lines.append(f"> 计分维度覆盖：{quality['coverage']}%")
     for row in summary.score_rows:
         lines.append(f"- {row['label']}：{row['score']}（{row['sufficiency']}）")
     for flag in summary.risk_flags:

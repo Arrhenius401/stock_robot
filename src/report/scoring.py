@@ -19,9 +19,9 @@ LLM_UNAVAILABLE_PREFIXES = ("（LLM 分析暂时不可用", "LLM 分析暂时不
 @dataclass
 class ScoreSummary:
     score_rows: list[dict] = field(default_factory=list)
-    base_score: float = 0.0
+    base_score: float | None = None
     risk_deduction: int = 0
-    final_score: float = 0.0
+    final_score: float | None = None
     risk_flags: list[str] = field(default_factory=list)
 
 
@@ -35,7 +35,7 @@ def compute_score_summary(results: list[AnalysisResult]) -> ScoreSummary:
     total_weight = 0.0
     for dim, weight in DIM_WEIGHTS.items():
         r = results_map.get(dim)
-        if r and r.score is not None:
+        if r and r.status != "unavailable" and r.score is not None:
             base_score += r.score * weight
             total_weight += weight
     if total_weight > 0:
@@ -45,14 +45,16 @@ def compute_score_summary(results: list[AnalysisResult]) -> ScoreSummary:
     for r in results:
         risk_deduction += len(r.risk_flags)
     risk_deduction = min(risk_deduction, 10)
-    final_score = max(0, base_score - risk_deduction)
+    final_score = max(0, base_score - risk_deduction) if total_weight else None
+    if not total_weight:
+        base_score = None
 
     for dim, label in DIM_LABELS.items():
         r = results_map.get(dim)
         if r:
             score_rows.append({
                 "label": label,
-                "score": f"{r.score:.1f}" if r.score is not None else "N/A",
+                "score": f"{r.score:.1f}" if r.status != "unavailable" and r.score is not None else "N/A",
                 "weight": DIM_WEIGHT_LABELS[dim],
                 "sufficiency": SUFFICIENCY_LABEL.get(r.status, r.status),
                 "detail": r.score_detail or "",
@@ -65,8 +67,8 @@ def compute_score_summary(results: list[AnalysisResult]) -> ScoreSummary:
 
 
 def compute_price_info(ctx: AnalysisContext) -> dict:
-    """从价格序列计算年内高低点与当前位置"""
-    price_data = ctx.price_data or []
+    """从实际采集区间计算高低点与当前位置。"""
+    price_data = sorted(ctx.price_data or [], key=lambda point: point.trade_date)
     year_high = max(p.high for p in price_data) if price_data else None
     year_low = min(p.low for p in price_data) if price_data else None
     latest_price = price_data[-1].close if price_data else None
@@ -78,7 +80,9 @@ def compute_price_info(ctx: AnalysisContext) -> dict:
         price_position = "暂无"
     return {"year_high": year_high, "year_low": year_low,
             "latest_price": latest_price, "price_position": price_position,
-            "change_pct": change_pct}
+            "change_pct": change_pct,
+            "price_start": price_data[0].trade_date.isoformat() if price_data else None,
+            "price_end": price_data[-1].trade_date.isoformat() if price_data else None}
 
 
 def _fallback_neutral_commentary(summary: ScoreSummary) -> str:
@@ -88,7 +92,9 @@ def _fallback_neutral_commentary(summary: ScoreSummary) -> str:
     available_text = "、".join(available) if available else "暂无"
     missing_text = "、".join(missing) if missing else "无"
 
-    if summary.final_score >= 7:
+    if summary.final_score is None:
+        tendency = "信息不足"
+    elif summary.final_score >= 7:
         tendency = "偏正面"
     elif summary.final_score >= 4:
         tendency = "中性"
@@ -102,7 +108,8 @@ def _fallback_neutral_commentary(summary: ScoreSummary) -> str:
         "",
         (
             f"1. 综合数据表现{tendency}。当前可用维度：{available_text}；"
-            f"缺失或未计分维度：{missing_text}。最终综合得分为 {summary.final_score}/10。"
+            f"缺失或未计分维度：{missing_text}。"
+            + (f"最终综合得分为 {summary.final_score}/10。" if summary.final_score is not None else "暂无综合得分。")
         ),
     ]
     if summary.risk_deduction > 0:
@@ -135,9 +142,15 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
                  signal_cfg: SignalConfig | None = None) -> str:
     """组装完整报告文本（ReportBuilder 渲染）"""
     from report.builder import ReportBuilder
+    from report.quality import build_data_quality
 
+    quality = build_data_quality(ctx, results)
     summary = compute_score_summary(results)
-    commentary = with_commentary_fallback(commentary, summary, no_llm)
+    if not quality["has_scored_data"]:
+        summary.base_score = None
+        summary.final_score = None
+        commentary = {}
+    commentary = with_commentary_fallback(commentary, summary, no_llm) if quality["has_scored_data"] else commentary
     price_info = compute_price_info(ctx)
     if ctx.sw_industry:
         industry = ctx.sw_industry
@@ -148,7 +161,7 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
         industry = "申万行业待补全（数据源不可用）"
 
     signal = None
-    if signal_cfg is not None:
+    if signal_cfg is not None and quality["signal_allowed"] and summary.final_score is not None:
         level = derive_signal(summary.final_score, signal_cfg.thresholds)
         action = signal_cfg.actions[level]
         signal = {"level": level, "label": SIGNAL_LABELS[level],
@@ -172,4 +185,7 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
         risk_flags=summary.risk_flags,
         market_env=market_env,
         signal=signal,
+        data_quality=quality,
+        price_start=price_info["price_start"],
+        price_end=price_info["price_end"],
     )

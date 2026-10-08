@@ -16,12 +16,16 @@ def _ctx():
     from datetime import date
 
     from data.schemas import PriceData
-    return AnalysisContext(
+    ctx = AnalysisContext(
         symbol="600519", name="贵州茅台",
         price_data=[PriceData(symbol="600519", trade_date=date(2026, 8, 19),
                               open=1, high=2, low=1, close=1500.0, volume=10000,
                               change_pct=2.35)],
     )
+    from data.schemas import DimensionSufficiency, SufficiencyLevel
+    for key in ("financial", "price", "valuation", "industry"):
+        setattr(ctx.sufficiency, key, DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT, sample_count=60))
+    return ctx
 
 
 def _signal_cfg():
@@ -41,8 +45,8 @@ class TestStockSummary:
 
     def test_signal_level_by_score(self):
         high = build_stock_summary("600519", "贵州茅台",
-                                   [AnalysisResult(dimension="financial", status="ok",
-                                                   score=9.0, summary="s", metrics={})],
+                                   [AnalysisResult(dimension=dim, status="ok", score=9.0, summary="s", metrics={})
+                                    for dim in ("financial", "technical", "valuation", "industry")],
                                    _ctx(), _signal_cfg())
         assert "进攻" in high
 
@@ -84,3 +88,16 @@ class TestStockFull:
                                 _ctx(), _signal_cfg())
         assert "贵州茅台" in text
         assert "解读" in text
+
+
+def test_incomplete_push_withholds_signal():
+    text = build_stock_summary("600519", "贵州茅台", _results(), _ctx(), _signal_cfg())
+    assert "操作信号：" not in text
+    assert "暂无操作信号和仓位建议" in text
+
+
+def test_unavailable_push_has_no_zero_score():
+    ctx = AnalysisContext(symbol="000001", name="测试")
+    text = build_stock_summary(ctx.symbol, ctx.name, [], ctx, _signal_cfg())
+    assert "综合得分：暂无" in text
+    assert "防御" not in text

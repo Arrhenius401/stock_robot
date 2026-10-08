@@ -101,7 +101,7 @@ class TestLoadSignalConfig:
 
 class TestBuildReportSignal:
     def _build(self, tmp_path, final_score):
-        """构造单维度结果，控制 final_score"""
+        """构造四个充分维度，控制 final_score。"""
         from data.schemas import AnalysisContext, AnalysisResult
         from report.scoring import build_report
 
@@ -109,7 +109,12 @@ class TestBuildReportSignal:
             dimension="financial", status="ok", summary="财务健康",
             score=final_score, metrics={"roe": 0.12},
         )]
+        from data.schemas import DimensionSufficiency, SufficiencyLevel
+        results = [AnalysisResult(dimension=dim, status="ok", summary="样本充分", score=final_score)
+                   for dim in ("financial", "technical", "valuation", "industry")]
         ctx = AnalysisContext(symbol="000001", name="平安银行")
+        for key in ("financial", "price", "valuation", "industry"):
+            setattr(ctx.sufficiency, key, DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT, sample_count=60))
         return build_report("000001", "平安银行", results, {"bulk": "解读"},
                             ctx, no_llm=True, signal_cfg=load_signal_config(Config(config_dir=tmp_path)))
 

@@ -19,9 +19,10 @@
 | 股票名称 | {{ name }} |
 | 股票代码 | {{ symbol }} |
 | 所属行业 | {{ industry }} |
-| 近1年最高价 | {{ year_high }} |
-| 近1年最低价 | {{ year_low }} |
+| 采集区间最高价 | {{ year_high }} |
+| 采集区间最低价 | {{ year_low }} |
 | 当前价格位置 | {{ price_position }} |
+| 行情区间 | {{ price_start or "未记录" }} 至 {{ price_end or "未记录" }} |
 
 ---
 
@@ -32,7 +33,10 @@
 ### {{ {"financial": "1. 财务量化数据", "technical": "2. 技术面量化数据", "valuation": "3. 估值量化数据", "industry": "4. 行业对比量化数据", "sentiment": "5. 舆情量化数据"}[dim] }}
 
 {% set r = results_map.get(dim) %}
-{% if r and r.status != "unavailable" %}
+{% if r and r.metrics %}
+{% if r.status != "ok" %}
+> {{ r.summary }}（保留可用指标快照）
+{% endif %}
 {{ r.metrics | md_table }}
 {% if r.metrics.get("peers") %}
 **同行业公司：**
@@ -52,7 +56,7 @@
 {{ r.metrics["top_peers"] | md_table({"代码": "symbol", "名称": "name", "市值": "market_cap", "PE(TTM)": "pe_ttm", "PB": "pb"}) }}
 {% endif %}
 {% else %}
-> 该维度数据不足，已跳过
+> 该维度数据不足，已跳过（暂无可用指标）
 {% endif %}
 
 {% endfor %}
@@ -63,11 +67,11 @@
 
 {{ score_rows | md_table({"维度": "label", "得分": "score", "权重": "weight", "充足状态": "sufficiency"}) }}
 
-**综合得分（扣风险前）：** {{ base_score }}/10
+**综合得分（扣风险前）：** {{ (base_score|string) ~ "/10" if base_score is not none else "暂无" }}
 {% if risk_deduction > 0 %}
 **风险扣分：** -{{ risk_deduction }}
 {% endif %}
-**最终综合得分：** {{ final_score }}/10
+**最终综合得分：** {{ (final_score|string) ~ "/10" if final_score is not none else "暂无" }}
 
 {% for dim in score_rows %}
 {% if dim.detail %}
@@ -79,7 +83,11 @@
 
 ## 四、AI 中性解读 + 风险汇总
 
-{% if commentary.get("bulk") %}
+{% if data_quality and not data_quality.has_scored_data %}
+> 主要分析数据不可用，暂不生成 AI 结论。
+{% elif no_llm %}
+> 纯量化模式，未启用 AI 解读。
+{% elif commentary.get("bulk") %}
 {{ commentary["bulk"] }}
 {% else %}
 > AI 解读不可用
@@ -96,7 +104,11 @@
 
 ## 五、多风格观察视角
 
+{% if no_llm or (data_quality and not data_quality.has_scored_data) %}
+> 本次未生成模型观察视角。
+{% else %}
 > 多风格观察视角内容已包含在上方「AI 中性解读」的第 3 段中，详见上方 ## 3.多风格观察视角 部分。
+{% endif %}
 
 ---
 
@@ -107,3 +119,32 @@
 > 报告中的分数和多风格视角仅用于客观描述不同投资风格下的关注点差异，不构成任何形式的投资建议。
 > 市场有风险，投资需谨慎。使用者需自行承担全部投资决策风险。
 > （部分内容由 AI 生成）
+
+---
+
+## 七、待验证事项
+
+{% if data_quality and data_quality.pending_verifications %}
+{% for item in data_quality.pending_verifications %}
+- {{ item }}
+{% endfor %}
+{% else %}
+> 暂无额外待验证事项；仍需核对原始数据口径。
+{% endif %}
+
+---
+
+## 八、数据覆盖与时效
+
+{% if data_quality %}
+计分维度覆盖：{{ data_quality.coverage }}%。{% if not data_quality.signal_allowed %}数据依据不完整，暂无操作信号和仓位建议。{% endif %}
+
+{% for dimension in data_quality.dimensions %}
+### {{ dimension.title }} · {{ {"ok": "正常", "partial": "部分数据", "unavailable": "数据不可用"}[dimension.status] }}
+
+{{ dimension.fields | md_table({"项目": "label", "依据": "value"}) }}
+
+{% endfor %}
+{% else %}
+> 数据来源、样本范围与截止日未记录。
+{% endif %}

@@ -109,10 +109,12 @@ class ReportBuilder:
               industry: str = "未知", year_high: str = "暂无",
               year_low: str = "暂无", price_position: str = "暂无",
               score_rows: list[dict] | None = None,
-              base_score: float = 0, risk_deduction: float = 0,
-              final_score: float = 0, risk_flags: list[str] | None = None,
+              base_score: float | None = 0, risk_deduction: float = 0,
+              final_score: float | None = 0, risk_flags: list[str] | None = None,
               market_env: dict | None = None,
-              signal: dict | None = None) -> str:
+              signal: dict | None = None,
+              data_quality: dict | None = None,
+              price_start: str | None = None, price_end: str | None = None) -> str:
         results_map = {r.dimension: r for r in results}
         template = self._env.get_template("report_v2.jinja2")
         return template.render(
@@ -133,4 +135,7 @@ class ReportBuilder:
             final_score=final_score,
             risk_flags=risk_flags or [],
             signal=signal,
+            data_quality=data_quality,
+            price_start=price_start,
+            price_end=price_end,
         )

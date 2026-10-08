@@ -18,7 +18,10 @@ def _result(dimension, score,
 
 
 def _ctx(price_data=None):
-    return AnalysisContext(symbol="000001", name="测试股票", price_data=price_data)
+    from data.schemas import DimensionSufficiency, SufficiencyLevel
+    ctx = AnalysisContext(symbol="000001", name="测试股票", price_data=price_data)
+    ctx.sufficiency.financial = DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT, sample_count=6)
+    return ctx
 
 
 def _price(high, low, close):
