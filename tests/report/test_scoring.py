@@ -50,6 +50,7 @@ class TestComputeScoreSummary:
         ]
         summary = compute_score_summary(results)
         assert summary.risk_deduction == 10
+        assert summary.base_score is not None
         assert summary.final_score == max(0, summary.base_score - 10)
         assert len(summary.risk_flags) == 12
 

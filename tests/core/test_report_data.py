@@ -46,7 +46,9 @@ def test_technical_sample_status(count, status):
 def test_short_price_cached(tmp_path):
     pipe = Pipeline(Registry(), Config(config_dir=tmp_path), llm_enabled=False)
     pipe._set_cache("000001", "price", prices(19))
-    assert len(pipe._get_cached("000001", "price")) == 19
+    cached = pipe._get_cached("000001", "price")
+    assert cached is not None
+    assert len(cached) == 19
 
 
 def test_invalid_ohlc_not_cached(tmp_path):
@@ -121,7 +123,9 @@ def test_collection_source_roundtrip(tmp_path, monkeypatch):
         second.collection_records["price"].collected_at
         == first.collection_records["price"].collected_at
     )
-    assert first.collection_records["price"].collected_at.tzinfo is not None
+    collected_at = first.collection_records["price"].collected_at
+    assert collected_at is not None
+    assert collected_at.tzinfo is not None
 
 
 def test_expiry_removes_metadata(tmp_path, monkeypatch):
@@ -228,6 +232,7 @@ def test_empty_major_data_skips_sentiment_llm(tmp_path, monkeypatch):
     monkeypatch.setattr(pipe, "collect", lambda *args, **kwargs: ctx)
     _, commentary, _ = pipe.run("000001", "测试")
     assert commentary == {}
+    assert ctx.enriched_sentiment is not None
     assert ctx.enriched_sentiment.total_count == 3
     assert backend.calls == 0
 
@@ -258,6 +263,7 @@ def test_loss_pb_history_threshold(count, level, monkeypatch):
     monkeypatch.setattr(ValuationEnricher, "_get_total_shares", lambda *args: 100)
     ValuationEnricher().enrich(ctx)
     assert ctx.sufficiency.valuation.level.value == level
+    assert ctx.enriched_valuation is not None
     assert ctx.enriched_valuation.pb_percentile is None
     assert ctx.enriched_valuation.pe_percentile is None
 
