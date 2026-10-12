@@ -2,7 +2,7 @@ import { api } from "./api.js";
 import { el, errorCard, skeleton } from "./components.js";
 import { renderMarkdown } from "./markdown.js";
 import { bus } from "./state.js";
-import { localizeReportMarkdown, renderStockMarkdownReport } from "./report-renderer.js?v=20261008-report-quality-1";
+import { localizeReportMarkdown, renderStockMarkdownReport, renderStockReport } from "./report-renderer.js?v=20261012-report-library-1";
 
 const TYPE_LABELS = {
   stock: "个股",
@@ -213,9 +213,14 @@ function tabButton(value, label) {
   return button;
 }
 
-function renderTabs(report) {
+function renderTabs(report, detail) {
   const tabs = el("nav", "report-library-tabs");
-  tabs.appendChild(tabButton("markdown", "报告正文"));
+  if (report.type === "stock" && detail.stock_payload) {
+    tabs.appendChild(tabButton("report", "研报视图"));
+    tabs.appendChild(tabButton("markdown", "Markdown 原文"));
+  } else {
+    tabs.appendChild(tabButton("markdown", "报告正文"));
+  }
   if (report.type === "backtest") {
     tabs.appendChild(tabButton("curve", "净值曲线"));
     tabs.appendChild(tabButton("trades", "交易明细"));
@@ -325,6 +330,14 @@ function renderActiveTab(detail) {
   if (state.tab === "curve") return renderEquityCurve(detail.equity_curve);
   if (state.tab === "trades") return renderTrades(detail.trades);
   if (detail.report?.type === "stock") {
+    if (detail.stock_payload) {
+      if (state.tab === "report") {
+        return renderStockReport(detail.stock_payload, {
+          sectionIdPrefix: "library-", readOnly: true, archiveMarkdown: detail.markdown,
+        });
+      }
+      return renderMarkdownTab(detail);
+    }
     return renderStockMarkdownReport(detail.markdown, { sectionIdPrefix: "library-" });
   }
   return renderMarkdownTab(detail);
@@ -362,8 +375,9 @@ function renderDetail() {
   head.appendChild(actions);
 
   const panel = el("section", "panel report-library-detail-panel");
-  panel.appendChild(renderMetrics(detail));
-  panel.appendChild(renderTabs(report));
+  if (report.type === "backtest") panel.appendChild(renderMetrics(detail));
+  if (report.type === "stock") panel.classList.add("report-library-stock-panel");
+  panel.appendChild(renderTabs(report, detail));
 
   const body = el("div", "report-library-detail-body");
   body.appendChild(renderActiveTab(detail));
@@ -379,7 +393,7 @@ async function openDetail(id) {
   target.replaceChildren(skeleton("正在打开报告详情…"));
   try {
     state.selected = await api.getReport(id);
-    state.tab = "markdown";
+    state.tab = state.selected.report?.type === "stock" && state.selected.stock_payload ? "report" : "markdown";
     renderDetail();
   } catch (error) {
     target.replaceChildren(errorCard("报告已不存在或无法读取", error.message || String(error)));

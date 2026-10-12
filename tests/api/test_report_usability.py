@@ -53,6 +53,9 @@ def test_conversation_adapter_uses_actual_model_availability(tmp_path, monkeypat
     assert report.payload["commentary_status"] == "config"
     assert report.payload["data_quality"]["has_scored_data"]
     assert "commentary_retry_id" not in report.payload
+    from api.report_library import get_report_detail, list_reports
+    archived = get_report_detail(tmp_path / "reports", list_reports(tmp_path / "reports")[0].id)
+    assert archived.stock_payload == report.payload
 
 
 def test_commentary_store_expiry_and_capacity():
@@ -85,12 +88,37 @@ async def test_unavailable_report_download_keeps_sections_and_no_signal(tmp_path
         assert report["commentary_status"] == "insufficient"
         assert len(report["data_quality"]["dimensions"]) == 5
         listing = (await client.get("/api/v1/reports", params={"type": "stock", "query": "000001"})).json()
+        detail = (await client.get(f"/api/v1/reports/{listing['reports'][0]['id']}")).json()
+        assert detail["stock_payload"] == report
         download = await client.get(f"/api/v1/reports/{listing['reports'][0]['id']}/download")
         assert download.status_code == 200
         assert "待验证事项" in download.text
         assert "数据覆盖与时效" in download.text
         assert "操作信号：" not in download.text
         assert "text/markdown" in download.headers["content-type"]
+
+
+@pytest.mark.asyncio
+async def test_disabled_ai_archive_matches_markdown_with_configured_model(tmp_path, monkeypatch):
+    from utils.config import Config
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("utils.symbols.resolve_name", lambda _: "样本")
+    original_get = Config.get
+    monkeypatch.setattr(Config, "get", lambda self, key, default=None:
+                        False if key == "llm.enabled" else original_get(self, key, default))
+    ctx = AnalysisContext(symbol="000001", name="样本")
+    ctx.sufficiency.financial = DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT, sample_count=6)
+    results = [AnalysisResult(dimension="financial", status="ok", summary="财务", score=8)]
+    core = SimpleNamespace(pipeline=SimpleNamespace(run=lambda *_: (results, {}, ctx)), llm=object())
+    async with AsyncClient(transport=ASGITransport(app=create_app(core=core, push=False)),
+                           base_url="http://test") as client:
+        report = (await client.post("/api/v1/analyze", json={"symbol": "000001"})).json()
+        assert report["commentary_status"] == "disabled"
+        listing = (await client.get("/api/v1/reports", params={"type": "stock"})).json()
+        detail = (await client.get(f"/api/v1/reports/{listing['reports'][0]['id']}")).json()
+        assert detail["stock_payload"] == report
+        assert "纯量化模式，无 AI 解读" in detail["markdown"]
 
 
 @pytest.mark.asyncio
@@ -116,15 +144,26 @@ async def test_retry_insufficient_report_never_calls_model(tmp_path, monkeypatch
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("case", ["ok", "empty", "fallback", "exception"])
+@pytest.mark.parametrize("case", ["ok", "snapshot_failure", "empty", "fallback", "exception"])
 async def test_retry_only_calls_model_and_preserves_report(tmp_path, monkeypatch, case):
-    success = case == "ok"
+    success = case in {"ok", "snapshot_failure"}
     monkeypatch.chdir(tmp_path)
     ctx = AnalysisContext(symbol="000001", name="样本")
     ctx.sufficiency.financial = DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT, sample_count=6)
     results = [AnalysisResult(dimension="financial", status="ok", summary="财务指标", score=8)]
-    output_path = tmp_path / "original.md"
+    output_path = tmp_path / "reports" / "stock" / "000001" / "2026-10" / "original.md"
+    output_path.parent.mkdir(parents=True)
     output_path.write_text("原报告", encoding="utf-8")
+    if case == "snapshot_failure":
+        from report import formatter
+        original_write = formatter._atomic_write
+
+        def fail_snapshot(path, content):
+            if path.suffix == ".json":
+                raise OSError("快照替换失败")
+            original_write(path, content)
+
+        monkeypatch.setattr(formatter, "_atomic_write", fail_snapshot)
     record = CommentaryContext("000001", "样本", results, {}, ctx, None, output_path=output_path)
     token = commentary_store.remember(record)
     calls = []
@@ -155,6 +194,10 @@ async def test_retry_only_calls_model_and_preserves_report(tmp_path, monkeypatch
             assert response.json()["dimensions"]["financial"]["score"] == 8
             assert persisted["payload"]["commentary"] == "恢复后的AI解读"
             assert "恢复后的AI解读" in output_path.read_text(encoding="utf-8")
+            import json
+            if case == "ok":
+                archive = json.loads(output_path.with_suffix(".report.json").read_text(encoding="utf-8"))
+                assert archive["payload"]["commentary"] == "恢复后的AI解读"
         else:
             assert response.status_code == 502
             assert output_path.read_text(encoding="utf-8") == "原报告"

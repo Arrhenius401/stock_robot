@@ -375,8 +375,8 @@ def create_app(
         return Path.cwd() / "reports"
 
     def _save_web_stock_report(
-            symbol: str, name: str, results, commentary, ctx, agent_core,
-            snapshot: RuntimeSnapshot | None) -> Path:
+            symbol: str, name: str, results, commentary, ctx,
+            snapshot: RuntimeSnapshot | None, payload: dict) -> Path:
         """将网页个股分析保存为与 CLI 一致的 Markdown 报告。"""
         from report.formatter import ReportFormatter
         from report.scoring import build_report
@@ -390,7 +390,7 @@ def create_app(
             results,
             commentary,
             ctx,
-            no_llm=agent_core.llm is None,
+            no_llm=not config.get("llm.enabled", True),
             signal_cfg=load_signal_config(config),
         )
         saved_path = ReportFormatter.save(
@@ -398,6 +398,7 @@ def create_app(
             symbol,
             output_dir=_reports_root(),
             category="stock",
+            stock_payload=payload,
         )
         logger.info("网页个股报告已保存: %s", saved_path)
         return saved_path
@@ -799,7 +800,7 @@ def create_app(
                 llm_available=agent_core.llm is not None,
             )
             saved_path = _save_web_stock_report(
-                symbol, name, results, commentary, ctx, agent_core, snapshot)
+                symbol, name, results, commentary, ctx, snapshot, payload)
             if payload["commentary_status"] == "failed":
                 payload["commentary_retry_id"] = commentary_store.remember(CommentaryContext(
                     symbol, name, results, commentary, ctx, signal_cfg, output_path=saved_path,
@@ -813,6 +814,7 @@ def create_app(
     async def retry_commentary(request: Request):
         """重用本次分析上下文，仅调用模型；不采集或重新计算指标。"""
         from report.commentary import commentary_store
+        from report.formatter import ReportFormatter
         from report.payload import build_stock_payload
         from report.quality import build_data_quality
         from report.scoring import LLM_UNAVAILABLE_PREFIXES, build_report
@@ -854,7 +856,7 @@ def create_app(
                     record.symbol, record.name, record.results, commentary,
                     record.context, signal_cfg=record.signal_config,
                 )
-                record.output_path.write_text(markdown, encoding="utf-8")
+                ReportFormatter.update_stock_snapshot(markdown, record.output_path, payload)
             record.commentary = commentary
             if artifact_id and sessions is not None:
                 sessions.update_artifact_payload(str(artifact_id), payload)

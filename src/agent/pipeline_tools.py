@@ -70,7 +70,9 @@ def _wrap_pipeline(pipeline) -> _TargetsRunner:
                         target.symbol, target.name, results, commentary, ctx,
                         no_llm=no_llm, signal_cfg=signal_config,
                     )
-                    saved = ReportFormatter.save(markdown, target.symbol, category="stock")
+                    saved = ReportFormatter.save(
+                        markdown, target.symbol, category="stock", stock_payload=payload,
+                    )
                     if payload["commentary_status"] == "failed":
                         payload["commentary_retry_id"] = commentary_store.remember(CommentaryContext(
                             target.symbol, target.name, results, commentary, ctx,

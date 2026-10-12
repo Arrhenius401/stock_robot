@@ -68,6 +68,8 @@ python3 -m venv .venv
 
 股票报告保存到 `reports/stock/`，指数报告保存到 `reports/index/`，回测产物保存到 `reports/backtests/`。配置与缓存位于当前工作目录的 `.stock_robot/`。
 
+新个股报告同时保存 Markdown 原文和同名 `.report.json` 生成时快照，报告库默认以共享研报卡片只读呈现，可切换查看原文。历史报告或快照不可用时仍完整展示 Markdown；下载接口保持原格式，指数报告模板不变。
+
 ## 常用命令
 
 下面的 `stock-robot` 假定项目虚拟环境已加入 PATH；也可继续使用上述平台启动器。环境设置见[运行环境说明](docs/运行环境.md)。

@@ -4,11 +4,15 @@ from __future__ import annotations
 import base64
 import binascii
 import csv
+import hashlib
 import json
+import logging
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
+
+logger = logging.getLogger(__name__)
 
 ReportType = Literal["stock", "index", "backtest"]
 MAX_TRADE_ROWS = 1000
@@ -51,6 +55,7 @@ class ReportDetail:
     equity_curve: dict[str, Any] | None = None
     trades: dict[str, Any] | None = None
     missing_artifacts: list[str] | None = None
+    stock_payload: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -84,7 +89,7 @@ def _safe_relative(reports_root: Path, path: Path) -> Path | None:
 
 def _read_text(path: Path) -> str:
     try:
-        return path.read_text(encoding="utf-8")
+        return path.read_bytes().decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ReportLibraryError("报告文件已损坏或不完整", 422) from exc
     except OSError as exc:
@@ -322,6 +327,36 @@ def _summary_from_relative(reports_root: Path, relative: Path) -> ReportSummary:
     return summary
 
 
+def _load_stock_snapshot(reports_root: Path, path: Path, symbol: str, markdown: str) -> dict[str, Any] | None:
+    """存档缺失或不匹配时只展示原文，绝不替换为其他批次的分析。"""
+    from report.formatter import validate_stock_payload
+
+    snapshot = path.with_suffix(".report.json")
+    try:
+        if _safe_relative(reports_root, snapshot) is None:
+            logger.warning("报告快照路径越界，回退 Markdown：%s", path.name)
+            return None
+        if not snapshot.exists():
+            logger.debug("报告快照缺失，回退 Markdown：%s", path.name)
+            return None
+        wrapper = json.loads(snapshot.read_text(encoding="utf-8"))
+        if not isinstance(wrapper, dict) or type(wrapper.get("schema_version")) is not int or wrapper["schema_version"] != 1:
+            raise ValueError("快照版本或包装无效")
+        digest = hashlib.sha256(markdown.encode("utf-8")).hexdigest()
+        if wrapper.get("markdown_sha256") != digest:
+            raise ValueError("快照摘要与 Markdown 不匹配")
+        payload = wrapper.get("payload")
+        if not isinstance(payload, dict):
+            raise TypeError("快照报告结构无效")
+        # 严格 JSON 校验拒绝非有限值，旧损坏存档不进入前端。
+        json.dumps(payload, allow_nan=False)
+        return validate_stock_payload(payload, symbol)
+    except (OSError, UnicodeDecodeError, ValueError, TypeError, RuntimeError) as exc:
+        logger.warning("报告快照不可用，回退 Markdown：%s（%s）", path.name, exc)
+        return None
+
+
+
 def get_report_detail(
     reports_root: Path,
     report_id: str,
@@ -335,7 +370,9 @@ def get_report_detail(
     summary = _summary_from_relative(reports_root, relative)
     markdown = _read_text(path)
     if summary.type != "backtest":
-        return ReportDetail(report=summary, markdown=markdown)
+        return ReportDetail(report=summary, markdown=markdown,
+                            stock_payload=_load_stock_snapshot(reports_root, path, summary.symbol, markdown)
+                            if summary.type == "stock" else None)
 
     run_dir = path.parent
     payload = _read_json(run_dir / "summary.json")

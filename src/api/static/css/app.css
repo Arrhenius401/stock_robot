@@ -1511,6 +1511,11 @@ body.subs-modal-open { overflow: hidden; }
 .stock-report .report-dimension-heading { gap: 12px; align-items: baseline; margin-bottom: 8px; }
 .stock-report .report-dimension-heading .panel-title { margin: 0; }
 .stock-report .dim-score { font-size: 16px; }
+.stock-report .report-score-detail { font-size: 13px; color: var(--text-4); padding-top: 8px; overflow-wrap: anywhere; }
+.stock-report .report-archive-body { font-size: 15px; }
+.report-library-stock-panel { background: transparent; border: 0; padding: 0; }
+.report-library-stock-panel > .report-library-tabs { margin-bottom: 16px; }
+.report-library-stock-panel .report-library-markdown { background: var(--panel); border: 1px solid var(--border-soft); border-radius: 12px; padding: 12px 16px; }
 .stock-report .report-section-heading { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
 .stock-report .report-section-heading .panel-title { margin: 0; }
 .stock-report .md td { font-size: 15px; }

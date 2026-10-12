@@ -410,6 +410,9 @@ function dimensionSection(name, label, data, sectionIdPrefix) {
   header.appendChild(el("span", "dim-score", scoreText(dimension.score, "暂无评分")));
   card.appendChild(header);
   card.appendChild(markdownBlock(naturalText(dimension.summary), "dim-sum md"));
+  if (naturalText(dimension.score_detail)) {
+    card.appendChild(el("div", "report-score-detail", `评分依据：${naturalText(dimension.score_detail)}`));
+  }
 
   const metrics = record(dimension.metrics);
   if (Object.keys(metrics).length) {
@@ -489,7 +492,7 @@ function commentarySection(report, sectionIdPrefix, options) {
     card.appendChild(el("div", "report-empty", messages[state] || "暂无 AI 解读"));
     const configure = state === "config";
     const callback = configure ? options.onConfigure : options.onRetryCommentary;
-    if ((configure || state === "failed") && typeof callback === "function") {
+    if (!options.readOnly && (configure || state === "failed") && typeof callback === "function") {
       const button = el("button", configure ? "subs-btn report-configure-commentary" : "subs-btn report-retry-commentary",
         configure ? "配置 AI 解读" : options.commentaryBusy ? "正在生成…" : "重试 AI 解读");
       button.type = "button";
@@ -594,6 +597,18 @@ export function renderStockReport(report, options = {}) {
   }
   article.appendChild(risksSection(data, sectionIdPrefix));
   article.appendChild(commentarySection(data, sectionIdPrefix, options));
+  if (options.archiveMarkdown) {
+    // 原文补充章沿用安全 Markdown 渲染，未知章节仍保留在原文入口。
+    const parts = String(options.archiveMarkdown).split(/\n(?=##\s+)/);
+    for (const [index, part] of parts.entries()) {
+      const match = part.match(/^##\s+(.+)$/m);
+      if (!match || !/多风格观察|工具局限性/.test(match[1])) continue;
+      const title = match[1].replace(/^[一二三四五六七八九十]+[、.．]\s*/, "");
+      const card = section(`report-archive-${index}`, title, "panel", sectionIdPrefix);
+      card.appendChild(markdownBlock(localizeReportMarkdown(part.replace(/^##\s+.+\n?/, "")), "md report-archive-body"));
+      article.appendChild(card);
+    }
+  }
   article.appendChild(pendingSection(data, sectionIdPrefix));
   article.appendChild(qualitySection(data, sectionIdPrefix));
   return article;

@@ -1,12 +1,20 @@
 """报告格式化器 — 文件保存和终端渲染"""
+import hashlib
+import json
+import logging
+import math
+import os
 import re
+import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from rich.console import Group
 from rich.markdown import Markdown
 from rich.table import Table
+
+logger = logging.getLogger(__name__)
 
 _SEP_RE = re.compile(r'^\|[-\s:|]+\|$')
 
@@ -132,20 +140,135 @@ def _parse_table(lines: list[str]) -> Table:
     return table
 
 
+def _archive_value(value: Any) -> Any:
+    """复制 JSON 事实，清除临时重试标识及非有限数值。"""
+    if isinstance(value, dict):
+        return {str(key): _archive_value(item) for key, item in value.items()
+                if key not in {"commentary_retry_id", "report_token"}}
+    if isinstance(value, (list, tuple)):
+        return [_archive_value(item) for item in value]
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
+def validate_stock_payload(payload: dict[str, Any], symbol: str) -> dict[str, Any]:
+    """标的和渲染所需容器必须真实匹配，不能拼接其他股票的存档。"""
+    payload = _archive_value(payload)
+    actual = payload.get("symbol") or payload.get("code")
+    if actual != symbol:
+        raise ValueError("快照标的与报告不匹配")
+    if any(payload.get(key) not in (None, symbol) for key in ("symbol", "code")):
+        raise ValueError("快照标的字段冲突")
+    for key in ("overview", "score", "dimensions"):
+        if not isinstance(payload.get(key), dict):
+            raise TypeError(f"快照 {key} 结构无效")
+    for key in ("base", "final", "risk_deduction"):
+        value = payload["score"].get(key)
+        if value is not None and type(value) not in (int, float):
+            raise TypeError("快照评分结构无效")
+    for value in payload["dimensions"].values():
+        if not isinstance(value, dict) or not isinstance(value.get("metrics", {}), dict):
+            raise TypeError("快照维度结构无效")
+    for key in ("name", "commentary", "commentary_status", "generated_at"):
+        if key in payload and not isinstance(payload[key], str):
+            raise TypeError(f"快照 {key} 结构无效")
+    for key in ("score_rows", "pending_verifications", "comments"):
+        if key in payload and not isinstance(payload[key], list):
+            raise TypeError(f"快照 {key} 结构无效")
+    quality = payload.get("data_quality")
+    if quality is not None:
+        if not isinstance(quality, dict) or not isinstance(quality.get("dimensions", []), list):
+            raise TypeError("快照数据覆盖结构无效")
+        for dimension in quality.get("dimensions", []):
+            if not isinstance(dimension, dict) or not isinstance(dimension.get("fields", []), list):
+                raise TypeError("快照数据依据结构无效")
+            if any(not isinstance(item, dict) for item in dimension.get("fields", [])):
+                raise TypeError("快照数据依据字段无效")
+    if payload.get("signal") is not None and not isinstance(payload["signal"], dict):
+        raise TypeError("快照信号结构无效")
+    return _archive_value(payload)
+
+
+def _atomic_write(path: Path, content: bytes) -> None:
+    """同目录临时文件替换；两种产物通过摘要验证批次而非混合读取。"""
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        temporary.write_bytes(content)
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            try:
+                temporary.unlink()
+            except OSError as exc:
+                logger.debug("快照临时文件未清理：%s（%s）", temporary.name, exc)
+
+
+def update_stock_snapshot(markdown: str, path: Path, payload: dict[str, Any]) -> None:
+    """更新原报告及配套事实，不允许越过个股报告目录。"""
+    path = Path(path)
+    if (path.suffix.lower() != ".md" or len(path.parents) < 4
+            or path.parents[2].name != "stock"
+            or not re.fullmatch(r"\d{6}", path.parent.parent.name)):
+        raise ValueError("个股报告路径无效")
+    root = path.parents[3].resolve()
+    if not path.resolve().is_relative_to(root):
+        raise ValueError("个股报告路径超出报告目录")
+    symbol = path.parent.parent.name
+    data = validate_stock_payload(payload, symbol)
+    content = markdown.encode("utf-8")
+    wrapper = {"schema_version": 1, "markdown_sha256": hashlib.sha256(content).hexdigest(),
+               "payload": data}
+    snapshot = json.dumps(wrapper, ensure_ascii=False, allow_nan=False, default=str).encode("utf-8")
+    _atomic_write(path, content)
+    snapshot_path = path.with_suffix(".report.json")
+    try:
+        _atomic_write(snapshot_path, snapshot)
+    except OSError as exc:
+        # 原文更新成功后不回滚；快照只是只读展示的可选增强。
+        logger.warning("原文已更新，报告快照保存失败：%s（%s）", path.name, exc)
+        try:
+            snapshot_path.unlink(missing_ok=True)
+        except OSError as cleanup_error:
+            logger.warning("旧报告快照未清理：%s（%s）", snapshot_path.name, cleanup_error)
+
+
 class ReportFormatter:
     @staticmethod
     def save(report: str, symbol: str, output_dir: Path | None = None,
-             category: Literal["stock", "index"] = "stock") -> Path:
+             category: Literal["stock", "index"] = "stock",
+             stock_payload: dict[str, Any] | None = None) -> Path:
         if output_dir is None:
             output_dir = Path.cwd() / "reports"
         output_dir = Path(output_dir)
+        if (category not in ("stock", "index")
+                or not re.fullmatch(r"\d{6}" if category == "stock" else r"[A-Za-z0-9][A-Za-z0-9._-]*", symbol)):
+            raise ValueError("报告分类或标的无效")
         generated_at = datetime.now().astimezone()
         report_dir = output_dir / category / symbol / generated_at.strftime("%Y-%m")
+        if not report_dir.resolve().is_relative_to(output_dir.resolve()):
+            raise ValueError("报告路径超出保存目录")
         report_dir.mkdir(parents=True, exist_ok=True)
         filename = f"{symbol}_{generated_at.strftime('%Y%m%d_%H%M%S')}.md"
         filepath = report_dir / filename
-        filepath.write_text(report, encoding="utf-8")
+        if category == "stock" and stock_payload is not None:
+            try:
+                update_stock_snapshot(report, filepath, stock_payload)
+            except (OSError, ValueError, TypeError) as exc:
+                logger.warning("报告快照保存失败，保留 Markdown：%s", exc)
+                _atomic_write(filepath, report.encode("utf-8"))
+                snapshot_path = filepath.with_suffix(".report.json")
+                if snapshot_path.exists():
+                    snapshot_path.unlink()
+        else:
+            _atomic_write(filepath, report.encode("utf-8"))
+            if category == "stock":
+                snapshot_path = filepath.with_suffix(".report.json")
+                if snapshot_path.exists():
+                    snapshot_path.unlink()
         return filepath
+
+    update_stock_snapshot = staticmethod(update_stock_snapshot)
 
     @staticmethod
     def to_rich_markdown(report: str) -> Markdown | Group:

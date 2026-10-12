@@ -282,13 +282,22 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
         except Exception:  # noqa: BLE001 — 大盘快照为可选信息，失败静默跳过
             logger.debug("大盘快照获取失败，跳过")
 
+    from report.payload import build_stock_payload
     from report.scoring import build_report
     from report.signal import load_signal_config
+    signal_config = load_signal_config(config)
     report = build_report(symbol, name, results, commentary, ctx,
-                          no_llm=no_llm, market_env=market_env,
-                          signal_cfg=load_signal_config(config))
+                          no_llm=not llm_enabled, market_env=market_env,
+                          signal_cfg=signal_config)
 
-    saved_path = ReportFormatter.save(report, symbol, category="stock")
+    registry = getattr(pipeline, "_registry", None)
+    llm_available = registry is not None and registry.get_llm_backend(
+        config.get("llm.provider", "openai")) is not None
+    payload = build_stock_payload(
+        symbol, name, results, commentary, ctx, no_llm=not llm_enabled,
+        signal_cfg=signal_config, llm_available=llm_available,
+    )
+    saved_path = ReportFormatter.save(report, symbol, category="stock", stock_payload=payload)
     console.print(ReportFormatter.to_rich_markdown(report))
     console.print(f"\n[dim]报告已保存至: {saved_path}[/dim]")
 
