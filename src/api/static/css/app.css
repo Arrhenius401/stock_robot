@@ -1551,3 +1551,29 @@ body.subs-modal-open { overflow: hidden; }
   .stock-report .score-big { align-items: flex-start; flex-wrap: wrap; }
   .stock-report .score-rows { min-width: 100%; }
 }
+
+/* 池选择范围内的样式，沿用雷达主题与共享内容坐标。 */
+.radar-pool-picker{width:280px;max-width:100%;min-width:0;}
+.radar-pool-trigger{display:flex;justify-content:space-between;align-items:center;gap:12px;width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--panel);color:var(--text-2);font:inherit;text-align:left;cursor:pointer;}
+.radar-pool-copy{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1;}
+.radar-pool-trigger .radar-pool-copy>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.radar-pool-copy small{font-size:11px;color:var(--text-4);line-height:1.5;}
+.radar-pool-option .radar-pool-copy small{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;}
+.radar-pool-dialog{position:fixed;inset:auto;margin:0;left:var(--picker-left,12px);top:var(--picker-top,80px);width:360px;max-width:calc(100vw - 24px);padding:0;border:1px solid var(--border);border-radius:10px;background:var(--panel);color:var(--text);box-shadow:var(--shadow-overlay);}
+.radar-pool-dialog::backdrop{background:transparent;}
+.radar-pool-dialog-head{display:flex;align-items:center;justify-content:space-between;padding:14px;font-size:14px;}
+.radar-pool-dialog-head button{border:0;background:transparent;color:var(--text-3);font-size:20px;cursor:pointer;}
+.radar-pool-search{display:block;width:calc(100% - 28px);margin:0 14px 10px;padding:9px 10px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text);font:inherit;}
+.radar-pool-options{max-height:min(330px,45dvh);overflow:auto;overscroll-behavior:contain;padding:0 6px 8px;}
+.radar-pool-group{margin:10px;font-size:11px;color:var(--text-4);}
+.radar-pool-option{display:flex;align-items:center;gap:12px;width:100%;padding:10px;border:0;border-radius:6px;background:transparent;color:var(--text-2);font:inherit;text-align:left;cursor:pointer;overflow-wrap:anywhere;}
+.radar-pool-option:hover{background:var(--surface-hover);}
+.radar-pool-option[aria-pressed="true"]{color:var(--accent);background:var(--panel-2);}
+.radar-pool-count{padding:10px 14px;margin:0;border-top:1px solid var(--border);font-size:11px;color:var(--text-4);}
+.radar-pool-picker button:focus-visible,.radar-pool-search:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+.radar-pool-content-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 16px;}
+.radar-pool-content-head h2{font-size:16px;margin:0;}
+.radar-stock-empty{padding:20px;}
+.radar-stock-empty h3{margin:18px 0 8px;font-size:15px;}
+.radar-stock-empty .radar-note{margin:12px 0;}
+@media(max-width:760px){.radar-pool-picker{width:100%;}.radar-pool-dialog{left:12px;right:12px;top:auto;bottom:12px;width:auto;max-width:none;border-radius:14px;}.radar-pool-dialog::backdrop{background:#17203355;}.radar-head-controls>.radar-pool-picker{flex-basis:100%;}}

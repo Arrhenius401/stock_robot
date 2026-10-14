@@ -1,0 +1,7 @@
+id: growth_trend
+name: 成长趋势池
+asset_type: stock
+description: 面向数月观察周期的持续盈利行业龙头成长与趋势机会；正式选股规则尚未配置。
+display_order: 30
+enabled: true
+rule_status: unconfigured

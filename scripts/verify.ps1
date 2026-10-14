@@ -94,6 +94,11 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/utils"
         continue
     }
+    if ($path.StartsWith("config\radar_stock_pools\", [StringComparison]::OrdinalIgnoreCase)) {
+        Add-UniqueTarget $testTargets "tests/radar/test_pool_catalog.py"
+        Add-UniqueTarget $testTargets "tests/api/test_radar_pools.py"
+        continue
+    }
     if ($path.StartsWith("config\", [StringComparison]::OrdinalIgnoreCase)) {
         Add-UniqueTarget $testTargets "tests/utils"
         Add-UniqueTarget $testTargets "tests/test_cli.py"
@@ -140,6 +145,7 @@ foreach ($file in $changedFiles) {
     }
     if ($path.StartsWith("src\api\static\", [StringComparison]::OrdinalIgnoreCase)) {
         Add-UniqueTarget $testTargets "tests/api/test_static.py"
+        Add-UniqueTarget $testTargets "tests/api/test_radar_pools_ui.py"
         continue
     }
     if ($path.StartsWith("src\api\", [StringComparison]::OrdinalIgnoreCase)) {

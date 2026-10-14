@@ -2132,7 +2132,7 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         assert 'id="subName"' not in html
         assert 'id="subChannel"' not in html
         assert "企业微信" not in html
-        assert 'href="/css/app.css?v=20261012-report-library-1"' in html
+        assert 'href="/css/app.css?v=20261014-pools-2"' in html
         script = (await client.get("/js/subscriptions.js")).text
         assert "searchPushSymbols" in script
         assert "批量添加" not in script
@@ -2293,7 +2293,7 @@ if (!notice.hidden || notice.textContent) throw new Error("结束提示未在限
 
         assert response.status_code == 200
         source = response.text
-        assert "allocationRequest(\"/api/v1/radar/universes\")" in source
+        assert "allocationRequest(\"/api/v1/radar/pools\")" in source
         assert "/api/v1/radar/snapshots/latest?universe_id=" in source
         assert "allocationShowDetail(item)" in source
         assert "本次行情来源：" in source

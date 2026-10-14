@@ -24,6 +24,9 @@ def _run(*arguments: str):
 @pytest.mark.parametrize("path,expected", [
     ("src/stock_robot/cli.py", "tests/test_cli.py"),
     ("config/default.yaml", "tests/utils"),
+    ("config/radar_stock_pools/value.yaml", "tests/radar/test_pool_catalog.py"),
+    ("config/radar_stock_pools/value.yaml", "tests/api/test_radar_pools.py"),
+    ("src/api/static/js/radar-pool-picker.js", "tests/api/test_radar_pools_ui.py"),
     ("scripts/verify.ps1", "tests/test_verify_script.py"),
     ("src/radar/calendar.py", "tests/radar"),
     ("pyproject.toml", "tests/test_integration.py"),

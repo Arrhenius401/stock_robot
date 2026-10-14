@@ -44,8 +44,11 @@ from radar.data import (
 from radar.history import HistoryStore, HistorySynchronizer
 from radar.overseas import OverseasService
 from radar.performance import calculate_instrument_performance
+from radar.pool_catalog import PoolCatalog, PoolCatalogError
 from radar.refresh import RadarRefresher
 from radar.score_profile import ScoreProfileConfigError, ScoreProfileRepository
+from radar.stocks.models import STOCK_UNAVAILABLE_REASON
+from radar.stocks.pools import StockPoolConfigError, StockPoolRepository
 from radar.store import RadarStore
 from radar.universe import UniverseConfigError, UniverseRepository
 from radar.update_service import UpdateService, UpdateStore
@@ -241,6 +244,47 @@ def create_radar_router() -> APIRouter:
             "cost_profile": manifest.get("cost_profile", {}),
             "warnings": detail.summary.get("warnings", []) if detail.summary else [],
         }
+
+    def stock_repository() -> StockPoolRepository:
+        """股票只读入口不初始化采集器和任务服务。"""
+        return StockPoolRepository(Path(__file__).parents[2] / "config" / "radar_stock_pools")
+
+    def require_stock_pool(pool_id: str):
+        try:
+            pool = stock_repository().get(pool_id)
+        except StockPoolConfigError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        if pool is None:
+            raise HTTPException(status_code=404, detail="未找到启用的股票池")
+        return pool
+
+    @router.get("/pools")
+    def list_pools():
+        """只读取本地配置，不创建数据库和后台任务。"""
+        root = Path(__file__).parents[2]
+        catalog = PoolCatalog(UniverseRepository(root / "config" / "radar_universes"),
+                              stock_repository())
+        try:
+            return [item.model_dump(mode="json") for item in catalog.list()]
+        except PoolCatalogError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @router.get("/stocks/{pool_id}")
+    def stock_pool(pool_id: str):
+        return require_stock_pool(pool_id).model_dump(mode="json")
+
+    @router.get("/stocks/{pool_id}/members")
+    def stock_members(pool_id: str):
+        require_stock_pool(pool_id)
+        members = stock_repository().members(pool_id)
+        if members is None:
+            raise HTTPException(status_code=404, detail="未找到启用的股票池")
+        return members.model_dump(mode="json")
+
+    @router.post("/stocks/{pool_id}/update")
+    def stock_update_unavailable(pool_id: str):
+        require_stock_pool(pool_id)
+        raise HTTPException(status_code=503, detail=STOCK_UNAVAILABLE_REASON)
 
     @router.get("/universes")
     def list_universes():
