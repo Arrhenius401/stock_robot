@@ -73,4 +73,28 @@ stock-robot radar dividend-archive --input tests/resources/radar/stock-dividend-
 
 `stock-dividend-documents.json`是2026-10-14从现有长江电力实施证据整理的三条官方URL清单，资源只保存描述与链接，完整PDF保留本地忽略tmp。接口与资源预算测试使用离线响应，不在业务测试中批量联网。
 
-已交付：旧缓存转换、明确URL原文采集、来源级限流、联网原文续跑。仍待后续：自动发现全市场公告URL、不同来源财务字段标准化、任意PDF金额抽取及股类／年度完整性补证；支付率数值门槛仍未启用。
+已交付：旧缓存转换、明确URL原文采集、来源级限流、联网原文续跑。第三阶段已新增巨潮A股公告自动发现及支持模板的字段建议；更广来源、任意旧PDF结构及股类／年度完整性补证仍待后续，支付率数值门槛未启用。
+
+## 公告自动发现与字段建议
+
+第三阶段可从公司代码发现官方公告，再串联原文留档和字段建议：
+
+```powershell
+stock-robot radar dividend-discover --input tmp/dividend-materials/prepared.json --output tmp/dividend-auto/discovery.json --as-of 2026-10-14 --cache-dir tmp/dividend-auto/query-cache
+stock-robot radar dividend-archive --input tmp/dividend-auto/discovery.json --archive-dir tmp/dividend-auto/pdf-archive --output tmp/dividend-auto/archived.json
+stock-robot radar dividend-extract --archive-result tmp/dividend-auto/archived.json --archive-dir tmp/dividend-auto/pdf-archive --output tmp/dividend-auto/extracted.json --as-of 2026-10-14
+```
+
+开发工作树仍使用共享.venv和前文PYTHONPATH。发现输入可为公司列表或companies对象，精确A股代码与官网orgId匹配；两关键词为权益分派和利润分配，起点为截止年前第三年1月1日。支持分页、原始JSON缓存和refresh，源请求串行间隔1秒，15秒连接／读取超时、最多2次重试、429停止该来源。合法零结果的公告列表null仅在总数明确为0且无后续页时接受；字段缺失不能当零。
+
+query_scope_complete只指这两个关键词的指定日期查询范围完整，不证明该公司三个财政年度分红资料已齐。标题高亮清洗，公告时间戳按北京时间解读，输出disclosed_on。实施候选及相关取消／终止／更正／调整等变更风险公告留档；后者独立discovery_status=pending_review，不因下载成功覆盖提醒。
+
+提取器先核对URL对应安全文件名、SHA、大小和PDF头，使用同一已核验字节解析。支持明确的年度、中期、半年度实施模板及A股重要提示变体；本次实际金额、全年合计、中期参照分别输出，不相加。美的历史股东会方案金额与实施金额分段，回购后实际基数不明时不能拿总股本替代；A/H日期或金额不明保持待核验。扫描件与不支持的旧结构不能自动解释为无分红。
+
+event_proposals沿用amount_yuan、fiscal_year、source_url、disclosed_on、share_class、paid_on等字段。requires_review恒true，financial_verified与rule_enabled恒false。matched_template表示支持模板提取，不表示已经核实金额、股类、利润或分红持续性；proposals不能直接作为研究命令的companies财务输入。审核确认后才整理标准化证据，程序不会自动填events、profits或coverage。
+
+同时明确每股、实际参与基数与本次总额时，进行Decimal关系检查；允许≤0.01元的保守展示舍入差，明显不一致转待核验。较大单位的舍入差可能保守待核验，不自动放大容差；缺总额不得按股本乘每股金额推算。
+
+本阶段新增原始零结果JSON及十份裁切文本资源。原始异常样本保留尾随空白、标题重字、历史审议误导段和中期变体，来源与裁切范围见[发现与提取计划](../../plans/2026-10/2026-10-14-stock-radar-dividend-discovery-extraction.md)。整份PDF和查询响应留在忽略tmp。
+
+实际小样本三公司查询发现14份实施候选，解析复验10份匹配、4份待核验；这个数量不是公司支付率通过率或入池数量。仍待后续：更广来源与旧结构支持、年度／股类完整性及利润核实、经审核资料的标准化证据汇总。正式选股门槛仍未启用。

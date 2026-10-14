@@ -128,10 +128,23 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/radar/test_dividend_materials.py"
         continue
     }
+    if ($path -in @("src\radar\stocks\announcement_discovery.py", "src\radar\stocks\dividend_extract.py", "src\stock_robot\dividend_documents.py")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_announcement_discovery.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_dividend_extract.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_dividend_documents_cli.py"
+        continue
+    }
     if ($path.StartsWith("src\stock_robot\", [StringComparison]::OrdinalIgnoreCase)) {
         Add-UniqueTarget $testTargets "tests/test_cli.py"
         Add-UniqueTarget $testTargets "tests/test_cli_index.py"
         Add-UniqueTarget $testTargets "tests/radar/test_collector_cli.py"
+        continue
+    }
+    if ($path -eq "tests\resources\radar\cninfo-000333-announcements-empty.json" -or
+        $path -like "tests\resources\radar\*-implementation.txt") {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_announcement_discovery.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_dividend_extract.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_dividend_documents_cli.py"
         continue
     }
     if ($path.StartsWith("tests\resources\", [StringComparison]::OrdinalIgnoreCase)) {

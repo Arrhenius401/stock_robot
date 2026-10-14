@@ -18,6 +18,7 @@ from rich.table import Table
 console = Console()
 logger = logging.getLogger(__name__)
 
+from stock_robot.dividend_documents import discover_dividends, extract_dividends
 from stock_robot.dividend_materials import archive_dividends, prepare_dividends
 from stock_robot.dividend_research import dividend_research
 from utils.config import Config
@@ -1681,6 +1682,8 @@ def radar_backtest_walkforward(ctx, universe_id, start, end, window_years, strat
 radar.add_command(dividend_research)
 radar.add_command(prepare_dividends)
 radar.add_command(archive_dividends)
+radar.add_command(discover_dividends)
+radar.add_command(extract_dividends)
 
 if __name__ == "__main__":
     main()
