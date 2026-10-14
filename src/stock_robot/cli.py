@@ -18,6 +18,7 @@ from rich.table import Table
 console = Console()
 logger = logging.getLogger(__name__)
 
+from stock_robot.dividend_research import dividend_research
 from utils.config import Config
 
 _RUNTIME_LOG_HANDLER_NAME = "stock-robot-runtime-log"
@@ -1675,6 +1676,8 @@ def radar_backtest_walkforward(ctx, universe_id, start, end, window_years, strat
     console.print(f"[green]稳健性报告已保存: {output}[/green]")
     return output
 
+
+radar.add_command(dividend_research)
 
 if __name__ == "__main__":
     main()

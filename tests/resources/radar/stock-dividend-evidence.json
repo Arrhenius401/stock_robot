@@ -1,0 +1,108 @@
+{
+  "companies": [
+    {
+      "symbol": "600900",
+      "name": "长江电力",
+      "required_share_classes": [
+        "A"
+      ],
+      "profits": [
+        {
+          "year": 2023,
+          "amount_yuan": "27244616815.27",
+          "currency": "CNY",
+          "scope": "company_ordinary",
+          "source_url": "https://www.cypc.com.cn/cypc/attachDir/2026/05/2026051815345898336.pdf",
+          "disclosed_on": "2026-04-30"
+        },
+        {
+          "year": 2024,
+          "amount_yuan": "32496172808.65",
+          "currency": "CNY",
+          "scope": "company_ordinary",
+          "source_url": "https://www.cypc.com.cn/cypc/attachDir/2026/05/2026051815345898336.pdf",
+          "disclosed_on": "2026-04-30"
+        },
+        {
+          "year": 2025,
+          "amount_yuan": "34502809176.39",
+          "currency": "CNY",
+          "scope": "company_ordinary",
+          "source_url": "https://www.cypc.com.cn/cypc/attachDir/2026/05/2026051815345898336.pdf",
+          "disclosed_on": "2026-04-30"
+        }
+      ],
+      "coverage": [
+        {
+          "year": 2023,
+          "complete": true,
+          "source_url": "https://www.cypc.com.cn/cypc/attachDir/2024/08/2024082009390195815.pdf",
+          "disclosed_on": "2024-07-11"
+        },
+        {
+          "year": 2024,
+          "complete": true,
+          "source_url": "https://www.cypc.com.cn/cypc/attachDir/2025/09/2025090114451732681.pdf",
+          "disclosed_on": "2025-07-11"
+        },
+        {
+          "year": 2025,
+          "complete": true,
+          "source_url": "https://www.cypc.com.cn/cypc/attachDir/2026/07/2026070917081273023.pdf",
+          "disclosed_on": "2026-07-10"
+        }
+      ],
+      "events": [
+        {
+          "event_id": "2023-annual-total",
+          "fiscal_year": 2023,
+          "share_class": "ALL",
+          "amount_yuan": "20063938527.12",
+          "currency": "CNY",
+          "source_url": "https://www.cypc.com.cn/cypc/attachDir/2024/08/2024082009390195815.pdf",
+          "disclosed_on": "2024-07-11",
+          "paid_on": "2024-07-19",
+          "amount_scope": "fiscal_year_total"
+        },
+        {
+          "event_id": "2024-annual-total",
+          "fiscal_year": 2024,
+          "share_class": "ALL",
+          "amount_yuan": "23073529306.19",
+          "currency": "CNY",
+          "source_url": "https://www.cypc.com.cn/cypc/attachDir/2025/09/2025090114451732681.pdf",
+          "disclosed_on": "2025-07-11",
+          "paid_on": "2025-07-18",
+          "amount_scope": "fiscal_year_total"
+        },
+        {
+          "event_id": "2025-annual-total",
+          "fiscal_year": 2025,
+          "share_class": "ALL",
+          "amount_yuan": "24468217716.00",
+          "currency": "CNY",
+          "source_url": "https://www.cypc.com.cn/cypc/attachDir/2026/07/2026070917081273023.pdf",
+          "disclosed_on": "2026-07-10",
+          "paid_on": "2026-07-17",
+          "amount_scope": "fiscal_year_total"
+        }
+      ]
+    },
+    {
+      "symbol": "000333",
+      "name": "美的集团",
+      "required_share_classes": [
+        "A",
+        "H"
+      ]
+    },
+    {
+      "symbol": "601088",
+      "name": "中国神华",
+      "required_share_classes": [
+        "A",
+        "H"
+      ]
+    }
+  ]
+}

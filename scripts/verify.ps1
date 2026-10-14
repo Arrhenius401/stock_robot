@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
 按 Git 改动范围或全量执行项目校验。
 
@@ -116,6 +116,11 @@ foreach ($file in $changedFiles) {
     if ($path -eq "scripts\run-radar-collector.py") {
         Add-UniqueTarget $testTargets "tests/radar/test_collector_process.py"
         Add-UniqueTarget $testTargets "tests/radar/test_collector_cli.py"
+        continue
+    }
+    if ($path -in @("src\radar\stocks\dividend_payout.py", "src\stock_robot\dividend_research.py", "scripts\research-stock-dividends.py", "tests\resources\radar\stock-dividend-evidence.json")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_dividend_payout.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_dividend_research_cli.py"
         continue
     }
     if ($path.StartsWith("src\stock_robot\", [StringComparison]::OrdinalIgnoreCase)) {
