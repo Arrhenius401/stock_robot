@@ -148,3 +148,13 @@ def test_directory_failure_restores_callers_pythonpath():
     outcome = json.loads(result.stdout.splitlines()[-1])
     assert outcome["Failure"] == "injected-directory-failure"
     assert outcome["Restored"] == "caller-sentinel"
+
+
+@pytest.mark.parametrize("source_file", ["src/radar/stocks/dividend_review.py", "src/stock_robot/dividend_workflow.py"])
+def test_dividend_workflow_has_bounded_dependency_test_mapping(source_file):
+    result = _run("-PlanOnly", "-Files", source_file)
+    assert result.returncode == 0, result.stderr
+    plan = json.loads(result.stdout)
+    assert plan["UnmappedFiles"] == []
+    assert set(plan["TestTargets"]) == {"tests/radar/test_dividend_review_packet.py", "tests/radar/test_dividend_workflow.py",
+                                       "tests/radar/test_dividend_research_cli.py", "tests/radar/test_dividend_materials.py"}

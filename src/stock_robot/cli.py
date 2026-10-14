@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 from stock_robot.dividend_documents import discover_dividends, extract_dividends
 from stock_robot.dividend_materials import archive_dividends, prepare_dividends
 from stock_robot.dividend_research import dividend_research
+from stock_robot.dividend_workflow import dividend_workflow
 from utils.config import Config
 
 _RUNTIME_LOG_HANDLER_NAME = "stock-robot-runtime-log"
@@ -1684,6 +1685,7 @@ radar.add_command(prepare_dividends)
 radar.add_command(archive_dividends)
 radar.add_command(discover_dividends)
 radar.add_command(extract_dividends)
+radar.add_command(dividend_workflow)
 
 if __name__ == "__main__":
     main()

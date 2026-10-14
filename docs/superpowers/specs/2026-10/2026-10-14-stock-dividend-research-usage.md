@@ -98,3 +98,19 @@ event_proposals沿用amount_yuan、fiscal_year、source_url、disclosed_on、sha
 本阶段新增原始零结果JSON及十份裁切文本资源。原始异常样本保留尾随空白、标题重字、历史审议误导段和中期变体，来源与裁切范围见[发现与提取计划](../../plans/2026-10/2026-10-14-stock-radar-dividend-discovery-extraction.md)。整份PDF和查询响应留在忽略tmp。
 
 实际小样本三公司查询发现14份实施候选，解析复验10份匹配、4份待核验；这个数量不是公司支付率通过率或入池数量。仍待后续：更广来源与旧结构支持、年度／股类完整性及利润核实、经审核资料的标准化证据汇总。正式选股门槛仍未启用。
+
+## 通用批量工作流与审核资料包
+
+新增一个入口串联已有命令，不用逐公司或逐阶段手工重复运行：
+
+```powershell
+stock-robot radar dividend-workflow --input tmp/companies.json --workspace tmp/dividend-workflow --as-of 2026-10-14
+```
+
+输入可为公司对象列表或 `{"companies":[{"symbol":"600900","name":"长江电力"}]}`。输入必须放在workspace之外；工作目录绑定公司输入文件SHA和截止日，不同研究输入使用不同目录，不能静默混入旧结果。`--refresh`明确刷新查询与PDF，失败仍会记录本次失败；默认继续使用原采集器的来源级限流、重试及缓存核验。
+
+已经核验并整理的规范证据可通过 `--evidence 规范证据.json` 显式提供，格式仍为现有companies结构；可以在同一工作目录补证后重跑，证据文件SHA记录在本次产物中。提取建议永不自动填入events、profits或coverage，供应商旧缓存仍仅是研究线索。
+
+工作目录保留发现、原文留档、提取、证据准备、支付率研究和review-packet.json。审核资料包逐公司列出此前三个完整财政年度、未解决事项、原文失败原因、带稳定编号的建议及原文SHA／摘录，便于后续审核，不会删除没有成功提取建议的公司。年度证据行计数只表示字段存在，不表示已经核实，查询范围完成也不表示年度分红完整。
+
+review-packet.json的revision_sha256绑定整包内容；建议proposal_id绑定公司、字段内容及原文摘要，排序改变不改变建议身份。它是核验入口资料，不是批准记录，requires_review=true，rule_enabled=false；正式入池和自动更新保持原状态。

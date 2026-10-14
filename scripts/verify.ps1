@@ -128,6 +128,13 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/radar/test_dividend_materials.py"
         continue
     }
+    if ($path -in @("src\radar\stocks\dividend_review.py", "src\stock_robot\dividend_workflow.py")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_dividend_review_packet.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_dividend_workflow.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_dividend_research_cli.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_dividend_materials.py"
+        continue
+    }
     if ($path -in @("src\radar\stocks\announcement_discovery.py", "src\radar\stocks\dividend_extract.py", "src\stock_robot\dividend_documents.py")) {
         Add-UniqueTarget $testTargets "tests/radar/test_stock_announcement_discovery.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_dividend_extract.py"
