@@ -246,3 +246,35 @@ def test_direct_workflow_rejects_invalid_cutoff_before_creating_outputs(pipeline
         workflow.run_workflow(source, root, date(1, 1, 1))
     assert not root.exists()
     assert calls == {"extract": 0, "discover": 0, "archive": 0}
+
+
+def test_annual_mode_has_independent_stages_and_never_promotes_financials(pipeline, monkeypatch):
+    source, root, _ = pipeline
+    modes = []
+    original = workflow.discover_announcements
+    def discover(*args, **kwargs):
+        modes.append(kwargs.get("mode", "dividend"))
+        return original(*args, **kwargs)
+    monkeypatch.setattr(workflow, "discover_announcements", discover)
+    monkeypatch.setattr(workflow, "extract_archived_financials", lambda *_args: {"items": [], "financial_proposals": []})
+    result = workflow.run_workflow(source, root, date(2026, 10, 14), annual_reports=True)
+    assert modes == ["dividend", "annual_report"]
+    assert result["summary"]["financial_companies_with_proposals"] == 0
+    assert result["status"] == "partial"
+    assert result["stages"]["annual_discovery"]["file"] == "annual-discovery.json"
+    prepared = json.loads((root / "prepared.json").read_text())
+    assert all(row["profits"] == [] for row in prepared["companies"])
+
+
+def test_dividend_query_429_stops_annual_query_in_same_workflow(pipeline, monkeypatch):
+    source, root, _ = pipeline
+    calls = []
+    def limited(*args, **kwargs):
+        calls.append(kwargs.get("mode", "dividend"))
+        return {"companies": [], "documents": [], "source_stopped": True}
+    monkeypatch.setattr(workflow, "discover_announcements", limited)
+    monkeypatch.setattr(workflow, "extract_archived_financials", lambda *_args: {"items": [], "financial_proposals": []})
+    result = workflow.run_workflow(source, root, date(2026, 10, 14), annual_reports=True)
+    assert calls == ["dividend"]
+    assert result["stages"]["annual_discovery"]["status"] == "failed"
+    assert any("429" in error["message"] for error in result["errors"])

@@ -158,3 +158,14 @@ def test_dividend_workflow_has_bounded_dependency_test_mapping(source_file):
     assert plan["UnmappedFiles"] == []
     assert set(plan["TestTargets"]) == {"tests/radar/test_dividend_review_packet.py", "tests/radar/test_dividend_workflow.py",
                                        "tests/radar/test_dividend_research_cli.py", "tests/radar/test_dividend_materials.py"}
+
+
+@pytest.mark.parametrize("source_file", ["src/radar/stocks/financial_extract.py", "src/stock_robot/financial_documents.py",
+                                         "tests/resources/radar/cypc-600900-2025-annual-summary.txt"])
+def test_financial_evidence_has_bounded_test_mapping(source_file):
+    result = _run("-PlanOnly", "-Files", source_file)
+    assert result.returncode == 0, result.stderr
+    plan = json.loads(result.stdout)
+    assert plan["UnmappedFiles"] == []
+    assert set(plan["TestTargets"]) == {"tests/radar/test_financial_extract.py", "tests/radar/test_financial_documents_cli.py",
+                                       "tests/radar/test_dividend_review_packet.py", "tests/radar/test_dividend_workflow.py"}

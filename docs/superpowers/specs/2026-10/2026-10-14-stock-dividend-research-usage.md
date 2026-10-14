@@ -114,3 +114,22 @@ stock-robot radar dividend-workflow --input tmp/companies.json --workspace tmp/d
 工作目录保留发现、原文留档、提取、证据准备、支付率研究和review-packet.json。审核资料包逐公司列出此前三个完整财政年度、未解决事项、原文失败原因、带稳定编号的建议及原文SHA／摘录，便于后续审核，不会删除没有成功提取建议的公司。年度证据行计数只表示字段存在，不表示已经核实，查询范围完成也不表示年度分红完整。
 
 review-packet.json的revision_sha256绑定整包内容；建议proposal_id绑定公司、字段内容及原文摘要，排序改变不改变建议身份。它是核验入口资料，不是批准记录，requires_review=true，rule_enabled=false；正式入池和自动更新保持原状态。
+
+## 年报财务证据建议
+
+工作流可显式增加年报发现、原文留档和财务前页解析：
+
+```powershell
+stock-robot radar dividend-workflow --input tmp/companies.json --workspace tmp/dividend-workflow --as-of 2026-10-14 --annual-reports
+stock-robot radar financial-extract --archive-result tmp/dividend-workflow/annual-archived.json --archive-dir tmp/dividend-workflow/annual-pdf-archive --output tmp/financial-proposals.json --as-of 2026-10-14
+```
+
+`--annual-reports`默认关闭，开启后增加独立查询和年报PDF下载，继续使用15秒连接／读取超时、两次重试、429停止来源和1GiB软缓存提醒；源停止会作用本轮后续年报阶段。分红和年报查询缓存分开，错误不会被旧成功摘要覆盖。没有新增运行依赖或自动任务。
+
+新文件为annual-discovery.json、annual-archived.json、financial-extracted.json，审核包增加financial_documents和financial_proposals。报告摘要、英文版和普通审议意见不会认作完整年报；修订、取消、补充、日期变更等保留风险状态。这里只确认年度报告关键词查询范围，不证明所有财务披露均已取得。
+
+PDF最大25MiB、1000页，核验URL对应文件名、实际大小和SHA后，只提取前20页的主要会计数据。支持收入、归母净利润、扣非归母净利润和经营现金流；明确的人民币单位用Decimal换算。标准四列可对应三个连续年度；调整多列仅提取当前报告年度，原始比较值保留待审。负值保留；错误千分组、缺失列、游离符号、金额列百分号、冲突或同页多主表不能猜值。扫描件、不支持结构或超预算报告保留待核验。
+
+建议口径为reported_parent或consolidated，不自动转换为普通股股东利润，不推断优先股／永续工具、股类或年度派息完整性。所有financial_proposals仍需审核；--evidence是唯一规范财务输入入口，财务提取不会替代它。支付率研究及股票池成员状态不会因模板匹配而自动放行。
+
+真实长江样本：四份年报生成24条建议（其中三个目标年度各4条当前年度建议），另有一份日期变更风险资料待复核；这是字段建议数量，不是公司通过率。来源及原始异常样本裁切范围见[年报财务证据计划](../../plans/2026-10/2026-10-14-stock-radar-annual-financial-evidence.md)。

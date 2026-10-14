@@ -49,7 +49,7 @@ def _identity(payload: Any, symbol: str) -> str:
     return identifiers.pop()
 
 
-def _document(item: Any, symbol: str, org_id: str, start: date, end: date) -> dict[str, Any] | None:
+def _document(item: Any, symbol: str, org_id: str, start: date, end: date, *, mode: str = "dividend") -> dict[str, Any] | None:
     if not isinstance(item, dict) or item.get('secCode') != symbol or item.get('orgId') != org_id:
         raise ValueError('公告公司身份不一致')
     identifier = item.get('announcementId')
@@ -71,6 +71,18 @@ def _document(item: Any, symbol: str, org_id: str, start: date, end: date) -> di
     if unquote(path) != path:
         raise ValueError('公告 URL 不能包含编码路径')
     clean_title = re.sub(r'<[^>]*>', '', html.unescape(title)).strip()
+    if mode == "annual_report":
+        report = re.search(r"(20\d{2})年?年度报告", clean_title)
+        if not report or any(word in clean_title for word in ("英文", "审计报告")):
+            return None
+        review = any(word in clean_title for word in ("更正", "取消", "撤销", "修订", "更新", "补充", "变更", "延期", "终止"))
+        if not review and ("摘要" in clean_title or clean_title[report.end():].strip() not in {"", "（全文）", "(全文)"}):
+            return None
+        return {"symbol": symbol, "org_id": org_id, "announcement_id": identifier,
+                "title": clean_title, "disclosed_on": published.isoformat(), "fiscal_year": int(report[1]),
+                "source_url": "https://static.cninfo.com.cn/" + path,
+                "status": "pending_review" if review else "discovered", "kind": "annual_report",
+                "discovery_status": "pending_review" if review else "discovered", "financial_verified": False}
     # 相关取消或调整公告保留风险提醒，不视为实施证据。
     related = any(term in clean_title for term in _TERMS)
     review = any(word in clean_title for word in ('更正', '取消', '撤销', '终止', '调整'))
@@ -85,7 +97,7 @@ def _document(item: Any, symbol: str, org_id: str, start: date, end: date) -> di
             'financial_verified': False}
 
 
-def _page(payload: Any, symbol: str, org_id: str, start: date, end: date) -> None:
+def _page(payload: Any, symbol: str, org_id: str, start: date, end: date, *, mode: str = "dividend") -> None:
     if not isinstance(payload, dict):
         raise TypeError('公告查询结构不是对象')
     total = payload.get('totalAnnouncement')
@@ -104,13 +116,16 @@ def _page(payload: Any, symbol: str, org_id: str, start: date, end: date) -> Non
     if len(rows) > 30 or (not rows and (total != 0 or payload['hasMore'])):
         raise ValueError('空页或页大小与总数不一致')
     for item in rows:
-        _document(item, symbol, org_id, start, end)
+        _document(item, symbol, org_id, start, end, mode=mode)
 
 
 def discover_announcements(companies: list[dict[str, Any]], as_of: date, cache_dir: Path, *,
                            refresh: bool = False, http_post: Callable[..., Any] | None = None,
-                           sleep: Callable[[float], Any] = time.sleep) -> dict[str, Any]:
+                           sleep: Callable[[float], Any] = time.sleep, mode: str = "dividend") -> dict[str, Any]:
     """逐公司发现实施公告，保留断点；任何查询失败均不宣称公司查询完成。"""
+    if not isinstance(mode, str) or mode not in {"dividend", "annual_report"}:
+        raise ValueError("未知公告发现模式")
+    terms = ("年度报告",) if mode == "annual_report" else _TERMS
     if not isinstance(companies, list) or any(
         not isinstance(company, dict) or not isinstance(company.get('symbol'), str)
         or not re.fullmatch(r'(?:6\d{5}|[03]\d{5})', company['symbol']) for company in companies
@@ -203,7 +218,7 @@ def discover_announcements(companies: list[dict[str, Any]], as_of: date, cache_d
         record: dict[str, Any] = {'symbol': symbol, 'name': company.get('name', ''),
                                   'status': 'failed', 'query_states': [
                                       {'term': term, 'start': start.isoformat(), 'end': as_of.isoformat(),
-                                       'status': 'not_attempted'} for term in _TERMS],
+                                       'status': 'not_attempted'} for term in terms],
                                   'annual_coverage_verified': False}
         company_documents: dict[str, dict[str, Any]] = {}
         try:
@@ -222,7 +237,7 @@ def discover_announcements(companies: list[dict[str, Any]], as_of: date, cache_d
                             'column': 'sse' if symbol.startswith('6') else 'szse',
                             'pageSize': 30, 'pageNum': page_num, 'searchkey': term,
                             'seDate': f'{start.isoformat()}~{as_of.isoformat()}', 'isHLtitle': 'true'}
-                    payload = fetch(_QUERY, body, lambda data, code=symbol, org=org_id: _page(data, code, org, start, as_of))
+                    payload = fetch(_QUERY, body, lambda data, code=symbol, org=org_id: _page(data, code, org, start, as_of, mode=mode))
                     state['raw_pages'].append(dict(last_capture))
                     total = payload['totalAnnouncement']
                     if expected is not None and expected != total:
@@ -233,7 +248,7 @@ def discover_announcements(companies: list[dict[str, Any]], as_of: date, cache_d
                         if identifier in seen:
                             raise ValueError('分页公告 ID 重复')
                         seen.add(identifier)
-                        document = _document(item, symbol, org_id, start, as_of)
+                        document = _document(item, symbol, org_id, start, as_of, mode=mode)
                         if document is not None:
                             old = company_documents.get(identifier)
                             if old is not None and old != document:

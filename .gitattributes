@@ -1,2 +1,3 @@
 # 公告原始文本保留实际行尾空白，仅豁免这些离线样本。
 tests/resources/radar/*-implementation.txt whitespace=-blank-at-eol,-blank-at-eof
+tests/resources/radar/*-annual-summary.txt whitespace=-blank-at-eol,-blank-at-eof

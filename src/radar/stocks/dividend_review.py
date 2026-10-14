@@ -34,7 +34,7 @@ def _index(rows: Any, label: str) -> dict[str, dict[str, Any]]:
 
 def build_review_packet(companies: list[dict[str, Any]], extraction: dict[str, Any],
                         prepared: dict[str, Any], research: dict[str, Any],
-                        as_of: date) -> dict[str, Any]:
+                        as_of: date, *, financial_extraction: dict[str, Any] | None = None) -> dict[str, Any]:
     """保留每家公司和失败原文；不将模板命中转换成审核或完整性结论。"""
     if as_of.year < 4:
         raise ValueError("截止日不足以覆盖此前三个完整年度")
@@ -140,5 +140,18 @@ def build_review_packet(companies: list[dict[str, Any]], extraction: dict[str, A
         "summary": {"companies": len(output), "proposals": sum(len(row["proposals"]) for row in output),
                     "research_complete": sum(row["research_status"] == "complete" for row in output)},
     }
+    if financial_extraction is not None:
+        adapted = deepcopy(financial_extraction)
+        for item in adapted.get("items", []):
+            if isinstance(item, dict):
+                item["event_proposals"] = item.get("financial_proposals", [])
+        financial_packet = build_review_packet(companies, adapted, prepared, research, as_of)
+        by_symbol = {row["symbol"]: row for row in financial_packet["companies"]}
+        for row in output:
+            financial = by_symbol[row["symbol"]]
+            row["financial_documents"] = financial["documents"]
+            row["financial_proposals"] = financial["proposals"]
+        packet["diagnostics"].extend("财务资料：" + message for message in financial_packet["diagnostics"])
+        packet["summary"]["financial_proposals"] = financial_packet["summary"]["proposals"]
     packet["revision_sha256"] = _hash(packet)
     return packet

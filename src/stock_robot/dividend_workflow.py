@@ -13,6 +13,7 @@ from radar.stocks import dividend_extract
 from radar.stocks.announcement_discovery import discover_announcements
 from radar.stocks.dividend_extract import extract_archived_documents
 from radar.stocks.dividend_review import build_review_packet
+from radar.stocks.financial_extract import extract_archived_financials
 from radar.stocks.source_archive import collect_documents
 from stock_robot.dividend_documents import _cutoff
 from stock_robot.dividend_materials import DEFAULT_HOSTS, _read, prepare_candidates
@@ -93,7 +94,8 @@ def _cached_extraction(root: Path, key: str | None) -> dict[str, Any] | None:
 
 
 def run_workflow(input_path: Path, workspace: Path, as_of: date,
-                 evidence_path: Path | None = None, refresh: bool = False) -> dict[str, Any]:
+                 evidence_path: Path | None = None, refresh: bool = False,
+                 annual_reports: bool = False) -> dict[str, Any]:
     """复用采集与核验缓存，机器建议只进入审核包，不自动成为证据。"""
     if as_of.year < 4:
         raise ValueError("截止日不足以覆盖此前三个完整年度")
@@ -129,7 +131,7 @@ def run_workflow(input_path: Path, workspace: Path, as_of: date,
     _write_json(manifest, binding)
     state: dict[str, Any] = {**binding, "input_source": source, "evidence_source": evidence_source,
                             "research_only": True, "rule_enabled": False, "financial_verified": False,
-                            "status": "running", "stages": {}, "errors": []}
+                            "status": "running", "stages": {}, "errors": [], "annual_reports": annual_reports}
     _write_json(root / "summary.json", state)
 
     def stage(name: str, output: str, operation: Any, fallback: Any) -> dict[str, Any]:
@@ -174,6 +176,30 @@ def run_workflow(input_path: Path, workspace: Path, as_of: date,
             _write_json(root / "extraction-cache.json", {"key": cache_key, "sha256": trace["sha256"]})
         else:
             (root / "extraction-cache.json").unlink(missing_ok=True)
+        financial_extraction = None
+        annual_discovery: dict[str, Any] = {}
+        annual_archive: dict[str, Any] = {}
+        if annual_reports:
+            def discover_reports() -> dict[str, Any]:
+                if discovery.get("source_stopped"):
+                    raise ValueError("本轮巨潮查询已因429停止，不再请求年报")
+                return discover_announcements(companies, as_of, root / "annual-query-cache", refresh=refresh,
+                                              mode="annual_report")
+
+            annual_discovery = stage("annual_discovery", "annual-discovery.json", discover_reports,
+                                     lambda: {"companies": [], "documents": [], "rule_enabled": False})
+
+            def archive_reports() -> dict[str, Any]:
+                if any("429" in str(item.get("error", "")) for item in archived.get("items", [])):
+                    raise ValueError("本轮PDF来源已因429停止，年报留档暂停")
+                return collect_documents(annual_discovery.get("documents", []), root / "annual-pdf-archive",
+                                         allowed_hosts=set(DEFAULT_HOSTS), refresh=refresh)
+
+            annual_archive = stage("annual_archive", "annual-archived.json", archive_reports,
+                                   lambda: {"items": [], "rule_enabled": False})
+            financial_extraction = stage("financial_extraction", "financial-extracted.json",
+                lambda: extract_archived_financials(annual_archive, root / "annual-pdf-archive", as_of),
+                lambda: {"items": [], "financial_proposals": [], "requires_review": True, "rule_enabled": False})
         state["active_stage"] = "preparation"
         _write_json(root / "prepared.json", {**prepared, "input_source": source, "evidence_source": evidence_source})
         state["stages"]["preparation"] = {"status": "completed", "file": "prepared.json"}
@@ -182,7 +208,8 @@ def run_workflow(input_path: Path, workspace: Path, as_of: date,
                          lambda: {"items": [{"symbol": row["symbol"], "status": "pending_verification",
                                               "reasons": ["研究阶段失败"]} for row in companies], "rule_enabled": False})
         stage("review", "review-packet.json",
-              lambda: build_review_packet(companies, extraction, prepared, research, as_of),
+              lambda: build_review_packet(companies, extraction, prepared, research, as_of,
+                                          **({"financial_extraction": financial_extraction} if annual_reports else {})),
               lambda: {"companies": [{"symbol": row["symbol"], "proposals": [], "research_status": "pending_verification",
                                        "unresolved": ["审核资料包阶段失败"]} for row in companies],
                        "requires_review": True, "rule_enabled": False})
@@ -198,7 +225,21 @@ def run_workflow(input_path: Path, workspace: Path, as_of: date,
                             "templates_matched": sum(row.get("status") == "matched_template" for row in extract_items),
                             "templates_pending": sum(row.get("status") != "matched_template" for row in extract_items),
                             "research_complete": complete, "research_pending": len(companies) - complete}
-        state["status"] = "partial" if (state["errors"] or state["summary"]["query_scope_complete"] != len(companies)
+        financial_pending = False
+        if annual_reports:
+            financial_items = financial_extraction.get("items", []) if financial_extraction else []
+            covered = {row.get("symbol") for row in financial_items if row.get("financial_proposals")}
+            state["summary"].update(
+                financial_query_scope_complete=sum(row.get("status") == "query_scope_complete"
+                                                   for row in annual_discovery.get("companies", [])),
+                financial_archive_available=sum(row.get("status") in {"downloaded", "cached"}
+                                                for row in annual_archive.get("items", [])),
+                financial_templates_pending=sum(row.get("status") != "matched_template" for row in financial_items),
+                financial_companies_with_proposals=len(covered & {row["symbol"] for row in companies}))
+            financial_pending = (state["summary"]["financial_query_scope_complete"] != len(companies)
+                                 or state["summary"]["financial_companies_with_proposals"] != len(companies)
+                                 or bool(state["summary"]["financial_templates_pending"]))
+        state["status"] = "partial" if (financial_pending or state["errors"] or state["summary"]["query_scope_complete"] != len(companies)
                                         or state["summary"]["archive_failed"] or state["summary"]["templates_pending"]
                                         or state["summary"]["research_pending"]) else "complete"
         state.pop("active_stage", None)
@@ -221,11 +262,12 @@ def run_workflow(input_path: Path, workspace: Path, as_of: date,
 @click.option("--as-of", required=True, help="研究截止日，YYYY-MM-DD")
 @click.option("--evidence", "evidence_path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--refresh", is_flag=True)
+@click.option("--annual-reports", is_flag=True, help="同时发现年报并生成财务字段建议，增加独立查询与下载")
 def dividend_workflow(input_path: Path, workspace: Path, as_of: str,
-                      evidence_path: Path | None, refresh: bool) -> None:
+                      evidence_path: Path | None, refresh: bool, annual_reports: bool) -> None:
     """批量生成官方原文、字段建议及审核包；不发布股票池成员。"""
     try:
-        result = run_workflow(input_path, workspace, _cutoff(as_of), evidence_path, refresh)
+        result = run_workflow(input_path, workspace, _cutoff(as_of), evidence_path, refresh, annual_reports)
     except (OSError, ValueError, TypeError) as exc:
         raise click.ClickException(str(exc)) from exc
     summary = result["summary"]

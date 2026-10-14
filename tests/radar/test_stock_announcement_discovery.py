@@ -259,3 +259,32 @@ def test_related_non_implementation_risk_kept_pending(tmp_path, title):
 def test_unrelated_correction_not_collected(tmp_path):
     result, _ = run(tmp_path, lambda _: Response(page([row(announcementTitle='董事会会议更正公告')])))
     assert result['documents'] == []
+
+
+def test_annual_report_mode_filters_summaries_and_retains_revisions(tmp_path):
+    rows = [row('1', announcementTitle='2025年年度报告'),
+            row('2', announcementTitle='2025年年度报告摘要'),
+            row('3', announcementTitle='2025年年度报告（修订版）'),
+            row('4', announcementTitle='2025年年度报告（英文版）')]
+    result, calls = run(tmp_path, lambda _: Response(page(rows)), mode='annual_report')
+    assert len(calls) == 2
+    assert [d['announcement_id'] for d in result['documents']] == ['1', '3']
+    assert result['documents'][0]['kind'] == 'annual_report'
+    assert result['documents'][0]['fiscal_year'] == 2025
+    assert result['documents'][1]['discovery_status'] == 'pending_review'
+    assert result['companies'][0]['query_states'][0]['term'] == '年度报告'
+
+
+def test_unknown_discovery_mode_rejected_before_network(tmp_path):
+    with pytest.raises(ValueError, match='发现模式'):
+        run(tmp_path, lambda _: pytest.fail('must not request'), mode='unknown')
+
+
+def test_report_related_title_is_not_mistaken_for_full_annual_report(tmp_path):
+    rows = [row('1', announcementTitle='关于2025年年度报告披露日期变更的公告'),
+            row('2', announcementTitle='关于2025年年度报告的审议意见'),
+            row('3', announcementTitle='2025年年度报告（全文）')]
+    result, _ = run(tmp_path, lambda _: Response(page(rows)), mode='annual_report')
+    assert [d['announcement_id'] for d in result['documents']] == ['1', '3']
+    assert result['documents'][0]['discovery_status'] == 'pending_review'
+    assert result['documents'][1]['discovery_status'] == 'discovered'

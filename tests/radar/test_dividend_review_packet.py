@@ -159,3 +159,18 @@ def test_invalid_status_is_isolated_without_losing_normal_proposal(status):
     packet = build_review_packet(companies, extraction, prepared, research, CUTOFF)
     assert packet["summary"]["proposals"] == 1
     assert len(packet["diagnostics"]) == 1
+
+
+def test_financial_suggestions_are_traced_and_do_not_fill_profits():
+    args = inputs()
+    financial = deepcopy(args[1])
+    for item in financial["items"]:
+        item["financial_proposals"] = item.pop("event_proposals")
+        item["financial_proposals"][0].update(metric="parent_net_profit", scope="reported_parent")
+    packet = build_review_packet(*args, CUTOFF, financial_extraction=financial)
+    first = packet["companies"][0]
+    assert len(first["financial_proposals"]) == 1
+    assert first["financial_proposals"][0]["fields"]["scope"] == "reported_parent"
+    assert first["financial_proposals"][0]["origin"]["file_sha256"] == "a" * 64
+    assert first["evidence"]["profits"] == []
+    assert first["research_status"] == "pending_verification"
