@@ -49,4 +49,28 @@ event_id标识同一分红事项，多个股类的同一事项共用ID；同一�
 
 `tests/resources/radar/stock-dividend-evidence.json`包含长江电力2023—2025年官方实施金额及2025年年报利润，另两家公司故意保留证据不足状态。真实来源、采样日期2026-10-14及提取口径见[普通企业实施证据实验](../../plans/2026-10/2026-10-14-stock-radar-dividend-evidence.md)。该资源只保留规范化必要字段，不提交整份PDF。年度合计与中期事件不得重复；年报追溯调整口径不是历史时点回测。
 
-当前通用化的是证据校验和批量计算。全市场公告采集、原始缓存转换、源级限流及联网断点恢复在后续阶段；没有实际派息证据的685候选不会被这个命令自动放行。数值试验不替代分红可持续性、资本开支、债务、金融专项及治理审核。
+当前通用化的是证据校验和批量计算。第二阶段已补旧缓存转换及明确URL的原文留档，自动发现全市场公告与财务金额标准化仍在后续阶段；没有实际派息证据的685候选不会被这个命令自动放行。数值试验不替代分红可持续性、资本开支、债务、金融专项及治理审核。
+
+## 资料准备与原文留档
+
+第二阶段提供旧缓存转换和明确URL清单的公告留档：
+
+```powershell
+stock-robot radar dividend-prepare --candidates tmp/market-candidates.json --style-cache tmp/style-candidates.json --evidence tests/resources/radar/stock-dividend-evidence.json --output tmp/dividend-materials/prepared.json
+stock-robot radar dividend-research --input tmp/dividend-materials/prepared.json --output tmp/dividend-materials/research.json --as-of 2026-10-14
+stock-robot radar dividend-archive --input tests/resources/radar/stock-dividend-documents.json --archive-dir tmp/dividend-materials/official-archive --output tmp/dividend-materials/archive-result.json
+```
+
+开发工作树运行时仍须使用前文共享.venv路径与PYTHONPATH。标准化evidence可选：不提供时仅保留线索。旧候选缓存和style缓存都是公司对象列表，重复symbol报错；旧利润、每10股分红、供应商总股本等保留research_hints，不猜股类或年度事件完整性。输入路径与SHA256记录在准备产物中。
+
+公告输入格式为 `{"documents":[{"symbol":"600900","source_url":"https://公司官方域名/公告.pdf","fiscal_year":2025,"kind":"annual_dividend_implementation","share_class":"ALL"}]}`。fiscal_year/kind/share_class属于调用者提供的描述，不代表下载器已核实PDF内容。相同URL只下载一次，公司描述不丢失。
+
+默认允许已验证官方来源的精确主机：www.cypc.com.cn、static.cninfo.com.cn、www.hkexnews.hk、static.sse.com.cn、www.sse.com.cn、disc.static.szse.cn；其他公司官网可使用 `--allow-host 官方主机名`。只访问HTTPS，逐跳验证主机，无凭据URL/IP/localhost；HTML验证页拒绝，不绕过验证。输入清单和汇总输出必须放在原文归档目录之外，防止覆盖checkpoint或PDF。
+
+最多两个来源并发，同一hostname串行执行以可靠处理429；429后该hostname本轮停止。连接／读取超时15秒，网络超时、连接或分块传输中断、5xx共用最多2次重试预算；流式下载累计耗时可能超过15秒，该参数不是整份文件的总时长截止。状态逐条写入manifest.json，可中断续跑；完整且SHA/大小/PDF头一致的原文默认复用，`--refresh`明确重新下载，失败保留正确旧原文并标出本次失败。缓存超过1GiB只在结果warnings提醒，不删除。
+
+归档产物保留原始URL、最终重定向URL、SHA256、字节数和带时区抓取时间。downloaded/cached仅表示原文采集成功，financial_verified与rule_enabled均为false；不会修改标准化分红金额、成员库或自动任务。
+
+`stock-dividend-documents.json`是2026-10-14从现有长江电力实施证据整理的三条官方URL清单，资源只保存描述与链接，完整PDF保留本地忽略tmp。接口与资源预算测试使用离线响应，不在业务测试中批量联网。
+
+已交付：旧缓存转换、明确URL原文采集、来源级限流、联网原文续跑。仍待后续：自动发现全市场公告URL、不同来源财务字段标准化、任意PDF金额抽取及股类／年度完整性补证；支付率数值门槛仍未启用。

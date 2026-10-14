@@ -123,6 +123,11 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/radar/test_dividend_research_cli.py"
         continue
     }
+    if ($path -in @("src\radar\stocks\source_archive.py", "src\stock_robot\dividend_materials.py", "tests\resources\radar\stock-dividend-documents.json")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_source_archive.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_dividend_materials.py"
+        continue
+    }
     if ($path.StartsWith("src\stock_robot\", [StringComparison]::OrdinalIgnoreCase)) {
         Add-UniqueTarget $testTargets "tests/test_cli.py"
         Add-UniqueTarget $testTargets "tests/test_cli_index.py"

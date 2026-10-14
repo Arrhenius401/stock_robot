@@ -1,0 +1,7 @@
+{
+  "documents": [
+    {"symbol": "600900", "fiscal_year": 2023, "kind": "annual_dividend_implementation", "share_class": "ALL", "source_url": "https://www.cypc.com.cn/cypc/attachDir/2024/08/2024082009390195815.pdf"},
+    {"symbol": "600900", "fiscal_year": 2024, "kind": "annual_dividend_implementation", "share_class": "ALL", "source_url": "https://www.cypc.com.cn/cypc/attachDir/2025/09/2025090114451732681.pdf"},
+    {"symbol": "600900", "fiscal_year": 2025, "kind": "annual_dividend_implementation", "share_class": "ALL", "source_url": "https://www.cypc.com.cn/cypc/attachDir/2026/07/2026070917081273023.pdf"}
+  ]
+}

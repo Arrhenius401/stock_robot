@@ -23,6 +23,9 @@ def _run(*arguments: str):
 
 @pytest.mark.parametrize("path,expected", [
     ("src/stock_robot/cli.py", "tests/test_cli.py"),
+    ("tests/resources/radar/stock-dividend-documents.json", "tests/radar/test_stock_source_archive.py"),
+    ("src/radar/stocks/source_archive.py", "tests/radar/test_stock_source_archive.py"),
+    ("src/stock_robot/dividend_materials.py", "tests/radar/test_dividend_materials.py"),
     ("src/radar/stocks/dividend_payout.py", "tests/radar/test_stock_dividend_payout.py"),
     ("scripts/research-stock-dividends.py", "tests/radar/test_dividend_research_cli.py"),
     ("tests/resources/radar/stock-dividend-evidence.json", "tests/radar/test_stock_dividend_payout.py"),
