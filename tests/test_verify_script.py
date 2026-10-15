@@ -169,3 +169,12 @@ def test_financial_evidence_has_bounded_test_mapping(source_file):
     assert plan["UnmappedFiles"] == []
     assert set(plan["TestTargets"]) == {"tests/radar/test_financial_extract.py", "tests/radar/test_financial_documents_cli.py",
                                        "tests/radar/test_dividend_review_packet.py", "tests/radar/test_dividend_workflow.py"}
+
+
+@pytest.mark.parametrize("source_file", ["src/radar/stocks/research_store.py", "src/stock_robot/stock_research.py"])
+def test_stock_research_store_has_bounded_mapping(source_file):
+    result = _run("-PlanOnly", "-Files", source_file)
+    assert result.returncode == 0, result.stderr
+    plan = json.loads(result.stdout)
+    assert plan["UnmappedFiles"] == []
+    assert set(plan["TestTargets"]) == {"tests/radar/test_stock_research_store.py", "tests/radar/test_stock_research_cli.py", "tests/radar/test_store.py"}
