@@ -288,3 +288,29 @@ def test_report_related_title_is_not_mistaken_for_full_annual_report(tmp_path):
     assert [d['announcement_id'] for d in result['documents']] == ['1', '3']
     assert result['documents'][0]['discovery_status'] == 'pending_review'
     assert result['documents'][1]['discovery_status'] == 'discovered'
+
+
+@pytest.mark.parametrize('title,months,period', [('2026年第一季度报告',3,'2026-03-31'),('2026年半年度报告',6,'2026-06-30'),('2025年第三季度报告',9,'2025-09-30')])
+def test_interim_reports_are_discovered_with_exact_period(tmp_path,title,months,period):
+    result,calls=run(tmp_path,lambda _:Response(page([row(announcementTitle=title)])),mode='interim_report')
+    assert result['companies'][0]['status']=='query_scope_complete'
+    assert len(calls)==4
+    assert len(result['documents'])==1
+    assert result['documents'][0]['period_months']==months
+    assert result['documents'][0]['period_end']==period
+    assert result['documents'][0]['kind']=='interim_report'
+    assert result['financial_verified'] is False
+
+
+@pytest.mark.parametrize('title',['2026年半年度报告摘要','2026年半年度报告英文版','关于2026年半年度报告的说明','2025年年度报告'])
+def test_interim_mode_does_not_treat_related_titles_as_reports(tmp_path,title):
+    result,_=run(tmp_path,lambda _:Response(page([row(announcementTitle=title)])),mode='interim_report')
+    assert result['documents']==[]
+
+
+def test_interim_revision_requires_review_and_future_period_fails(tmp_path):
+    revised,_=run(tmp_path/'revised',lambda _:Response(page([row(announcementTitle='2026年半年度报告（修订版）')])),mode='interim_report')
+    assert revised['documents'][0]['discovery_status']=='pending_review'
+    future,_=run(tmp_path/'future',lambda _:Response(page([row(announcementTitle='2026年第三季度报告')])),mode='interim_report')
+    assert future['companies'][0]['status']=='failed'
+    assert future['documents']==[]

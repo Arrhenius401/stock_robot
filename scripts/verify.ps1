@@ -152,6 +152,14 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/radar/test_stock_research_store.py"
         continue
     }
+    if ($path -in @("src\radar\stocks\interim_extract.py", "src\stock_robot\interim_documents.py") -or
+        $path -like "tests\resources\radar\cninfo-600900-*-accounting.txt") {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_extract.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_documents.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_announcement_discovery.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_financial_extract.py"
+        continue
+    }
     if ($path -in @("src\radar\stocks\financial_facts.py", "src\stock_robot\stock_financial_facts.py")) {
         Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_facts.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_fact_store.py"
@@ -168,12 +176,15 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/radar/test_stock_membership_drafts.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_archive_cli.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_research_store.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_documents.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_research_cli.py"
         Add-UniqueTarget $testTargets "tests/radar/test_store.py"
         continue
     }
     if ($path -in @("src\radar\stocks\financial_extract.py", "src\stock_robot\financial_documents.py", "tests\resources\radar\cypc-600900-2025-annual-summary.txt")) {
         Add-UniqueTarget $testTargets "tests/radar/test_financial_extract.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_extract.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_documents.py"
         Add-UniqueTarget $testTargets "tests/radar/test_financial_documents_cli.py"
         Add-UniqueTarget $testTargets "tests/radar/test_dividend_review_packet.py"
         Add-UniqueTarget $testTargets "tests/radar/test_dividend_workflow.py"
@@ -187,6 +198,8 @@ foreach ($file in $changedFiles) {
         continue
     }
     if ($path -in @("src\radar\stocks\announcement_discovery.py", "src\radar\stocks\dividend_extract.py", "src\stock_robot\dividend_documents.py")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_documents.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_extract.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_announcement_discovery.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_dividend_extract.py"
         Add-UniqueTarget $testTargets "tests/radar/test_dividend_documents_cli.py"
@@ -200,6 +213,8 @@ foreach ($file in $changedFiles) {
     }
     if ($path -eq "tests\resources\radar\cninfo-000333-announcements-empty.json" -or
         $path -like "tests\resources\radar\*-implementation.txt") {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_documents.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_extract.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_announcement_discovery.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_dividend_extract.py"
         Add-UniqueTarget $testTargets "tests/radar/test_dividend_documents_cli.py"

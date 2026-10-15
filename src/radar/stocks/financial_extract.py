@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+from collections.abc import Callable
 from datetime import date
 from decimal import Decimal, localcontext
 from io import BytesIO
@@ -132,7 +133,7 @@ def extract_annual_text(pages: list[str], *, symbol: str, source_url: str,
 
 
 def extract_archived_financials(archive_result: dict[str, Any], archive_dir: Path,
-                                as_of: date) -> dict[str, Any]:
+                                as_of: date, *, text_extractor: Callable[..., dict[str, Any]] | None = None) -> dict[str, Any]:
     """校验归档后限制页数解析；单份 PDF 故障不影响其他公司。"""
     output: dict[str, Any] = {"items": [], "financial_proposals": [], "requires_review": True,
                              "financial_verified": False, "rule_enabled": False}
@@ -170,13 +171,23 @@ def extract_archived_financials(archive_result: dict[str, Any], archive_dir: Pat
             if len(reader.pages) > 1000:
                 raise ValueError("PDF 超过1000页预算")
             pages = [reader.pages[index].extract_text() or "" for index in range(min(20, len(reader.pages)))]
-            result = extract_annual_text(pages, symbol=symbol, source_url=url, disclosed_on=disclosed, as_of=as_of)
+            extractor = text_extractor or extract_annual_text
+            result = extractor(pages, symbol=symbol, source_url=url, disclosed_on=disclosed, as_of=as_of)
             result["file_sha256"] = item["sha256"]
             result["page_count"] = len(reader.pages)
             result["parsed_page_count"] = len(pages)
         except Exception as exc:  # noqa: BLE001 第三方 PDF 和归档文件隔离边界
-            logger.warning("年报提取失败 %s: %s", symbol, exc)
+            logger.warning("财务报告提取失败 %s: %s", symbol, exc)
             result["reasons"].append(str(exc))
+        if text_extractor is not None:
+            result["discovery_period_end"] = item.get("period_end")
+            result["discovery_period_months"] = item.get("period_months")
+            result["discovery_fiscal_year"] = item.get("fiscal_year")
+            known_period, parsed_period = item.get("period_end"), result.get("period_end")
+            if known_period is not None and parsed_period is not None and known_period != parsed_period:
+                result["status"] = "pending_verification"
+                result["financial_proposals"] = []
+                result["reasons"].append("公告发现期间与PDF标题期间不一致，保留较新报告线索待核验")
         output["items"].append(result)
         output["financial_proposals"].extend(result["financial_proposals"])
     return output

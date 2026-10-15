@@ -71,6 +71,25 @@ def _document(item: Any, symbol: str, org_id: str, start: date, end: date, *, mo
     if unquote(path) != path:
         raise ValueError('公告 URL 不能包含编码路径')
     clean_title = re.sub(r'<[^>]*>', '', html.unescape(title)).strip()
+    if mode == "interim_report":
+        normalized = re.sub(r"\s+", "", clean_title)
+        report = re.search(r"(20\d{2})年?(第一季度|半年度|第三季度)报告", normalized)
+        if not report or any(word in normalized for word in ("摘要", "英文", "审计报告")):
+            return None
+        review = any(word in normalized for word in ("更正", "取消", "撤销", "修订", "更新", "补充", "变更", "延期", "终止"))
+        if not review and normalized[report.end():] not in {"", "（全文）", "(全文)"}:
+            return None
+        months = {"第一季度": 3, "半年度": 6, "第三季度": 9}[report[2]]
+        year = int(report[1])
+        period = date(year, months, 31 if months == 3 else 30)
+        if period >= published:
+            raise ValueError("季度报告期间尚未结束或披露日期无效")
+        return {"symbol": symbol, "org_id": org_id, "announcement_id": identifier,
+                "title": clean_title, "disclosed_on": published.isoformat(), "fiscal_year": year,
+                "period_months": months, "period_end": period.isoformat(),
+                "source_url": "https://static.cninfo.com.cn/" + path,
+                "status": "pending_review" if review else "discovered", "kind": "interim_report",
+                "discovery_status": "pending_review" if review else "discovered", "financial_verified": False}
     if mode == "annual_report":
         report = re.search(r"(20\d{2})年?年度报告", clean_title)
         if not report or any(word in clean_title for word in ("英文", "审计报告")):
@@ -123,9 +142,10 @@ def discover_announcements(companies: list[dict[str, Any]], as_of: date, cache_d
                            refresh: bool = False, http_post: Callable[..., Any] | None = None,
                            sleep: Callable[[float], Any] = time.sleep, mode: str = "dividend") -> dict[str, Any]:
     """逐公司发现实施公告，保留断点；任何查询失败均不宣称公司查询完成。"""
-    if not isinstance(mode, str) or mode not in {"dividend", "annual_report"}:
+    if not isinstance(mode, str) or mode not in {"dividend", "annual_report", "interim_report"}:
         raise ValueError("未知公告发现模式")
-    terms = ("年度报告",) if mode == "annual_report" else _TERMS
+    terms = (("第一季度报告", "半年度报告", "第三季度报告") if mode == "interim_report"
+             else (("年度报告",) if mode == "annual_report" else _TERMS))
     if not isinstance(companies, list) or any(
         not isinstance(company, dict) or not isinstance(company.get('symbol'), str)
         or not re.fullmatch(r'(?:6\d{5}|[03]\d{5})', company['symbol']) for company in companies

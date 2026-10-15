@@ -173,7 +173,7 @@ class StockResearchStore:
         if disclosed is not None:
             self._date(disclosed)
         identity_payload = json.loads(serialized)
-        if kind in {'dividend_proposal', 'financial_proposal'}:
+        if kind in {'dividend_proposal', 'financial_proposal', 'quarterly_financial_proposal'}:
             identity_payload = {'fields': payload.get('fields'), 'origin': payload.get('origin')}
         identity = {'symbol': symbol, 'kind': kind, 'payload': identity_payload,
                     'source_url': url, 'disclosed_on': disclosed, 'content_sha256': sha}
@@ -220,7 +220,8 @@ class StockResearchStore:
             rows = [self._evidence(symbol, 'research_hint', company, {}, confirmable=False)]
             if kind == 'review_packet':
                 for key, evidence_kind in (('proposals', 'dividend_proposal'), ('financial_proposals', 'financial_proposal'),
-                                           ('documents', 'document'), ('financial_documents', 'financial_document')):
+                                           ('documents', 'document'), ('financial_documents', 'financial_document'),
+                                           ('quarterly_proposals', 'quarterly_financial_proposal'), ('quarterly_documents', 'quarterly_financial_document')):
                     entries = company.get(key, [])
                     if not isinstance(entries, list):
                         raise StockResearchError(f'{key}必须是列表')
@@ -397,7 +398,7 @@ class StockResearchStore:
         if isinstance(payload, dict) and payload.get('symbol', symbol) != symbol:
             raise StockResearchError('证据不能跨公司')
         confirmable = kind not in {'research_hint', 'unresolved'}
-        if kind in {'document', 'financial_document'}:
+        if kind in {'document', 'financial_document', 'quarterly_financial_document'}:
             confirmable = isinstance(payload, dict) and payload.get('status') == 'matched_template'
         row = self._evidence(symbol, kind, payload, origin, confirmable=confirmable)
         now = self._now().isoformat()

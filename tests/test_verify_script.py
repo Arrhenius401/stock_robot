@@ -167,7 +167,7 @@ def test_financial_evidence_has_bounded_test_mapping(source_file):
     assert result.returncode == 0, result.stderr
     plan = json.loads(result.stdout)
     assert plan["UnmappedFiles"] == []
-    assert set(plan["TestTargets"]) == {"tests/radar/test_financial_extract.py", "tests/radar/test_financial_documents_cli.py",
+    assert set(plan["TestTargets"]) == {"tests/radar/test_stock_interim_extract.py", "tests/radar/test_stock_interim_documents.py", "tests/radar/test_financial_extract.py", "tests/radar/test_financial_documents_cli.py",
                                        "tests/radar/test_dividend_review_packet.py", "tests/radar/test_dividend_workflow.py"}
 
 
@@ -177,7 +177,7 @@ def test_stock_research_store_has_bounded_mapping(source_file):
     assert result.returncode == 0, result.stderr
     plan = json.loads(result.stdout)
     assert plan["UnmappedFiles"] == []
-    assert set(plan["TestTargets"]) == {"tests/radar/test_stock_research_store.py", "tests/radar/test_stock_research_cli.py", "tests/radar/test_store.py",
+    assert set(plan["TestTargets"]) == {"tests/radar/test_stock_interim_documents.py", "tests/radar/test_stock_research_store.py", "tests/radar/test_stock_research_cli.py", "tests/radar/test_store.py",
         "tests/radar/test_stock_financial_facts.py", "tests/radar/test_stock_financial_fact_store.py", "tests/radar/test_stock_financial_facts_cli.py",
         "tests/radar/test_stock_evaluation_store.py", "tests/radar/test_stock_membership_drafts.py", "tests/radar/test_stock_archive_cli.py"}
 
@@ -220,3 +220,15 @@ def test_financial_facts_have_bounded_mapping(source_file):
     assert plan["UnmappedFiles"] == []
     assert set(plan["TestTargets"]) == {"tests/radar/test_stock_financial_facts.py", "tests/radar/test_stock_financial_fact_store.py",
         "tests/radar/test_stock_financial_facts_cli.py", "tests/radar/test_financial_extract.py", "tests/radar/test_stock_research_store.py"}
+
+
+@pytest.mark.parametrize("source_file", ["src/radar/stocks/interim_extract.py", "src/stock_robot/interim_documents.py",
+    "tests/resources/radar/cninfo-600900-2026-q1-accounting.txt", "tests/resources/radar/cninfo-600900-2026-h1-accounting.txt",
+    "tests/resources/radar/cninfo-600900-2025-q3-accounting.txt"])
+def test_interim_evidence_has_bounded_mapping(source_file):
+    result = _run("-PlanOnly", "-Files", source_file)
+    assert result.returncode == 0, result.stderr
+    plan = json.loads(result.stdout)
+    assert plan["UnmappedFiles"] == []
+    assert set(plan["TestTargets"]) == {"tests/radar/test_stock_interim_extract.py", "tests/radar/test_stock_interim_documents.py",
+        "tests/radar/test_stock_announcement_discovery.py", "tests/radar/test_financial_extract.py"}
