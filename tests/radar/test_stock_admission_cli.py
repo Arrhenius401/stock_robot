@@ -174,3 +174,33 @@ def test_initial_company_read_failure_is_isolated(tmp_path, monkeypatch):
     assert report["summary"]["total"] == 2
     assert report["errors"] == [{"symbol": "600900", "reason": "合成读取失败"}]
     assert next(row for row in report["items"] if row["symbol"] == "600900")["source_revision"] is None
+
+
+def window_envelope():
+    return {"version": "stock-market-window-v1", "market": "XSHG", "as_of": AS_OF.isoformat(),
+            "days": [(AS_OF - timedelta(days=59-i)).isoformat() for i in range(60)],
+            "research_only": True, "formal_screening_enabled": False}
+
+
+def test_market_window_envelope_keeps_research_role_and_source_trace(tmp_path):
+    _, db = prepare(tmp_path)
+    path = tmp_path / "window.json"
+    path.write_text(json.dumps(window_envelope()), encoding="utf-8")
+    result = CliRunner().invoke(admission_evaluate, ["--db", str(db), "--as-of", AS_OF.isoformat(), "--market-window", str(path)])
+    assert result.exit_code == 0, result.output
+    report = json.loads(result.output)
+    assert report["market_window_role"] == "research_context_only"
+    assert report["formal_screening_enabled"] is False
+    assert report["summary"]["common_passed"] == 0
+    assert report["market_window_source"]["sha256"]
+
+
+@pytest.mark.parametrize("field,value", [("version", "other"), ("market", "HKEX"), ("as_of", "2026-10-14"),
+    ("research_only", False), ("formal_screening_enabled", True), ("days", None)])
+def test_bad_market_window_envelope_rejected(tmp_path, field, value):
+    payload = window_envelope()
+    payload[field] = value
+    path = tmp_path / "window.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises((ValueError, TypeError)):
+        stock_admission._read_market_window(AS_OF, path)

@@ -112,7 +112,7 @@ def evaluate_store(store: StockResearchStore, as_of: date, *, symbol: str | None
 @click.option("--as-of", required=True, help="研究截点，YYYY-MM-DD")
 @click.option("--symbol", help="可选单家公司，否则评估全部共享候选")
 @click.option("--market-window", "window_path", type=click.Path(exists=True, dir_okay=False, path_type=Path),
-              help="可选研究市场日历JSON：60个已核验市场交易日，不是任意60条行情")
+              help="可选研究市场日历JSON：60日列表或stock-market-window产物，不是任意60条行情")
 @click.option("--output", type=click.Path(dir_okay=False, path_type=Path))
 def admission_evaluate(db: Path, as_of: str, symbol: str | None, window_path: Path | None, output: Path | None) -> None:
     """计算已确认共同条件；人工确认不能替代数值检查，风格仍待配置。"""
@@ -124,7 +124,7 @@ def admission_evaluate(db: Path, as_of: str, symbol: str | None, window_path: Pa
 @click.option("--as-of", required=True, help="研究截点，YYYY-MM-DD")
 @click.option("--symbol", help="可选单家公司，否则评估全部共享候选")
 @click.option("--market-window", "window_path", type=click.Path(exists=True, dir_okay=False, path_type=Path),
-              help="可选研究市场日历JSON：60个已核验市场交易日，不是任意60条行情")
+              help="可选研究市场日历JSON：60日列表或stock-market-window产物，不是任意60条行情")
 @click.option("--output", type=click.Path(dir_okay=False, path_type=Path))
 def style_evaluate(db: Path, as_of: str, symbol: str | None, window_path: Path | None, output: Path | None) -> None:
     """研究两池已确认风格差异，未确认阈值继续待配置。"""
@@ -136,6 +136,12 @@ def _read_market_window(cutoff: date, window_path: Path | None) -> tuple[list[da
     trace = None
     if window_path is not None:
         payload, trace = _read(window_path)
+        if isinstance(payload, dict):
+            if (payload.get("version") != "stock-market-window-v1" or payload.get("market") != "XSHG"
+                    or payload.get("as_of") != cutoff.isoformat() or payload.get("research_only") is not True
+                    or payload.get("formal_screening_enabled") is not False):
+                raise ValueError("市场日期窗口版本、市场、截点或研究属性不匹配")
+            payload = payload.get("days")
         if not isinstance(payload, list) or any(not isinstance(day, str) for day in payload):
             raise TypeError("市场窗口必须是ISO日期字符串列表")
         window = [_cutoff(day) for day in payload]

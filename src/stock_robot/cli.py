@@ -37,6 +37,7 @@ from stock_robot.stock_archive import (
     list_evaluations,
 )
 from stock_robot.stock_financial_facts import prepare_facts
+from stock_robot.stock_market_context import market_window_command
 from stock_robot.stock_research import (
     add_evidence,
     import_records,
@@ -1715,6 +1716,7 @@ radar.add_command(review_evidence)
 radar.add_command(admission_evaluate)
 radar.add_command(style_evaluate)
 radar.add_command(prepare_facts)
+radar.add_command(market_window_command)
 for command in (discover_interims, extract_interims, prepare_interim_packet):
     radar.add_command(command)
 for command in (capture_evaluation, list_evaluations, create_draft, list_drafts, cancel_draft):

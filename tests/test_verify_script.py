@@ -188,7 +188,7 @@ def test_common_admission_has_bounded_mapping(source_file):
     assert result.returncode == 0, result.stderr
     plan = json.loads(result.stdout)
     assert plan["UnmappedFiles"] == []
-    assert set(plan["TestTargets"]) == {"tests/radar/test_stock_admission.py", "tests/radar/test_stock_admission_cli.py",
+    assert set(plan["TestTargets"]) == {"tests/radar/test_stock_market_context.py", "tests/radar/test_stock_admission.py", "tests/radar/test_stock_admission_cli.py",
                                        "tests/radar/test_stock_research_store.py", "tests/radar/test_stock_style.py", "tests/radar/test_stock_style_cli.py", "tests/radar/test_stock_archive_cli.py"}
 
 
@@ -241,3 +241,13 @@ def test_interim_ttm_has_bounded_mapping():
     assert plan["UnmappedFiles"] == []
     assert set(plan["TestTargets"]) == {"tests/radar/test_stock_interim_ttm.py", "tests/radar/test_stock_interim_ttm_integration.py",
         "tests/radar/test_stock_financial_facts.py", "tests/radar/test_stock_financial_fact_store.py", "tests/radar/test_stock_financial_facts_cli.py"}
+
+
+@pytest.mark.parametrize("source_file", ["src/radar/stocks/market_context.py", "src/stock_robot/stock_market_context.py"])
+def test_stock_market_context_has_bounded_mapping(source_file):
+    result = _run("-PlanOnly", "-Files", source_file)
+    assert result.returncode == 0, result.stderr
+    plan = json.loads(result.stdout)
+    assert plan["UnmappedFiles"] == []
+    assert set(plan["TestTargets"]) == {"tests/radar/test_stock_market_context.py", "tests/radar/test_calendar.py",
+        "tests/radar/test_stock_admission_cli.py", "tests/radar/test_stock_style_cli.py", "tests/radar/test_stock_archive_cli.py"}
