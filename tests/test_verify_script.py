@@ -262,3 +262,15 @@ def test_stock_market_history_has_bounded_mapping(source_file):
     assert plan["UnmappedFiles"] == []
     assert set(plan["TestTargets"]) == {"tests/radar/test_stock_market_history.py", "tests/radar/test_stock_market_history_cli.py",
         "tests/radar/test_stock_market_context.py", "tests/radar/test_stock_admission_cli.py", "tests/radar/test_stock_style_cli.py"}
+
+
+@pytest.mark.parametrize("source_file", ["src/radar/stocks/official_roster.py", "src/stock_robot/stock_official_roster.py",
+    "tests/resources/radar/sse-600900-601318-listing.json", "tests/resources/radar/sse-688001-listing.json",
+    "tests/resources/radar/szse-000001-000333-listing.xlsx"])
+def test_stock_official_roster_has_bounded_mapping(source_file):
+    result = _run("-PlanOnly", "-Files", source_file)
+    assert result.returncode == 0, result.stderr
+    plan = json.loads(result.stdout)
+    assert plan["UnmappedFiles"] == []
+    assert set(plan["TestTargets"]) == {"tests/radar/test_stock_official_roster.py", "tests/radar/test_stock_official_roster_cli.py",
+        "tests/radar/test_stock_research_store.py", "tests/radar/test_stock_research_cli.py"}

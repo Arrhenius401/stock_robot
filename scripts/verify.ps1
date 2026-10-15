@@ -153,6 +153,15 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/radar/test_stock_research_store.py"
         continue
     }
+    if ($path -in @("src\radar\stocks\official_roster.py", "src\stock_robot\stock_official_roster.py",
+        "tests\resources\radar\sse-600900-601318-listing.json", "tests\resources\radar\sse-688001-listing.json",
+        "tests\resources\radar\szse-000001-000333-listing.xlsx")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_official_roster.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_official_roster_cli.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_research_store.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_research_cli.py"
+        continue
+    }
     if ($path -in @("src\radar\stocks\market_history.py", "src\stock_robot\stock_market_history.py",
         "tests\resources\radar\sina-600900-2026-daily-sample.json")) {
         Add-UniqueTarget $testTargets "tests/radar/test_stock_market_history.py"
