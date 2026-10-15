@@ -297,6 +297,97 @@ class StockResearchStore:
             raise StockRevisionConflict('公司版本已更新，请重新读取')
         return revision
 
+    def _validate_financial_dependencies(self, connection: sqlite3.Connection, row: dict[str, Any]) -> None:
+        payload = row['payload']
+        payload = json.loads(payload) if isinstance(payload, str) else payload
+        if '_financial_dependencies' not in payload:
+            return
+        if row['kind'] not in {'admission_profitability', 'style_cash_flow'}:
+            raise StockResearchError('财务来源依赖仅用于规范利润与现金流组')
+        dependencies = payload['_financial_dependencies']
+        if (not isinstance(dependencies, dict) or set(dependencies) != {'version', 'as_of', 'inventory', 'security'}
+                or type(dependencies['version']) is not int or dependencies['version'] != 1):
+            raise StockResearchError('财务来源依赖版本或结构无效')
+        as_of = date.fromisoformat(self._date(dependencies['as_of']))
+        inventory = dependencies['inventory']
+        if not isinstance(inventory, list) or not inventory:
+            raise StockResearchError('财务原文清单不能为空')
+        for reference in inventory:
+            if not isinstance(reference, dict) or set(reference) != {'evidence_id', 'review_id'}:
+                raise StockResearchError('财务原文清单条目无效')
+            _sha(reference['evidence_id'])
+            review_id = reference['review_id']
+            if review_id is not None and (type(review_id) is not int or review_id < 1):
+                raise StockResearchError('财务来源审核版本无效')
+        # 只重建原始建议和发行人事实，避免派生事实递归依赖自身。
+        sources = connection.execute("SELECT * FROM stocks_evidence WHERE symbol=? AND kind IN ('financial_proposal','admission_security') ORDER BY evidence_id", (row['symbol'],)).fetchall()
+        expected_inventory = []
+        evidence = []
+        now = self._now()
+        for source in sources:
+            review = connection.execute('SELECT * FROM stocks_reviews WHERE evidence_id=? ORDER BY review_id DESC LIMIT 1', (source['evidence_id'],)).fetchone()
+            item = dict(source)
+            status = 'pending_verification'
+            if review:
+                try:
+                    reviewed = datetime.fromisoformat(review['reviewed_at'])
+                    if reviewed.tzinfo is None or reviewed.utcoffset() is None:
+                        status = 'needs_evidence'
+                    elif reviewed <= now:
+                        status = review['decision']
+                        if status == 'confirmed' and now - reviewed >= timedelta(days=90):
+                            status = 'expired'
+                except (ValueError, TypeError, OverflowError):
+                    status = 'needs_evidence'
+            item.update(payload=json.loads(item['payload']), confirmable=bool(item['confirmable']),
+                        latest_review=dict(review) if review else None, review_status=status)
+            evidence.append(item)
+            if item['kind'] == 'financial_proposal':
+                expected_inventory.append({'evidence_id': item['evidence_id'], 'review_id': review['review_id'] if review else None})
+        if inventory != expected_inventory:
+            raise StockRevisionConflict('财务原文或审核版本已变化，请重新准备事实')
+        # 局部导入保持存储基础类型可供纯准备器复用，不在模块初始化时形成循环。
+        from radar.stocks.financial_facts import prepare_financial_facts
+
+        prepared = prepare_financial_facts(row['symbol'], evidence, as_of)
+        expected = next((fact for fact in prepared['facts'] if fact['kind'] == row['kind']), None)
+        actual = {'kind': row['kind'], 'payload': payload, 'source_url': row['source_url'],
+                  'disclosed_on': row['disclosed_on'], 'content_sha256': row['content_sha256']}
+        if expected is None or _json(actual) != _json(expected):
+            raise StockRevisionConflict('规范事实与当前原文的准备结果不一致，请重新准备')
+
+    def add_financial_fact_batch(self, symbol: str, facts: list[dict[str, Any]], *, expected_revision: int) -> dict[str, Any]:
+        self._check_revision(expected_revision)
+        symbol = _symbol(symbol)
+        if not isinstance(facts, list) or not facts:
+            raise StockResearchError('没有可保存的规范财务事实')
+        prepared = []
+        kinds = set()
+        for fact in facts:
+            if not isinstance(fact, dict) or set(fact) != {'kind', 'payload', 'source_url', 'disclosed_on', 'content_sha256'}:
+                raise StockResearchError('规范事实批次字段无效')
+            kind = fact['kind']
+            if not isinstance(kind, str) or kind not in {'admission_profitability', 'style_cash_flow'} or kind in kinds:
+                raise StockResearchError('规范财务事实类型无效或重复')
+            kinds.add(kind)
+            if not isinstance(fact['payload'], dict) or '_financial_dependencies' not in fact['payload']:
+                raise StockResearchError('批次必须保留规范财务来源依赖')
+            if fact['payload'].get('symbol', symbol) != symbol:
+                raise StockResearchError('规范事实不能跨公司')
+            origin = {'source_url': _url(fact['source_url']), 'disclosed_on': self._date(fact['disclosed_on']), 'file_sha256': _sha(fact['content_sha256'])}
+            prepared.append(self._evidence(symbol, kind, fact['payload'], origin, confirmable=True))
+        added = 0
+        with self._write() as connection:
+            revision = self._revision(connection, symbol, expected_revision)
+            for item in prepared:
+                self._validate_financial_dependencies(connection, item)
+                added += int(self._insert_evidence(connection, item, self._now().isoformat()))
+            if added:
+                revision += 1
+                connection.execute('UPDATE stocks_companies SET revision=? WHERE symbol=?', (revision, symbol))
+        return {'evidence_ids': [item['evidence_id'] for item in prepared], 'facts_added': added, 'revision': revision,
+                'requires_review': True, 'formal_screening_enabled': False, 'members_published': 0}
+
     def add_evidence(self, symbol: str, *, kind: str, payload: dict[str, Any], source_url: str,
                      disclosed_on: date, content_sha256: str, expected_revision: int) -> dict[str, Any]:
         self._check_revision(expected_revision)
@@ -312,6 +403,7 @@ class StockResearchStore:
         now = self._now().isoformat()
         with self._write() as connection:
             revision = self._revision(connection, symbol, expected_revision)
+            self._validate_financial_dependencies(connection, row)
             added = self._insert_evidence(connection, row, now)
             if added:
                 revision += 1
@@ -333,6 +425,8 @@ class StockResearchStore:
                 raise StockResearchError('证据不存在或属于其他公司')
             if decision == 'confirmed' and not row['confirmable']:
                 raise StockResearchError('该线索缺少可确认的原文追踪或未成功提取')
+            if decision == 'confirmed':
+                self._validate_financial_dependencies(connection, dict(row))
             cursor = connection.execute('INSERT INTO stocks_reviews(symbol,evidence_id,decision,reviewer,reason,reviewed_at) VALUES (?,?,?,?,?,?)',
                                         (symbol, evidence_id, decision, reviewer, reason, now))
             revision += 1
@@ -380,6 +474,12 @@ class StockResearchStore:
                             status = 'expired'
                 item.update(payload=json.loads(item['payload']), confirmable=bool(item['confirmable']),
                             latest_review=dict(review) if review else None, review_status=status)
+                if '_financial_dependencies' in item['payload']:
+                    try:
+                        self._validate_financial_dependencies(connection, item)
+                        item['lineage_status'] = 'current'
+                    except StockResearchError as exc:
+                        item.update(review_status='needs_evidence', lineage_status='stale', lineage_reason=str(exc))
                 result.append(item)
         return result
 
