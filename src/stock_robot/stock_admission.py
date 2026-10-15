@@ -17,9 +17,47 @@ from stock_robot.stock_research import _emit, _protect_database
 logger = logging.getLogger(__name__)
 
 
+def _invalidate_result(result: dict[str, Any], reason: str) -> None:
+    """资料变更时失效全部嵌套判断，旧数值仅作诊断而不继续表示已通过。"""
+    result.update(common_status="pending_verification", admission_status="pending_verification", evaluation_valid=False)
+
+    def invalidate(node: dict[str, Any]) -> None:
+        node["evaluation_valid"] = False
+        for key in ("approved_conditions_status", "style_status", "admission_status"):
+            if key in node:
+                node[key] = "pending_verification"
+        if "opportunity_status" in node:
+            node["opportunity_status"] = "unavailable"
+        for check in node.get("checks", []):
+            check.update(outcome="pending_verification", reason=reason)
+        for branch in node.get("branches", {}).values():
+            invalidate(branch)
+
+    invalidate(result)
+    for pool in result.get("pools", {}).values():
+        invalidate(pool)
+
+
+def _unavailable_pools(reason: str) -> dict[str, Any]:
+    def pending() -> dict[str, Any]:
+        return {"approved_conditions_status": "pending_verification", "style_status": "pending_verification",
+                "admission_status": "pending_verification", "opportunity_status": "unavailable", "evaluation_valid": False,
+                "unconfigured_rules": [], "checks": [{"code": "evaluation_error", "outcome": "pending_verification",
+                                                       "reason": reason, "evidence_ids": [], "role": "information"}]}
+
+    dividend = pending()
+    dividend["branches"] = {"dividend": pending(), "value": pending()}
+    return {"dividend_value": dividend, "growth_trend": pending()}
+
+
 def evaluate_store(store: StockResearchStore, as_of: date, *, symbol: str | None = None,
-                   market_window: list[date] | None = None) -> dict[str, Any]:
+                   market_window: list[date] | None = None, include_styles: bool = False) -> dict[str, Any]:
     """读前后revision校验，不能把资料更新中的混合结果当稳定结论。"""
+    style_engine = None
+    if include_styles:
+        from radar.stocks import style
+
+        style_engine = style
     if symbol is None:
         total = store.summary()["companies"]
         companies = store.list_companies(page_size=max(1, total))["items"]
@@ -36,10 +74,12 @@ def evaluate_store(store: StockResearchStore, as_of: date, *, symbol: str | None
         try:
             before = store.get_company(code)
             evidence = store.list_evidence(code)
-            result = evaluate_common_admission(code, evidence, as_of, market_window=market_window)
+            result = (style_engine.evaluate_stock_styles(code, evidence, as_of, market_window=market_window)
+                      if style_engine else evaluate_common_admission(code, evidence, as_of, market_window=market_window))
+            result["evaluation_valid"] = True
             after = store.get_company(code)
             if before is None or after is None or before["revision"] != after["revision"]:
-                result.update(common_status="pending_verification", admission_status="pending_verification")
+                _invalidate_result(result, "评估期间公司资料已变化，请重新评估")
                 result["checks"].append({"code": "source_revision", "outcome": "pending_verification",
                                          "reason": "评估期间公司资料已变化，请重新评估", "evidence_ids": []})
                 errors.append({"symbol": code, "reason": "source_revision_changed"})
@@ -52,13 +92,19 @@ def evaluate_store(store: StockResearchStore, as_of: date, *, symbol: str | None
                       "formal_screening_enabled": False, "as_of": as_of.isoformat(),
                       "rule_version": RULE_VERSION, "evidence_ids": [],
                       "checks": [{"code": "evaluation_error", "outcome": "pending_verification", "reason": str(exc), "evidence_ids": []}]}
+            result["evaluation_valid"] = False
+            if style_engine:
+                result.update(style_rule_version=style_engine.STYLE_RULE_VERSION, pools=_unavailable_pools(str(exc)))
         results.append(result)
-    return {"as_of": as_of.isoformat(), "rule_version": RULE_VERSION, "formal_screening_enabled": False, "members_published": 0,
+    report = {"as_of": as_of.isoformat(), "rule_version": RULE_VERSION, "formal_screening_enabled": False, "members_published": 0,
             "research_only": True, "market_window_role": "research_context_only", "items": results, "errors": errors,
             "summary": {"total": len(results), "common_passed": sum(r["common_status"] == "passed" for r in results),
                         "common_failed": sum(r["common_status"] == "failed" for r in results),
                         "pending_verification": sum(r["common_status"] == "pending_verification" for r in results),
                         "eligible_members": 0}}
+    if style_engine:
+        report["style_rule_version"] = style_engine.STYLE_RULE_VERSION
+    return report
 
 
 @click.command("stock-admission-evaluate")
@@ -70,6 +116,23 @@ def evaluate_store(store: StockResearchStore, as_of: date, *, symbol: str | None
 @click.option("--output", type=click.Path(dir_okay=False, path_type=Path))
 def admission_evaluate(db: Path, as_of: str, symbol: str | None, window_path: Path | None, output: Path | None) -> None:
     """计算已确认共同条件；人工确认不能替代数值检查，风格仍待配置。"""
+    _run_evaluation(db, as_of, symbol, window_path, output)
+
+
+@click.command("stock-style-evaluate")
+@click.option("--db", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
+@click.option("--as-of", required=True, help="研究截点，YYYY-MM-DD")
+@click.option("--symbol", help="可选单家公司，否则评估全部共享候选")
+@click.option("--market-window", "window_path", type=click.Path(exists=True, dir_okay=False, path_type=Path),
+              help="可选研究市场日历JSON：60个已核验市场交易日，不是任意60条行情")
+@click.option("--output", type=click.Path(dir_okay=False, path_type=Path))
+def style_evaluate(db: Path, as_of: str, symbol: str | None, window_path: Path | None, output: Path | None) -> None:
+    """研究两池已确认风格差异，未确认阈值继续待配置。"""
+    _run_evaluation(db, as_of, symbol, window_path, output, include_styles=True)
+
+
+def _run_evaluation(db: Path, as_of: str, symbol: str | None, window_path: Path | None, output: Path | None,
+                    *, include_styles: bool = False) -> None:
     try:
         _protect_database(db, output, window_path)
         if window_path is not None and output is not None and window_path.resolve() == output.resolve():
@@ -84,7 +147,7 @@ def admission_evaluate(db: Path, as_of: str, symbol: str | None, window_path: Pa
             window = [_cutoff(day) for day in payload]
             if len(window) != 60 or len(set(window)) != 60 or window != sorted(window) or window[-1] > cutoff:
                 raise ValueError("市场窗口必须是递增唯一的60个市场交易日且不晚于研究截点")
-        result = evaluate_store(StockResearchStore(db), cutoff, symbol=symbol, market_window=window)
+        result = evaluate_store(StockResearchStore(db), cutoff, symbol=symbol, market_window=window, include_styles=include_styles)
         result["market_window_source"] = trace
         _emit(result, db, output)
     except (OSError, ValueError, TypeError, sqlite3.Error) as exc:

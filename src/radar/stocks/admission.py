@@ -98,10 +98,11 @@ def _source_valid(row: dict[str, Any], symbol: str, end: datetime) -> bool:
         return False
 
 
-def _groups(symbol: str, evidence: Any, end: datetime) -> dict[str, tuple[dict[str, Any] | None, list[str], str]]:
+def _groups(symbol: str, evidence: Any, end: datetime, *, kinds: tuple[str, ...] = _KINDS,
+            prefix: str = "admission_") -> dict[str, tuple[dict[str, Any] | None, list[str], str]]:
     result: dict[str, tuple[dict[str, Any] | None, list[str], str]] = {}
-    for kind in _KINDS:
-        rows = [row for row in evidence if isinstance(row, dict) and row.get('kind') == 'admission_' + kind] if isinstance(evidence, list) else []
+    for kind in kinds:
+        rows = [row for row in evidence if isinstance(row, dict) and row.get('kind') == prefix + kind] if isinstance(evidence, list) else []
         identifiers = sorted({row['evidence_id'] for row in rows if isinstance(row.get('evidence_id'), str)})
         payloads: dict[str, dict[str, Any]] = {}
         valid_ids: set[str] = set()

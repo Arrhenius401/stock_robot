@@ -23,7 +23,7 @@ from stock_robot.dividend_materials import archive_dividends, prepare_dividends
 from stock_robot.dividend_research import dividend_research
 from stock_robot.dividend_workflow import dividend_workflow
 from stock_robot.financial_documents import financial_extract
-from stock_robot.stock_admission import admission_evaluate
+from stock_robot.stock_admission import admission_evaluate, style_evaluate
 from stock_robot.stock_research import (
     add_evidence,
     import_records,
@@ -1700,6 +1700,7 @@ radar.add_command(list_records)
 radar.add_command(add_evidence)
 radar.add_command(review_evidence)
 radar.add_command(admission_evaluate)
+radar.add_command(style_evaluate)
 
 if __name__ == "__main__":
     main()

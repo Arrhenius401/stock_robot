@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
 按 Git 改动范围或全量执行项目校验。
 
@@ -128,7 +128,15 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/radar/test_dividend_materials.py"
         continue
     }
+    if ($path -eq "src\radar\stocks\style.py") {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_style.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_style_cli.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_admission.py"
+        continue
+    }
     if ($path -in @("src\radar\stocks\admission.py", "src\stock_robot\stock_admission.py")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_style.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_style_cli.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_admission.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_admission_cli.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_research_store.py"
