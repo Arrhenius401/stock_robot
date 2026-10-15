@@ -178,3 +178,13 @@ def test_stock_research_store_has_bounded_mapping(source_file):
     plan = json.loads(result.stdout)
     assert plan["UnmappedFiles"] == []
     assert set(plan["TestTargets"]) == {"tests/radar/test_stock_research_store.py", "tests/radar/test_stock_research_cli.py", "tests/radar/test_store.py"}
+
+
+@pytest.mark.parametrize("source_file", ["src/radar/stocks/admission.py", "src/stock_robot/stock_admission.py"])
+def test_common_admission_has_bounded_mapping(source_file):
+    result = _run("-PlanOnly", "-Files", source_file)
+    assert result.returncode == 0, result.stderr
+    plan = json.loads(result.stdout)
+    assert plan["UnmappedFiles"] == []
+    assert set(plan["TestTargets"]) == {"tests/radar/test_stock_admission.py", "tests/radar/test_stock_admission_cli.py",
+                                       "tests/radar/test_stock_research_store.py"}
