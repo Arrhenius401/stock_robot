@@ -131,6 +131,19 @@ def style_evaluate(db: Path, as_of: str, symbol: str | None, window_path: Path |
     _run_evaluation(db, as_of, symbol, window_path, output, include_styles=True)
 
 
+def _read_market_window(cutoff: date, window_path: Path | None) -> tuple[list[date] | None, dict[str, Any] | None]:
+    window = None
+    trace = None
+    if window_path is not None:
+        payload, trace = _read(window_path)
+        if not isinstance(payload, list) or any(not isinstance(day, str) for day in payload):
+            raise TypeError("市场窗口必须是ISO日期字符串列表")
+        window = [_cutoff(day) for day in payload]
+        if len(window) != 60 or len(set(window)) != 60 or window != sorted(window) or window[-1] > cutoff:
+            raise ValueError("市场窗口必须是递增唯一的60个市场交易日且不晚于研究截点")
+    return window, trace
+
+
 def _run_evaluation(db: Path, as_of: str, symbol: str | None, window_path: Path | None, output: Path | None,
                     *, include_styles: bool = False) -> None:
     try:
@@ -138,15 +151,7 @@ def _run_evaluation(db: Path, as_of: str, symbol: str | None, window_path: Path 
         if window_path is not None and output is not None and window_path.resolve() == output.resolve():
             raise ValueError("输出不能覆盖市场日期输入")
         cutoff = _cutoff(as_of)
-        window = None
-        trace = None
-        if window_path is not None:
-            payload, trace = _read(window_path)
-            if not isinstance(payload, list) or any(not isinstance(day, str) for day in payload):
-                raise TypeError("市场窗口必须是ISO日期字符串列表")
-            window = [_cutoff(day) for day in payload]
-            if len(window) != 60 or len(set(window)) != 60 or window != sorted(window) or window[-1] > cutoff:
-                raise ValueError("市场窗口必须是递增唯一的60个市场交易日且不晚于研究截点")
+        window, trace = _read_market_window(cutoff, window_path)
         result = evaluate_store(StockResearchStore(db), cutoff, symbol=symbol, market_window=window, include_styles=include_styles)
         result["market_window_source"] = trace
         _emit(result, db, output)

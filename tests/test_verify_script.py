@@ -187,7 +187,7 @@ def test_common_admission_has_bounded_mapping(source_file):
     plan = json.loads(result.stdout)
     assert plan["UnmappedFiles"] == []
     assert set(plan["TestTargets"]) == {"tests/radar/test_stock_admission.py", "tests/radar/test_stock_admission_cli.py",
-                                       "tests/radar/test_stock_research_store.py", "tests/radar/test_stock_style.py", "tests/radar/test_stock_style_cli.py"}
+                                       "tests/radar/test_stock_research_store.py", "tests/radar/test_stock_style.py", "tests/radar/test_stock_style_cli.py", "tests/radar/test_stock_archive_cli.py"}
 
 
 def test_stock_style_has_bounded_mapping():
@@ -197,3 +197,14 @@ def test_stock_style_has_bounded_mapping():
     assert plan["UnmappedFiles"] == []
     assert set(plan["TestTargets"]) == {"tests/radar/test_stock_style.py", "tests/radar/test_stock_style_cli.py",
                                        "tests/radar/test_stock_admission.py"}
+
+
+@pytest.mark.parametrize("source_file", ["src/radar/stocks/evaluation_store.py", "src/radar/stocks/membership_drafts.py", "src/stock_robot/stock_archive.py"])
+def test_stock_archive_has_bounded_mapping(source_file):
+    result = _run("-PlanOnly", "-Files", source_file)
+    assert result.returncode == 0, result.stderr
+    plan = json.loads(result.stdout)
+    assert plan["UnmappedFiles"] == []
+    assert set(plan["TestTargets"]) == {"tests/radar/test_stock_evaluation_store.py", "tests/radar/test_stock_membership_drafts.py",
+        "tests/radar/test_stock_archive_cli.py", "tests/radar/test_stock_research_store.py",
+        "tests/radar/test_stock_style_cli.py", "tests/radar/test_stock_admission_cli.py"}
