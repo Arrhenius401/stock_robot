@@ -251,3 +251,14 @@ def test_stock_market_context_has_bounded_mapping(source_file):
     assert plan["UnmappedFiles"] == []
     assert set(plan["TestTargets"]) == {"tests/radar/test_stock_market_context.py", "tests/radar/test_calendar.py",
         "tests/radar/test_stock_admission_cli.py", "tests/radar/test_stock_style_cli.py", "tests/radar/test_stock_archive_cli.py"}
+
+
+@pytest.mark.parametrize("source_file", ["src/radar/stocks/market_history.py", "src/stock_robot/stock_market_history.py",
+    "tests/resources/radar/sina-600900-2026-daily-sample.json"])
+def test_stock_market_history_has_bounded_mapping(source_file):
+    result = _run("-PlanOnly", "-Files", source_file)
+    assert result.returncode == 0, result.stderr
+    plan = json.loads(result.stdout)
+    assert plan["UnmappedFiles"] == []
+    assert set(plan["TestTargets"]) == {"tests/radar/test_stock_market_history.py", "tests/radar/test_stock_market_history_cli.py",
+        "tests/radar/test_stock_market_context.py", "tests/radar/test_stock_admission_cli.py", "tests/radar/test_stock_style_cli.py"}
