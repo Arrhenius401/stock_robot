@@ -54,3 +54,11 @@ financial_facts.prepare_financial_facts为profit组附prepare_ttm结果：ttm={p
 - 修改测试映射以覆盖解析器、命令、共享wrapper及季度资源。相关检查结果随提交记录补充；未运行全量回归，未重复无改动的UI验收。
 
 第一笔门禁：verify.ps1 -Scope Changed -Source Staged -VenvPath D:/code/stock_robot/.venv：Ruff通过，Pyright 0错误，517项相关测试通过（64.60秒），测试目录已清理。独立规格/质量审查发现项已收敛，第一笔复审通过。未运行全量回归。
+
+## 第二笔真实资料只读探针
+
+第一笔导入后，stock-financial-facts-prepare对600900读取年度和三份季度建议，得到2026-06-30 TTM：归母36202151477.37元，扣非34549413234.25元。分别为2025全年+2026H1-2025H1；完整来源保存在tmp/stock-research-acceptance/financial-facts-interim-cypc.json。原文存在比较重述，尚无独立覆盖/可比审核，因此latest_announced=false、未保存或审核。利润依赖v2，现金依赖v1。旧不可变评估保留，freshness.current=false，原因source_revision_changed:600900；没有覆盖旧评估。
+
+纯TTM规格审查发现真实失败文档无PDF摘要时会丢新期阻断线索，正在补真实packet→SQLite回归；期间线索与金额来源校验必须分开。季度comparison_basis限定当前/上年同期未调整/上年同期调整后，拒绝单季度等自相矛盾元数据。
+
+第二笔完成：纯模块及SQLite集成158项测试通过；最终verify.ps1 -Scope Changed -Source Staged -VenvPath D:/code/stock_robot/.venv：Ruff通过、Pyright 0错误、335项相关测试通过（53.67秒），临时目录已清理。独立规格和质量最终PASS；质量探针2436次坏类型/数值变异无未捕获异常。真实只读探针最终重跑结果相同，利润v2绑定51条上游，financial_verified=false、saved=null。未运行全量回归，正式成员0。

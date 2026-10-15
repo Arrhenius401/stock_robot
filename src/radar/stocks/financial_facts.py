@@ -9,6 +9,7 @@ from decimal import Decimal
 from typing import Any
 
 from radar.stocks.admission import _BJ, _amount, _choice, _day, _groups, _source_valid
+from radar.stocks.interim_ttm import prepare_ttm
 from radar.stocks.research_store import StockResearchError, _json, _sha, _symbol, _url
 
 FINANCIAL_FACTS_VERSION = 'financial-facts-2026-10-15-v1'
@@ -119,6 +120,10 @@ def prepare_financial_facts(symbol: str, evidence: list[dict[str, Any]], as_of: 
         result['unresolved'].append('研究截点无效或不能覆盖三个完整年度')
         return result
     years = list(range(cutoff.year - 3, cutoff.year))
+    has_interim = any(isinstance(row, dict) and row.get('symbol') == symbol
+                      and row.get('kind') in ('quarterly_financial_proposal', 'quarterly_financial_document',
+                                              'admission_reporting_coverage') for row in evidence) if isinstance(evidence, list) else False
+    ttm_summary = prepare_ttm(symbol, evidence, cutoff) if has_interim else None
     candidates: dict[tuple[int, str], list[tuple[dict[str, Any], Decimal]]] = {}
     inventory: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -187,8 +192,13 @@ def prepare_financial_facts(symbol: str, evidence: list[dict[str, Any]], as_of: 
         ('style_cash_flow', ('operating_cash_flow_yuan',)),
     )
     for kind, fields in definitions:
+        if kind == 'admission_profitability' and ttm_summary is not None and not ttm_summary['inventory_complete']:
+            result['unresolved'].extend(ttm_summary['unresolved'])
+            continue
         source_map = {f'{field}:{year}': summary[year][field]['sources'] for year in years for field in fields}
         all_sources = [source for sources in source_map.values() for source in sources]
+        if kind == 'admission_profitability' and ttm_summary is not None:
+            all_sources.extend(source for field in fields for source in ttm_summary['metrics'][field]['sources'])
         if not all_sources:
             continue
         annual_rows = []
@@ -204,11 +214,22 @@ def prepare_financial_facts(symbol: str, evidence: list[dict[str, Any]], as_of: 
         }
         if kind == 'admission_profitability':
             payload['ttm'] = None
+            if ttm_summary is not None:
+                payload['_financial_dependencies'].update(version=2, inventory=deepcopy(ttm_summary['dependency_inventory']))
+                payload['ttm'] = {'period_end': ttm_summary['period_end'], 'disclosed_on': ttm_summary['disclosed_on'],
+                                  'latest_announced': ttm_summary['latest_announced'],
+                                  **{field: ttm_summary['metrics'][field]['amount_yuan'] for field in fields}}
+                payload['ttm_sources'] = {field: deepcopy(ttm_summary['metrics'][field]['sources']) for field in fields}
+                payload['ttm_summary'] = deepcopy(ttm_summary)
         else:
             payload.update(issuer_type=issuer, parent_profit_scope_reconciled=False)
         primary = max(all_sources, key=lambda source: (source['disclosed_on'], source['evidence_id']))
         result['facts'].append({'kind': kind, 'payload': payload, 'source_url': primary['source_url'],
                                 'disclosed_on': primary['disclosed_on'], 'content_sha256': primary['content_sha256']})
-    result['unresolved'].extend(['规范映射须审核归母/合并范围，不能由机器建议代替确认', '缺少独立最新TTM证据，未以年报回填'])
+    result['unresolved'].append('规范映射须审核归母/合并范围，不能由机器建议代替确认')
+    if ttm_summary is not None:
+        result['unresolved'].extend(ttm_summary['unresolved'])
+    else:
+        result['unresolved'].append('缺少独立最新TTM证据，未以年报回填')
     result['unresolved'] = list(dict.fromkeys(result['unresolved']))
     return result

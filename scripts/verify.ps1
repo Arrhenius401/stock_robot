@@ -160,7 +160,17 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/radar/test_financial_extract.py"
         continue
     }
+    if ($path -eq "src\radar\stocks\interim_ttm.py") {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_ttm.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_ttm_integration.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_facts.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_fact_store.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_facts_cli.py"
+        continue
+    }
     if ($path -in @("src\radar\stocks\financial_facts.py", "src\stock_robot\stock_financial_facts.py")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_ttm.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_ttm_integration.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_facts.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_fact_store.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_facts_cli.py"
@@ -169,6 +179,8 @@ foreach ($file in $changedFiles) {
         continue
     }
     if ($path -in @("src\radar\stocks\research_store.py", "src\stock_robot\stock_research.py")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_ttm.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_ttm_integration.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_facts.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_fact_store.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_facts_cli.py"

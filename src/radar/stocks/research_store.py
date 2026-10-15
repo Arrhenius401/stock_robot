@@ -307,7 +307,8 @@ class StockResearchStore:
             raise StockResearchError('财务来源依赖仅用于规范利润与现金流组')
         dependencies = payload['_financial_dependencies']
         if (not isinstance(dependencies, dict) or set(dependencies) != {'version', 'as_of', 'inventory', 'security'}
-                or type(dependencies['version']) is not int or dependencies['version'] != 1):
+                or type(dependencies['version']) is not int or dependencies['version'] not in (1, 2)
+                or (dependencies['version'] == 2 and row['kind'] != 'admission_profitability')):
             raise StockResearchError('财务来源依赖版本或结构无效')
         as_of = date.fromisoformat(self._date(dependencies['as_of']))
         inventory = dependencies['inventory']
@@ -321,7 +322,7 @@ class StockResearchStore:
             if review_id is not None and (type(review_id) is not int or review_id < 1):
                 raise StockResearchError('财务来源审核版本无效')
         # 只重建原始建议和发行人事实，避免派生事实递归依赖自身。
-        sources = connection.execute("SELECT * FROM stocks_evidence WHERE symbol=? AND kind IN ('financial_proposal','admission_security') ORDER BY evidence_id", (row['symbol'],)).fetchall()
+        sources = connection.execute("SELECT * FROM stocks_evidence WHERE symbol=? AND kind IN ('financial_proposal','quarterly_financial_proposal','quarterly_financial_document','admission_reporting_coverage','admission_security') ORDER BY evidence_id", (row['symbol'],)).fetchall()
         expected_inventory = []
         evidence = []
         now = self._now()
@@ -343,7 +344,8 @@ class StockResearchStore:
             item.update(payload=json.loads(item['payload']), confirmable=bool(item['confirmable']),
                         latest_review=dict(review) if review else None, review_status=status)
             evidence.append(item)
-            if item['kind'] == 'financial_proposal':
+            if (item['kind'] == 'financial_proposal' or (dependencies['version'] == 2 and item['kind'] in
+                    {'quarterly_financial_proposal', 'quarterly_financial_document', 'admission_reporting_coverage'})):
                 expected_inventory.append({'evidence_id': item['evidence_id'], 'review_id': review['review_id'] if review else None})
         if inventory != expected_inventory:
             raise StockRevisionConflict('财务原文或审核版本已变化，请重新准备事实')

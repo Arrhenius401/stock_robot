@@ -263,3 +263,55 @@ def test_normalized_scientific_values_remain_accepted_by_admission(amount):
     assert len(normalized) <= 100
     assert _amount(normalized) == _amount(amount)
     assert _amount(normalized) is not None
+
+
+def quarterly_rows():
+    result = []
+    for index, (year, metric) in enumerate([(year, metric) for year in (2025, 2026)
+                                          for metric in ('parent_net_profit', 'deducted_parent_net_profit')], 101):
+        row = proposal(year=year, metric=metric, amount='60' if year == 2025 else '70', index=index, disclosed='2026-08-31')
+        row['kind'] = 'quarterly_financial_proposal'
+        row['payload']['fields'].update(period_months=6, period_end=f'{year}-06-30', period_basis='year_to_date', comparison_basis='current')
+        row['payload']['origin'].update(fiscal_year=year, period_months=6, period_end=f'{year}-06-30')
+        result.append(row)
+    return result
+
+
+def test_quarterly_ttm_integrated_only_profit_v2_and_cash_stays_identical():
+    original = prepared()
+    result = prepared([*facts(), *quarterly_rows()])
+    profit = by_kind(result, 'admission_profitability')['payload']
+    cash = by_kind(result, 'style_cash_flow')
+    assert profit['ttm']['parent_profit_yuan'] == '110'
+    assert profit['ttm']['deducted_parent_profit_yuan'] == '110'
+    assert profit['ttm']['latest_announced'] is False
+    assert profit['_financial_dependencies']['version'] == 2
+    assert len(profit['_financial_dependencies']['inventory']) == 16
+    assert profit['ttm_summary']['requires_review'] is True
+    assert len(profit['ttm_sources']['parent_profit_yuan']) == 3
+    assert cash == by_kind(original, 'style_cash_flow')
+
+
+def test_quarterly_profits_can_create_partial_fact_without_annual_profit():
+    result = prepared(quarterly_rows())
+    profit = by_kind(result, 'admission_profitability')['payload']
+    assert all(row['parent_profit_yuan'] is None for row in profit['annual'])
+    assert profit['ttm']['parent_profit_yuan'] is None
+    assert profit['_financial_dependencies']['version'] == 2
+
+
+def test_invalid_quarter_inventory_prevents_profit_but_not_annual_cash():
+    row = quarterly_rows()[0]
+    row['evidence_id'] = None
+    result = prepared([*facts(), row])
+    assert [fact['kind'] for fact in result['facts']] == ['style_cash_flow']
+
+
+def test_coverage_alone_switches_profit_dependency_v2_without_fabricating_ttm():
+    row = quarterly_rows()[0]
+    row['kind'] = 'admission_reporting_coverage'
+    row['payload'] = {'period_end': '2026-06-30', 'coverage_through': AS_OF.isoformat()}
+    profit = by_kind(prepared([*facts(), row]), 'admission_profitability')['payload']
+    assert profit['_financial_dependencies']['version'] == 2
+    assert profit['ttm']['parent_profit_yuan'] is None
+    assert profit['ttm']['latest_announced'] is False

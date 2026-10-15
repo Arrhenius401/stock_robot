@@ -1,4 +1,4 @@
-"""将年报建议整理为带完整依赖的待审规范财务组。"""
+"""将年度及季度建议整理为带完整依赖的待审规范财务组。"""
 
 import sqlite3
 from datetime import date
@@ -48,7 +48,7 @@ def prepare_from_store(store: StockResearchStore, symbol: str, as_of: date, *, s
 @click.option('--expected-revision', type=click.IntRange(min=0))
 @click.option('--output', type=click.Path(dir_okay=False, path_type=Path))
 def prepare_facts(db: Path, symbol: str, as_of: str, save: bool, expected_revision: int | None, output: Path | None) -> None:
-    """复用年报原文整理三年利润/现金流，不回填TTM或批准资格。"""
+    """整理三年财务及有来源的季度TTM建议，不自动审核或批准资格。"""
     try:
         _protect_database(db, output)
         packet = prepare_from_store(StockResearchStore(db), symbol, _cutoff(as_of), save=save, expected_revision=expected_revision)
