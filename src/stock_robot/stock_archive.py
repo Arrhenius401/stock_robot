@@ -8,6 +8,7 @@ import click
 
 from radar.stocks.evaluation_store import StockEvaluationStore
 from radar.stocks.membership_drafts import StockMembershipDraftStore
+from radar.stocks.membership_store import StockMembershipStore
 from radar.stocks.pools import StockPoolRepository
 from radar.stocks.research_store import StockResearchStore
 from stock_robot.dividend_documents import _cutoff
@@ -27,6 +28,10 @@ def _protect_pool_directory(pool_dir: Path, output: Path | None) -> None:
 
 def _drafts(db: Path, pool_dir: Path) -> StockMembershipDraftStore:
     return StockMembershipDraftStore(_archive(db), StockPoolRepository(pool_dir))
+
+
+def _memberships(db: Path, pool_dir: Path) -> StockMembershipStore:
+    return StockMembershipStore(_archive(db), StockPoolRepository(pool_dir))
 
 
 @click.command('stock-evaluation-capture')
@@ -129,5 +134,46 @@ def cancel_draft(db: Path, pool_dir: Path, draft_id: str, expected_revision: int
     try:
         result = _drafts(db, pool_dir).cancel(draft_id, expected_revision=expected_revision, actor=actor, reason=reason)
         _emit(result, db)
+    except (OSError, ValueError, TypeError, sqlite3.Error) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@click.command('stock-membership-apply')
+@click.option('--db', type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
+@click.option('--input', 'input_path', type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
+@click.option('--pool-dir', type=click.Path(exists=True, file_okay=False, path_type=Path), default='config/radar_stock_pools')
+@click.option('--request-id', required=True)
+@click.option('--actor', required=True)
+@click.option('--output', type=click.Path(dir_okay=False, path_type=Path))
+def apply_membership(db: Path, input_path: Path, pool_dir: Path, request_id: str, actor: str, output: Path | None) -> None:
+    """原子应用审核后的成员变更；当前未启用正式筛选时明确拒绝新增和恢复。"""
+    try:
+        _protect_database(db, input_path, output)
+        _protect_pool_directory(pool_dir, output)
+        if output is not None and output.resolve() == input_path.resolve():
+            raise ValueError('输出不能覆盖成员变更输入')
+        payload, _ = _read(input_path)
+        if not isinstance(payload, dict) or set(payload) != {'evaluation_id', 'changes', 'expected_pool_revisions'}:
+            raise ValueError('输入仅允许evaluation_id、changes、expected_pool_revisions')
+        result = _memberships(db, pool_dir).apply(evaluation_id=payload['evaluation_id'], changes=payload['changes'],
+                                                   expected_pool_revisions=payload['expected_pool_revisions'], request_id=request_id, actor=actor)
+        _emit(result, db, output)
+    except (OSError, ValueError, TypeError, sqlite3.Error) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@click.command('stock-membership-list')
+@click.option('--db', type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
+@click.option('--pool-dir', type=click.Path(exists=True, file_okay=False, path_type=Path), default='config/radar_stock_pools')
+@click.option('--pool-id', required=True)
+@click.option('--status', type=click.Choice(['active', 'suspended', 'exited']), default='active')
+@click.option('--page', type=click.IntRange(min=1), default=1)
+@click.option('--output', type=click.Path(dir_okay=False, path_type=Path))
+def list_memberships(db: Path, pool_dir: Path, pool_id: str, status: str, page: int, output: Path | None) -> None:
+    """查看正式成员；候选与草案不混入列表。"""
+    try:
+        _protect_database(db, output)
+        _protect_pool_directory(pool_dir, output)
+        _emit(_memberships(db, pool_dir).list_members(pool_id, status=status, page=page), db, output)
     except (OSError, ValueError, TypeError, sqlite3.Error) as exc:
         raise click.ClickException(str(exc)) from exc

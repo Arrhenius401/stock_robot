@@ -93,14 +93,31 @@ def test_no_external_approval_fields_or_input_overwrite(tmp_path):
     assert source.read_text(encoding="utf-8") == raw
 
 
-def test_all_commands_registered_without_publish_command():
+def test_all_commands_registered_with_lifecycle_commands():
     from stock_robot.cli import main
 
     result = CliRunner().invoke(main, ["radar", "--help"])
     assert result.exit_code == 0
-    for name in ("stock-evaluation-capture", "stock-evaluation-list", "stock-member-draft-create", "stock-member-draft-list", "stock-member-draft-cancel"):
+    for name in ("stock-evaluation-capture", "stock-evaluation-list", "stock-member-draft-create", "stock-member-draft-list", "stock-member-draft-cancel", "stock-membership-apply", "stock-membership-list"):
         assert name in result.output
     assert "stock-member-publish" not in result.output
+
+
+def test_membership_apply_rejects_unconfigured_screening_without_writing_member(tmp_path):
+    from stock_robot.cli import main
+
+    db, today = prepare(tmp_path)
+    saved = run("stock-evaluation-capture", ["--db", str(db), "--as-of", today])
+    source = tmp_path / "membership.json"
+    source.write_text(json.dumps({"evaluation_id": saved["evaluation_id"], "changes": [
+        {"pool_id": "dividend_value", "symbol": "600900", "action": "add", "reason": "合成测试"}],
+        "expected_pool_revisions": {"dividend_value": 0}}), encoding="utf-8")
+    result = CliRunner().invoke(main, ["radar", "stock-membership-apply", "--db", str(db), "--input", str(source),
+                                       "--request-id", "member-cli", "--actor", "合成测试"])
+    assert result.exit_code != 0
+    assert "正式筛选尚未启用" in result.output
+    listed = run("stock-membership-list", ["--db", str(db), "--pool-id", "dividend_value"])
+    assert listed["total"] == 0 and listed["revision"] == 0
 
 
 @pytest.mark.parametrize("command", ["stock-member-draft-create", "stock-member-draft-list"])

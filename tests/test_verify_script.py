@@ -208,7 +208,7 @@ def test_stock_archive_has_bounded_mapping(source_file):
     plan = json.loads(result.stdout)
     assert plan["UnmappedFiles"] == []
     assert set(plan["TestTargets"]) == {"tests/radar/test_stock_evaluation_store.py", "tests/radar/test_stock_membership_drafts.py",
-        "tests/radar/test_stock_archive_cli.py", "tests/radar/test_stock_research_store.py",
+        "tests/radar/test_stock_membership_store.py", "tests/radar/test_stock_archive_cli.py", "tests/radar/test_stock_research_store.py",
         "tests/radar/test_stock_style_cli.py", "tests/radar/test_stock_admission_cli.py"}
 
 
@@ -283,3 +283,15 @@ def test_stock_capital_history_has_bounded_mapping(source_file):
     plan = json.loads(result.stdout)
     assert plan['UnmappedFiles'] == []
     assert set(plan['TestTargets']) == {'tests/radar/test_stock_capital_history.py', 'tests/radar/test_stock_capital_history_cli.py'}
+
+
+def test_stock_membership_lifecycle_has_bounded_mapping():
+    result = _run('-PlanOnly', '-Files', 'src/radar/stocks/membership_store.py')
+    assert result.returncode == 0, result.stderr
+    plan = json.loads(result.stdout)
+    assert plan['UnmappedFiles'] == []
+    assert set(plan['TestTargets']) == {
+        'tests/radar/test_stock_membership_store.py', 'tests/radar/test_stock_membership_drafts.py',
+        'tests/radar/test_stock_archive_cli.py', 'tests/radar/test_stock_evaluation_store.py',
+        'tests/radar/test_stock_research_store.py',
+    }
