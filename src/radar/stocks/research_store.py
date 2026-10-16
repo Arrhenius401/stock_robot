@@ -188,8 +188,9 @@ class StockResearchStore:
         return cursor.rowcount == 1
 
     def import_companies(self, records: list[dict[str, Any]], *, source_sha256: str,
-                         source_label: str, data_as_of: date) -> dict[str, Any]:
-        return self._import(records, source_sha256, source_label, data_as_of, 'candidates')
+                         source_label: str, data_as_of: date,
+                         transaction_guard: Callable[[sqlite3.Connection], None] | None = None) -> dict[str, Any]:
+        return self._import(records, source_sha256, source_label, data_as_of, 'candidates', transaction_guard=transaction_guard)
 
     def import_review_packet(self, packet: dict[str, Any], *, source_sha256: str,
                              source_label: str, data_as_of: date) -> dict[str, Any]:
@@ -198,7 +199,8 @@ class StockResearchStore:
         return self._import(packet['companies'], source_sha256, source_label, data_as_of, 'review_packet', packet)
 
     def _import(self, records: list[dict[str, Any]], sha: str, label: str, cutoff: date, kind: str,
-                original: dict[str, Any] | None = None) -> dict[str, Any]:
+                original: dict[str, Any] | None = None,
+                transaction_guard: Callable[[sqlite3.Connection], None] | None = None) -> dict[str, Any]:
         sha, label, day = _sha(sha), _text(label, '来源名称'), self._date(cutoff)
         if not isinstance(records, list):
             raise StockResearchError('候选必须是列表')
@@ -256,6 +258,9 @@ class StockResearchStore:
         now = self._now().isoformat()
         added = evidence_added = 0
         with self._write() as connection:
+            # 后台任务在同一写事务中校验租约，旧执行者不能补写候选。
+            if transaction_guard is not None:
+                transaction_guard(connection)
             existing = connection.execute('SELECT payload FROM stocks_source_batches WHERE batch_id=?', (batch_id,)).fetchone()
             if existing:
                 if existing['payload'] != raw:

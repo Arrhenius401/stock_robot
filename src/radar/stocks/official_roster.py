@@ -396,7 +396,7 @@ def collect_stock_roster(cache_dir: Path, *, as_of: date, refresh: bool = False,
                         response = None
                         try:
                             if attempted:
-                                sleep(1)
+                                sleep((3 if attempt == 1 else 10) if attempt else 1)
                             attempted = True
                             if http_get is None:
                                 downloaded = bounded_provider_call(__name__, '_download_once', args=(url,), timeout=15)

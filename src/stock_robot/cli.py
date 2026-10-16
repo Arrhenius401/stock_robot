@@ -49,6 +49,7 @@ from stock_robot.stock_research import (
     list_records,
     review_evidence,
 )
+from stock_robot.stock_updates import enqueue_update, list_updates, run_one_update
 from utils.config import Config
 
 _RUNTIME_LOG_HANDLER_NAME = "stock-robot-runtime-log"
@@ -1728,6 +1729,8 @@ radar.add_command(official_roster_command)
 for command in (discover_interims, extract_interims, prepare_interim_packet):
     radar.add_command(command)
 for command in (capture_evaluation, list_evaluations, create_draft, list_drafts, cancel_draft, apply_membership, list_memberships):
+    radar.add_command(command)
+for command in (enqueue_update, list_updates, run_one_update):
     radar.add_command(command)
 
 if __name__ == "__main__":

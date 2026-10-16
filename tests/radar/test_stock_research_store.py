@@ -30,6 +30,23 @@ def seed(store, name='公司', cutoff=date(2026, 10, 14), sha=SHA):
                                   source_label='离线候选', data_as_of=cutoff)
 
 
+@pytest.mark.parametrize('reused', [False, True])
+def test_import_transaction_guard_prevents_stale_task_writes_even_on_replay(tmp_path, reused):
+    store = make(tmp_path)
+    if reused:
+        seed(store)
+    before = store.summary()
+    checked = []
+    def guard(connection):
+        assert connection.in_transaction
+        checked.append(True)
+        raise StockRevisionConflict('合成任务已失去租约')
+    with pytest.raises(StockRevisionConflict, match='租约'):
+        store.import_companies([{'symbol': '600900', 'name': '公司'}], source_sha256=SHA,
+            source_label='离线候选', data_as_of=date(2026, 10, 14), transaction_guard=guard)
+    assert checked == [True] and store.summary() == before
+
+
 def evidence(store, **overrides):
     args = {'kind': 'financial', 'payload': {'value': None}, 'source_url': 'https://static.cninfo.com.cn/a.pdf',
                 'disclosed_on': date(2026, 10, 1), 'content_sha256': SHA,

@@ -285,7 +285,7 @@ def test_http_status_retry_budget_and_close(tmp_path,monkeypatch,status,attempts
     result,calls,waits=download(tmp_path,monkeypatch,source)
     assert len(calls)==attempts+2
     assert all(response.closed for response in refs)
-    assert waits==[1]*(attempts+1)
+    assert waits==[3,10][:attempts-1]+[1,1]
     assert result['items'][0]['status']=='source_error'
     assert result['items'][-1]['status']=='downloaded'
 

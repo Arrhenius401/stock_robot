@@ -89,6 +89,49 @@ def test_same_request_is_idempotent_and_changed_request_conflicts(tmp_path):
         store.apply(evaluation_id=None, changes=change('exit'), expected_pool_revisions={'dividend_value': 1}, request_id='same', actor='审核人')
 
 
+def test_completed_request_replays_after_evaluation_expires_and_pool_is_disabled(tmp_path):
+    store, research, evaluation_id = setup(tmp_path)
+    seed_active(store, research)
+    arguments = {'evaluation_id': evaluation_id, 'changes': change('suspend'),
+                 'expected_pool_revisions': {'dividend_value': 0}, 'request_id': 'stable-replay', 'actor': '审核人'}
+    first = store.apply(**arguments)
+    assert first['formal_screening_enabled'] is False
+    assert first['members_published'] == 0
+    research._clock = lambda: datetime(2026, 10, 16, 1, tzinfo=UTC)
+    pool_path = store.pools.directory/'dividend_value.yaml'
+    pool_path.write_text(pool_path.read_text(encoding='utf-8') + 'enabled: false\n', encoding='utf-8')
+    assert store.apply(**arguments) == first
+    member = store.get_member('dividend_value', '600900')
+    assert member is not None and len(member['events']) == 1
+    arguments['actor'] = '另一审核人'
+    with pytest.raises(StockRevisionConflict, match='请求标识'):
+        store.apply(**arguments)
+
+
+def test_first_request_still_validates_current_evaluation(tmp_path):
+    store, research, evaluation_id = setup(tmp_path)
+    seed_active(store, research)
+    research._clock = lambda: datetime(2026, 10, 16, 1, tzinfo=UTC)
+    with pytest.raises(StockResearchError, match='historical_as_of'):
+        store.apply(evaluation_id=evaluation_id, changes=change('suspend'), expected_pool_revisions={'dividend_value': 0}, request_id='expired-first', actor='审核人')
+    member = store.get_member('dividend_value', '600900')
+    assert member is not None and member['status'] == 'active' and member['events'] == []
+
+
+@pytest.mark.parametrize('unconfigured', [None, False, '', {}, ['待配置']])
+def test_future_publication_guard_requires_explicit_empty_rules(tmp_path, unconfigured):
+    store, _research, _ = setup(tmp_path)
+    # 仅直接探测守卫；真实研究档案仍禁止开启正式筛选。
+    pool = {'approved_conditions_status': 'passed'}
+    if unconfigured is not None:
+        pool['unconfigured_rules'] = unconfigured
+    snapshot = {'report': {'formal_screening_enabled': True, 'items': [
+        {'symbol': '600900', 'source_revision': 1, 'common_status': 'passed', 'pools': {'dividend_value': pool}},
+    ]}}
+    with pytest.raises(StockResearchError, match='规则配置未满足'):
+        store._eligible(snapshot, change('add')[0])
+
+
 def test_two_pool_memberships_are_independent(tmp_path):
     store, research, _ = setup(tmp_path)
     seed_active(store, research, pool_id='dividend_value')

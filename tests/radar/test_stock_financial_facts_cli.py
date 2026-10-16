@@ -1,13 +1,19 @@
 """从年报建议准备规范事实的真实SQLite和CLI往返。"""
 
 import json
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pytest
 from click.testing import CliRunner
 
 from radar.stocks.research_store import StockResearchStore
 from stock_robot.stock_admission import evaluate_store
+
+
+@pytest.fixture(autouse=True)
+def sample_clock(monkeypatch):
+    # 固定样本的采集和审核使用同一时钟，不能把今天的审核放进历史截点。
+    monkeypatch.setattr(StockResearchStore, '_now', lambda self: datetime(2026, 10, 15, 1, tzinfo=UTC))
 
 
 def seed(tmp_path):

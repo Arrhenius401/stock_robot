@@ -98,7 +98,7 @@ class StockMembershipStore:
         source_revision = item.get('source_revision')
         pool = item.get('pools', {}).get(change['pool_id']) if isinstance(item.get('pools'), dict) else None
         if (type(source_revision) is not int or item.get('common_status') != 'passed' or not isinstance(pool, dict)
-                or pool.get('approved_conditions_status') != 'passed' or pool.get('unconfigured_rules')):
+                or pool.get('approved_conditions_status') != 'passed' or pool.get('unconfigured_rules') != []):
             raise StockResearchError('共同准入、池条件或规则配置未满足，不能发布或恢复成员')
         current = self.research.get_company(change['symbol'])
         if current is None or current['revision'] != source_revision:
@@ -111,8 +111,9 @@ class StockMembershipStore:
             row = connection.execute('SELECT * FROM stocks_memberships WHERE pool_id=? AND symbol=?', (change['pool_id'], change['symbol'])).fetchone()
             if row is not None:
                 rows.append(dict(row))
-        return {'changes': rows, 'pool_revisions': revisions, 'members_published': sum(row['status'] == 'active' for row in rows),
-                'formal_screening_enabled': True, 'requires_review': True}
+        return {'changes': rows, 'pool_revisions': revisions,
+                'members_published': sum(change['action'] in {'add', 'restore'} for change in changes),
+                'formal_screening_enabled': False, 'requires_review': True}
 
     def apply(self, *, evaluation_id: str | None, changes: list[dict[str, Any]], expected_pool_revisions: dict[str, Any], request_id: str, actor: str) -> dict[str, Any]:
         request_id, actor = _text(request_id, '请求标识'), _text(actor, '操作人')
@@ -121,10 +122,7 @@ class StockMembershipStore:
         prepared = self._changes(changes)
         pool_ids = {change['pool_id'] for change in prepared}
         expected = self._expected(expected_pool_revisions, pool_ids)
-        for pool_id in pool_ids:
-            if self.pools.get(pool_id) is None:
-                raise StockResearchError('股票池不存在或已禁用')
-        evaluation, snapshot = self._current_evaluation(evaluation_id or '', prepared)
+        evaluation = _sha(evaluation_id) if evaluation_id is not None else ''
         payload = _json({'evaluation_id': evaluation or None, 'changes': prepared, 'expected_pool_revisions': expected, 'actor': actor})
         with self.research._write() as connection:
             replay = connection.execute('SELECT payload,result FROM stocks_membership_requests WHERE request_id=?', (request_id,)).fetchone()
@@ -132,6 +130,10 @@ class StockMembershipStore:
                 if replay['payload'] != payload:
                     raise StockRevisionConflict('请求标识已用于不同成员变更')
                 return json.loads(replay['result'])
+            for pool_id in pool_ids:
+                if self.pools.get(pool_id) is None:
+                    raise StockResearchError('股票池不存在或已禁用')
+            evaluation, snapshot = self._current_evaluation(evaluation, prepared)
             for pool_id, revision in expected.items():
                 if self._pool_revision(connection, pool_id) != revision:
                     raise StockRevisionConflict('股票池版本已变化，请重新读取')
