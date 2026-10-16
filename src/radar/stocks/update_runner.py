@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import Any
 
 from radar.stocks.capital_history import collect_capital_history
+from radar.stocks.index_discovery import collect_index_scope
 from radar.stocks.market_history import collect_stock_history
-from radar.stocks.official_roster import collect_stock_roster
 from radar.stocks.research_store import StockResearchError, StockRevisionConflict, _sha
 from radar.stocks.update_runs import StockUpdateStore
 
@@ -65,7 +65,7 @@ class StockUpdateRunner:
     """资料发现完成不授予资格；所有数据库提交都重验执行租约。"""
 
     def __init__(self, store: StockUpdateStore, cache_dir: Path, artifact_dir: Path, *,
-                 roster_collector: Callable[..., Any] = collect_stock_roster,
+                 roster_collector: Callable[..., Any] = collect_index_scope,
                  history_collector: Callable[..., Any] = collect_stock_history,
                  capital_collector: Callable[..., Any] = collect_capital_history,
                  market_window: list[date] | None = None,
@@ -105,17 +105,17 @@ class StockUpdateRunner:
 
     def _discovery(self, task: dict[str, Any], worker: str, token: str) -> dict[str, Any]:
         cutoff = date.fromisoformat(task['target_date'])
-        result = self.roster_collector(self.cache_dir/'official-roster', as_of=cutoff)
+        result = self.roster_collector(self.cache_dir/'index-scope', as_of=cutoff)
         if not isinstance(result, dict) or result.get('as_of') != cutoff.isoformat() or not isinstance(result.get('companies'), list):
-            raise StockResearchError('官方名录结果缺少匹配日期和公司清单')
+            raise StockResearchError('指数初筛结果缺少匹配研究日期和公司清单')
         reference = _artifact(self.artifact_dir, result)
         imported = (self.store.research.import_companies(result['companies'], source_sha256=reference['sha256'],
             source_label=reference['path'], data_as_of=cutoff,
             transaction_guard=lambda connection: self.store.assert_owner(connection, task['run_id'], worker, token)) if result['companies'] else None)
-        complete = bool(result['companies']) and result.get('status') == 'complete' and result.get('universe_complete') is True
-        item = {'scope': 'official_roster', 'status': 'completed' if complete else ('partial' if result['companies'] else 'failed'),
-                'summary': f"发现{len(result['companies'])}家待核验候选；名录{'完整' if complete else '尚不完整'}，未发布成员",
-                'artifact': {**reference, 'companies_found': len(result['companies']), 'universe_complete': complete,
+        complete = bool(result['companies']) and result.get('status') == 'complete' and result.get('scope_complete') is True
+        item = {'scope': 'index_scope_v1', 'status': 'completed' if complete else ('partial' if result['companies'] else 'failed'),
+                'summary': f"指数范围去重{len(result['companies'])}家公司；来源{'完整' if complete else '尚不完整'}，尚未筛选通过或发布成员",
+                'artifact': {**reference, 'companies_found': len(result['companies']), 'scope_complete': complete,
                              'import': imported, 'formal_screening_enabled': False, 'members_published': 0}}
         self.store.record_item(task['run_id'], worker, item, lease_token=token)
         return item
@@ -183,7 +183,7 @@ class StockUpdateRunner:
         pulse.start()
         try:
             if task['kind'] == 'discover_candidates':
-                completed = next((item for item in task['results'] if item['scope'] == 'official_roster' and item['status'] == 'completed'), None)
+                completed = next((item for item in task['results'] if item['scope'] == 'index_scope_v1' and item['status'] == 'completed'), None)
                 if completed is not None:
                     self._verify_artifact(completed)
                 item = completed or self._discovery(task, worker_id, token)

@@ -307,3 +307,15 @@ def test_stock_updates_have_bounded_mapping(path):
         'tests/radar/test_stock_update_runs.py', 'tests/radar/test_stock_update_runner.py', 'tests/radar/test_stock_updates_cli.py',
         'tests/radar/test_stock_membership_store.py', 'tests/radar/test_stock_research_store.py', 'tests/radar/test_stock_official_roster.py',
     }
+
+
+@pytest.mark.parametrize('source_file', ['src/radar/stocks/index_scope.py', 'src/radar/stocks/index_discovery.py',
+    'src/stock_robot/stock_index_scope.py', 'tests/resources/radar/cni-399006-constituents-20260930.xlsx',
+    'tests/resources/radar/csi-000922-constituents-20261016.xlsx', 'tests/resources/radar/csi-000688-constituents-20261016.xlsx'])
+def test_stock_index_scope_has_bounded_mapping(source_file):
+    result = _run('-PlanOnly', '-Files', source_file)
+    assert result.returncode == 0, result.stderr
+    plan = json.loads(result.stdout)
+    assert plan['UnmappedFiles'] == []
+    assert set(plan['TestTargets']) == {'tests/radar/test_stock_index_scope.py',
+        'tests/radar/test_stock_index_discovery.py', 'tests/radar/test_stock_index_scope_cli.py'}

@@ -30,7 +30,7 @@ def environment(tmp_path):
 
 def roster(*, complete=True):
     return {'as_of': DAY.isoformat(), 'companies': [{'symbol': '600900', 'name': '合成公司', 'admission_status': 'pending_verification'}],
-            'status': 'complete' if complete else 'partial', 'universe_complete': complete,
+            'status': 'complete' if complete else 'partial', 'scope_complete': complete,
             'items': [{'source': 'synthetic_official', 'status': 'downloaded' if complete else 'source_error'}],
             'formal_screening_enabled': False, 'financial_verified': False}
 
@@ -65,7 +65,7 @@ def test_partial_source_retains_available_candidates_and_reports_partial(tmp_pat
     result = StockUpdateRunner(store, tmp_path/'cache', tmp_path/'artifacts', roster_collector=lambda *a, **k: roster(complete=False)).execute_one('worker')
     assert result is not None and result['status'] == 'partial'
     assert research.summary()['companies'] == 1
-    assert result['results'][-1]['artifact']['universe_complete'] is False
+    assert result['results'][-1]['artifact']['scope_complete'] is False
 
 
 def test_lease_expiry_during_fetch_prevents_candidate_import(tmp_path, environment):
@@ -90,7 +90,7 @@ def test_resume_after_import_result_saved_does_not_fetch_completed_scope(tmp_pat
     root.mkdir()
     path = root/f'{sha}.json'
     path.write_bytes(raw)
-    store.record_item(task['run_id'], 'previous-worker', {'scope': 'official_roster', 'status': 'completed', 'summary': '已保存合成导入结果',
+    store.record_item(task['run_id'], 'previous-worker', {'scope': 'index_scope_v1', 'status': 'completed', 'summary': '已保存合成导入结果',
         'artifact': {'path': str(path), 'sha256': sha, 'bytes': len(raw)}}, lease_token=claimed['lease_token'])
     clock[0] += timedelta(seconds=91)
     result = StockUpdateRunner(store, tmp_path/'cache', tmp_path/'artifacts', roster_collector=lambda *a, **k: pytest.fail('不得重复抓取成功阶段')).execute_one('next-worker')
@@ -105,6 +105,33 @@ def test_all_sources_returning_errors_fail_without_empty_candidate_batch(tmp_pat
     assert result is not None and result['status'] == 'failed'
     assert result['results'][0]['status'] == 'failed' and result['results'][0]['artifact']['sha256']
     assert research.summary()['companies'] == research.summary()['batches'] == 0
+
+
+def test_legacy_full_market_checkpoint_does_not_skip_index_scope(tmp_path, environment):
+    store, research, clock = environment
+    task = enqueue(store)
+    claimed = store.claim('previous-worker')
+    assert claimed is not None
+    root = tmp_path/'artifacts'
+    root.mkdir()
+    raw = b'{"legacy_full_market":true}'
+    sha = hashlib.sha256(raw).hexdigest()
+    path = root/f'{sha}.json'
+    path.write_bytes(raw)
+    store.record_item(task['run_id'], 'previous-worker', {
+        'scope': 'official_roster', 'status': 'completed', 'summary': '旧版全市场底表',
+        'artifact': {'path': str(path), 'sha256': sha, 'bytes': len(raw)}}, lease_token=claimed['lease_token'])
+    clock[0] += timedelta(seconds=91)
+    calls = []
+
+    def collect(*args, **kwargs):
+        calls.append(kwargs)
+        return roster()
+
+    result = StockUpdateRunner(store, tmp_path/'cache', root, roster_collector=collect).execute_one('next-worker')
+    assert result is not None and result['status'] == 'completed'
+    assert len(calls) == 1 and result['results'][-1]['scope'] == 'index_scope_v1'
+    assert research.summary()['companies'] == 1 and research.summary()['reviews'] == 0
 
 
 @pytest.mark.parametrize('damage', ['missing', 'hash', 'outside'])
@@ -124,7 +151,7 @@ def test_resume_rejects_unverifiable_completed_artifacts(tmp_path, environment, 
     elif damage == 'hash':
         path.write_bytes(b'x'*len(raw))
     reference_path = tmp_path/'outside.json' if damage == 'outside' else path
-    store.record_item(task['run_id'], 'previous-worker', {'scope': 'official_roster', 'status': 'completed', 'summary': '合成断点',
+    store.record_item(task['run_id'], 'previous-worker', {'scope': 'index_scope_v1', 'status': 'completed', 'summary': '合成断点',
         'artifact': {'path': str(reference_path), 'sha256': sha, 'bytes': len(raw)}}, lease_token=claimed['lease_token'])
     clock[0] += timedelta(seconds=91)
     result = StockUpdateRunner(store, tmp_path/'cache', root, roster_collector=lambda *a, **k: pytest.fail('损坏断点不得静默重抓覆盖')).execute_one('next-worker')

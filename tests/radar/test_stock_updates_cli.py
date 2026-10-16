@@ -34,7 +34,7 @@ def test_enqueue_deduplicates_then_executes_real_import_and_lists(tmp_path, path
     def collect(*args, **kwargs):
         calls.append(kwargs)
         return {'as_of': today, 'companies': [{'symbol': '600900', 'name': '合成公司'}], 'status': 'complete',
-                'universe_complete': True, 'formal_screening_enabled': False}
+                'scope_complete': True, 'formal_screening_enabled': False}
     def runner(store, cache, artifacts, **kwargs):
         return StockUpdateRunner(store, cache, artifacts, roster_collector=collect, **kwargs)
     monkeypatch.setattr(stock_updates, 'StockUpdateRunner', runner)

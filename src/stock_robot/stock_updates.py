@@ -70,7 +70,7 @@ def list_updates(db: Path, pool_dir: Path, page: int, output: Path | None) -> No
 @click.option('--market-window', 'window_path', type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option('--output', type=click.Path(dir_okay=False, path_type=Path))
 def run_one_update(db: Path, pool_dir: Path, worker_id: str, cache_dir: Path | None, artifact_dir: Path | None, window_path: Path | None, output: Path | None) -> None:
-    """执行官方名录发现或成员资料采集，保留待核验结果和逐项失败。"""
+    """执行指数初筛范围发现或成员资料采集，保留待核验结果和逐项失败。"""
     try:
         cache = validate_storage(cache_dir or db.parent/'stock-updates'/'cache', db)
         artifacts = validate_storage(artifact_dir or db.parent/'stock-updates'/'artifacts', db)

@@ -40,6 +40,7 @@ from stock_robot.stock_archive import (
 )
 from stock_robot.stock_capital_history import capital_history_command
 from stock_robot.stock_financial_facts import prepare_facts
+from stock_robot.stock_index_scope import index_scope_command
 from stock_robot.stock_market_context import market_window_command
 from stock_robot.stock_market_history import market_history_command
 from stock_robot.stock_official_roster import official_roster_command
@@ -1726,6 +1727,7 @@ radar.add_command(market_window_command)
 radar.add_command(market_history_command)
 radar.add_command(capital_history_command)
 radar.add_command(official_roster_command)
+radar.add_command(index_scope_command)
 for command in (discover_interims, extract_interims, prepare_interim_packet):
     radar.add_command(command)
 for command in (capture_evaluation, list_evaluations, create_draft, list_drafts, cancel_draft, apply_membership, list_memberships):
