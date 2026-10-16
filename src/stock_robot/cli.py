@@ -36,6 +36,7 @@ from stock_robot.stock_archive import (
     list_drafts,
     list_evaluations,
 )
+from stock_robot.stock_capital_history import capital_history_command
 from stock_robot.stock_financial_facts import prepare_facts
 from stock_robot.stock_market_context import market_window_command
 from stock_robot.stock_market_history import market_history_command
@@ -1720,6 +1721,7 @@ radar.add_command(style_evaluate)
 radar.add_command(prepare_facts)
 radar.add_command(market_window_command)
 radar.add_command(market_history_command)
+radar.add_command(capital_history_command)
 radar.add_command(official_roster_command)
 for command in (discover_interims, extract_interims, prepare_interim_packet):
     radar.add_command(command)
