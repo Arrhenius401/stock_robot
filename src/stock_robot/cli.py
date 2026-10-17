@@ -29,6 +29,7 @@ from stock_robot.interim_documents import (
     prepare_interim_packet,
 )
 from stock_robot.stock_admission import admission_evaluate, style_evaluate
+from stock_robot.stock_annual_collect import annual_collect
 from stock_robot.stock_archive import (
     apply_membership,
     cancel_draft,
@@ -1728,6 +1729,7 @@ radar.add_command(market_history_command)
 radar.add_command(capital_history_command)
 radar.add_command(official_roster_command)
 radar.add_command(index_scope_command)
+radar.add_command(annual_collect)
 for command in (discover_interims, extract_interims, prepare_interim_packet):
     radar.add_command(command)
 for command in (capture_evaluation, list_evaluations, create_draft, list_drafts, cancel_draft, apply_membership, list_memberships):
