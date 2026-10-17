@@ -39,6 +39,13 @@ def test_standard_table_has_three_years_and_negative_value():
     assert "profits" not in result and "coverage" not in result
 
 
+def test_annual_title_without_repeated_year_character():
+    # 美的集团2024年报封面为“2024年度报告”，同样是完整年度标题。
+    result = extract([HEADER.replace("2025 年年度报告", "2025年度报告"), TABLE])
+    assert result["status"] == "matched_template"
+    assert len(result["financial_proposals"]) == 12
+
+
 def test_real_adjusted_table_only_current_year():
     pages = Path("tests/resources/radar/cypc-600900-2025-annual-summary.txt").read_text(encoding="utf-8").split("\f")
     result = extract(pages)
@@ -68,6 +75,73 @@ def test_invalid_identity_or_title_pending(header):
 def test_unit_conversion_without_float():
     result = extract([HEADER, TABLE.replace("单位：元", "单位：万元")])
     assert next(v for v in result["financial_proposals"] if v["metric"] == "revenue")["amount_yuan"] == "1000000"
+
+
+def _midea_pages():
+    return Path("tests/resources/radar/cninfo-000333-2025-annual-data.txt").read_text(encoding="utf-8").split("\f")
+
+
+def _midea_extract(pages):
+    return extract_annual_text(pages, symbol="000333", source_url="https://static.cninfo.com.cn/finalpage/2026-03-31/1225065145.PDF",
+                               disclosed_on="2026-03-31", as_of=AS_OF)
+
+
+def test_real_szse_table_has_identity_and_units_but_currency_remains_pending():
+    result = _midea_extract(_midea_pages())
+    assert result["status"] == "pending_verification"
+    assert result["financial_proposals"] == []
+    assert any("第9页年度表币种" in reason for reason in result["reasons"])
+    assert not any("身份" in reason for reason in result["reasons"])
+
+
+def _explicit_currency_pages():
+    # 合成明确币种声明仅验证解析能力，不把这项声明写进真实样本。
+    pages = _midea_pages()
+    pages[8] = pages[8].replace("六、主要会计数据和财务指标", "六、主要会计数据和财务指标\n币种：人民币")
+    return pages
+
+
+def test_szse_explicit_currency_and_per_row_units():
+    result = _midea_extract(_explicit_currency_pages())
+    assert result["status"] == "matched_template", result["reasons"]
+    assert len(result["financial_proposals"]) == 12
+    assert not result["comparison_requires_review"]
+    values = {v["metric"]: v["amount_yuan"] for v in result["financial_proposals"] if v["fiscal_year"] == 2025}
+    assert values == {"revenue": "456451731000", "parent_net_profit": "43945411000",
+                      "deducted_parent_net_profit": "41267233000", "operating_cash_flow": "53345930000"}
+    assert all(v["source_unit"] == "千元" and v["page_number"] == 9 and v["requires_review"] for v in result["financial_proposals"])
+
+
+@pytest.mark.parametrize("old,new", [
+    ("币种：人民币", "币种：美元"),
+    ("币种：人民币", "币种：人民币 币种：美元"),
+    ("币种：人民币", ""),
+    ("□ 是 √ 否", "√ 是 □ 否"),
+    ("□ 是 √ 否", "□ 是 □ 否"),
+    ("公司是否需追溯调整或重述以前年度会计数据", "是否存在其他事项"),
+    ("营业收入（千元）", "营业收入"),
+    ("000333（A 股）", "000334（A 股）"),
+])
+def test_szse_unverified_fields_do_not_create_proposals(old, new):
+    pages = [page.replace(old, new) for page in _explicit_currency_pages()]
+    result = _midea_extract(pages)
+    assert result["status"] == "pending_verification"
+    assert result["financial_proposals"] == []
+
+
+def test_szse_currency_in_other_section_is_not_table_evidence():
+    pages = _midea_pages()
+    pages[1] += "\n本期分红币种：人民币"
+    assert not _midea_extract(pages)["financial_proposals"]
+
+
+def test_szse_conflicting_company_information_and_quarter_table_are_rejected():
+    pages = _explicit_currency_pages()
+    pages[6] = "一、公司信息\n股票代码：600900\n二、其他信息"
+    assert not _midea_extract(pages)["financial_proposals"]
+    pages = _explicit_currency_pages()
+    pages[8] = pages[8].replace("六、主要会计数据和财务指标", "八、分季度主要财务指标")
+    assert not _midea_extract(pages)["financial_proposals"]
 
 
 def test_archive_failure_isolated_and_review_status_rejected(tmp_path):

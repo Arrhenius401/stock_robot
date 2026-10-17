@@ -34,7 +34,7 @@ def _base(symbol: str, url: str, disclosed: str) -> dict[str, Any]:
 def _amount(value: str, unit: str) -> str:
     with localcontext() as context:
         context.prec = max(50, len(value) + 15)
-        number = Decimal(value.replace(",", "")) * {"元": 1, "万元": 10000, "百万元": 1000000}[unit]
+        number = Decimal(value.replace(",", "")) * {"元": 1, "千元": 1000, "万元": 10000, "百万元": 1000000}[unit]
     result = format(number, "f")
     return result.rstrip("0").rstrip(".") if "." in result else result
 
@@ -54,7 +54,13 @@ def extract_annual_text(pages: list[str], *, symbol: str, source_url: str,
         if disclosed > as_of:
             raise ValueError("披露日期晚于研究截至日期")
         codes = re.findall(r"(?:公司代码|证券代码)[：:]?(\d{6})", header)
-        years = set(re.findall(r"(20\d{2})年年度报告", header))
+        # 深市全文封面可能没有代码，仅从明确的公司信息章节补取身份。
+        for page in selected_pages:
+            info = re.search(r"一[、.]\s*公司信息(.*?)(?=二[、.]|\Z)", page, re.DOTALL)
+            if info:
+                compact_info = re.sub(r"\s+", "", info[1])
+                codes.extend(re.findall(r"(?:公司代码|证券代码|股票代码)[：:]?(\d{6})(?!\d)", compact_info))
+        years = set(re.findall(r"(20\d{2})年?年度报告", header))
         if not codes or any(code != symbol for code in codes) or len(years) != 1:
             raise ValueError("公司身份或年度报告标题缺失、冲突")
         year = int(next(iter(years)))
@@ -68,7 +74,7 @@ def extract_annual_text(pages: list[str], *, symbol: str, source_url: str,
     proposals: dict[tuple[str, int], list[dict[str, Any]]] = {}
     for page_number, page in enumerate(selected_pages, 1):
         # 仅独立章节标题或表头是候选；说明段和季度表提及不算年度表。
-        anchors = list(re.finditer(r"(?m)^[ \t]*(?:[（(][一二三四五六七八九十]+[)）][ \t]*)?主要会计数据(?=[ \t\r\n]|20\d{2})", page))
+        anchors = list(re.finditer(r"(?m)^[ \t]*(?:(?:[（(][一二三四五六七八九十]+[)）]|[一二三四五六七八九十]+、)[ \t]*)?主要会计数据(?:和财务指标)?(?=[ \t\r\n]|20\d{2})", page))
         if not anchors:
             continue
         # 章节标题与表头可重复；已出现金额行后再有表头才是真正的多表。
@@ -83,16 +89,42 @@ def extract_annual_text(pages: list[str], *, symbol: str, source_url: str,
         original_section = page[anchors[0].start():]
         section = re.sub(r"\s+", "", original_section)
         section = re.split(r"(?:主要财务指标|归属于上市公司股东的净资产|总资产)", section)[0]
-        unit_match = re.search(r"单位[：:](百万元|万元|元)币种[：:]人民币", section)
+        unit_match = re.search(r"单位[：:](百万元|万元|千元|元)币种[：:]人民币", section)
         table = re.search(str(year) + r"年" + str(year - 1) + r"年(.*?)" + str(year - 2) + r"年", section)
-        if not unit_match or not table or "本期比上年" not in table[1]:
+        row_units = {}
+        row_template = "主要会计数据和财务指标" in re.sub(r"\s+", "", original_section)
+        if row_template:
+            for metric, label in _LABELS.items():
+                matches = re.findall(label + r"[（(](百万元|万元|千元|元)[)）]", section)
+                if len(matches) == 1:
+                    row_units[metric] = matches[0]
+            prefix = section[:table.start()] if table else ""
+            # 分红段落、其他表格中的人民币不能作为本表的币种证据。
+            currencies = re.findall(r"币种[：:](人民币|美元|港元|港币|欧元|日元|[A-Za-z]+)", prefix)
+            if currencies != ["人民币"] or len(re.findall(r"币种[：:]", prefix)) != 1:
+                result["reasons"].append(f"第{page_number}页年度表币种未明确或存在冲突，逐项单位已识别，待核验原文")
+                continue
+            if len(row_units) != len(_LABELS):
+                result["reasons"].append(f"第{page_number}页年度表逐项金额单位缺失，待核验原文")
+                continue
+        if (not unit_match and not row_template) or not table or not any(text in table[1] for text in ("本期比上年", "本年比上年增减")):
             result["reasons"].append(f"第{page_number}页币种、单位或连续年度表头不支持")
             continue
-        unit = unit_match[1]
-        adjusted = "调整" in section[:section.find("营业收入")] if "营业收入" in section else True
+        unit = unit_match[1] if unit_match else ""
+        if row_template:
+            # 问题本身含“调整”，必须由明确勾选“否”判断未重述。
+            unadjusted = re.search(r"公司是否需追溯调整或重述以前年度会计数据□是√否", section)
+            if not unadjusted or "√是" in section or "调整前" in section or "调整后" in section:
+                result["reasons"].append(f"第{page_number}页年度表重述选择不明确，待核验原文")
+                continue
+            adjusted = False
+        else:
+            adjusted = "调整" in section[:section.find("营业收入")] if "营业收入" in section else True
         result["comparison_requires_review"] |= adjusted
         for metric, label in _LABELS.items():
             spaced_label = r"\s*".join(map(re.escape, label))
+            if row_template:
+                spaced_label += r"\s*[（(]\s*" + row_units[metric] + r"\s*[)）]"
             original_section = re.split(r"(?:主要财务指标|归属于上市公司股\s*东的净资产|总资产)", original_section)[0]
             original_matches = list(re.finditer(spaced_label + r"\s*([^\r\n]+)", original_section))
             for original in original_matches:
@@ -111,7 +143,7 @@ def extract_annual_text(pages: list[str], *, symbol: str, source_url: str,
                 values = [(year, tokens[0])] if adjusted else [(year, tokens[0]), (year - 1, tokens[1]), (year - 2, tokens[3])]
                 for fiscal_year, token in values:
                     proposal = {"symbol": symbol, "fiscal_year": fiscal_year, "metric": metric,
-                                "amount_yuan": _amount(token, unit), "source_unit": unit,
+                                "amount_yuan": _amount(token, row_units.get(metric, unit)), "source_unit": row_units.get(metric, unit),
                                 "currency": "CNY", "scope": "reported_parent" if "parent" in metric else "consolidated",
                                 "source_url": source_url, "disclosed_on": disclosed_on,
                                 "page_number": page_number, "evidence_excerpt": original[0],
