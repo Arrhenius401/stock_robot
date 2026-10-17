@@ -31,6 +31,18 @@ def test_save_snapshot_roundtrip_and_token_numeric_cleanup(tmp_path):
     assert detail.markdown == "# 样本\n完整原文"
 
 
+def test_hk_stock_snapshot_roundtrip(tmp_path):
+    path = ReportFormatter.save(
+        "# 港股样本\n完整原文", "00700.HK", output_dir=tmp_path,
+        stock_payload=payload("00700.HK"),
+    )
+
+    assert path.parent.parent.name == "00700.HK"
+    detail = get_report_detail(tmp_path, list_reports(tmp_path)[0].id)
+    assert detail.stock_payload is not None
+    assert detail.stock_payload["symbol"] == "00700.HK"
+
+
 @pytest.mark.parametrize("fault", ["missing", "malformed", "digest", "symbol", "version", "shape", "nonfinite"])
 def test_snapshot_fault_falls_back_to_complete_markdown(tmp_path, fault, caplog):
     path = ReportFormatter.save("# 样本\n完整原文", "000001", output_dir=tmp_path, stock_payload=payload())

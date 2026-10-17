@@ -16,6 +16,8 @@ from rich.table import Table
 
 logger = logging.getLogger(__name__)
 
+_STOCK_SYMBOL_PATTERN = r"(?:\d{6}|\d{5}\.HK)"
+
 _SEP_RE = re.compile(r'^\|[-\s:|]+\|$')
 
 METRIC_DISPLAY_NAMES = {
@@ -209,7 +211,7 @@ def update_stock_snapshot(markdown: str, path: Path, payload: dict[str, Any]) ->
     path = Path(path)
     if (path.suffix.lower() != ".md" or len(path.parents) < 4
             or path.parents[2].name != "stock"
-            or not re.fullmatch(r"\d{6}", path.parent.parent.name)):
+            or not re.fullmatch(_STOCK_SYMBOL_PATTERN, path.parent.parent.name)):
         raise ValueError("个股报告路径无效")
     root = path.parents[3].resolve()
     if not path.resolve().is_relative_to(root):
@@ -242,7 +244,9 @@ class ReportFormatter:
             output_dir = Path.cwd() / "reports"
         output_dir = Path(output_dir)
         if (category not in ("stock", "index")
-                or not re.fullmatch(r"\d{6}" if category == "stock" else r"[A-Za-z0-9][A-Za-z0-9._-]*", symbol)):
+                or not re.fullmatch(
+                    _STOCK_SYMBOL_PATTERN if category == "stock"
+                    else r"[A-Za-z0-9][A-Za-z0-9._-]*", symbol)):
             raise ValueError("报告分类或标的无效")
         generated_at = datetime.now().astimezone()
         report_dir = output_dir / category / symbol / generated_at.strftime("%Y-%m")
