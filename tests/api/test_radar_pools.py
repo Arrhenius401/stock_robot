@@ -5,7 +5,8 @@ from fastapi.testclient import TestClient
 from api.app import create_app
 
 
-def test_catalog_and_members_do_not_initialize_data_or_tasks(monkeypatch):
+def test_catalog_and_members_do_not_initialize_data_or_tasks(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
     def forbidden(*args, **kwargs):
         raise AssertionError("只读股票接口不应初始化采集和任务")
     for name in ("Config", "RadarStore", "RadarRefresher", "UpdateStore",
@@ -18,13 +19,14 @@ def test_catalog_and_members_do_not_initialize_data_or_tasks(monkeypatch):
     assert set(rows) == {"cn_hk_etf", "overseas_etf", "dividend_value", "growth_trend"}
     assert rows["cn_hk_etf"]["capabilities"] == {"update": True, "manage": False}
     for identifier in ("dividend_value", "growth_trend"):
-        assert rows[identifier]["capabilities"] == {"update": False, "manage": False}
+        assert rows[identifier]["capabilities"] == {"update": True, "manage": True}
         assert rows[identifier]["rule_status"] == "unconfigured"
         response = client.get(f"/api/v1/radar/stocks/{identifier}/members")
-        assert response.json() == {
-            "pool_id": identifier, "revision": 0, "items": [], "industries": [],
-            "status": "empty", "unavailable_reason": "选股规则和采集流程尚未配置",
-        }
+        body = response.json()
+        assert body['pool_id'] == identifier and body['revision'] == 0
+        assert body['items'] == [] and body['industries'] == [] and body['status'] == 'empty'
+        assert body['candidate_count'] == 0
+    assert not (tmp_path / '.stock_robot').exists()
 
 
 def test_unknown_or_etf_id_cannot_read_stock_members():
@@ -33,13 +35,14 @@ def test_unknown_or_etf_id_cannot_read_stock_members():
         assert client.get(f"/api/v1/radar/stocks/{identifier}/members").status_code == 404
 
 
-def test_stock_definition_is_independent_and_update_is_unavailable():
+def test_stock_definition_is_independent_and_empty_update_is_rejected(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
     client = TestClient(create_app(core=None, push=False))
     response = client.get("/api/v1/radar/stocks/dividend_value")
     assert response.status_code == 200
     assert response.json()["rule_status"] == "unconfigured"
     assert "score_profile" not in response.json()
-    assert client.post("/api/v1/radar/stocks/dividend_value/update").status_code == 503
+    assert client.post("/api/v1/radar/stocks/dividend_value/update").status_code == 422
 
 
 def test_bad_stock_configuration_is_not_reported_as_empty(monkeypatch):

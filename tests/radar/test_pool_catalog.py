@@ -30,7 +30,8 @@ def test_catalog_extends_from_config_and_omits_disabled(tmp_path):
     rows = catalog.list()
     assert {item.id for item in rows} == {"cn_hk_etf", "overseas_etf", "extra_pool"}
     assert rows[-1].name == "新增池"
-    assert rows[-1].capabilities.update is False
+    assert rows[-1].capabilities.update is True
+    assert rows[-1].capabilities.manage is True
     assert rows[-1].rule_status == "unconfigured"
 
 

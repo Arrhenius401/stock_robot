@@ -282,6 +282,19 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/radar/test_collector_cli.py"
         continue
     }
+    if ($path -in @("src\api\stock_radar.py", "src\radar\stocks\web_queries.py", "src\radar\stocks\update_service.py")) {
+        Add-UniqueTarget $testTargets "tests/api/test_stock_radar_management.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_update_service.py"
+        Add-UniqueTarget $testTargets "tests/api/test_radar_pools.py"
+        Add-UniqueTarget $testTargets "tests/api/test_app.py"
+        continue
+    }
+    if ($path -eq "src\api\static\js\radar-stock-view.js") {
+        Add-UniqueTarget $testTargets "tests/api/test_stock_radar_management_ui.py"
+        Add-UniqueTarget $testTargets "tests/api/test_radar_pools_ui.py"
+        Add-UniqueTarget $testTargets "tests/api/test_static.py"
+        continue
+    }
     if ($path -eq "tests\resources\radar\cninfo-000333-announcements-empty.json" -or
         $path -like "tests\resources\radar\*-implementation.txt") {
         Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_documents.py"

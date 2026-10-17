@@ -1,0 +1,224 @@
+"""股票管理只读边界与审核接口回归。"""
+from datetime import date
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from api.stock_radar import create_stock_router
+from radar.stocks.research_store import StockResearchStore
+
+
+def client(state):
+    app = FastAPI()
+    app.include_router(create_stock_router(state_dir=state), prefix='/api/v1/radar')
+    return TestClient(app)
+
+
+def seed(state):
+    store = StockResearchStore(state / 'radar.db')
+    store.import_companies([{'symbol': '600000', 'name': '浦发银行'}], source_sha256='a' * 64,
+                           source_label='隔离测试', data_as_of=date(2026, 10, 15))
+    return store
+
+
+def test_empty_gets_create_nothing(tmp_path):
+    state = tmp_path / 'missing'
+    with client(state) as web:
+        for path in ('candidates', 'drafts', 'memberships/events', 'updates', 'updates/latest', 'dividend_value/members'):
+            assert web.get('/api/v1/radar/stocks/' + path).status_code == 200
+        assert web.get('/api/v1/radar/stocks/companies/600000').status_code == 404
+    assert not state.exists()
+
+
+def test_candidates_details_and_review_conflict(tmp_path):
+    state = tmp_path / 'state'
+    store = seed(state)
+    evidence = store.list_evidence('600000')[0]
+    with client(state) as web:
+        base = '/api/v1/radar/stocks'
+        response = web.get(base + '/candidates?search=浦发').json()
+        assert response['total'] == 0
+        assert response['scope_status'] == 'not_prepared'
+        assert response['formal_screening_enabled'] is False
+        detail = web.get(base + '/companies/600000').json()
+        assert detail['publication_enabled'] is False
+        body = {'evidence_id': evidence['evidence_id'], 'expected_revision': 1, 'decision': 'confirmed', 'reviewer': '测试', 'reason': '核对测试资料'}
+        assert web.post(base + '/companies/600000/reviews', json=body).status_code == 422
+        body['decision'] = 'rejected'
+        assert web.post(base + '/companies/600000/reviews', json=body).json()['revision'] == 2
+        assert web.post(base + '/companies/600000/reviews', json=body).status_code == 409
+        body['expected_revision'] = True
+        assert web.post(base + '/companies/600000/reviews', json=body).status_code == 422
+
+
+def test_draft_current_revision_and_no_external_evaluation(tmp_path):
+    state = tmp_path / 'state'
+    seed(state)
+    with client(state) as web:
+        base = '/api/v1/radar/stocks/companies/600000/draft'
+        body = {'expected_revision': 0, 'request_id': 'one', 'actor': '测试', 'reason': '保存关注依据', 'pool_id': 'dividend_value'}
+        assert web.post(base, json=body).status_code == 409
+        body['expected_revision'] = 1
+        result = web.post(base, json=body)
+        assert result.status_code == 200, result.text
+        assert result.json()['status'] == 'blocked'
+        assert result.json()['publication_enabled'] is False
+        body['passed'] = True
+        assert web.post(base, json=body).status_code == 422
+
+
+def test_unknown_pool_and_empty_refresh(tmp_path):
+    with client(tmp_path / 'state') as web:
+        base = '/api/v1/radar/stocks/'
+        assert web.post(base + 'not-a-pool/update', json={}).status_code == 404
+        assert web.post(base + 'dividend_value/update', json={}).status_code == 422
+
+
+def test_draft_retry_replays_saved_result_without_time_dependent_evaluation(tmp_path, monkeypatch):
+    import api.stock_radar as module
+
+    store = seed(tmp_path)
+    calls = []
+
+    def window(*args):
+        calls.append(1)
+        return None, {'effective_at': f'2026-10-17T13:00:{len(calls):02d}+08:00'}
+
+    monkeypatch.setattr(module, 'load_market_window', window)
+    body = {'expected_revision': 1, 'request_id': 'lost-response', 'actor': '测试', 'reason': '核对后关注', 'pool_id': 'dividend_value'}
+    with client(tmp_path) as web:
+        path = '/api/v1/radar/stocks/companies/600000/draft'
+        first = web.post(path, json=body)
+        assert first.status_code == 200, first.text
+        again = web.post(path, json=body)
+        assert again.status_code == 200, again.text
+        assert again.json()['draft_id'] == first.json()['draft_id']
+        assert len(calls) == 1
+        for field, value in [('reason', '不同理由'), ('expected_revision', 2), ('actor', '其他人')]:
+            assert web.post(path, json={**body, field: value}).status_code == 409
+    with store._connect() as connection:
+        assert connection.execute('SELECT COUNT(*) FROM stocks_evaluations').fetchone()[0] == 1
+        assert connection.execute('SELECT COUNT(*) FROM stocks_member_drafts').fetchone()[0] == 1
+
+
+
+def test_get_company_never_creates_calendar_or_task_tables(tmp_path, monkeypatch):
+    import sqlite3
+
+    state = tmp_path / 'state'
+    seed(state)
+    before = sorted(path.name for path in state.iterdir())
+    monkeypatch.setattr('radar.calendar.fetch_akshare_calendar', lambda: (_ for _ in ()).throw(AssertionError('禁止联网')))
+    with client(state) as web:
+        assert web.get('/api/v1/radar/stocks/companies/600000').status_code == 200
+    assert sorted(path.name for path in state.iterdir() if path.suffix == '.db') == before
+    with sqlite3.connect(state / 'radar.db') as connection:
+        assert connection.execute("SELECT name FROM sqlite_master WHERE name IN ('stocks_update_runs','stocks_evaluations')").fetchall() == []
+
+
+def test_confirm_original_evidence_and_reject_blank_reason(tmp_path):
+    store = seed(tmp_path)
+    fact = store.add_evidence('600000', kind='admission_identity', payload={'symbol': '600000'},
+                              source_url='https://www.sse.com.cn/company/600000', disclosed_on=date(2026, 10, 15),
+                              content_sha256='b' * 64, expected_revision=1)
+    with client(tmp_path) as web:
+        body = {'evidence_id': fact['evidence_id'], 'expected_revision': 2, 'decision': 'confirmed',
+                'reviewer': '隔离测试审核人', 'reason': '已核对测试原文身份字段'}
+        assert web.post('/api/v1/radar/stocks/companies/600000/reviews', json=body).json()['revision'] == 3
+        body['reason'] = '   '
+        assert web.post('/api/v1/radar/stocks/companies/600000/reviews', json=body).status_code == 422
+
+
+def test_scoped_candidates_exclude_base_roster_and_preserve_source_dates(tmp_path):
+    from radar.stocks.update_runner import StockUpdateRunner
+    from tests.radar.test_stock_update_service import packet, task_store
+
+    tasks = task_store(tmp_path)
+    tasks.research.import_companies([{'symbol': '000001', 'name': '全市场底表公司'}], source_sha256='c' * 64,
+                                    source_label='全市场底表', data_as_of=date(2026, 10, 15))
+    run = tasks.enqueue(kind='discover_candidates', pool_ids=['dividend_value', 'growth_trend'],
+                         target_date=date(2026, 10, 15), rule_version='test')
+    runner = StockUpdateRunner(tasks, tmp_path / 'stock-updates/cache', tmp_path / 'stock-updates/artifacts',
+                               roster_collector=lambda _cache, as_of: packet(as_of))
+    runner.execute_one('isolated-worker')
+    with client(tmp_path) as web:
+        base = '/api/v1/radar/stocks/'
+        dividend = web.get(base + 'candidates?pool_id=dividend_value').json()
+        assert [item['symbol'] for item in dividend['items']] == ['600000']
+        assert dividend['scope_status'] == 'partial'
+        assert dividend['source_snapshots'][0]['snapshot_date'] == '2026-10-15'
+        assert web.get(base + 'candidates?pool_id=growth_trend').json()['total'] == 0
+        task = web.get(base + 'updates/' + run['run_id']).json()
+        assert 'path' not in task['results'][0]['artifact']
+        latest = tasks.enqueue(kind='discover_candidates', pool_ids=['dividend_value'], target_date=date(2026, 10, 15), rule_version='new')
+        claimed = tasks.claim('failure-test')
+        assert claimed is not None
+        tasks.finish(latest['run_id'], 'failure-test', lease_token=claimed['lease_token'], status='failed', error='测试来源失败')
+        failed = web.get(base + 'candidates?pool_id=dividend_value').json()
+        assert failed['total'] == 0
+        assert failed['scope_status'] == 'failed'
+        assert failed['scope_error'] == '测试来源失败'
+
+
+def test_discover_scopes_all_enabled_pools_and_no_client_rule(tmp_path):
+    calls = []
+
+    class FakeService:
+        def __init__(self, runner):
+            calls.append(runner)
+
+        def wake(self):
+            calls.append('wake')
+
+        def stop(self):
+            calls.append('stop')
+
+    app = FastAPI()
+    app.include_router(create_stock_router(state_dir=tmp_path, service_factory=FakeService))
+    with TestClient(app) as web:
+        response = web.post('/stocks/discover', json={'pool_id': 'dividend_value', 'as_of': '2026-10-15'})
+        assert response.status_code == 202, response.text
+        assert response.json()['pool_ids'] == ['dividend_value', 'growth_trend']
+        assert response.json()['automatic_enabled'] is False
+        assert calls[-1] == 'wake'
+        assert web.post('/stocks/discover', json={'pool_id': 'dividend_value', 'rule_version': 'bypass'}).status_code == 422
+
+
+def test_database_fault_503(tmp_path):
+    (tmp_path / 'radar.db').write_text('not sqlite', encoding='utf-8')
+    with client(tmp_path) as web:
+        assert web.get('/api/v1/radar/stocks/candidates').status_code == 503
+
+
+
+
+def test_scope_artifact_tamper_is_service_error(tmp_path):
+    from radar.stocks.update_runner import StockUpdateRunner
+    from tests.radar.test_stock_update_service import packet, task_store
+
+    tasks = task_store(tmp_path)
+    run = tasks.enqueue(kind='discover_candidates', pool_ids=['dividend_value'], target_date=date(2026, 10, 15), rule_version='test')
+    StockUpdateRunner(tasks, tmp_path / 'stock-updates/cache', tmp_path / 'stock-updates/artifacts',
+                      roster_collector=lambda _cache, as_of: packet(as_of)).execute_one('isolated-worker')
+    artifact = tasks.get(run['run_id'])['results'][0]['artifact']
+    from pathlib import Path
+    Path(artifact['path']).write_bytes(b'corrupt')
+    with client(tmp_path) as web:
+        assert web.get('/api/v1/radar/stocks/candidates?pool_id=dividend_value').status_code == 503
+
+
+def test_new_enabled_pool_without_scope_is_explicitly_unsupported(tmp_path):
+    import shutil
+    from pathlib import Path
+
+    directory = tmp_path / 'pools'
+    shutil.copytree(Path(__file__).parents[2] / 'config/radar_stock_pools', directory)
+    content = (directory / 'growth_trend.yaml').read_text(encoding='utf-8')
+    (directory / 'another_pool.yaml').write_text(content.replace('id: growth_trend', 'id: another_pool'), encoding='utf-8')
+    app = FastAPI()
+    app.include_router(create_stock_router(state_dir=tmp_path / 'state', pool_dir=directory))
+    with TestClient(app) as web:
+        response = web.get('/stocks/candidates?pool_id=another_pool')
+        assert response.status_code == 200
+        assert response.json()['scope_status'] == 'unsupported'
+        assert response.json()['total'] == 0

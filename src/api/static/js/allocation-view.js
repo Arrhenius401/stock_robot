@@ -1,6 +1,6 @@
 import { createRadarUpdateUI } from "./radar-update-ui.js?v=20261004-overseas-2";
 import { createRadarPoolPicker } from "./radar-pool-picker.js?v=20261014-pools-2";
-import { renderRadarStockPool } from "./radar-stock-view.js?v=20261014-pools-2";
+import { renderRadarStockPool } from "./radar-stock-view.js?v=20261017-stock-management-1";
 // 配置雷达基础视图：使用浏览器兼容语法直接消费完成快照。
 var allocationUpdates = null;
 var allocationLoadGeneration = 0;
@@ -402,17 +402,18 @@ function allocationHeader() {
     window.history.pushState({}, "", allocationState.poolHistory[selected.id] || "#radar/" + encodeURIComponent(selected.id));
     allocationLoad(true);
   });
-  var meta = allocationElement("p", "radar-meta radar-head-title", stock ? "股票池 · 尚无正式成员" : allocationSnapshotMeta(allocationState.snapshot));
+  var members = stock && allocationState.stockPayload && allocationState.stockPayload.pool_id === pool.id ? allocationState.stockPayload.items || [] : [];
+  var meta = allocationElement("p", "radar-meta radar-head-title", stock ? "股票池 · " + (members.length ? members.length + " 家成员" : "尚无正式成员") : allocationSnapshotMeta(allocationState.snapshot));
   var controls = allocationElement("div", "radar-head-controls");
   var actions = allocationElement("div", "radar-head-actions");
   var busy = !stock && allocationUpdates && allocationUpdates.isActive(allocationState.universeId);
   var refresh = allocationElement("button", "radar-refresh", busy ? "更新中…" : "更新数据");
   refresh.type = "button";
-  refresh.disabled = busy || stock || !pool || !pool.capabilities || !pool.capabilities.update;
-  if (stock) refresh.title = "选股规则和采集流程尚未配置";
+  refresh.disabled = busy || (stock && !members.length) || !pool || !pool.capabilities || !pool.capabilities.update;
+  if (stock && !members.length) refresh.title = "暂无正式成员，请先准备候选并完成审核";
   refresh.onclick = function () { if (pool && pool.asset_type === "etf" && pool.capabilities.update) allocationUpdates.start(pool.id); };
   var buttons = allocationElement("div", "radar-update-actions"); buttons.append(refresh);
-  actions.append(buttons, allocationElement("p", "radar-meta", stock ? "选股规则和采集流程尚未配置" : "手动更新可用 · 自动采集服务" + (allocationState.collectorStatus ? allocationState.collectorStatus.service_online ? "在线" : "离线" : "状态暂不可读取")));
+  actions.append(buttons, allocationElement("p", "radar-meta", stock ? "股票资料手动更新 · 自动更新关闭" : "手动更新可用 · 自动采集服务" + (allocationState.collectorStatus ? allocationState.collectorStatus.service_online ? "在线" : "离线" : "状态暂不可读取")));
   controls.append(selector, actions);
   header.append(meta, controls);
   return header;
@@ -621,7 +622,7 @@ function allocationLoad(focusPicker) {
     ]);
   }).then(function (payload) {
     if (!payload || generation !== allocationLoadGeneration) return;
-    if (stock) { allocationState.stockPayload = payload; renderRadarStockPool(root, allocationHeader(), selectedPool, payload); allocationFocusCurrentPicker(generation); return; }
+    if (stock) { allocationState.stockPayload = payload; renderRadarStockPool(root, allocationHeader(), selectedPool, payload, { request: allocationRequest, isCurrent: function () { return generation === allocationLoadGeneration && allocationState.universeId === selectedPool.id && window.location.hash.indexOf("#radar") === 0; } }); allocationFocusCurrentPicker(generation); return; }
     if (payload[0] && payload[0].universe_id !== selectedPool.id) throw new Error("快照所属池与当前选择不一致，请重新选择正确的标的池。");
     allocationState.snapshot = payload[0]; allocationState.snapshotHistorical = historical; allocationState.collectorStatus = payload[1];
     allocationShowList(); allocationRestoreDetail(); allocationFocusCurrentPicker(generation);

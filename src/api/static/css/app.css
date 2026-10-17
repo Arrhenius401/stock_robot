@@ -1,5 +1,7 @@
 /* ============ 基础 ============ */
 * { box-sizing: border-box; margin: 0; padding: 0; }
+/* 股票任务在卡片内展示，避免遗留ETF浮动提示遮挡切池控件。 */
+body:has(#view-radar.active .stock-management) #radarUpdateNotice { display: none; }
 :root {
   --bg: #0d1017; --panel: #131722; --panel-2: #20263a; --border: #262b36;
   --border-soft: #1f2430; --accent: #e5484d; --accent-2: #f76b15;
@@ -1577,3 +1579,27 @@ body.subs-modal-open { overflow: hidden; }
 .radar-stock-empty h3{margin:18px 0 8px;font-size:15px;}
 .radar-stock-empty .radar-note{margin:12px 0;}
 @media(max-width:760px){.radar-pool-picker{width:100%;}.radar-pool-dialog{left:12px;right:12px;top:auto;bottom:12px;width:auto;max-width:none;border-radius:14px;}.radar-pool-dialog::backdrop{background:#17203355;}.radar-head-controls>.radar-pool-picker{flex-basis:100%;}}
+
+/* 股票研究管理仅复用现有主题，不改变共享页面坐标。 */
+.stock-management { min-width:0; }
+.stock-management .stock-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:12px 0; }
+.stock-management .stock-body { min-width:0; }
+.stock-management .stock-row { display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; padding:12px 0; border-bottom:1px solid var(--border-soft); }
+.stock-management .stock-company { min-width:180px; text-align:left; }
+.stock-management .stock-search { flex:1; min-width:140px; }
+.stock-management input, .stock-management textarea { max-width:100%; border:1px solid var(--border); border-radius:7px; background:var(--bg); color:var(--text); font:inherit; padding:8px 10px; }
+.stock-management input:focus, .stock-management textarea:focus { outline:2px solid var(--blue); outline-offset:2px; }
+.stock-management .stock-pagination { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:10px; margin:16px 0 0; }
+.stock-management .stock-fold { margin:12px 0; padding:10px 12px; border:1px solid var(--border-soft); border-radius:8px; min-width:0; }
+.stock-management summary { cursor:pointer; color:var(--text-2); overflow-wrap:anywhere; }
+.stock-management .stock-raw { white-space:pre-wrap; overflow-wrap:anywhere; font-size:11px; line-height:1.6; margin:10px 0; max-height:300px; overflow:auto; }
+.stock-management .stock-checks { margin-top:16px; }
+.stock-management .stock-check { padding:7px 0; line-height:1.65; overflow-wrap:anywhere; border-bottom:1px solid var(--border-soft); }
+.stock-management .stock-evidence-row { padding:10px 0; border-bottom:1px solid var(--border-soft); }
+.stock-management .stock-review-editor { display:flex; flex-wrap:wrap; gap:10px; margin:16px 0; padding:14px; background:var(--panel); border:1px solid var(--border-soft); border-radius:8px; }
+.stock-management .stock-review-editor>.radar-meta, .stock-management .stock-review-editor>.stock-toolbar { width:100%; margin:0; }
+.stock-management .stock-reason { display:block; width:100%; min-height:96px; resize:vertical; }
+.stock-management .stock-source a { color:var(--blue); }
+.stock-management .stock-error, .stock-management .stock-task { overflow-wrap:anywhere; }
+@media(max-width:760px) { .stock-management { padding:14px; } .stock-management .stock-company { min-width:0; } .stock-management .stock-search { flex-basis:100%; width:100%; } .stock-management .stock-reviewer { width:100%; } }
+.stock-management a { color:var(--blue); }

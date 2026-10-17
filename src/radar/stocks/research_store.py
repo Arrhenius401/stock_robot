@@ -92,10 +92,19 @@ def _url(value: Any) -> str:
 class StockResearchStore:
     """独立专表管理研究资料，同库ETF数据保持原样。"""
 
-    def __init__(self, db_path: Path, *, clock: Callable[[], datetime] | None = None):
+    def __init__(self, db_path: Path, *, clock: Callable[[], datetime] | None = None, read_only: bool = False):
         self.db_path = Path(db_path)
+        if type(read_only) is not bool:
+            raise StockResearchError('只读选项须为布尔值')
+        self._read_only = read_only
         self._clock = clock or (lambda: datetime.now(UTC))
         self._now()
+        if read_only:
+            with closing(self._connect()) as connection:
+                versions = connection.execute('SELECT version FROM stocks_schema_versions').fetchall()
+                if len(versions) != 1 or versions[0][0] != 1:
+                    raise StockResearchError('不支持的股票研究存储版本')
+            return
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as connection, connection:
             connection.execute('BEGIN IMMEDIATE')
@@ -114,10 +123,12 @@ class StockResearchStore:
                 connection.execute('INSERT INTO stocks_schema_versions VALUES (1)')
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.db_path, timeout=5)
+        connection = (sqlite3.connect(self.db_path.resolve().as_uri() + '?mode=ro', uri=True, timeout=5)
+                      if self._read_only else sqlite3.connect(self.db_path, timeout=5))
         try:
             connection.row_factory = sqlite3.Row
-            connection.execute('PRAGMA journal_mode=WAL')
+            if not self._read_only:
+                connection.execute('PRAGMA journal_mode=WAL')
             connection.execute('PRAGMA foreign_keys=ON')
             connection.execute('PRAGMA busy_timeout=5000')
             return connection
@@ -127,6 +138,8 @@ class StockResearchStore:
 
     @contextmanager
     def _write(self):
+        if self._read_only:
+            raise StockResearchError('只读研究仓储不能写入')
         with closing(self._connect()) as connection, connection:
             connection.execute('BEGIN IMMEDIATE')
             yield connection

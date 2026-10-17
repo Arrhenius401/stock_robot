@@ -55,7 +55,7 @@ class PoolCatalog:
         items.extend(
             PoolDescriptor(id=pool.id, name=pool.name, asset_type="stock",
                            description=pool.description, display_order=pool.display_order,
-                           capabilities=PoolCapabilities(update=False, manage=False),
+                           capabilities=PoolCapabilities(update=True, manage=True),
                            rule_status=pool.rule_status)
             for pool in all_stocks if pool.enabled
         )

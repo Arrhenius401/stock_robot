@@ -47,6 +47,38 @@ def test_import_transaction_guard_prevents_stale_task_writes_even_on_replay(tmp_
     assert checked == [True] and store.summary() == before
 
 
+def test_read_only_store_reads_existing_evidence_and_refuses_writes(tmp_path):
+    writer = make(tmp_path)
+    seed(writer)
+    before = writer.summary()
+    reader = StockResearchStore(writer.db_path, clock=lambda: NOW, read_only=True)
+    assert reader.summary() == before
+    assert reader.get_company('600900') == writer.get_company('600900')
+    assert reader.list_evidence('600900') == writer.list_evidence('600900')
+    with pytest.raises(StockResearchError, match='只读'):
+        reader.import_companies([{'symbol': '000333'}], source_sha256='b'*64, source_label='不能写入', data_as_of=NOW.date())
+    assert writer.summary() == before
+
+
+def test_read_only_missing_database_does_not_create_state_directory(tmp_path):
+    missing = tmp_path/'never-created'/'research.db'
+    with pytest.raises(sqlite3.OperationalError):
+        StockResearchStore(missing, read_only=True)
+    assert not missing.parent.exists()
+
+
+def test_read_only_connections_do_not_allow_sql_writes(tmp_path):
+    from contextlib import closing
+
+    writer = make(tmp_path)
+    seed(writer)
+    reader = StockResearchStore(writer.db_path, read_only=True)
+    with closing(reader._connect()) as connection, pytest.raises(sqlite3.OperationalError, match='readonly'):
+        connection.execute("UPDATE stocks_companies SET name='不允许写入' WHERE symbol='600900'")
+    current = writer.get_company('600900')
+    assert current is not None and current['name'] == '公司'
+
+
 def evidence(store, **overrides):
     args = {'kind': 'financial', 'payload': {'value': None}, 'source_url': 'https://static.cninfo.com.cn/a.pdf',
                 'disclosed_on': date(2026, 10, 1), 'content_sha256': SHA,

@@ -21,6 +21,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.report_library import ReportLibraryError, get_report_detail, list_reports
+from api.stock_radar import create_stock_router
 from radar.backtest_cache import BacktestCacheError, derive_backtest_window
 from radar.benchmarks import (
     RadarBenchmarkError,
@@ -47,7 +48,6 @@ from radar.performance import calculate_instrument_performance
 from radar.pool_catalog import PoolCatalog, PoolCatalogError
 from radar.refresh import RadarRefresher
 from radar.score_profile import ScoreProfileConfigError, ScoreProfileRepository
-from radar.stocks.models import STOCK_UNAVAILABLE_REASON
 from radar.stocks.pools import StockPoolConfigError, StockPoolRepository
 from radar.store import RadarStore
 from radar.universe import UniverseConfigError, UniverseRepository
@@ -146,6 +146,8 @@ def create_radar_router() -> APIRouter:
             service.stop()
 
     router = APIRouter(prefix="/api/v1/radar", tags=["radar"], lifespan=lifespan)
+    # 股票管理的固定路径必须先于池标识通配路径注册。
+    router.include_router(create_stock_router())
     tasks: dict[str, dict[str, Any]] = {}
     lock = threading.Lock()
 
@@ -272,19 +274,6 @@ def create_radar_router() -> APIRouter:
     @router.get("/stocks/{pool_id}")
     def stock_pool(pool_id: str):
         return require_stock_pool(pool_id).model_dump(mode="json")
-
-    @router.get("/stocks/{pool_id}/members")
-    def stock_members(pool_id: str):
-        require_stock_pool(pool_id)
-        members = stock_repository().members(pool_id)
-        if members is None:
-            raise HTTPException(status_code=404, detail="未找到启用的股票池")
-        return members.model_dump(mode="json")
-
-    @router.post("/stocks/{pool_id}/update")
-    def stock_update_unavailable(pool_id: str):
-        require_stock_pool(pool_id)
-        raise HTTPException(status_code=503, detail=STOCK_UNAVAILABLE_REASON)
 
     @router.get("/universes")
     def list_universes():
