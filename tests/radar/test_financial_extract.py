@@ -144,6 +144,73 @@ def test_szse_conflicting_company_information_and_quarter_table_are_rejected():
     assert not _midea_extract(pages)["financial_proposals"]
 
 
+def _tcl_pages():
+    return Path("tests/resources/radar/cninfo-000100-2025-annual-data.txt").read_text(encoding="utf-8").split("\f")
+
+
+def _tcl_extract(pages):
+    return extract_annual_text(pages, symbol="000100", source_url="https://static.cninfo.com.cn/finalpage/2026-03-28/1225045623.PDF",
+                               disclosed_on="2026-03-28", as_of=AS_OF)
+
+
+def test_real_tcl_report_currency_definition_and_provenance():
+    result = _tcl_extract(_tcl_pages())
+    assert result["status"] == "matched_template", result["reasons"]
+    assert len(result["financial_proposals"]) == 12
+    values = {p["metric"]: p["amount_yuan"] for p in result["financial_proposals"] if p["fiscal_year"] == 2025}
+    assert values == {"revenue": "184063390556", "parent_net_profit": "4516783411",
+                      "deducted_parent_net_profit": "2896878481", "operating_cash_flow": "44021698580"}
+    for proposal in result["financial_proposals"]:
+        assert proposal["page_number"] == 9 and proposal["currency"] == "CNY"
+        assert proposal["currency_evidence"][0]["page_number"] == 7
+        assert "人民币元" in proposal["currency_evidence"][0]["evidence_excerpt"]
+        assert proposal["requires_review"] and not proposal["financial_verified"]
+
+
+@pytest.mark.parametrize("old,new", [
+    ("人民币元", "美元"),
+    ("元、万元、亿元 指 人民币元、人民币万元、人民币亿元", "万元、亿元 指 人民币万元、人民币亿元"),
+    ("元、万元、亿元 指 人民币元、人民币万元、人民币亿元", "元、万元、亿元 指 人民币元、人民币万元、人民币亿元\n元 指 美元"),
+    ("释义\n", "其他说明\n"),
+    ("营业收入（元）", "营业收入（千元）"),
+    ("□是 ☑否", "☑是 □否"),
+])
+def test_report_currency_definition_must_be_explicit_and_consistent(old, new):
+    result = _tcl_extract([page.replace(old, new) for page in _tcl_pages()])
+    assert result["status"] == "pending_verification"
+    assert not result["financial_proposals"]
+
+
+def test_currency_definition_after_table_cannot_supply_earlier_evidence():
+    pages = _tcl_pages()
+    definition = pages[6]
+    pages[6] = ""
+    pages.append(definition)
+    assert not _tcl_extract(pages)["financial_proposals"]
+
+
+@pytest.mark.parametrize("currency", ["美元", "人民币、美元", "人民币或美元", "人民币(美元折算)"])
+def test_table_foreign_currency_overrides_general_cny_definition(currency):
+    pages = _tcl_pages()
+    pages[8] = pages[8].replace("六、主要会计数据和财务指标", "六、主要会计数据和财务指标\n币种：" + currency)
+    assert not _tcl_extract(pages)["financial_proposals"]
+
+
+def test_currency_provenance_survives_review_packet():
+    from radar.stocks.dividend_review import build_review_packet
+    from stock_robot.dividend_materials import prepare_candidates
+
+    result = _tcl_extract(_tcl_pages())
+    result["file_sha256"] = "a" * 64
+    companies = [{"symbol": "000100", "name": "TCL科技"}]
+    packet = build_review_packet(companies, {"items": []}, prepare_candidates(companies),
+                                 {"items": []}, AS_OF, financial_extraction={"items": [result]})
+    proposals = packet["companies"][0]["financial_proposals"]
+    assert len(proposals) == 12
+    assert all(p["fields"]["currency_evidence"][0]["page_number"] == 7 for p in proposals)
+    assert all(p["requires_review"] and not p["financial_verified"] for p in proposals)
+
+
 def test_archive_failure_isolated_and_review_status_rejected(tmp_path):
     output = extract_archived_financials({"items": [None, {"symbol": "600900", "source_url": URL, "status": "downloaded", "discovery_status": "pending_review"}]}, tmp_path, AS_OF)
     assert len(output["items"]) == 2

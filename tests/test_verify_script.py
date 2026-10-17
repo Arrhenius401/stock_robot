@@ -32,6 +32,7 @@ def _run(*arguments: str):
     ("src/radar/stocks/annual_batch.py", "tests/radar/test_stock_annual_batch.py"),
     ("src/stock_robot/stock_annual_collect.py", "tests/radar/test_stock_annual_collect_cli.py"),
     ("tests/resources/radar/cninfo-000333-2025-annual-data.txt", "tests/radar/test_financial_extract.py"),
+    ("tests/resources/radar/cninfo-000100-2025-annual-data.txt", "tests/radar/test_financial_extract.py"),
     ("src/stock_robot/dividend_materials.py", "tests/radar/test_dividend_materials.py"),
     ("src/radar/stocks/dividend_payout.py", "tests/radar/test_stock_dividend_payout.py"),
     ("scripts/research-stock-dividends.py", "tests/radar/test_dividend_research_cli.py"),

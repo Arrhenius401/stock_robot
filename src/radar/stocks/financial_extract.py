@@ -39,6 +39,27 @@ def _amount(value: str, unit: str) -> str:
     return result.rstrip("0").rstrip(".") if "." in result else result
 
 
+def _currency_definitions(pages: list[str], before_page: int) -> dict[str, list[dict[str, Any]]]:
+    """只接受释义章节逐项定义，保留冲突条目供调用方拒绝。"""
+    definitions: dict[str, list[dict[str, Any]]] = {}
+    for page_number, page in enumerate(pages[:before_page], 1):
+        heading = re.search(r"(?m)^\s*释义\s*$", page)
+        if not heading:
+            continue
+        for line in page[heading.end():].splitlines():
+            compact = re.sub(r"\s+", "", line)
+            match = re.fullmatch(r"((?:百万元|亿元|万元|千元|元)(?:[、,，](?:百万元|亿元|万元|千元|元))*)指(.+)", compact)
+            if not match:
+                continue
+            units = re.split(r"[、,，]", match[1])
+            meanings = re.split(r"[、,，]", match[2])
+            for index, unit in enumerate(units):
+                meaning = meanings[index] if len(meanings) == len(units) else "释义列无法对齐"
+                definitions.setdefault(unit, []).append({"page_number": page_number,
+                    "evidence_excerpt": line, "meaning": meaning})
+    return definitions
+
+
 def extract_annual_text(pages: list[str], *, symbol: str, source_url: str,
                         disclosed_on: str, as_of: date) -> dict[str, Any]:
     """只解析明确的连续年度数据表；所有建议仍须核对原文。"""
@@ -92,6 +113,7 @@ def extract_annual_text(pages: list[str], *, symbol: str, source_url: str,
         unit_match = re.search(r"单位[：:](百万元|万元|千元|元)币种[：:]人民币", section)
         table = re.search(str(year) + r"年" + str(year - 1) + r"年(.*?)" + str(year - 2) + r"年", section)
         row_units = {}
+        currency_evidence: dict[str, list[dict[str, Any]]] = {}
         row_template = "主要会计数据和财务指标" in re.sub(r"\s+", "", original_section)
         if row_template:
             for metric, label in _LABELS.items():
@@ -99,13 +121,23 @@ def extract_annual_text(pages: list[str], *, symbol: str, source_url: str,
                 if len(matches) == 1:
                     row_units[metric] = matches[0]
             prefix = section[:table.start()] if table else ""
-            # 分红段落、其他表格中的人民币不能作为本表的币种证据。
-            currencies = re.findall(r"币种[：:](人民币|美元|港元|港币|欧元|日元|[A-Za-z]+)", prefix)
-            if currencies != ["人民币"] or len(re.findall(r"币种[：:]", prefix)) != 1:
-                result["reasons"].append(f"第{page_number}页年度表币种未明确或存在冲突，逐项单位已识别，待核验原文")
-                continue
+            # 本表声明优先；缺少声明时只接受同报告释义章节的逐项单位定义。
+            currencies = re.findall(r"币种[：:](.*?)(?=币种[：:]|单位[：:]|公司是否需追溯|$)", prefix)
             if len(row_units) != len(_LABELS):
                 result["reasons"].append(f"第{page_number}页年度表逐项金额单位缺失，待核验原文")
+                continue
+            declaration_count = len(re.findall(r"币种[：:]", prefix))
+            if declaration_count == 0:
+                definitions = _currency_definitions(selected_pages, page_number)
+                for metric, row_unit in row_units.items():
+                    evidence = definitions.get(row_unit, [])
+                    if evidence and all(entry["meaning"] == "人民币" + row_unit for entry in evidence):
+                        currency_evidence[metric] = evidence
+                currency_known = len(currency_evidence) == len(_LABELS)
+            else:
+                currency_known = currencies == ["人民币"] and declaration_count == 1
+            if not currency_known:
+                result["reasons"].append(f"第{page_number}页年度表币种未明确或存在冲突，逐项单位已识别，待核验原文")
                 continue
         if (not unit_match and not row_template) or not table or not any(text in table[1] for text in ("本期比上年", "本年比上年增减")):
             result["reasons"].append(f"第{page_number}页币种、单位或连续年度表头不支持")
@@ -113,8 +145,8 @@ def extract_annual_text(pages: list[str], *, symbol: str, source_url: str,
         unit = unit_match[1] if unit_match else ""
         if row_template:
             # 问题本身含“调整”，必须由明确勾选“否”判断未重述。
-            unadjusted = re.search(r"公司是否需追溯调整或重述以前年度会计数据□是√否", section)
-            if not unadjusted or "√是" in section or "调整前" in section or "调整后" in section:
+            unadjusted = re.search(r"公司是否需追溯调整或重述以前年度会计数据□是[√☑]否", section)
+            if not unadjusted or re.search(r"[√☑]是", section) or "调整前" in section or "调整后" in section:
                 result["reasons"].append(f"第{page_number}页年度表重述选择不明确，待核验原文")
                 continue
             adjusted = False
@@ -150,6 +182,8 @@ def extract_annual_text(pages: list[str], *, symbol: str, source_url: str,
                                 "raw_comparison_values": tokens[1:] if adjusted else [],
                                 "requires_review": True, "financial_verified": False,
                                 "rule_enabled": False, "status": "matched_template"}
+                    if metric in currency_evidence:
+                        proposal["currency_evidence"] = currency_evidence[metric]
                     proposals.setdefault((metric, fiscal_year), []).append(proposal)
     for key, candidates in proposals.items():
         if len({item["amount_yuan"] for item in candidates}) != 1:

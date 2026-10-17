@@ -257,7 +257,7 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/radar/test_stock_annual_collect_cli.py"
         continue
     }
-    if ($path -in @("src\radar\stocks\financial_extract.py", "src\stock_robot\financial_documents.py", "tests\resources\radar\cypc-600900-2025-annual-summary.txt", "tests\resources\radar\cninfo-000333-2025-annual-data.txt")) {
+    if ($path -in @("src\radar\stocks\financial_extract.py", "src\stock_robot\financial_documents.py", "tests\resources\radar\cypc-600900-2025-annual-summary.txt", "tests\resources\radar\cninfo-000333-2025-annual-data.txt", "tests\resources\radar\cninfo-000100-2025-annual-data.txt")) {
         Add-UniqueTarget $testTargets "tests/radar/test_financial_extract.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_extract.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_documents.py"
