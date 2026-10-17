@@ -10,11 +10,57 @@ from typing import Any
 import pytest
 from pypdf import PdfWriter
 
+from radar.stocks import annual_batch
 from radar.stocks.annual_batch import run_annual_batch
 from stock_robot.dividend_materials import DEFAULT_HOSTS
 
 AS_OF = date(2026, 10, 17)
 COMPANIES = [{"symbol": "600900", "name": "长江电力"}, {"symbol": "000333", "name": "美的集团"}]
+
+
+def test_atomic_save_retries_temporary_windows_denial(tmp_path, monkeypatch):
+    target = tmp_path / "summary.json"
+    target.write_text('{"old":true}', encoding="utf-8")
+    replace = annual_batch.os.replace
+    calls, delays = [], []
+
+    def transient(source, destination):
+        calls.append(destination)
+        if len(calls) < 3:
+            error = PermissionError("Windows暂时占用")
+            error.winerror = 5
+            raise error
+        replace(source, destination)
+
+    monkeypatch.setattr(annual_batch.os, "replace", transient)
+    monkeypatch.setattr(annual_batch.time, "sleep", delays.append)
+    annual_batch._save(target, {"new": True})
+    assert json.loads(target.read_text(encoding="utf-8")) == {"new": True}
+    assert len(calls) == 3 and delays == [0.05, 0.2]
+
+
+@pytest.mark.parametrize("windows", [True, False])
+def test_atomic_save_never_hides_permanent_denial(tmp_path, monkeypatch, windows):
+    target = tmp_path / "summary.json"
+    original = '{"old":true}'
+    target.write_text(original, encoding="utf-8")
+    calls, delays = [], []
+
+    def denied(source, destination):
+        calls.append(destination)
+        error = PermissionError("永久拒绝")
+        if windows:
+            error.winerror = 5
+        raise error
+
+    monkeypatch.setattr(annual_batch.os, "replace", denied)
+    monkeypatch.setattr(annual_batch.time, "sleep", delays.append)
+    with pytest.raises(PermissionError):
+        annual_batch._save(target, {"new": True})
+    assert target.read_text(encoding="utf-8") == original
+    assert len(calls) == (3 if windows else 1)
+    assert delays == ([0.05, 0.2] if windows else [])
+    assert not list(tmp_path.glob(".batch-*"))
 
 
 class Sources:

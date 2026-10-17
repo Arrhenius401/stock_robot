@@ -31,6 +31,9 @@ def _run(*arguments: str):
     ("src/radar/stocks/source_archive.py", "tests/radar/test_stock_source_archive.py"),
     ("src/radar/stocks/annual_batch.py", "tests/radar/test_stock_annual_batch.py"),
     ("src/stock_robot/stock_annual_collect.py", "tests/radar/test_stock_annual_collect_cli.py"),
+    ("src/radar/stocks/annual_reparse.py", "tests/radar/test_stock_annual_reparse.py"),
+    ("src/radar/stocks/annual_batch.py", "tests/radar/test_stock_annual_reparse.py"),
+    ("src/stock_robot/stock_annual_reparse.py", "tests/radar/test_stock_annual_reparse_cli.py"),
     ("tests/resources/radar/cninfo-000333-2025-annual-data.txt", "tests/radar/test_financial_extract.py"),
     ("tests/resources/radar/cninfo-000100-2025-annual-data.txt", "tests/radar/test_financial_extract.py"),
     ("src/stock_robot/dividend_materials.py", "tests/radar/test_dividend_materials.py"),
@@ -172,7 +175,8 @@ def test_financial_evidence_has_bounded_test_mapping(source_file):
     plan = json.loads(result.stdout)
     assert plan["UnmappedFiles"] == []
     assert set(plan["TestTargets"]) == {"tests/radar/test_stock_interim_extract.py", "tests/radar/test_stock_interim_documents.py", "tests/radar/test_financial_extract.py", "tests/radar/test_financial_documents_cli.py",
-                                       "tests/radar/test_dividend_review_packet.py", "tests/radar/test_dividend_workflow.py"}
+                                       "tests/radar/test_dividend_review_packet.py", "tests/radar/test_dividend_workflow.py",
+                                       "tests/radar/test_stock_annual_reparse.py"}
 
 
 @pytest.mark.parametrize("source_file", ["src/radar/stocks/research_store.py", "src/stock_robot/stock_research.py"])

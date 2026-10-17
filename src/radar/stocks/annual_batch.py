@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import tempfile
+import time
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
@@ -39,7 +40,15 @@ def _save(path: Path, value: Any) -> str:
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        for attempt in range(3):
+            try:
+                os.replace(temporary, path)
+                break
+            except PermissionError as exc:
+                if getattr(exc, "winerror", None) not in {5, 32, 33} or attempt == 2:
+                    raise
+                logger.debug("摘要文件暂时无法替换，第%s次重试：%s", attempt + 1, path)
+                time.sleep((0.05, 0.2)[attempt])
     finally:
         Path(temporary).unlink(missing_ok=True)
     return _sha(payload)

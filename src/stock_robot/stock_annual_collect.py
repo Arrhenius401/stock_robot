@@ -3,8 +3,10 @@
 import hashlib
 import json
 import sqlite3
-from datetime import datetime
+from collections.abc import Callable
+from datetime import date, datetime
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -16,6 +18,44 @@ from stock_robot.dividend_documents import _cutoff
 from stock_robot.dividend_materials import _read
 from stock_robot.stock_financial_facts import prepare_from_store
 from stock_robot.stock_research import _protect_database
+
+
+def _packet_importer(
+    db: Path, root: Path, cutoff: date
+) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """共享待审包导入与财务组准备，保持懒加载及来源修订校验。"""
+    store = None
+
+    def import_packet(packet: dict[str, Any]) -> dict[str, Any]:
+        nonlocal store
+        if store is None:
+            store = StockResearchStore(db)
+        for company in packet["companies"]:
+            if store.get_company(company["symbol"]) is None:
+                raise ValueError("财务资料只能导入已有公司，先准备公司范围")
+        raw = json.dumps(
+            packet, ensure_ascii=False, sort_keys=True, allow_nan=False
+        ).encode()
+        imported = store.import_review_packet(
+            packet,
+            source_sha256=hashlib.sha256(raw).hexdigest(),
+            source_label="年度财务批处理：" + str(root),
+            data_as_of=cutoff,
+        )
+        prepared_count = 0
+        for company in packet["companies"]:
+            symbol = company["symbol"]
+            prepared = prepare_from_store(store, symbol, cutoff)
+            if prepared["facts"]:
+                store.add_financial_fact_batch(
+                    symbol,
+                    prepared["facts"],
+                    expected_revision=prepared["source_revision"],
+                )
+                prepared_count += len(prepared["facts"])
+        return {**imported, "financial_facts_prepared": prepared_count}
+
+    return import_packet
 
 
 @click.command("stock-annual-collect")
@@ -61,44 +101,11 @@ def annual_collect(
                 for suffix in ("", "-wal", "-shm", "-journal")
             ):
                 raise ValueError("工作目录不能包含数据库或其日志")
-        store = None
-
-        def import_packet(packet):
-            nonlocal store
-            if db is None:
-                return None
-            if store is None:
-                store = StockResearchStore(db)
-            for company in packet["companies"]:
-                if store.get_company(company["symbol"]) is None:
-                    raise ValueError("财务资料只能导入已有公司，先准备公司范围")
-            raw = json.dumps(
-                packet, ensure_ascii=False, sort_keys=True, allow_nan=False
-            ).encode()
-            imported = store.import_review_packet(
-                packet,
-                source_sha256=hashlib.sha256(raw).hexdigest(),
-                source_label="年度财务批处理：" + str(root),
-                data_as_of=cutoff,
-            )
-            prepared_count = 0
-            for company in packet["companies"]:
-                symbol = company["symbol"]
-                prepared = prepare_from_store(store, symbol, cutoff)
-                if prepared["facts"]:
-                    store.add_financial_fact_batch(
-                        symbol,
-                        prepared["facts"],
-                        expected_revision=prepared["source_revision"],
-                    )
-                    prepared_count += len(prepared["facts"])
-            return {**imported, "financial_facts_prepared": prepared_count}
-
         result = run_annual_batch(
             companies,
             workspace,
             cutoff,
-            on_packet=import_packet if db is not None else None,
+            on_packet=_packet_importer(db, root, cutoff) if db is not None else None,
         )
     except (OSError, ValueError, TypeError, RuntimeError, sqlite3.Error) as exc:
         raise click.ClickException(str(exc)) from exc
