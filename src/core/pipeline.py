@@ -104,11 +104,12 @@ class Pipeline:
         ctx = AnalysisContext(symbol=symbol, name=name, market=market)
 
         # 申万分类必须先于行业成分股采集确定，保证同业池与报告口径一致。
-        classification = self._classifier.lookup(symbol)
-        ctx.sw_industry = classification.sw_level1
-        ctx.sw_industry_level2 = classification.sw_level2
-        ctx.style_category = classification.style_category
-        if not classification.is_verified:
+        classification = self._classifier.lookup(symbol) if market == "a-shares" else None
+        if classification is not None:
+            ctx.sw_industry = classification.sw_level1
+            ctx.sw_industry_level2 = classification.sw_level2
+            ctx.style_category = classification.style_category
+        if classification is not None and not classification.is_verified:
             try:
                 from data.industry_mapping_builder import update_symbol
                 updated = update_symbol(symbol, retries=1, timeout=5)
@@ -158,7 +159,7 @@ class Pipeline:
             for source in sources:
                 for attempt in range(2):
                     try:
-                        fetch_kwargs = {"data_type": data_type}
+                        fetch_kwargs = {"data_type": data_type, "market": market}
                         if data_type == "industry":
                             fetch_kwargs.update(
                                 sw_level1=ctx.sw_industry,
@@ -285,7 +286,7 @@ class Pipeline:
         ctx = sentiment_stage.enrich(ctx)
 
         # 新增：加载行业配置
-        industry_config = self._config_loader.load(ctx.sw_industry)
+        industry_config = self._config_loader.load(ctx.sw_industry) if market == "a-shares" else None
 
         results = []
         total = len(analysis_modules)

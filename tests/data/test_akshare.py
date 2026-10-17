@@ -275,6 +275,63 @@ def test_fetch_valuation_quote_fail_returns_empty(mocker):
     assert AkShareAdapter()._fetch_valuation("000001") == []
 
 
+def test_fetch_hk_price_uses_hk_history_and_maps_ohlcv(mocker):
+    frame = pd.DataFrame([{
+        "日期": "2026-10-01", "开盘": 500.0, "最高": 510.0, "最低": 495.0,
+        "收盘": 505.0, "成交量": 123456, "涨跌幅": 1.0,
+    }])
+    fetch = mocker.patch("akshare.stock_hk_hist", return_value=frame)
+
+    results = AkShareAdapter().fetch(
+        "00700.HK", data_type="price", market="hk",
+        start_date="20261001", end_date="20261002",
+    )
+
+    assert fetch.call_args.kwargs == {
+        "symbol": "00700", "period": "daily", "start_date": "20261001",
+        "end_date": "20261002", "adjust": "",
+    }
+    assert results[0].symbol == "00700.HK"
+    assert results[0].close == 505.0
+    assert results[0].change_pct == 1.0
+
+
+def test_fetch_hk_financial_maps_profit_and_balance_sheet(mocker):
+    income = pd.DataFrame([{
+        "REPORT_DATE": "2026-06-30", "OPERATE_INCOME": 1000.0,
+        "PARENT_NETPROFIT": 200.0, "BASIC_EPS": 1.2,
+    }])
+    balance = pd.DataFrame([{
+        "REPORT_DATE": "2026-06-30", "TOTAL_ASSETS": 5000.0,
+        "TOTAL_EQUITY": 3000.0,
+    }])
+    fetch = mocker.patch(
+        "akshare.stock_financial_hk_report_em",
+        side_effect=[income, balance, pd.DataFrame()],
+    )
+
+    results = AkShareAdapter().fetch("00700.HK", data_type="financial", market="hk")
+
+    assert [call.kwargs["symbol"] for call in fetch.call_args_list] == ["利润表", "资产负债表", "现金流量表"]
+    assert results[0].symbol == "00700.HK"
+    assert results[0].revenue == 1000.0
+    assert results[0].net_profit == 200.0
+    assert results[0].total_assets == 5000.0
+    assert results[0].total_equity == 3000.0
+
+
+def test_fetch_hk_valuation_maps_spot_pe_and_pb(mocker):
+    mocker.patch("akshare.stock_hk_spot_em", return_value=pd.DataFrame([{
+        "代码": "00700", "市盈率-动态": 20.5, "市净率": 3.2,
+    }]))
+
+    results = AkShareAdapter().fetch("00700.HK", data_type="valuation", market="hk")
+
+    assert results[0].symbol == "00700.HK"
+    assert results[0].pe_ttm == 20.5
+    assert results[0].pb == 3.2
+
+
 def test_fetch_industry_uses_eastmoney_info(mocker):
     """行业判定优先东财轻量接口"""
     import pandas as pd

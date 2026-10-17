@@ -225,7 +225,12 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
     """分析股票并生成研报"""
     from report.formatter import ReportFormatter
     from utils.config import Config
-    from utils.symbols import normalize_symbol, resolve_name, validate_symbol
+    from utils.symbols import (
+        normalize_symbol,
+        resolve_name,
+        symbol_market,
+        validate_symbol,
+    )
 
     config = Config()
     if not _check_disclaimer(config):
@@ -240,6 +245,7 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
         sys.exit(1)
 
     symbol = normalize_symbol(symbol)
+    market = symbol_market(symbol)
 
     llm_enabled = not no_llm and config.get("llm.enabled", True)
     pipeline = _build_pipeline(llm_enabled=llm_enabled)
@@ -258,7 +264,7 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
                                description=f"[{stage}] {label}")
 
             results, commentary, ctx = pipeline.run(
-                symbol, name,
+                symbol, name, market=market,
                 dimension=dimension,
                 refresh_cache=refresh_cache,
                 on_progress=on_progress,

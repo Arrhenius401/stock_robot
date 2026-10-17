@@ -777,15 +777,21 @@ def create_app(
         if agent_core is None:
             raise HTTPException(status_code=503, detail="Agent 核心未注入")
 
-        from utils.symbols import normalize_symbol, resolve_name, validate_symbol
+        from utils.symbols import (
+            normalize_symbol,
+            resolve_name,
+            symbol_market,
+            validate_symbol,
+        )
         if not validate_symbol(symbol):
             raise HTTPException(status_code=422, detail=f"无效的股票代码: {symbol}")
         symbol = normalize_symbol(symbol)
+        market = symbol_market(symbol)
         name = await asyncio.to_thread(resolve_name, symbol) or symbol
 
         try:
             results, commentary, ctx = await asyncio.to_thread(
-                agent_core.pipeline.run, symbol, name
+                agent_core.pipeline.run, symbol, name, market=market
             )
             from report.commentary import CommentaryContext, commentary_store
             from report.payload import build_stock_payload

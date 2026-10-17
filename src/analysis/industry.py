@@ -12,6 +12,15 @@ class IndustryAnalyzer(AnalysisModule):
 
     def analyze(self, context: AnalysisContext,
                 config: dict[str, Any] | None = None) -> AnalysisResult:
+        if context.market == "hk":
+            return AnalysisResult(
+                dimension=self.dimension,
+                status="unavailable",
+                summary="港股暂不支持 A 股申万同行比较",
+                metrics={},
+                score=None,
+                score_detail="港股暂不应用 A 股行业评分",
+            )
         ind_data = context.industry_data
         if ind_data is None:
             return AnalysisResult(dimension=self.dimension, status="unavailable",

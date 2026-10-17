@@ -301,6 +301,8 @@ class AkShareAdapter(DataSource):
             "price", "financial", "valuation", "industry", "news"
         ):
             return True
+        if market == "hk" and data_type in ("price", "financial", "valuation"):
+            return True
         elif data_type in ("index_price", "index_valuation", "index_capital_flow",
                            "index_macro", "index_sentiment"):
             return market in ("a-shares", "hk", "us")
@@ -340,6 +342,8 @@ class AkShareAdapter(DataSource):
             return []
 
     def _fetch_price(self, symbol: str, **kwargs) -> list[PriceData]:
+        if kwargs.get("market") == "hk":
+            return self._fetch_hk_price(symbol, **kwargs)
         # 回测等场景可显式指定起止日期（YYYYMMDD）；未完整指定时保持默认近一年（days=250）行为
         results: list[PriceData] = []
         start_date = kwargs.get("start_date")
@@ -421,6 +425,8 @@ class AkShareAdapter(DataSource):
         return results if len(results) >= len(primary_results) else primary_results
 
     def _fetch_financial(self, symbol: str, **kwargs) -> list[FinancialData]:
+        if kwargs.get("market") == "hk":
+            return self._fetch_hk_financial(symbol)
         df: Any = ak.stock_financial_abstract_ths(symbol=symbol)
 
         # 从资产负债表端点补充 total_equity / total_assets（同花顺源，非东方财富）
@@ -517,25 +523,55 @@ class AkShareAdapter(DataSource):
 
     def _fetch_valuation(self, symbol: str, **kwargs) -> list[ValuationData]:
         """估值：腾讯实时快照（含 PE/PB，独立口径）。失败返回空列表。"""
+        if kwargs.get("market") == "hk":
+            return self._fetch_hk_valuation(symbol)
         import requests as _req
 
         tx_symbol = f"sh{symbol}" if symbol.startswith("6") else f"sz{symbol}"
         try:
             resp = _req.get(f"https://qt.gtimg.cn/q={tx_symbol}", timeout=10)
             fields = resp.text.split("~")
-            # 字段: [3]=现价, [39]=PE(TTM), [46]=PB；字段数不足视为上游结构变化
             if len(fields) < 47:
                 logger.warning(f"腾讯快照字段数异常: {len(fields)}")
                 return []
             pe = float(fields[39]) if fields[39] else None
             pb = float(fields[46]) if fields[46] else None
-        except Exception as e:  # 第三方网络边界，兜底降级
+        except Exception as e:
             logger.debug("腾讯快照获取失败，估值数据缺失")
             self._record_collection_error("腾讯估值快照", e)
             return []
+        return [ValuationData(symbol=symbol, date=datetime.now().astimezone().date(), pe_ttm=pe, pb=pb, ps_ttm=None)]
 
-        return [ValuationData(symbol=symbol, date=datetime.now().astimezone().date(),
-                              pe_ttm=pe, pb=pb, ps_ttm=None)]
+    def _fetch_hk_price(self, symbol: str, **kwargs) -> list[PriceData]:
+        code = symbol.removesuffix(".HK")
+        df: Any = ak.stock_hk_hist(symbol=code, period="daily", start_date=kwargs.get("start_date", "19700101"), end_date=kwargs.get("end_date", "22220101"), adjust="")
+        rows = []
+        for _, row in df.iterrows():
+            rows.append(PriceData(symbol=symbol, trade_date=_parse_date(row["日期"]), open=float(row["开盘"]), high=float(row["最高"]), low=float(row["最低"]), close=float(row["收盘"]), volume=int(float(row["成交量"])), change_pct=float(row["涨跌幅"]) if row.get("涨跌幅") is not None else None))
+        return rows
+
+    def _fetch_hk_financial(self, symbol: str) -> list[FinancialData]:
+        code = symbol.removesuffix(".HK")
+        income: Any = ak.stock_financial_hk_report_em(stock=code, symbol="利润表", indicator="报告期")
+        balance: Any = ak.stock_financial_hk_report_em(stock=code, symbol="资产负债表", indicator="报告期")
+        cash_flow: Any = ak.stock_financial_hk_report_em(stock=code, symbol="现金流量表", indicator="报告期")
+        assets = {_parse_date(row["REPORT_DATE"]): row for _, row in balance.iterrows()}
+        cash_flows = {_parse_date(row["REPORT_DATE"]): row for _, row in cash_flow.iterrows()}
+        result = []
+        for _, row in income.iterrows():
+            period = _parse_date(row["REPORT_DATE"])
+            bs = assets.get(period, {})
+            cf = cash_flows.get(period, {})
+            result.append(FinancialData(symbol=symbol, fiscal_quarter=period, revenue=parse_cn_number(row.get("OPERATE_INCOME")), net_profit=parse_cn_number(row.get("PARENT_NETPROFIT", row.get("HOLDER_PROFIT"))), total_assets=parse_cn_number(bs.get("TOTAL_ASSETS")), total_equity=parse_cn_number(bs.get("TOTAL_EQUITY")), operating_cash_flow=parse_cn_number(cf.get("NETCASH_OPERATE"))))
+        return result
+
+    def _fetch_hk_valuation(self, symbol: str) -> list[ValuationData]:
+        code = symbol.removesuffix(".HK")
+        df: Any = ak.stock_hk_spot_em()
+        row = df[df["代码"].astype(str).str.zfill(5) == code]
+        if row.empty:
+            return []
+        return [ValuationData(symbol=symbol, date=datetime.now().astimezone().date(), pe_ttm=parse_cn_number(row["市盈率-动态"].iloc[0]), pb=parse_cn_number(row["市净率"].iloc[0]))]
 
     def _fetch_industry(self, symbol: str, **kwargs) -> list[IndustryData]:
         from data.schemas import PeerBasicInfo
