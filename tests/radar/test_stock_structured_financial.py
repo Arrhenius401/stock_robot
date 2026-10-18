@@ -128,3 +128,16 @@ def test_bad_cutoff_is_rejected(samples):
     samples[0]['as_of'] = date(2026, 10, 17)
     with pytest.raises(ValueError):
         normalize_structured_financials(samples[0])
+
+
+def test_ttm_preserves_tiny_positive_residual_within_existing_numeric_budget(samples):
+    sample = samples[0]
+    for row in sample['records']['profit']:
+        end = row['REPORT_DATE'][:10]
+        if end in ('2025-12-31', '2025-06-30'):
+            row['PARENT_NETPROFIT'] = '1'
+        if end == '2026-06-30':
+            row['PARENT_NETPROFIT'] = '1e-1000'
+    result = normalize_structured_financials(sample)
+    assert Decimal(result['ttm']['metrics']['parent_profit_yuan']['amount_yuan']) == Decimal('1e-1000')
+    assert len(result['ttm']['metrics']['parent_profit_yuan']['amount_yuan']) <= 100

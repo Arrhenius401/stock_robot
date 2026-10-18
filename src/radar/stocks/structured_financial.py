@@ -10,6 +10,7 @@ from decimal import Decimal, localcontext
 from typing import Any
 
 from radar.stocks.admission import _amount, _day
+from radar.stocks.dividend_payout import _sum_amounts
 from radar.stocks.research_store import _symbol
 
 VERSION = 'eastmoney-structured-financial-v1'
@@ -34,7 +35,8 @@ def _source_day(value: Any) -> date | None:
 
 def _money(value: Decimal) -> str:
     text = format(value, 'f')
-    return ('0' if value == 0 else text.rstrip('0').rstrip('.')) if '.' in text else text
+    text = ('0' if value == 0 else text.rstrip('0').rstrip('.')) if '.' in text else text
+    return str(value) if len(text) > 100 else text
 
 
 def _metadata(value: Any, table: str) -> bool:
@@ -146,30 +148,30 @@ def normalize_structured_financials(collection: dict[str, Any]) -> dict[str, Any
                 components.append({'role': role, 'period_end': end.isoformat(), **cell(metric, end)})
         states = [part['status'] for part in components]
         available = len(states) == 3 and all(state == 'available' for state in states)
-        with localcontext() as context:
-            context.prec = 100
-            total = (Decimal(components[0]['amount_yuan']) + Decimal(components[1]['amount_yuan'])
-                     - Decimal(components[2]['amount_yuan'])) if available else None
+        total = (_sum_amounts([Decimal(components[0]['amount_yuan']), Decimal(components[1]['amount_yuan']),
+                               Decimal(components[2]['amount_yuan']).copy_negate()]) if available else None)
         ttm['metrics'][metric] = {'status': 'available' if available else ('conflict' if 'conflict' in states else 'missing'),
                                   'amount_yuan': _money(total) if total is not None else None, 'components': components}
     result['ttm'] = ttm
     for end in sorted(observed):
         for metric in _MAIN:
             primary, auxiliary = cell(metric, end), cell(metric, end, table_override='main')
-            if primary['status'] != 'available' or auxiliary['status'] != 'available':
+            if primary['status'] != 'available':
                 continue
-            with localcontext() as context:
-                context.prec = 100
-                amount, check = Decimal(primary['amount_yuan']), Decimal(auxiliary['amount_yuan'])
-                difference = check - amount
-            if difference:
-                result['cross_source_differences'].append({
-                    'period_end': end.isoformat(), 'metric': metric, 'primary_source': 'profit',
-                    'primary_amount_yuan': _money(amount), 'main_amount_yuan': _money(check),
-                    'difference_yuan': _money(difference), 'changes_positive_sign': (amount > 0) != (check > 0),
-                    'primary_sources': primary['sources'], 'main_sources': auxiliary['sources'],
-                    'decision_impact': '须在具体筛选条件中比较，不默认差异无影响',
-                })
+            amount = Decimal(primary['amount_yuan'])
+            # 辅助源有冲突时仍保留每个有效版本，不能将已知负数当作辅助缺失。
+            alternatives = sorted({Decimal(source['amount_yuan']) for source in auxiliary['sources']})
+            for check in alternatives:
+                difference = _sum_amounts([check, amount.copy_negate()])
+                if difference:
+                    result['cross_source_differences'].append({
+                        'period_end': end.isoformat(), 'metric': metric, 'primary_source': 'profit',
+                        'primary_amount_yuan': _money(amount), 'main_amount_yuan': _money(check),
+                        'difference_yuan': _money(difference), 'changes_positive_sign': (amount > 0) != (check > 0),
+                        'primary_sources': primary['sources'], 'main_status': auxiliary['status'],
+                        'main_sources': [source for source in auxiliary['sources'] if Decimal(source['amount_yuan']) == check],
+                        'decision_impact': '须在具体筛选条件中比较，不默认差异无影响',
+                    })
     annual_cells = [value for row in result['annual'] for value in row['metrics'].values()]
     result['data_complete'] = (collection.get('status') == 'complete'
                                and all(value['status'] == 'available' for value in [*annual_cells, *ttm['metrics'].values()]))
@@ -177,8 +179,8 @@ def normalize_structured_financials(collection: dict[str, Any]) -> dict[str, Any
            for field in ('parent_profit_yuan', 'operating_cash_flow_yuan')):
         with localcontext() as context:
             context.prec = 100
-            profit = sum((Decimal(row['metrics']['parent_profit_yuan']['amount_yuan']) for row in result['annual']), Decimal(0))
-            cash = sum((Decimal(row['metrics']['operating_cash_flow_yuan']['amount_yuan']) for row in result['annual']), Decimal(0))
+            profit = _sum_amounts([Decimal(row['metrics']['parent_profit_yuan']['amount_yuan']) for row in result['annual']])
+            cash = _sum_amounts([Decimal(row['metrics']['operating_cash_flow_yuan']['amount_yuan']) for row in result['annual']])
             result['cash_flow_ratio'].update(parent_profit_sum_yuan=_money(profit), operating_cash_flow_sum_yuan=_money(cash),
                                             ratio=_money(cash / profit) if profit > 0 else None)
     result['diagnostics'] = sorted(set(result['diagnostics']))

@@ -52,7 +52,10 @@ from stock_robot.stock_research import (
     list_records,
     review_evidence,
 )
-from stock_robot.stock_structured_financial import structured_collect_command
+from stock_robot.stock_structured_financial import (
+    structured_collect_command,
+    structured_screen_command,
+)
 from stock_robot.stock_updates import enqueue_update, list_updates, run_one_update
 from utils.config import Config
 
@@ -1727,6 +1730,7 @@ radar.add_command(admission_evaluate)
 radar.add_command(style_evaluate)
 radar.add_command(prepare_facts)
 radar.add_command(structured_collect_command)
+radar.add_command(structured_screen_command)
 radar.add_command(market_window_command)
 radar.add_command(market_history_command)
 radar.add_command(capital_history_command)
