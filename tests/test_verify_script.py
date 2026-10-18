@@ -22,6 +22,9 @@ def _run(*arguments: str):
 
 
 @pytest.mark.parametrize("path,expected", [
+    ("tests/resources/radar/eastmoney-structured-financial-samples.json", "tests/radar/test_stock_structured_financial.py"),
+    ("src/radar/stocks/structured_collect.py", "tests/radar/test_stock_structured_collect.py"),
+    ("src/stock_robot/stock_structured_financial.py", "tests/radar/test_stock_structured_cli.py"),
     ("src/stock_robot/cli.py", "tests/test_cli.py"),
     ("tests/resources/radar/cninfo-000333-announcements-empty.json", "tests/radar/test_stock_announcement_discovery.py"),
     ("tests/resources/radar/cninfo-000100-interim-titles.json", "tests/radar/test_stock_announcement_discovery.py"),

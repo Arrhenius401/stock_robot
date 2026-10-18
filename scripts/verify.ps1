@@ -227,6 +227,12 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_facts_cli.py"
         continue
     }
+    if ($path -in @("src\radar\stocks\structured_financial.py", "src\radar\stocks\structured_collect.py", "src\stock_robot\stock_structured_financial.py", "tests\resources\radar\eastmoney-structured-financial-samples.json")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_structured_financial.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_structured_collect.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_structured_cli.py"
+        continue
+    }
     if ($path -in @("src\radar\stocks\financial_facts.py", "src\stock_robot\stock_financial_facts.py")) {
         Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_ttm.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_ttm_integration.py"

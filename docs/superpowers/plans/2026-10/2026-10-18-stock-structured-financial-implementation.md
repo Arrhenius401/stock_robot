@@ -39,3 +39,27 @@
 仅在纯prepare_ttm入口将相关证据按ID排序，保证诊断、金额引用及事务重建采用同一顺序；不修改金额计算、规则、审核或任何数据来源。新增三项回归（两个读取排列、一项真实SQLite往返），无审核。主会话按B级小修核对diff，未派代理。
 
 验证命令使用主项目虚拟环境及本次唯一tmp目录：`python -m pytest tests/radar/test_stock_interim_ttm.py tests/radar/test_stock_interim_ttm_integration.py tests/radar/test_stock_financial_fact_store.py tests/radar/test_stock_financial_facts_cli.py -q`，84项通过；资源映射定向1项通过。改动Python文件Ruff通过、Pyright 0错误0警告。未运行全量，未重复浏览器/LLM验收。阶段1完成了已知兼容修复及边界记录；结构化采集接入与626家初筛尚未运行，不能称整体完成。
+
+## 阶段2数据契约与入口
+
+新增薄适配器`structured_collect.py`，以已实测AkShare 1.18.81同源固定端点获取原始JSON和公司类型元数据页。生产HTTP使用既有`bounded_provider_call`控制可取消的15秒调用，不修改全局SDK，不新建通用采集框架。结构化源失败只保留错误及已取数据，没有公告发现或PDF回退；没有业务库写入、自动审核和成员发布。
+
+`structured_financial.py`输出独立`eastmoney_structured`产物，而非伪造`matched_template`、页码、原文摘录或审核身份。每个金额引用保留源表、字段、原值、元单位与口径、累计期间、报告/披露/更新时间、响应SHA256、抓取时间和原始响应位置。归母和扣非使用利润表主源，现金流使用`NETCASH_OPERATE`总额；营业收入`OPERATE_INCOME`不与主要指标营业总收入混合。币种非CNY、公司不匹配、日期或金额无效、重复版本金额冲突均不能输出可用金额。更新日超过研究截点的记录保留明确标记；所有结果均标记为当前采集，`point_in_time_verified=false`，不能回溯宣称历史时点已知。
+
+三年年度窗口沿用现有规则的`as_of.year-3..as_of.year-1`。TTM固定上一年度＋最新累计－上年同期；最新期间缺失不回退旧季度或以年报顶替。主要指标交叉差异逐条保存主/辅金额和引用，后续具体筛选条件必须评估差异是否改变结论，不自动解释为舍入误差。三年现金流/归母之比只提供计算值，适用性等待明确发行人分类，不把银行套进普通企业门槛。本阶段数据完整不等于任何风格条件通过。
+
+入口：`python -m stock_robot.cli radar stock-financial-collect --input <公司清单JSON> --workspace <独立目录> --as-of YYYY-MM-DD`。输入可为公司对象列表或带`companies`的对象，工作目录与公司清单摘要、原文件摘要、日期和版本绑定；每家公司立即保存不可变产物及进度摘要。重复执行复用源响应缓存，可显式`--refresh`。单公司失败为数据缺口并继续，429停止同来源后续公司。输入不得放在输出工作目录中，没有`--db`或隐式沿用旧PDF研究库的选项。
+
+### 离线样本来源和测试范围
+
+`tests/resources/radar/eastmoney-structured-financial-samples.json`来自2026-10-18既有20次结构化探针响应：000100、600900、300750、600036，各2023/2024/2025年末、2025/2026半年报。仅裁切公司身份、期间、披露/更新时间、币种及本方案明确的金额字段，保留原始数值与源响应摘要；完整JSON/HTML响应继续留在忽略的`tmp/structured-data-audit-20261018-9f8bbcef/`，本次不重复获取原始公告。测试资源内来源摘要指向完整响应，不把裁切JSON自身哈希冒充源响应哈希。
+
+先新增回归后实施：财务适配和CLI分别因模块尚不存在而出现预期收集错误，完整日志保留于唯一`tmp/pytest/structured-red-*`和`structured-cli-red-*`。现有定向测试验证真实20期间、精确十进制TTM、归母主源差异、缺失/非有限/布尔金额、公司身份、银行收入字段、重复版本、不降级最新期、清单绑定、429停止、错误隔离和旧视觉/业务库不受此入口影响。新资源及源码已映射`verify.ps1`相关测试，真实网络验收结果及最终检查另记于下文。
+
+### 阶段2验收记录
+
+- A级合并spec/quality独立审查通过。修复刷新覆盖旧响应的P1问题，改为`content_sha256.raw`保留各版本，当前请求索引独立更新；并修复Python 3.11没有`Path.is_junction`时的兼容，使用`lstat().st_reparse_tag`后备检测，CLI复用相同路径保护。
+- `./scripts/verify.ps1 -Scope Changed -VenvPath D:/code/stock_robot/.venv`通过：Ruff通过、Pyright零错误零警告、相关200项测试通过（82.13秒），覆盖新三组测试、CLI入口及验证映射；未全量。完整门禁日志在`tmp/pytest/structured-gate-41528-06bdff984d6d41d1a1f4945c6f39f286/verify.log`。
+- 新CLI真实执行`tmp/structured-live-four-input.json`四家公司，研究截点2026-10-18，工作目录`tmp/structured-live-four-20261018/`。4家均`data_complete`，最新TTM期间2026-06-30；主/辅源金额差异仍为TCL两条、宁德两条，其余零条，全部保留。20份HTTP请求响应的真实SHA256及长度逐一核验通过。二次同CLI运行后20份请求索引、抓取时间和摘要完全未变，验证缓存复用；没有刷新或扩大来源。
+- 一次边界红测试漏注入网络替身，错误进入生产请求路径，实际在测试临时目录保存11份结构化响应，1,845,070字节：非法代码888888/123456/510300各1份，000100配未来截点5份、过早截点3份；另3次类型页尝试未保存状态，不宣称未发出或失败。无业务库写入。已修复入口校验，并用autouse fixture使默认生产请求入口在离线测试中立即失败。保留原失败目录及逐项URL/参数/SHA/长度审计`tmp/pytest/structured-boundaries-red-32320-52aed385-e725-4e73-90c5-13dbfc376bbb/network-incident-audit.json`，不将该次运行称作离线通过。
+- 阶段2完成统一财务采集与字段适配的小样本验收。尚未运行626家采集/财务初筛，未接手动更新，未验证正式入池；没有前端改动，未重复浏览器或LLM调用。数据完整数不能表述为合格公司数。
