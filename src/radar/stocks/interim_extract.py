@@ -18,7 +18,7 @@ from radar.stocks.financial_extract import (
 )
 from radar.stocks.research_store import StockResearchError, _symbol, _url
 
-_PERIODS = {'第一季度': (3, 31), '半年度': (6, 30), '第三季度': (9, 30)}
+_PERIODS = {'一季度': (3, 31), '半年度': (6, 30), '三季度': (9, 30)}
 _ANCHOR = re.compile(r'(?:\A|(?<=[\n\f]))[ \t]*(?:[（(][一二三四五六七八九十]+[)）][ \t]*)?主要会计数据')
 
 
@@ -106,7 +106,8 @@ def extract_interim_text(pages: list[str], *, symbol: str, source_url: str,
         return result
     identity = re.sub(r'\s+', '', ''.join(selected[:2]))
     codes = re.findall(r'(?:公司代码|证券代码)[：:]?(\d{6})', identity)
-    titles = set(re.findall(r'(\d{4})年(第一季度|半年度|第三季度)报告', identity))
+    titles = {(year, period.removeprefix('第')) for year, period in re.findall(
+        r'(\d{4})年(第?一季度|半年度|第?三季度)报告', identity)}
     if not codes or any(code != symbol for code in codes) or len(titles) != 1:
         result['reasons'].append('公司身份或季度/半年报告期标题缺失、冲突')
         return result

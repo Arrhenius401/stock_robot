@@ -73,13 +73,13 @@ def _document(item: Any, symbol: str, org_id: str, start: date, end: date, *, mo
     clean_title = re.sub(r'<[^>]*>', '', html.unescape(title)).strip()
     if mode == "interim_report":
         normalized = re.sub(r"\s+", "", clean_title)
-        report = re.search(r"(20\d{2})年?(第一季度|半年度|第三季度)报告", normalized)
+        report = re.search(r"(20\d{2})年?(第?一季度|半年度|第?三季度)报告", normalized)
         if not report or any(word in normalized for word in ("摘要", "英文", "审计报告")):
             return None
         review = any(word in normalized for word in ("更正", "取消", "撤销", "修订", "更新", "补充", "变更", "延期", "终止"))
         if not review and normalized[report.end():] not in {"", "（全文）", "(全文)"}:
             return None
-        months = {"第一季度": 3, "半年度": 6, "第三季度": 9}[report[2]]
+        months = {"一季度": 3, "半年度": 6, "三季度": 9}[report[2].removeprefix("第")]
         year = int(report[1])
         period = date(year, months, 31 if months == 3 else 30)
         if period >= published:
@@ -144,7 +144,7 @@ def discover_announcements(companies: list[dict[str, Any]], as_of: date, cache_d
     """逐公司发现实施公告，保留断点；任何查询失败均不宣称公司查询完成。"""
     if not isinstance(mode, str) or mode not in {"dividend", "annual_report", "interim_report"}:
         raise ValueError("未知公告发现模式")
-    terms = (("第一季度报告", "半年度报告", "第三季度报告") if mode == "interim_report"
+    terms = (("一季度报告", "半年度报告", "三季度报告") if mode == "interim_report"
              else (("年度报告",) if mode == "annual_report" else _TERMS))
     if not isinstance(companies, list) or any(
         not isinstance(company, dict) or not isinstance(company.get('symbol'), str)

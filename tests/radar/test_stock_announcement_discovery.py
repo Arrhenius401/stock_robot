@@ -334,3 +334,22 @@ def test_interim_revision_requires_review_and_future_period_fails(tmp_path):
     future,_=run(tmp_path/'future',lambda _:Response(page([row(announcementTitle='2026年第三季度报告')])),mode='interim_report')
     assert future['companies'][0]['status']=='failed'
     assert future['documents']==[]
+
+
+def test_interim_queries_cover_short_and_full_quarter_titles(tmp_path):
+    result, calls = run(tmp_path, lambda _: Response(page([])), mode='interim_report')
+    assert {call['searchkey'] for call in calls if 'searchkey' in call} == {
+        '一季度报告', '半年度报告', '三季度报告'}
+    assert result['financial_verified'] is False
+
+
+def test_actual_szse_short_titles_and_english_reports():
+    from radar.stocks.announcement_discovery import _document
+
+    sample = Path(__file__).parents[1] / 'resources/radar/cninfo-000100-interim-titles.json'
+    rows = json.loads(sample.read_text(encoding='utf-8'))
+    documents = [_document(row, '000100', row['orgId'], date(2023, 1, 1), date(2026, 10, 17),
+                           mode='interim_report') for row in rows]
+    assert documents[0] is None and documents[2] is None
+    assert documents[1] is not None and documents[1]['period_end'] == '2026-03-31'
+    assert documents[3] is not None and documents[3]['period_end'] == '2025-09-30'

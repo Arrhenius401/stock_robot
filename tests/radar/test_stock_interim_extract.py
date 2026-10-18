@@ -50,6 +50,20 @@ def test_ordinary_q3_never_treats_single_quarter_as_cumulative():
     assert next(row for row in result['financial_proposals'] if row['metric'] == 'parent_net_profit')['amount_yuan'] == '7'
 
 
+@pytest.mark.parametrize('name,disclosed,full,short,period', [
+    ('cninfo-600900-2026-q1-accounting.txt', '2026-04-30', '第一季度', '一季度', '2026-03-31'),
+    ('cninfo-600900-2025-q3-accounting.txt', '2025-10-31', '第三季度', '三季度', '2025-09-30'),
+])
+def test_short_quarter_title_preserves_amounts(name, disclosed, full, short, period):
+    original = parse(name, disclosed)
+    pages = (ROOT / name).read_text(encoding='utf-8').replace(full, short).split('\f')
+    result = parse(name, disclosed, pages=pages)
+    assert result['status'] == 'matched_template'
+    assert result['period_end'] == period
+    assert [row['amount_yuan'] for row in result['financial_proposals']] == [
+        row['amount_yuan'] for row in original['financial_proposals']]
+
+
 def test_target_cumulative_placeholder_is_not_guessable():
     result = parse('', '2026-10-10', pages=[simple_q3().replace('2 1 7 2', '2 1 不适用 2')])
     assert result['status'] == 'pending_verification'
