@@ -159,7 +159,8 @@ def test_pipeline_passes_sw_levels_to_industry_source(tmp_path, mocker):
     ctx = pipe.collect("002714", "牧原股份", data_types=["industry"])
 
     assert captured == {
-        "data_type": "industry", "sw_level1": "农林牧渔", "sw_level2": "养殖业",
+        "data_type": "industry", "market": "a-shares",
+        "sw_level1": "农林牧渔", "sw_level2": "养殖业",
     }
     assert ctx.sw_industry == "农林牧渔"
     assert ctx.sw_industry_level2 == "养殖业"

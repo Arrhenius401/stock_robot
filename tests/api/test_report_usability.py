@@ -76,7 +76,11 @@ async def test_unavailable_report_download_keeps_sections_and_no_signal(tmp_path
     monkeypatch.setattr("utils.symbols.resolve_name", lambda _: "样本")
     ctx = AnalysisContext(symbol="000001", name="样本")
     results = [AnalysisResult(dimension="financial", status="unavailable", summary="未获取")]
-    pipeline = SimpleNamespace(run=lambda *_: (results, {}, ctx))
+    def run(_symbol, _name, *, market):
+        assert market == "a-shares"
+        return results, {}, ctx
+
+    pipeline = SimpleNamespace(run=run)
     core = SimpleNamespace(pipeline=pipeline, llm=None)
     app = create_app(core=core, push=False)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -110,7 +114,11 @@ async def test_disabled_ai_archive_matches_markdown_with_configured_model(tmp_pa
     ctx = AnalysisContext(symbol="000001", name="样本")
     ctx.sufficiency.financial = DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT, sample_count=6)
     results = [AnalysisResult(dimension="financial", status="ok", summary="财务", score=8)]
-    core = SimpleNamespace(pipeline=SimpleNamespace(run=lambda *_: (results, {}, ctx)), llm=object())
+    def run(_symbol, _name, *, market):
+        assert market == "a-shares"
+        return results, {}, ctx
+
+    core = SimpleNamespace(pipeline=SimpleNamespace(run=run), llm=object())
     async with AsyncClient(transport=ASGITransport(app=create_app(core=core, push=False)),
                            base_url="http://test") as client:
         report = (await client.post("/api/v1/analyze", json={"symbol": "000001"})).json()

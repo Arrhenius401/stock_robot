@@ -303,7 +303,7 @@ def create_app(
         push_executor = snapshot.push_executor
         push = snapshot.push_scheduler
 
-    app = FastAPI(title="Stock Robot API", version="0.1.0",
+    app = FastAPI(title="Stock Robot API", version="0.2.0",
                   description="AI 驱动的股票分析研报助手 HTTP API")
 
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
@@ -360,7 +360,7 @@ def create_app(
 
     @app.get("/health")
     async def health():
-        return {"status": "ok", "version": "0.1.0"}
+        return {"status": "ok", "version": "0.2.0"}
 
     @app.get("/api/v1/tools")
     async def list_tools():

@@ -52,6 +52,25 @@ class TestAnalyzeStockTool:
         mock_pipeline.run.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_execute_normalizes_hk_symbol_and_sets_hk_market(self, mocker):
+        mock_pipeline = mocker.Mock()
+        mock_report = mocker.Mock()
+        mock_report.code = "00700.HK"
+        mock_report.name = "腾讯控股"
+        mock_report.overview = {}
+        mock_report.comments = []
+        mock_report.dimensions = {}
+        mock_pipeline.run.return_value = mocker.Mock(reports=[mock_report], errors=[])
+
+        result = await AnalyzeStockTool(pipeline=mock_pipeline).execute(symbol="hk00700")
+
+        assert result.status == "success"
+        target = mock_pipeline.run.call_args.kwargs["targets"][0]
+        assert target.symbol == "00700.HK"
+        assert target.market == "hk"
+        assert result.metadata == {"source": "pipeline", "symbol": "00700.HK"}
+
+    @pytest.mark.asyncio
     async def test_execute_returns_error_for_empty_symbol(self):
         tool = AnalyzeStockTool()
         result = await tool.execute(symbol="")
