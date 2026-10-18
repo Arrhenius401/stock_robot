@@ -16,6 +16,48 @@ from backtest.models import (
 from backtest.strategy import strategy_fingerprint
 
 
+def test_publish_directory_retries_transient_windows_lock(tmp_path, monkeypatch):
+    from backtest import artifacts
+
+    source, target = tmp_path / "source", tmp_path / "target"
+    source.mkdir()
+    (source / "report.md").write_text("complete", encoding="utf-8")
+    original = artifacts.os.replace
+    calls = []
+
+    def once_busy(src, dst):
+        calls.append(1)
+        if len(calls) == 1:
+            error = PermissionError("busy")
+            error.winerror = 5
+            raise error
+        original(src, dst)
+
+    monkeypatch.setattr(artifacts.os, "replace", once_busy)
+    monkeypatch.setattr(artifacts.time, "sleep", lambda _: None)
+    artifacts._publish_directory(source, target)
+    assert len(calls) == 2
+    assert (target / "report.md").read_text("utf-8") == "complete"
+
+
+def test_publish_directory_does_not_hide_persistent_access_denial(tmp_path, monkeypatch):
+    from backtest import artifacts
+
+    calls = []
+
+    def always_denied(*args):
+        calls.append(1)
+        error = PermissionError("denied")
+        error.winerror = 5
+        raise error
+
+    monkeypatch.setattr(artifacts.os, "replace", always_denied)
+    monkeypatch.setattr(artifacts.time, "sleep", lambda _: None)
+    with pytest.raises(PermissionError, match="denied"):
+        artifacts._publish_directory(tmp_path / "source", tmp_path / "target")
+    assert len(calls) == 5
+
+
 def _strategy() -> BacktestStrategy:
     return BacktestStrategy(
         id="report_technical",

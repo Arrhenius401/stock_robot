@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import shutil
+import time
 from datetime import date, datetime
 from pathlib import Path
 
@@ -26,6 +27,19 @@ _METRIC_LABELS = {
 
 # 最近交易表最多展示笔数
 MAX_RECENT_TRADES = 10
+
+
+def _publish_directory(source: Path, target: Path) -> None:
+    """Windows 新文件可能短暂被扫描器占用；持续拒绝仍原样抛出。"""
+    for attempt in range(5):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError as error:
+            if getattr(error, "winerror", None) not in {5, 32} or attempt == 4:
+                raise
+            logger.debug("产物目录暂时被占用，第 %s 次重试", attempt + 1)
+            time.sleep(0.05)
 
 
 def write_backtest_artifacts(
@@ -60,7 +74,7 @@ def write_backtest_artifacts(
         _write_equity_curve(tmp_dir / "equity_curve.csv", result)
         _write_trades(tmp_dir / "trades.csv", result)
         _write_report(tmp_dir / "report.md", result)
-        os.replace(tmp_dir, final_dir)
+        _publish_directory(tmp_dir, final_dir)
     except Exception:
         # 任一产物写入失败都清理临时目录并重抛，保证不留半成品目录
         shutil.rmtree(tmp_dir, ignore_errors=True)
