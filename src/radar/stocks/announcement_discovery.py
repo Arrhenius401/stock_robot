@@ -188,7 +188,7 @@ def discover_announcements(companies: list[dict[str, Any]], as_of: date, cache_d
             raise ValueError('来源已因 429 停止')
         for attempt in range(3):
             if requested:
-                sleep(1.0)
+                sleep((3.0, 10.0)[attempt - 1] if attempt else 1.0)
             requested = True
             response = None
             try:

@@ -62,6 +62,26 @@ def test_complete_dedup_and_cache(tmp_path):
     assert result['companies'][0]['status'] == 'query_scope_complete'
 
 
+@pytest.mark.parametrize('timeout', [False, True])
+def test_transient_retry_uses_confirmed_backoff(tmp_path, timeout):
+    import requests
+
+    calls, delays = [], []
+
+    def post(url, **options):
+        calls.append(url)
+        assert options['timeout'] == (15, 15)
+        if timeout:
+            raise requests.Timeout('超时探针')
+        return Response({}, status=503)
+
+    result = discover_announcements([{'symbol': '600900', 'name': '长江电力'}], date(2026, 10, 14),
+                                    tmp_path, http_post=post, sleep=delays.append)
+    assert len(calls) == 3
+    assert delays == [3.0, 10.0]
+    assert result['companies'][0]['status'] != 'query_scope_complete'
+
+
 @pytest.mark.parametrize('change', [
     {'secCode': '000001'}, {'orgId': 'wrong'},
     {'adjunctUrl': '../secret.PDF'}, {'adjunctUrl': 'https://example.com/a.PDF'},
