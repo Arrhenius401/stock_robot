@@ -219,7 +219,7 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/radar/test_financial_extract.py"
         continue
     }
-    if ($path -eq "src\radar\stocks\interim_ttm.py") {
+    if ($path -in @("src\radar\stocks\interim_ttm.py", "tests\resources\radar\cninfo-688111-financial-order-evidence.json")) {
         Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_ttm.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_ttm_integration.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_facts.py"

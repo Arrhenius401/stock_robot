@@ -1,0 +1,216 @@
+[
+  {
+    "evidence_id": "651271b3cad241f80315cd4063df2db3caeadd7f08d40ae76c53ed91ff7597d3",
+    "symbol": "688111",
+    "kind": "financial_proposal",
+    "payload": {
+      "fields": {
+        "amount_yuan": "5120838798.82",
+        "currency": "CNY",
+        "disclosed_on": "2026-03-26",
+        "evidence_excerpt": "营业收入 5,928,744,673.06 5,120,838,798.82 15.78 4,555,968,287.39",
+        "financial_verified": false,
+        "fiscal_year": 2024,
+        "metric": "revenue",
+        "page_number": 6,
+        "raw_comparison_values": [],
+        "requires_review": true,
+        "rule_enabled": false,
+        "scope": "consolidated",
+        "source_unit": "元",
+        "source_url": "https://static.cninfo.com.cn/finalpage/2026-03-26/1225032227.PDF",
+        "status": "matched_template",
+        "symbol": "688111"
+      },
+      "financial_verified": false,
+      "origin": {
+        "disclosed_on": "2026-03-26",
+        "file_sha256": "bf6ade124527896edb1c1be6af04a7d6b4c0eb964de42a96a77db7dbc6cee281",
+        "reasons": [
+          "主要会计数据缺失或不支持的文本结构"
+        ],
+        "source_url": "https://static.cninfo.com.cn/finalpage/2026-03-26/1225032227.PDF",
+        "status": "pending_verification",
+        "text_sha256": "05abb79c03272024c3096678f47b15e70db43d2cc42898fe7e422a10c232541a"
+      },
+      "proposal_id": "033aca5d7bde54eb2db8208b6b0aad9bcc32380f2aba46584662dd2b60a54dbc",
+      "requires_review": true
+    },
+    "source_url": "https://static.cninfo.com.cn/finalpage/2026-03-26/1225032227.PDF",
+    "disclosed_on": "2026-03-26",
+    "content_sha256": "bf6ade124527896edb1c1be6af04a7d6b4c0eb964de42a96a77db7dbc6cee281",
+    "confirmable": false,
+    "created_at": "2026-10-17T15:55:38.121119+00:00",
+    "latest_review": null,
+    "review_status": "pending_verification"
+  },
+  {
+    "evidence_id": "23ef56c54b9ae1d404367c73221d57ec0ee39e88545f8a7d6dfed76534801c0c",
+    "symbol": "688111",
+    "kind": "financial_proposal",
+    "payload": {
+      "fields": {
+        "amount_yuan": "4555968287.39",
+        "currency": "CNY",
+        "disclosed_on": "2026-03-26",
+        "evidence_excerpt": "营业收入 5,928,744,673.06 5,120,838,798.82 15.78 4,555,968,287.39",
+        "financial_verified": false,
+        "fiscal_year": 2023,
+        "metric": "revenue",
+        "page_number": 6,
+        "raw_comparison_values": [],
+        "requires_review": true,
+        "rule_enabled": false,
+        "scope": "consolidated",
+        "source_unit": "元",
+        "source_url": "https://static.cninfo.com.cn/finalpage/2026-03-26/1225032227.PDF",
+        "status": "matched_template",
+        "symbol": "688111"
+      },
+      "financial_verified": false,
+      "origin": {
+        "disclosed_on": "2026-03-26",
+        "file_sha256": "bf6ade124527896edb1c1be6af04a7d6b4c0eb964de42a96a77db7dbc6cee281",
+        "reasons": [
+          "主要会计数据缺失或不支持的文本结构"
+        ],
+        "source_url": "https://static.cninfo.com.cn/finalpage/2026-03-26/1225032227.PDF",
+        "status": "pending_verification",
+        "text_sha256": "05abb79c03272024c3096678f47b15e70db43d2cc42898fe7e422a10c232541a"
+      },
+      "proposal_id": "2f72821363a936a8b535ba75e93d4f944a66afc2b3a33f7433a4cbdf97187721",
+      "requires_review": true
+    },
+    "source_url": "https://static.cninfo.com.cn/finalpage/2026-03-26/1225032227.PDF",
+    "disclosed_on": "2026-03-26",
+    "content_sha256": "bf6ade124527896edb1c1be6af04a7d6b4c0eb964de42a96a77db7dbc6cee281",
+    "confirmable": false,
+    "created_at": "2026-10-17T15:55:38.121119+00:00",
+    "latest_review": null,
+    "review_status": "pending_verification"
+  },
+  {
+    "evidence_id": "0436c766f9492057508ae554125331b414b10aaf44d2b56fda71d6c0835e398d",
+    "symbol": "688111",
+    "kind": "quarterly_financial_proposal",
+    "payload": {
+      "fields": {
+        "amount_yuan": "2517594330.93",
+        "comparison_basis": "current",
+        "comparison_requires_review": false,
+        "currency": "CNY",
+        "disclosed_on": "2026-08-20",
+        "evidence_excerpt": "归属于上市公司股东的净利润 2,517,594,330.93 747,204,516.37 236.94",
+        "financial_verified": false,
+        "fiscal_year": 2026,
+        "metric": "parent_net_profit",
+        "page_number": 6,
+        "period_basis": "year_to_date",
+        "period_end": "2026-06-30",
+        "period_months": 6,
+        "raw_columns": [
+          "2,517,594,330.93",
+          "747,204,516.37",
+          "236.94"
+        ],
+        "raw_comparison_values": [
+          "2,517,594,330.93",
+          "747,204,516.37",
+          "236.94"
+        ],
+        "requires_review": true,
+        "rule_enabled": false,
+        "scope": "reported_parent",
+        "source_unit": "元",
+        "source_url": "https://static.cninfo.com.cn/finalpage/2026-08-20/1225482678.PDF",
+        "status": "matched_template",
+        "symbol": "688111"
+      },
+      "financial_verified": false,
+      "origin": {
+        "disclosed_on": "2026-08-20",
+        "discovery_period_end": "2026-06-30",
+        "file_sha256": "ec2322dc3a4461eef43045361391c0efe5673794302e329d03c7bbb8a3ad15a4",
+        "fiscal_year": 2026,
+        "parsed_period_end": "2026-06-30",
+        "period_end": "2026-06-30",
+        "period_months": 6,
+        "reasons": [],
+        "source_url": "https://static.cninfo.com.cn/finalpage/2026-08-20/1225482678.PDF",
+        "status": "matched_template",
+        "text_sha256": "4294b02d5baea583457a53cd28c03799733b548409cb087e2a60700ad567b004"
+      },
+      "proposal_id": "52d0aa24f5529edfab69811f478eb77b66a0d43b3459db7b73897c1f5d836d91",
+      "requires_review": true
+    },
+    "source_url": "https://static.cninfo.com.cn/finalpage/2026-08-20/1225482678.PDF",
+    "disclosed_on": "2026-08-20",
+    "content_sha256": "ec2322dc3a4461eef43045361391c0efe5673794302e329d03c7bbb8a3ad15a4",
+    "confirmable": true,
+    "created_at": "2026-10-18T04:53:01.940330+00:00",
+    "latest_review": null,
+    "review_status": "pending_verification"
+  },
+  {
+    "evidence_id": "f13cc8e55d3b904fa58e5fe82191da12dc0fb768bada208b8740a1a091382ed0",
+    "symbol": "688111",
+    "kind": "quarterly_financial_proposal",
+    "payload": {
+      "fields": {
+        "amount_yuan": "2487375431.21",
+        "comparison_basis": "current",
+        "comparison_requires_review": false,
+        "currency": "CNY",
+        "disclosed_on": "2026-08-20",
+        "evidence_excerpt": "归属于上市公司股东的扣除非经\n常性损益的净利润 2,487,375,431.21 727,320,191.45 241.99",
+        "financial_verified": false,
+        "fiscal_year": 2026,
+        "metric": "deducted_parent_net_profit",
+        "page_number": 6,
+        "period_basis": "year_to_date",
+        "period_end": "2026-06-30",
+        "period_months": 6,
+        "raw_columns": [
+          "2,487,375,431.21",
+          "727,320,191.45",
+          "241.99"
+        ],
+        "raw_comparison_values": [
+          "2,487,375,431.21",
+          "727,320,191.45",
+          "241.99"
+        ],
+        "requires_review": true,
+        "rule_enabled": false,
+        "scope": "reported_parent",
+        "source_unit": "元",
+        "source_url": "https://static.cninfo.com.cn/finalpage/2026-08-20/1225482678.PDF",
+        "status": "matched_template",
+        "symbol": "688111"
+      },
+      "financial_verified": false,
+      "origin": {
+        "disclosed_on": "2026-08-20",
+        "discovery_period_end": "2026-06-30",
+        "file_sha256": "ec2322dc3a4461eef43045361391c0efe5673794302e329d03c7bbb8a3ad15a4",
+        "fiscal_year": 2026,
+        "parsed_period_end": "2026-06-30",
+        "period_end": "2026-06-30",
+        "period_months": 6,
+        "reasons": [],
+        "source_url": "https://static.cninfo.com.cn/finalpage/2026-08-20/1225482678.PDF",
+        "status": "matched_template",
+        "text_sha256": "4294b02d5baea583457a53cd28c03799733b548409cb087e2a60700ad567b004"
+      },
+      "proposal_id": "e18fd81666a01add88f684c20188416d918e7d409c027aacb08c45cbe8f9de9f",
+      "requires_review": true
+    },
+    "source_url": "https://static.cninfo.com.cn/finalpage/2026-08-20/1225482678.PDF",
+    "disclosed_on": "2026-08-20",
+    "content_sha256": "ec2322dc3a4461eef43045361391c0efe5673794302e329d03c7bbb8a3ad15a4",
+    "confirmable": true,
+    "created_at": "2026-10-18T04:53:01.940330+00:00",
+    "latest_review": null,
+    "review_status": "pending_verification"
+  }
+]

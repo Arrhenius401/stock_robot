@@ -1,6 +1,8 @@
 """年度/季度原文、覆盖审核和规范TTM的真实SQLite往返，均为合成资料。"""
+import json
 from copy import deepcopy
 from datetime import date, datetime
+from pathlib import Path
 
 import pytest
 
@@ -8,6 +10,38 @@ from radar.stocks.financial_facts import prepare_financial_facts
 from radar.stocks.research_store import StockResearchError, StockResearchStore
 
 AS_OF = date(2026, 10, 15)
+
+
+def real_order_evidence():
+    path = Path(__file__).parents[1] / 'resources/radar/cninfo-688111-financial-order-evidence.json'
+    return json.loads(path.read_text(encoding='utf-8'))
+
+
+@pytest.mark.parametrize('order', ['recorded', 'reversed'])
+def test_real_financial_facts_do_not_depend_on_evidence_read_order(order):
+    rows = real_order_evidence()
+    expected = prepare_financial_facts('688111', sorted(rows, key=lambda row: row['evidence_id']), date(2026, 10, 17))
+    actual = prepare_financial_facts('688111', rows if order == 'recorded' else list(reversed(rows)), date(2026, 10, 17))
+    assert expected['facts']
+    assert actual['facts'] == expected['facts']
+
+
+def test_real_legacy_diagnostics_can_roundtrip_without_any_review(tmp_path):
+    store = StockResearchStore(tmp_path / 'legacy-order.db', clock=lambda: datetime.fromisoformat('2026-10-18T13:00:00+08:00'))
+    store.import_companies([{'symbol': '688111', 'name': '金山办公'}], source_sha256='a' * 64,
+                           source_label='既有真实失败样本回归', data_as_of=date(2026, 10, 17))
+    for row in real_order_evidence():
+        company = store.get_company('688111')
+        assert company is not None
+        store.add_evidence('688111', kind=row['kind'], payload=row['payload'], source_url=row['source_url'],
+                           disclosed_on=date.fromisoformat(row['disclosed_on']), content_sha256=row['content_sha256'],
+                           expected_revision=company['revision'])
+    packet = prepare_financial_facts('688111', store.list_evidence('688111'), date(2026, 10, 17))
+    company = store.get_company('688111')
+    assert company is not None
+    result = store.add_financial_fact_batch('688111', packet['facts'], expected_revision=company['revision'])
+    assert result['facts_added'] > 0
+    assert store.review_history('688111') == []
 
 
 def raw(year, metric, amount, months=None):

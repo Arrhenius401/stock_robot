@@ -159,6 +159,8 @@ def prepare_ttm(symbol: str, evidence: list[dict[str, Any]], as_of: date) -> dic
         return result
     rows = [row for row in evidence if isinstance(row, dict) and row.get('symbol') == symbol
             and isinstance(row.get('kind'), str) and row['kind'] in _KINDS] if isinstance(evidence, list) else []
+    # 诊断也是待存事实的一部分；普通读取与事务内重建必须采用同一证据顺序。
+    rows.sort(key=lambda row: str(row.get('evidence_id', '')))
     seen: set[str] = set()
     periods: list[date] = []
     values: dict[tuple[int, int, str], list[tuple[dict[str, Any], Decimal]]] = {}
