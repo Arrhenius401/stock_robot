@@ -30,6 +30,8 @@ def _run(*arguments: str):
     ("tests/api/deleted_test.py", "tests/api"),
     ("tests/resources/index/csi-930740-price-pe-history.json", "tests/index"),
     ("tests/resources/index/cni-980092-valuation-factsheet-layout.txt", "tests/index"),
+    ("tests/resources/data/eastmoney-00700-income-report.json", "tests/data"),
+    ("tests/resources/report/qq-00700-unavailable-report.md", "tests/report"),
 ])
 def test_changed_scope_never_expands_to_full(path, expected):
     result = _run("-PlanOnly", "-Files", path)
@@ -48,6 +50,13 @@ def test_full_scope_is_explicit():
     plan = json.loads(result.stdout)
     assert plan["TestTargets"] == ["tests"]
     assert plan["PythonTargets"] == ["."]
+
+
+def test_shared_financial_validity_covers_report_and_cache():
+    result = _run("-PlanOnly", "-Files", "src/data/validation.py")
+    assert result.returncode == 0, result.stderr
+    targets = {item.replace("\\", "/") for item in json.loads(result.stdout)["TestTargets"]}
+    assert {"tests/core/test_financial_cache_facts.py", "tests/core/test_pipeline.py", "tests/report"} <= targets
 
 
 def test_version_only_change_checks_metadata_and_installed_distribution():

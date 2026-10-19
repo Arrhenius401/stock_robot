@@ -286,5 +286,6 @@ def test_real_adapter_timeout_record(tmp_path, monkeypatch):
     record = ctx.collection_records["price"]
     assert record.error_kind == "timeout"
     assert record.source == "东方财富行情（前复权）"
-    assert record.error_message == "数据请求超时"
+    assert "新浪行情（前复权）：数据请求超时" in record.error_message
+    assert "东方财富行情（前复权）：数据请求超时" in record.error_message
     assert "secret" not in record.model_dump_json()

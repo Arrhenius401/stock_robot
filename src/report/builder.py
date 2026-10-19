@@ -5,7 +5,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 
 from data.schemas import AnalysisResult
-from report.formatter import metric_display_name
+from report.formatter import format_metric_value, metric_display_name
 
 
 def _display_width(s: str) -> int:
@@ -42,7 +42,7 @@ def _md_table(data, headers=None):
             return ""
         headers = ["指标", "数值"]
         for k, v in filtered.items():
-            rows.append([metric_display_name(k), str(v) if v is not None else "N/A"])
+            rows.append([metric_display_name(k), str(format_metric_value(k, v)) if v is not None else "N/A"])
 
     elif isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
         if headers is None:
@@ -114,13 +114,20 @@ class ReportBuilder:
               market_env: dict | None = None,
               signal: dict | None = None,
               data_quality: dict | None = None,
-              price_start: str | None = None, price_end: str | None = None) -> str:
+              price_start: str | None = None, price_end: str | None = None,
+              market: str = "A 股") -> str:
         results_map = {r.dimension: r for r in results}
+        if market == "港股" and "financial" in results_map:
+            financial = results_map["financial"]
+            metrics = dict(financial.metrics)
+            if "latest_quarter" in metrics:
+                metrics["report_period"] = metrics.pop("latest_quarter")
+            results_map["financial"] = financial.model_copy(update={"metrics": metrics})
         template = self._env.get_template("report_v2.jinja2")
         return template.render(
             symbol=symbol,
             name=name,
-            market="A 股",
+            market=market,
             generated_at=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
             no_llm=no_llm,
             industry=industry,

@@ -85,6 +85,18 @@ def _compute_ttm(financials: list) -> tuple[float | None, float | None]:
 
 class ValuationEnricher(DataEnricher):
     def enrich(self, ctx: AnalysisContext) -> AnalysisContext:
+        if ctx.market == "hk":
+            # 港币价格与财报原币不混算，不请求 A 股股本、不伪造历史分位。
+            snapshot = ctx.valuation_data
+            valid = snapshot is not None and any(
+                value is not None and value > 0 for value in (snapshot.pe_ttm, snapshot.pb))
+            ctx.enriched_valuation = EnrichedValuation(validated=valid) if valid else None
+            ctx.sufficiency.valuation = DimensionSufficiency(
+                level=SufficiencyLevel.PARTIAL if valid else SufficiencyLevel.INSUFFICIENT,
+                reason="仅有实测估值快照，无同口径历史分位" if valid else "港股实测估值快照缺失，不混用财报币种推导估值",
+                sample_count=1 if valid else 0, score_weight=0.5 if valid else 0.0,
+            )
+            return ctx
         prices = ctx.price_data or []
         financials = ctx.financial_data or []
 

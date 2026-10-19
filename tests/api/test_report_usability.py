@@ -176,7 +176,8 @@ async def test_retry_only_calls_model_and_preserves_report(tmp_path, monkeypatch
     token = commentary_store.remember(record)
     calls = []
 
-    def generate(*args):
+    def generate(*args, context=None):
+        assert context is ctx
         calls.append(args)
         if case == "exception":
             raise TimeoutError("模型请求超时")
