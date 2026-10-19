@@ -93,7 +93,7 @@ class ValuationEnricher(DataEnricher):
             ctx.enriched_valuation = EnrichedValuation(validated=valid) if valid else None
             ctx.sufficiency.valuation = DimensionSufficiency(
                 level=SufficiencyLevel.PARTIAL if valid else SufficiencyLevel.INSUFFICIENT,
-                reason="仅有东财实测估值快照，无同口径历史分位" if valid else "港股实测估值快照缺失，不混用财报币种推导估值",
+                reason="仅有实测估值快照，无同口径历史分位" if valid else "港股实测估值快照缺失，不混用财报币种推导估值",
                 sample_count=1 if valid else 0, score_weight=0.5 if valid else 0.0,
             )
             return ctx

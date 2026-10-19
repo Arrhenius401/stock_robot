@@ -2,6 +2,7 @@
 from typing import Any, Literal
 
 from analysis.base import AnalysisModule
+from analysis.technical_indicators import calculate_technical_indicators
 from data.schemas import AnalysisContext, AnalysisResult, SufficiencyLevel
 
 
@@ -19,9 +20,7 @@ class TechnicalAnalyzer(AnalysisModule):
 
         sorted_prices = sorted(prices, key=lambda x: x.trade_date)
         closes = [p.close for p in sorted_prices]
-        latest_close = closes[-1] if closes else 0
-
-        metrics = {"latest_close": latest_close}
+        metrics = calculate_technical_indicators(closes, [p.volume for p in sorted_prices])
 
         if len(closes) < 20 or context.sufficiency.price.level == SufficiencyLevel.INSUFFICIENT:
             return AnalysisResult(dimension=self.dimension, status="unavailable",
@@ -33,7 +32,7 @@ class TechnicalAnalyzer(AnalysisModule):
         ) else "ok"
         summary = self._build_summary(metrics, status)
 
-        if config:
+        if config and context.market != "hk":
             from analysis.financial import FinancialAnalyzer
             scorer = FinancialAnalyzer._get_scorer(config)
             score, score_detail, risk_flags = scorer.score_technical(context)
@@ -50,4 +49,14 @@ class TechnicalAnalyzer(AnalysisModule):
         price = metrics.get("latest_close", 0)
         if price:
             parts.append(f"最新价 {price:.2f}")
+        for window in (5, 20, 60):
+            value = metrics.get(f"ma_{window}")
+            if value is not None:
+                parts.append(f"MA{window} {value:.2f}")
+        dif, dea, bar = (metrics.get(key) for key in ("macd_dif", "macd_dea", "macd_bar"))
+        if dif is not None and dea is not None and bar is not None:
+            parts.append(f"MACD DIF {dif:.3f} / DEA {dea:.3f} / 柱值 {bar:.3f}")
+        ratio = metrics.get("volume_ratio")
+        if ratio is not None:
+            parts.append(f"量比 {ratio:.2f}")
         return "；".join(parts) if parts else "技术指标数据不足"

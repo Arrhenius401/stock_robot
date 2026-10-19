@@ -3,7 +3,7 @@ import { store, switchView, bus } from "./state.js";
 import { api } from "./api.js";
 import { el, errorCard, skeleton,
          showEntryError, clearEntryError } from "./components.js";
-import { renderStockReport } from "./report-renderer.js?v=20261019-hk-live-data-1";
+import { renderStockReport } from "./report-renderer.js?v=20261019-hk-shared-analysis-2";
 
 const content = () => document.getElementById("reportContent");
 

@@ -16,6 +16,12 @@ from utils.symbols import resolve_name
 RESOURCES = Path(__file__).parents[1] / "resources" / "data"
 
 
+@pytest.fixture(autouse=True)
+def isolate_tencent_history(mocker):
+    """旧东财样本测试显式隔离新增主源，不能触网。"""
+    mocker.patch("data.akshare.tencent_history", return_value=[])
+
+
 def sample(kind):
     return json.loads((RESOURCES / f"eastmoney-00700-{kind}.json").read_text(encoding="utf-8"))
 
@@ -134,7 +140,9 @@ def test_hk_network_failure_diagnostic_identifies_real_provider(mocker):
     assert adapter.fetch("00700.HK", market="hk", data_type="valuation") == []
     diagnostic = adapter.get_collection_error()
     assert diagnostic is not None
-    assert diagnostic.source == "东方财富港股估值快照"
+    assert diagnostic.source == "百度港股市净率"
+    assert "东方财富港股估值快照" in diagnostic.error_message
+    assert "百度港股市盈率(TTM)" in diagnostic.error_message
     assert diagnostic.error_kind == "timeout"
 
 

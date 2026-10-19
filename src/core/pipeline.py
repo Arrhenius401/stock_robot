@@ -18,6 +18,7 @@ from data.schemas import (
     DataCollectionRecord,
     SufficiencyLevel,
 )
+from data.validation import financial_has_facts
 from utils.config import Config
 
 logger = logging.getLogger(__name__)
@@ -188,7 +189,7 @@ class Pipeline:
                                 failure_record = DataCollectionRecord(source=record.source,
                                     error_kind="invalid_data", error_message="行情日期或价格格式无效")
                                 continue
-                            if self._is_healthy(data_type, result):
+                            if self._is_healthy(data_type, result, symbol):
                                 self._set_cache(symbol, data_type, result, record)
                                 self._breaker.record_success(symbol, data_type)
                             else:
@@ -430,7 +431,7 @@ class Pipeline:
         try:
             data_list = json.loads(raw)
             results = self._deserialize_cache(data_type, symbol, data_list)
-            if not self._is_healthy(data_type, results):
+            if not self._is_healthy(data_type, results, symbol):
                 logger.info(f"缓存 {data_type}/{symbol} 数据退化，视为未命中")
                 return None
             if (data_type == "industry" and results
@@ -457,7 +458,7 @@ class Pipeline:
         try:
             data_list = json.loads(raw)
             results = self._deserialize_cache(data_type, symbol, data_list)
-            if not self._is_healthy(data_type, results):
+            if not self._is_healthy(data_type, results, symbol):
                 return None
             for item in results:
                 if data_type == "news":
@@ -470,7 +471,7 @@ class Pipeline:
             logger.debug("过期缓存格式无效 %s/%s", symbol, data_type)
             return None
 
-    def _is_healthy(self, data_type: str, data: list) -> bool:
+    def _is_healthy(self, data_type: str, data: list, symbol: str | None = None) -> bool:
         """健康判据：退化结果（空/未知/全缺失）不写持久缓存"""
         if not data:
             return False
@@ -479,8 +480,7 @@ class Pipeline:
             if getattr(ind, "industry", "") in ("", "未知"):
                 return False
         elif data_type == "financial":
-            if all(f.total_equity is None and f.total_assets is None for f in data):
-                return False
+            return financial_has_facts(data, symbol)
         elif data_type == "price":
             for item in data:
                 values = (item.open, item.high, item.low, item.close, item.volume)
@@ -503,7 +503,7 @@ class Pipeline:
 
     def _set_cache(self, symbol: str, data_type: str, data: list,
                    record: DataCollectionRecord | None = None):
-        if not self._is_healthy(data_type, data):
+        if not self._is_healthy(data_type, data, symbol):
             logger.info(f"缓存 {data_type}/{symbol} 数据退化，跳过持久化")
             return
         date_key = "latest"

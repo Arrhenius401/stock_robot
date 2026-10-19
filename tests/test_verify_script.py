@@ -52,6 +52,13 @@ def test_full_scope_is_explicit():
     assert plan["PythonTargets"] == ["."]
 
 
+def test_shared_financial_validity_covers_report_and_cache():
+    result = _run("-PlanOnly", "-Files", "src/data/validation.py")
+    assert result.returncode == 0, result.stderr
+    targets = {item.replace("\\", "/") for item in json.loads(result.stdout)["TestTargets"]}
+    assert {"tests/core/test_financial_cache_facts.py", "tests/core/test_pipeline.py", "tests/report"} <= targets
+
+
 def test_version_only_change_checks_metadata_and_installed_distribution():
     result = _run("-PlanOnly", "-Files", "src/stock_robot/metadata.py")
     assert result.returncode == 0, result.stderr

@@ -33,7 +33,9 @@
 ### {{ {"financial": "1. 财务量化数据", "technical": "2. 技术面量化数据", "valuation": "3. 估值量化数据", "industry": "4. 行业对比量化数据", "sentiment": "5. 舆情量化数据"}[dim] }}
 
 {% set r = results_map.get(dim) %}
-{% if r and r.metrics %}
+{% if market == "港股" and dim in ["industry", "sentiment"] %}
+> 不适用：本期港股分析不支持此维度，不计入覆盖率。
+{% elif r and r.metrics %}
 {% if r.status != "ok" %}
 > {{ r.summary }}（保留可用指标快照）
 {% endif %}
@@ -144,10 +146,10 @@
 ## 八、数据覆盖与时效
 
 {% if data_quality %}
-{% if market == "港股" %}分析数据覆盖：{{ data_quality.coverage }}%。港股评分与操作信号不适用。{% else %}计分维度覆盖：{{ data_quality.coverage }}%。{% if not data_quality.signal_allowed %}数据依据不完整，暂无操作信号和仓位建议。{% endif %}{% endif %}
+{% if market == "港股" %}可用维度覆盖：{{ data_quality.available_dimensions }}/{{ data_quality.applicable_dimensions }}（{{ data_quality.coverage }}%）。仅表示适用维度中可分析的比例，不代表字段完整。港股评分与操作信号不适用。{% else %}计分维度覆盖：{{ data_quality.coverage }}%。{% if not data_quality.signal_allowed %}数据依据不完整，暂无操作信号和仓位建议。{% endif %}{% endif %}
 
 {% for dimension in data_quality.dimensions %}
-### {{ dimension.title }} · {{ {"ok": "正常", "partial": "部分数据", "unavailable": "数据不可用"}[dimension.status] }}
+### {{ dimension.title }} · {{ {"ok": "正常", "partial": "部分数据", "unavailable": "数据不可用", "not_applicable": "不适用"}[dimension.status] }}
 
 {{ dimension.fields | md_table({"项目": "label", "依据": "value"}) }}
 

@@ -188,7 +188,7 @@ def _module_url(path: str) -> str:
     url = Path(path).resolve().as_uri()
     # 与聊天模块的正式导入保持同一 URL，避免产生两份抽屉状态单例。
     if path.endswith("/report-drawer.js"):
-        url += "?v=20261019-hk-live-data-1"
+        url += "?v=20261019-hk-shared-analysis-2"
     return url
 
 
@@ -309,7 +309,7 @@ class TestStaticUI:
         app_js = (await client.get("/js/app.js")).text
         api_js = (await client.get("/js/api.js")).text
 
-        assert 'import { initReportLibrary } from "./report-library.js?v=20261019-hk-live-data-1";' in app_js
+        assert 'import { initReportLibrary } from "./report-library.js?v=20261019-hk-shared-analysis-2";' in app_js
         assert "initReportLibrary();" in app_js
         assert "listReports(" in api_js
         assert "getReport(" in api_js
@@ -346,7 +346,7 @@ class TestStaticUI:
     async def test_app_initializes_report_drawer(self, client):
         resp = await client.get("/js/app.js")
 
-        assert 'import { initReportDrawer } from "./report-drawer.js?v=20261019-hk-live-data-1";' in resp.text
+        assert 'import { initReportDrawer } from "./report-drawer.js?v=20261019-hk-shared-analysis-2";' in resp.text
         assert "initReportDrawer();" in resp.text
 
     def test_markdown_renderer_escapes_untrusted_input_and_formats_safe_blocks(self):
@@ -416,6 +416,30 @@ const article = renderStockReport(report);
 if (!article.textContent.includes("最新报告期") || !article.textContent.includes("原币")) throw new Error("港股期间或币种说明缺失");
 if (!article.textContent.includes("评分不适用") || !article.textContent.includes("分析数据覆盖")) throw new Error("港股仍被当作待完成A股评分");
 if (article.textContent.includes("计分数据覆盖") || byClass(article, "score-rows").length) throw new Error("港股展示了A股计分控件");
+'''.replace("__RENDERER_URL__", renderer_url)
+        _run_node(tmp_path, script)
+
+    def test_hk_shared_coverage_and_indicators_are_localized(self, tmp_path):
+        renderer_url = json.dumps(_module_url("src/api/static/js/report-renderer.js"))
+        script = _DOM_STUB + r'''
+const { renderStockReport } = await import(__RENDERER_URL__);
+const report = {
+  market: "hk", symbol: "00700.HK", name: "腾讯控股", score: {final: null},
+  data_quality: {status: "partial", has_analysis_data: true, coverage: 100,
+    available_dimensions: 3, applicable_dimensions: 3,
+    dimensions: [{key: "industry", title: "行业", status: "not_applicable", applicable: false,
+      fields: [{label: "适用范围", value: "本期港股分析不支持"}]}]},
+  dimensions: {technical: {status: "ok", metrics: {ma_5: 443.2266666666667, macd_dif: -5.305251657462463, volume_ratio: 0.8621968458224063}},
+    industry: {status: "unavailable", summary: "不应当作为数据缺失", metrics: {}}},
+};
+const article = renderStockReport(report);
+for (const text of ["可用维度覆盖：3/3（100%）", "不代表字段完整", "5 日均线", "MACD DIF", "近5日与此前20日均量比", "不适用", "443.23", "-5.305", "0.86"]) {
+  if (!article.textContent.includes(text)) throw new Error(`缺少港股共享事实展示: ${text}`);
+}
+for (const raw of ["443.2266666666667", "-5.305251657462463", "0.8621968458224063"]) {
+  if (article.textContent.includes(raw)) throw new Error(`技术指标未按显示精度格式化: ${raw}`);
+}
+if (article.textContent.includes("不应当作为数据缺失") || article.textContent.includes("not_applicable")) throw new Error("不适用状态未正确显示");
 '''.replace("__RENDERER_URL__", renderer_url)
         _run_node(tmp_path, script)
 

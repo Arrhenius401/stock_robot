@@ -47,7 +47,7 @@ class TestAkShareAdapter:
     def test_fetch_price_returns_empty_when_all_sources_fail(self, mocker):
         """两条行情源均失败时稳定返回空列表，不触发未初始化变量异常"""
         mocker.patch("utils.retry.time.sleep")
-        mocker.patch("akshare.stock_zh_a_daily", side_effect=ConnectionError("腾讯失败"))
+        mocker.patch("akshare.stock_zh_a_daily", side_effect=ConnectionError("新浪失败"))
         mocker.patch("akshare.stock_zh_a_hist", side_effect=ConnectionError("东财失败"))
 
         adapter = AkShareAdapter()
@@ -161,7 +161,7 @@ def test_fetch_price_uses_change_pct_column(mocker):
         ])
 
     mocker.patch("akshare.stock_zh_a_hist", side_effect=_mock_hist)
-    # 根 conftest 将腾讯源 patch 成 ConnectionError，会触发重试退避，屏蔽真实 sleep
+    # 根 conftest 将新浪源 patch 成 ConnectionError，会触发重试退避，屏蔽真实 sleep
     mocker.patch("utils.retry.time.sleep")
     adapter = AkShareAdapter()
     results = adapter.fetch("000001", data_type="price", days=365)
@@ -191,7 +191,7 @@ def test_fetch_price_nan_change_falls_back_to_compute(mocker):
 
 
 def test_fetch_price_computes_change_pct_without_column(mocker):
-    """腾讯源：无涨跌幅列时按前收盘价计算；首行为 None"""
+    """新浪源：无涨跌幅列时按前收盘价计算；首行为 None"""
 
     # 60 行数据使 _fetch_price 满足 >=60 阈值直接返回，避免回退到未被 mock 的东方财富源
     dates = pd.date_range("2026-04-01", periods=60, freq="B").strftime("%Y-%m-%d").tolist()
@@ -204,7 +204,7 @@ def test_fetch_price_computes_change_pct_without_column(mocker):
     def _mock_daily(symbol, start_date, end_date, adjust):
         return pd.DataFrame(rows)
 
-    # 根 conftest 全局把腾讯源 patch 成 ConnectionError，此处覆盖为成功返回
+    # 根 conftest 全局把新浪源 patch 成 ConnectionError，此处覆盖为成功返回
     mocker.patch("akshare.stock_zh_a_daily", side_effect=_mock_daily)
     adapter = AkShareAdapter()
     results = adapter.fetch("000001", data_type="price", days=365)
@@ -231,7 +231,7 @@ def test_fetch_price_uses_explicit_dates(mocker):
         return pd.DataFrame(rows)
 
     mocker.patch("akshare.stock_zh_a_hist", side_effect=_mock_hist)
-    # 根 conftest 将腾讯源 patch 成 ConnectionError，会触发重试退避，屏蔽真实 sleep
+    # 根 conftest 将新浪源 patch 成 ConnectionError，会触发重试退避，屏蔽真实 sleep
     mocker.patch("utils.retry.time.sleep")
     adapter = AkShareAdapter()
     results = adapter.fetch("000001", data_type="price", start_date="20220101", end_date="20221231")

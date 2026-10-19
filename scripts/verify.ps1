@@ -174,6 +174,12 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/radar"
         continue
     }
+    if ($path -eq "src\data\validation.py") {
+        Add-UniqueTarget $testTargets "tests/core/test_financial_cache_facts.py"
+        Add-UniqueTarget $testTargets "tests/core/test_pipeline.py"
+        Add-UniqueTarget $testTargets "tests/report"
+        continue
+    }
     if ($path.StartsWith("src\data\", [StringComparison]::OrdinalIgnoreCase)) {
         Add-UniqueTarget $testTargets "tests/data"
         continue
