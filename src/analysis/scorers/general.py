@@ -1,58 +1,7 @@
 """通用计分器 — 纯 YAML 驱动，无硬编码阈值"""
-from dataclasses import dataclass
-from statistics import mean
-
 from analysis.scorers.base import BaseScorer
+from analysis.technical_indicators import calculate_macd, moving_average, volume_ratio
 from data.schemas import AnalysisContext
-
-
-def _ema_line(data: list[float], period: int) -> list[float | None]:
-    if not data:
-        return []
-    if len(data) < period:
-        return [None] * len(data)
-    multiplier = 2 / (period + 1)
-    line: list[float | None] = [None] * (period - 1)
-    ema = sum(data[:period]) / period
-    line.append(ema)
-    for value in data[period:]:
-        ema = (value - ema) * multiplier + ema
-        line.append(ema)
-    return line
-
-
-@dataclass(frozen=True, slots=True)
-class MacdValues:
-    """MACD 结果值对象。"""
-
-    dif: float
-    dea: float
-    bar: float
-
-
-def calculate_macd(closes: list[float]) -> MacdValues:
-    """根据完整收盘价序列计算 MACD。"""
-
-    if not closes:
-        return MacdValues(dif=0.0, dea=0.0, bar=0.0)
-
-    ema12_line = _ema_line(closes, 12)
-    ema26_line = _ema_line(closes, 26)
-    dif_line = [
-        ema12 - ema26
-        for ema12, ema26 in zip(ema12_line, ema26_line)
-        if ema12 is not None and ema26 is not None
-    ]
-    if not dif_line:
-        return MacdValues(dif=0.0, dea=0.0, bar=0.0)
-    dif = dif_line[-1]
-    if len(dif_line) < 9:
-        dea = dif
-    else:
-        dea_line = _ema_line(dif_line, 9)
-        dea_value = dea_line[-1] if dea_line else None
-        dea = dea_value if dea_value is not None else dif
-    return MacdValues(dif=dif, dea=dea, bar=2 * (dif - dea))
 
 
 class GeneralScorer(BaseScorer):
@@ -274,9 +223,9 @@ class GeneralScorer(BaseScorer):
         # 均线结构
         ma_cfg = cfg.get("ma_structure", {})
         if ma_cfg.get("enabled", True):
-            ma5 = mean(closes[-5:]) if len(closes) >= 5 else None
-            ma20 = mean(closes[-20:]) if len(closes) >= 20 else None
-            ma60 = mean(closes[-60:]) if len(closes) >= 60 else None
+            ma5 = moving_average(closes, 5)
+            ma20 = moving_average(closes, 20)
+            ma60 = moving_average(closes, 60)
             max_s = ma_cfg.get("max_score", 4)
             if ma5 and ma20 and ma60:
                 if ma5 > ma20 > ma60:
@@ -293,11 +242,11 @@ class GeneralScorer(BaseScorer):
         vp_cfg = cfg.get("volume_price", {})
         if vp_cfg.get("enabled", True) and len(closes) >= 20:
             latest_close = closes[-1]
-            ma20_v = mean(closes[-20:])
-            price_vs_ma20 = (latest_close - ma20_v) / ma20_v * 100 if ma20_v > 0 else 0
-            volumes = [p.volume for p in sorted_prices[-5:]]
-            prev_vols = [p.volume for p in sorted_prices[-25:-5]]
-            vol_ratio = mean(volumes) / mean(prev_vols) if prev_vols and mean(prev_vols) > 0 else 1.0
+            ma20_v = moving_average(closes, 20)
+            price_vs_ma20 = (latest_close - ma20_v) / ma20_v * 100 if ma20_v and ma20_v > 0 else 0
+            ratio = volume_ratio([p.volume for p in sorted_prices], require_complete_window=False)
+            # 保留旧评分的零分母缺省行为，不作为公开完整指标披露。
+            vol_ratio = ratio if ratio is not None else 1.0
             max_s = vp_cfg.get("max_score", 3)
             if price_vs_ma20 > 0 and vol_ratio > 1.2:
                 s = 3; total += s; details.append(f"放量上涨（量比 {vol_ratio:.2f}），得 {s}/{max_s} 分")

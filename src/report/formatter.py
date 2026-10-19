@@ -36,6 +36,7 @@ METRIC_DISPLAY_NAMES = {
     "valuation_notes": "估值数据覆盖说明",
 
     "latest_quarter": "最新财报季度",
+    "report_period": "最新报告期",
     "revenue": "营业收入",
     "net_profit": "净利润",
     "total_assets": "总资产",
@@ -50,6 +51,10 @@ METRIC_DISPLAY_NAMES = {
     "ma_5": "5 日均线",
     "ma_20": "20 日均线",
     "ma_60": "60 日均线",
+    "volume_ratio": "近5日与此前20日均量比",
+    "macd_dif": "MACD DIF",
+    "macd_dea": "MACD DEA",
+    "macd_bar": "MACD 柱值",
     "year_high": "近一年最高价",
     "year_low": "近一年最低价",
     "pe_ttm": "PE(TTM)",
@@ -107,6 +112,21 @@ def metric_display_name(key: object) -> str:
     """返回指标的中文显示名，未知指标保留原键名。"""
     text = str(key)
     return METRIC_DISPLAY_NAMES.get(text, text)
+
+
+_TECHNICAL_METRIC_DIGITS = {
+    "latest_close": 2, "ma_5": 2, "ma_20": 2, "ma_60": 2,
+    "volume_ratio": 2, "macd_dif": 3, "macd_dea": 3, "macd_bar": 3,
+}
+
+
+def format_metric_value(key: object, value: Any) -> Any:
+    """技术指标按显示精度格式化；其他指标保持原有格式。"""
+    digits = _TECHNICAL_METRIC_DIGITS.get(str(key))
+    if (digits is not None and isinstance(value, (int, float))
+            and not isinstance(value, bool) and math.isfinite(value)):
+        return f"{value:.{digits}f}"
+    return value
 
 
 def risk_display_name(key: object) -> str:

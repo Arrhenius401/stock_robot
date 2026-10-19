@@ -74,6 +74,11 @@ def validate_symbol(symbol: str) -> bool:
 def resolve_name(symbol: str) -> str:
     """解析股票代码对应的公司名称"""
     try:
+        if symbol_market(symbol) == "hk":
+            from data.hk_eastmoney import stock_snapshot
+
+            snapshot = stock_snapshot(normalize_symbol(symbol).removesuffix(".HK"))
+            return str(snapshot.get("f58") or "").strip()
         df: Any = _ak_code_name()
         row = df[df["code"] == normalize_symbol(symbol)]
         if not row.empty:

@@ -28,7 +28,7 @@ def test_short_primary_preserved_and_source_correct(monkeypatch, secondary):
     monkeypatch.setattr("data.akshare._ak_hist", lambda **kwargs: frame(secondary))
     result = AkShareAdapter().fetch("000001", data_type="price")
     assert len(result) == 19
-    assert result[0]._data_source == "腾讯行情（前复权）"
+    assert result[0]._data_source == "新浪行情（前复权）"
 
 
 def test_secondary_source_recorded(monkeypatch):

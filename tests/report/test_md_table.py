@@ -34,6 +34,20 @@ class TestMdTableDict:
         result = _md_table({"headlines": ["新闻1", "新闻2"]})
         assert result == ""
 
+    def test_technical_metrics_are_display_rounded(self):
+        result = _md_table({
+            "ma_60": 443.2266666666667,
+            "volume_ratio": 0.8621968458224063,
+            "macd_dif": -5.305251657462463,
+            "roe": 0.12,
+        })
+        assert "443.23" in result
+        assert "0.86" in result
+        assert "-5.305" in result
+        assert "0.12" in result
+        for raw in ("443.2266666666667", "0.8621968458224063", "-5.305251657462463"):
+            assert raw not in result
+
 
 class TestMdTableColumnAlignment:
     def test_columns_are_aligned(self):

@@ -47,7 +47,7 @@ class TestAkShareAdapter:
     def test_fetch_price_returns_empty_when_all_sources_fail(self, mocker):
         """两条行情源均失败时稳定返回空列表，不触发未初始化变量异常"""
         mocker.patch("utils.retry.time.sleep")
-        mocker.patch("akshare.stock_zh_a_daily", side_effect=ConnectionError("腾讯失败"))
+        mocker.patch("akshare.stock_zh_a_daily", side_effect=ConnectionError("新浪失败"))
         mocker.patch("akshare.stock_zh_a_hist", side_effect=ConnectionError("东财失败"))
 
         adapter = AkShareAdapter()
@@ -161,7 +161,7 @@ def test_fetch_price_uses_change_pct_column(mocker):
         ])
 
     mocker.patch("akshare.stock_zh_a_hist", side_effect=_mock_hist)
-    # 根 conftest 将腾讯源 patch 成 ConnectionError，会触发重试退避，屏蔽真实 sleep
+    # 根 conftest 将新浪源 patch 成 ConnectionError，会触发重试退避，屏蔽真实 sleep
     mocker.patch("utils.retry.time.sleep")
     adapter = AkShareAdapter()
     results = adapter.fetch("000001", data_type="price", days=365)
@@ -191,7 +191,7 @@ def test_fetch_price_nan_change_falls_back_to_compute(mocker):
 
 
 def test_fetch_price_computes_change_pct_without_column(mocker):
-    """腾讯源：无涨跌幅列时按前收盘价计算；首行为 None"""
+    """新浪源：无涨跌幅列时按前收盘价计算；首行为 None"""
 
     # 60 行数据使 _fetch_price 满足 >=60 阈值直接返回，避免回退到未被 mock 的东方财富源
     dates = pd.date_range("2026-04-01", periods=60, freq="B").strftime("%Y-%m-%d").tolist()
@@ -204,7 +204,7 @@ def test_fetch_price_computes_change_pct_without_column(mocker):
     def _mock_daily(symbol, start_date, end_date, adjust):
         return pd.DataFrame(rows)
 
-    # 根 conftest 全局把腾讯源 patch 成 ConnectionError，此处覆盖为成功返回
+    # 根 conftest 全局把新浪源 patch 成 ConnectionError，此处覆盖为成功返回
     mocker.patch("akshare.stock_zh_a_daily", side_effect=_mock_daily)
     adapter = AkShareAdapter()
     results = adapter.fetch("000001", data_type="price", days=365)
@@ -231,7 +231,7 @@ def test_fetch_price_uses_explicit_dates(mocker):
         return pd.DataFrame(rows)
 
     mocker.patch("akshare.stock_zh_a_hist", side_effect=_mock_hist)
-    # 根 conftest 将腾讯源 patch 成 ConnectionError，会触发重试退避，屏蔽真实 sleep
+    # 根 conftest 将新浪源 patch 成 ConnectionError，会触发重试退避，屏蔽真实 sleep
     mocker.patch("utils.retry.time.sleep")
     adapter = AkShareAdapter()
     results = adapter.fetch("000001", data_type="price", start_date="20220101", end_date="20221231")
@@ -276,21 +276,15 @@ def test_fetch_valuation_quote_fail_returns_empty(mocker):
 
 
 def test_fetch_hk_price_uses_hk_history_and_maps_ohlcv(mocker):
-    frame = pd.DataFrame([{
-        "日期": "2026-10-01", "开盘": 500.0, "最高": 510.0, "最低": 495.0,
-        "收盘": 505.0, "成交量": 123456, "涨跌幅": 1.0,
-    }])
-    fetch = mocker.patch("akshare.stock_hk_hist", return_value=frame)
+    fetch = mocker.patch("data.akshare.daily_history", return_value=[
+        "2026-10-01,500,505,510,495,123456,0,0,1.0,0,0"])
 
     results = AkShareAdapter().fetch(
         "00700.HK", data_type="price", market="hk",
         start_date="20261001", end_date="20261002",
     )
 
-    assert fetch.call_args.kwargs == {
-        "symbol": "00700", "period": "daily", "start_date": "20261001",
-        "end_date": "20261002", "adjust": "",
-    }
+    fetch.assert_called_once_with("00700", "20261001", "20261002", 2)
     assert results[0].symbol == "00700.HK"
     assert results[0].close == 505.0
     assert results[0].change_pct == 1.0
@@ -298,21 +292,19 @@ def test_fetch_hk_price_uses_hk_history_and_maps_ohlcv(mocker):
 
 def test_fetch_hk_financial_maps_profit_and_balance_sheet(mocker):
     income = pd.DataFrame([{
-        "REPORT_DATE": "2026-06-30", "OPERATE_INCOME": 1000.0,
-        "PARENT_NETPROFIT": 200.0, "BASIC_EPS": 1.2,
-    }])
+        "REPORT_DATE": "2026-06-30", "STD_ITEM_CODE": code, "AMOUNT": amount,
+    } for code, amount in (("004001001", 1000), ("004025002", 200), ("004027002", 1.2))])
     balance = pd.DataFrame([{
-        "REPORT_DATE": "2026-06-30", "TOTAL_ASSETS": 5000.0,
-        "TOTAL_EQUITY": 3000.0,
-    }])
+        "REPORT_DATE": "2026-06-30", "STD_ITEM_CODE": code, "AMOUNT": amount,
+    } for code, amount in (("004009999", 5000), ("004036999", 3000))])
     fetch = mocker.patch(
-        "akshare.stock_financial_hk_report_em",
-        side_effect=[income, balance, pd.DataFrame()],
+        "data.akshare.financial_statement",
+        side_effect=[income.to_dict("records"), balance.to_dict("records"), []],
     )
 
     results = AkShareAdapter().fetch("00700.HK", data_type="financial", market="hk")
 
-    assert [call.kwargs["symbol"] for call in fetch.call_args_list] == ["利润表", "资产负债表", "现金流量表"]
+    assert [call.args[1] for call in fetch.call_args_list] == ["利润表", "资产负债表", "现金流量表"]
     assert results[0].symbol == "00700.HK"
     assert results[0].revenue == 1000.0
     assert results[0].net_profit == 200.0
@@ -321,9 +313,9 @@ def test_fetch_hk_financial_maps_profit_and_balance_sheet(mocker):
 
 
 def test_fetch_hk_valuation_maps_spot_pe_and_pb(mocker):
-    mocker.patch("akshare.stock_hk_spot_em", return_value=pd.DataFrame([{
-        "代码": "00700", "市盈率-动态": 20.5, "市净率": 3.2,
-    }]))
+    mocker.patch("data.akshare.stock_snapshot", return_value={
+        "f57": "00700", "f164": 20.5, "f167": 3.2, "f86": 1792138094,
+    })
 
     results = AkShareAdapter().fetch("00700.HK", data_type="valuation", market="hk")
 

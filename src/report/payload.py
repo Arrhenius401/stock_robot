@@ -23,7 +23,7 @@ def build_stock_payload(
     summary = compute_score_summary(results)
     price = compute_price_info(ctx)
     bulk = (commentary.get("bulk") or "").strip()
-    if not quality["has_scored_data"]:
+    if not quality["has_analysis_data"]:
         status = "insufficient"
         bulk = "主要数据不足，暂不调用模型生成结论。"
     elif no_llm:
@@ -36,7 +36,7 @@ def build_stock_payload(
         status = "ok"
     else:
         status = "failed"
-        bulk = with_commentary_fallback(commentary, summary, no_llm=False).get("bulk", "")
+        bulk = with_commentary_fallback(commentary, summary, no_llm=False, unscored=ctx.market == "hk").get("bulk", "")
     signal = None
     if quality["signal_allowed"] and signal_cfg is not None and summary.final_score is not None:
         level = derive_signal(summary.final_score, signal_cfg.thresholds)
@@ -44,16 +44,16 @@ def build_stock_payload(
         signal = {"level": level, "label": SIGNAL_LABELS[level],
                   "action": action.action, "position": action.position}
     return {
-        "symbol": symbol, "code": symbol, "name": name,
+        "symbol": symbol, "code": symbol, "name": name, "market": ctx.market,
         "overview": {
             "latest_close": price["latest_price"], "year_high": price["year_high"],
             "year_low": price["year_low"], "price_position": price["price_position"],
             "change_pct": price["change_pct"],
             "price_start": price["price_start"], "price_end": price["price_end"],
-            "industry": ctx.sw_industry or (ctx.industry_data.industry if ctx.industry_data else "未知"),
+            "industry": "不适用（港股不使用申万行业分类）" if ctx.market == "hk" else ctx.sw_industry or (ctx.industry_data.industry if ctx.industry_data else "未知"),
         },
-        "score": {"base": summary.base_score if quality["has_scored_data"] else None,
-                  "final": summary.final_score if quality["has_scored_data"] else None,
+        "score": {"base": summary.base_score if ctx.market != "hk" and quality["has_scored_data"] else None,
+                  "final": summary.final_score if ctx.market != "hk" and quality["has_scored_data"] else None,
                   "risk_deduction": summary.risk_deduction},
         "score_rows": summary.score_rows,
         "dimensions": {r.dimension: r.model_dump(mode="json", exclude={"dimension", "charts"})

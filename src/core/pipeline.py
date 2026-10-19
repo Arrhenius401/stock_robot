@@ -18,6 +18,7 @@ from data.schemas import (
     DataCollectionRecord,
     SufficiencyLevel,
 )
+from data.validation import financial_has_facts
 from utils.config import Config
 
 logger = logging.getLogger(__name__)
@@ -177,21 +178,22 @@ class Pipeline:
                                 source=getattr(result[0], "_data_source", "") or source.__class__.__name__,
                                 collected_at=datetime.now().astimezone(), cache_status="live",
                             )
+                            if isinstance(diagnostic, DataCollectionRecord):
+                                # 部分报表成功仍须保留补充接口失败，缓存与报告不能抹去缺失原因。
+                                record = record.model_copy(update={
+                                    "error_kind": diagnostic.error_kind,
+                                    "error_message": diagnostic.error_message,
+                                })
                             if data_type == "price" and not self._is_healthy(data_type, result):
                                 logger.warning("行情格式校验失败 %s", symbol)
                                 failure_record = DataCollectionRecord(source=record.source,
                                     error_kind="invalid_data", error_message="行情日期或价格格式无效")
                                 continue
-                            if self._is_healthy(data_type, result):
+                            if self._is_healthy(data_type, result, symbol):
                                 self._set_cache(symbol, data_type, result, record)
                                 self._breaker.record_success(symbol, data_type)
                             else:
                                 # 退化结果：不落库（_set_cache 门控双保险），计失败促断路器
-                                if isinstance(diagnostic, DataCollectionRecord):
-                                    record = record.model_copy(update={
-                                        "error_kind": diagnostic.error_kind,
-                                        "error_message": diagnostic.error_message,
-                                    })
                                 self._set_cache(symbol, data_type, result, record)
                                 self._breaker.record_failure(symbol, data_type)
                                 if data_type == "news" and stale_cached is not None:
@@ -314,7 +316,7 @@ class Pipeline:
         if self._llm_enabled:
             commentary = self._generate_commentary(
                 symbol, name, results, ctx.sw_industry, ctx.style_category,
-                on_progress=on_progress
+                on_progress=on_progress, context=ctx
             )
 
         return results, commentary, ctx
@@ -323,11 +325,13 @@ class Pipeline:
                              results: list[AnalysisResult],
                              sw_industry: str = "",
                              style_category: str = "",
-                             on_progress: ProgressCallback = None) -> dict[str, str]:
+                             on_progress: ProgressCallback = None,
+                             context: AnalysisContext | None = None) -> dict[str, str]:
         """单次批量 LLM 调用，生成四段结构化解读"""
         commentary = {}
-        if not any(r.dimension in ("financial", "technical", "valuation", "industry")
-                   and r.score is not None and r.status != "unavailable" for r in results):
+        from report.quality import build_data_quality, has_analysis_data
+
+        if not has_analysis_data(results, context):
             return commentary
         provider = self._config.get("llm.provider", "openai")
         llm = self._registry.get_llm_backend(provider)
@@ -389,7 +393,8 @@ class Pipeline:
             template_dir = Path(__file__).parent.parent / "llm" / "prompt_templates"
             env = Environment(loader=FileSystemLoader(str(template_dir)))
 
-            template = env.get_template(f"batch_analysis_{provider}.jinja2")
+            template = env.get_template("batch_analysis_hk.jinja2" if context is not None and context.market == "hk"
+                                        else f"batch_analysis_{provider}.jinja2")
             prompt = template.render(
                 sw_industry=sw_industry,
                 style_category=style_category,
@@ -398,6 +403,13 @@ class Pipeline:
                 risk_flags=all_risk_flags,
                 covered_dims="、".join(covered) if covered else "无",
                 missing_dims="、".join(missing) if missing else "无",
+                analysis_facts=json.dumps([
+                    {"dimension": r.dimension, "status": r.status, "metrics": r.metrics,
+                     "summary": r.summary, "risk_flags": r.risk_flags}
+                    for r in results
+                ], ensure_ascii=False, default=str),
+                data_quality=json.dumps(build_data_quality(context, results), ensure_ascii=False)
+                if context is not None else "",
             )
 
             if on_progress:
@@ -419,7 +431,7 @@ class Pipeline:
         try:
             data_list = json.loads(raw)
             results = self._deserialize_cache(data_type, symbol, data_list)
-            if not self._is_healthy(data_type, results):
+            if not self._is_healthy(data_type, results, symbol):
                 logger.info(f"缓存 {data_type}/{symbol} 数据退化，视为未命中")
                 return None
             if (data_type == "industry" and results
@@ -446,7 +458,7 @@ class Pipeline:
         try:
             data_list = json.loads(raw)
             results = self._deserialize_cache(data_type, symbol, data_list)
-            if not self._is_healthy(data_type, results):
+            if not self._is_healthy(data_type, results, symbol):
                 return None
             for item in results:
                 if data_type == "news":
@@ -459,7 +471,7 @@ class Pipeline:
             logger.debug("过期缓存格式无效 %s/%s", symbol, data_type)
             return None
 
-    def _is_healthy(self, data_type: str, data: list) -> bool:
+    def _is_healthy(self, data_type: str, data: list, symbol: str | None = None) -> bool:
         """健康判据：退化结果（空/未知/全缺失）不写持久缓存"""
         if not data:
             return False
@@ -468,8 +480,7 @@ class Pipeline:
             if getattr(ind, "industry", "") in ("", "未知"):
                 return False
         elif data_type == "financial":
-            if all(f.total_equity is None and f.total_assets is None for f in data):
-                return False
+            return financial_has_facts(data, symbol)
         elif data_type == "price":
             for item in data:
                 values = (item.open, item.high, item.low, item.close, item.volume)
@@ -492,7 +503,7 @@ class Pipeline:
 
     def _set_cache(self, symbol: str, data_type: str, data: list,
                    record: DataCollectionRecord | None = None):
-        if not self._is_healthy(data_type, data):
+        if not self._is_healthy(data_type, data, symbol):
             logger.info(f"缓存 {data_type}/{symbol} 数据退化，跳过持久化")
             return
         date_key = "latest"
