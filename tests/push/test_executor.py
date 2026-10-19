@@ -1,4 +1,9 @@
-from data.schemas import AnalysisContext, AnalysisResult
+from data.schemas import (
+    AnalysisContext,
+    AnalysisResult,
+    DimensionSufficiency,
+    SufficiencyLevel,
+)
 from push.executor import PushExecutor
 from push.models import Subscription, SubscriptionSymbol
 
@@ -12,6 +17,9 @@ class _Core:
 class _Pipeline:
     def run(self, symbol, name):
         ctx = AnalysisContext(symbol=symbol, name=name)
+        ctx.sufficiency.financial = DimensionSufficiency(
+            level=SufficiencyLevel.SUFFICIENT, sample_count=6,
+        )
         return ([AnalysisResult(dimension="financial", status="ok", score=7.0,
                                 summary="OK", metrics={})],
                 {"bulk": "综合解读"}, ctx)
@@ -61,6 +69,37 @@ class _Config:
 
 
 class TestPushExecutor:
+    def test_email_subject_uses_public_name(self, monkeypatch):
+        monkeypatch.setattr("push.executor.APP_NAME", "测试应用")
+        backend = _Backend()
+        PushExecutor(_Core(), None, _Config())._push_stock("600519", "email", backend, "样本")
+        assert backend.calls[0]["title"] == "[测试应用] 样本 分析报告"
+
+    def test_stock_email_without_main_data_suppresses_ai(self, mocker, tmp_path):
+        from push.store import PushStore
+
+        store = PushStore(tmp_path / "push.db")
+        sub_id = store.create(Subscription(
+            name="t", symbols=[SubscriptionSymbol(symbol="600519", kind="stock")],
+            channel="email", time="08:00",
+        ))
+        backend = _Backend()
+        mocker.patch("push.executor.get_backend", return_value=backend)
+        mocker.patch("push.executor.resolve_name", return_value="样本")
+        core = _Core()
+        mocker.patch.object(core.pipeline, "run", return_value=(
+            [AnalysisResult(dimension="financial", status="unavailable", summary="未获取")],
+            {"bulk": "不应输出的AI结论"}, AnalysisContext(symbol="600519", name="样本"),
+        ))
+        sub = store.get(sub_id)
+        assert sub is not None
+        result = PushExecutor(core, store, _Config()).run_subscription(sub)
+        assert result["ok"] == 1
+        content = backend.calls[0]["content"]
+        assert "不应输出的AI结论" not in content
+        assert "操作信号：" not in content
+        assert "数据覆盖与时效" in content
+
     def test_backend_initialization_failure_is_recorded(self, mocker, tmp_path):
         from push.store import PushStore
         store = PushStore(tmp_path / "push.db")

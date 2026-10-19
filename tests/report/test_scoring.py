@@ -18,7 +18,10 @@ def _result(dimension, score,
 
 
 def _ctx(price_data=None):
-    return AnalysisContext(symbol="000001", name="测试股票", price_data=price_data)
+    from data.schemas import DimensionSufficiency, SufficiencyLevel
+    ctx = AnalysisContext(symbol="000001", name="测试股票", price_data=price_data)
+    ctx.sufficiency.financial = DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT, sample_count=6)
+    return ctx
 
 
 def _price(high, low, close):
@@ -47,6 +50,7 @@ class TestComputeScoreSummary:
         ]
         summary = compute_score_summary(results)
         assert summary.risk_deduction == 10
+        assert summary.base_score is not None
         assert summary.final_score == max(0, summary.base_score - 10)
         assert len(summary.risk_flags) == 12
 

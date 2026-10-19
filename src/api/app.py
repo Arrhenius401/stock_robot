@@ -37,6 +37,7 @@ from push.models import Subscription
 from push.names import resolve_subscription
 from push.store import ActiveRunError, MissingSubscriptionError
 from push.symbol_search import search_symbols
+from stock_robot.metadata import APP_NAME, VERSION
 
 logger = logging.getLogger(__name__)
 _TITLE_REFINE_TIMEOUT_SECONDS = 0.25
@@ -134,6 +135,10 @@ def _extract_stock_reports(
             "commentary": commentary,
             "generated_at": report.get("generated_at"),
         }
+        for key in ("data_quality", "pending_verifications", "signal", "commentary_status",
+                    "commentary_retry_id"):
+            if key in report:
+                payload[key] = report[key]
         message_id = result.get("message_id")
         reports.append((
             payload["symbol"],
@@ -299,7 +304,7 @@ def create_app(
         push_executor = snapshot.push_executor
         push = snapshot.push_scheduler
 
-    app = FastAPI(title="Stock Robot API", version="0.1.0",
+    app = FastAPI(title=f"{APP_NAME} API", version=VERSION,
                   description="AI 驱动的股票分析研报助手 HTTP API")
 
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
@@ -356,7 +361,7 @@ def create_app(
 
     @app.get("/health")
     async def health():
-        return {"status": "ok", "version": "0.1.0"}
+        return {"status": "ok", "version": VERSION}
 
     @app.get("/api/v1/tools")
     async def list_tools():
@@ -371,8 +376,8 @@ def create_app(
         return Path.cwd() / "reports"
 
     def _save_web_stock_report(
-            symbol: str, name: str, results, commentary, ctx, agent_core,
-            snapshot: RuntimeSnapshot | None) -> Path:
+            symbol: str, name: str, results, commentary, ctx,
+            snapshot: RuntimeSnapshot | None, payload: dict) -> Path:
         """将网页个股分析保存为与 CLI 一致的 Markdown 报告。"""
         from report.formatter import ReportFormatter
         from report.scoring import build_report
@@ -386,7 +391,7 @@ def create_app(
             results,
             commentary,
             ctx,
-            no_llm=agent_core.llm is None,
+            no_llm=not config.get("llm.enabled", True),
             signal_cfg=load_signal_config(config),
         )
         saved_path = ReportFormatter.save(
@@ -394,6 +399,7 @@ def create_app(
             symbol,
             output_dir=_reports_root(),
             category="stock",
+            stock_payload=payload,
         )
         logger.info("网页个股报告已保存: %s", saved_path)
         return saved_path
@@ -772,62 +778,103 @@ def create_app(
         if agent_core is None:
             raise HTTPException(status_code=503, detail="Agent 核心未注入")
 
-        from utils.symbols import normalize_symbol, resolve_name, validate_symbol
+        from utils.symbols import (
+            normalize_symbol,
+            resolve_name,
+            symbol_market,
+            validate_symbol,
+        )
         if not validate_symbol(symbol):
             raise HTTPException(status_code=422, detail=f"无效的股票代码: {symbol}")
         symbol = normalize_symbol(symbol)
+        market = symbol_market(symbol)
         name = await asyncio.to_thread(resolve_name, symbol) or symbol
 
         try:
             results, commentary, ctx = await asyncio.to_thread(
-                agent_core.pipeline.run, symbol, name
+                agent_core.pipeline.run, symbol, name, market=market
             )
-            from report.scoring import (
-                compute_price_info,
-                compute_score_summary,
-                with_commentary_fallback,
-            )
+            from report.commentary import CommentaryContext, commentary_store
+            from report.payload import build_stock_payload
+            from report.signal import load_signal_config
+            from utils.config import Config
 
-            summary = compute_score_summary(results)
-            commentary = with_commentary_fallback(
-                commentary, summary, no_llm=agent_core.llm is None,
+            config = snapshot.config if snapshot is not None else Config()
+            signal_cfg = load_signal_config(config)
+            payload = build_stock_payload(
+                symbol, name, results, commentary, ctx,
+                no_llm=not config.get("llm.enabled", True), signal_cfg=signal_cfg,
+                llm_available=agent_core.llm is not None,
             )
-            price_info = compute_price_info(ctx)
-            dimensions = {}
-            for r in results:
-                dimensions[r.dimension] = {
-                    "status": r.status, "summary": r.summary, "score": r.score,
-                    "score_detail": r.score_detail, "metrics": r.metrics,
-                    "risk_flags": r.risk_flags,
-                }
-            payload = {
-                "symbol": symbol,
-                "name": name,
-                "overview": {
-                    "latest_close": price_info["latest_price"],
-                    "year_high": price_info["year_high"],
-                    "year_low": price_info["year_low"],
-                    "price_position": price_info["price_position"],
-                    "change_pct": price_info["change_pct"],
-                    "industry": ctx.industry_data.industry if ctx.industry_data else "未知",
-                },
-                "score": {"base": summary.base_score, "final": summary.final_score,
-                          "risk_deduction": summary.risk_deduction},
-                "score_rows": summary.score_rows,
-                "dimensions": dimensions,
-                "commentary": commentary.get("bulk", ""),
-                "signal": _build_signal_payload(
-                    summary.final_score,
-                    snapshot.config if snapshot is not None else None,
-                ),
-                "generated_at": datetime.now().astimezone().isoformat(),
-            }
-            _save_web_stock_report(
-                symbol, name, results, commentary, ctx, agent_core, snapshot)
+            saved_path = _save_web_stock_report(
+                symbol, name, results, commentary, ctx, snapshot, payload)
+            if payload["commentary_status"] == "failed":
+                payload["commentary_retry_id"] = commentary_store.remember(CommentaryContext(
+                    symbol, name, results, commentary, ctx, signal_cfg, output_path=saved_path,
+                ))
             return JSONResponse(_json_safe(payload))
         except Exception as e:  # noqa: BLE001 — HTTP 边界兜底
             logger.error("个股分析失败: %s", e)
             return JSONResponse({"symbol": symbol, "error": str(e)}, status_code=500)
+
+    @app.post("/api/v1/commentary/retry")
+    async def retry_commentary(request: Request):
+        """重用本次分析上下文，仅调用模型；不采集或重新计算指标。"""
+        from report.commentary import commentary_store
+        from report.formatter import ReportFormatter
+        from report.payload import build_stock_payload
+        from report.quality import build_data_quality
+        from report.scoring import LLM_UNAVAILABLE_PREFIXES, build_report
+
+        body = await request.json()
+        token = str(body.get("report_token", ""))
+        record = commentary_store.get(token)
+        if record is None:
+            raise HTTPException(status_code=410, detail="本次解读重试已过期，请通过现有入口重新分析")
+        artifact_id = body.get("artifact_id")
+        if artifact_id:
+            artifact = sessions.get_artifact(str(artifact_id)) if sessions is not None else None
+            if (artifact is None or artifact.get("session_id") != body.get("session_id")
+                    or artifact.get("payload", {}).get("commentary_retry_id") != token):
+                raise HTTPException(status_code=404, detail="本次报告成果不存在或不属于该会话")
+        if not build_data_quality(record.context, record.results)["has_scored_data"]:
+            raise HTTPException(status_code=422, detail="主要数据不足，暂不生成 AI 结论")
+        snapshot = _runtime_snapshot()
+        agent_core = _snapshot_core(snapshot)
+        if agent_core is None or agent_core.llm is None:
+            raise HTTPException(status_code=503, detail="模型未配置或不可用，请检查模型配置")
+        if not record.lock.acquire(blocking=False):
+            raise HTTPException(status_code=409, detail="此报告正在重试 AI 解读")
+        try:
+            commentary = await asyncio.to_thread(
+                agent_core.pipeline._generate_commentary,
+                record.symbol, record.name, record.results,
+                record.context.sw_industry, record.context.style_category,
+            )
+            bulk = (commentary.get("bulk") or "").strip()
+            if not bulk or bulk.startswith(LLM_UNAVAILABLE_PREFIXES):
+                raise HTTPException(status_code=502, detail="AI 解读重试失败，原报告已保留")
+            payload = build_stock_payload(
+                record.symbol, record.name, record.results, commentary,
+                record.context, signal_cfg=record.signal_config,
+            )
+            if record.output_path is not None:
+                markdown = build_report(
+                    record.symbol, record.name, record.results, commentary,
+                    record.context, signal_cfg=record.signal_config,
+                )
+                ReportFormatter.update_stock_snapshot(markdown, record.output_path, payload)
+            record.commentary = commentary
+            if artifact_id and sessions is not None:
+                sessions.update_artifact_payload(str(artifact_id), payload)
+            return JSONResponse(_json_safe(payload))
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001, RUF100 — 模型重试隔离边界，SDK 异常类型不可预测
+            logger.exception("AI 解读重试失败")
+            raise HTTPException(status_code=502, detail="AI 解读重试失败，请稍后重试") from exc
+        finally:
+            record.lock.release()
 
     @app.post("/api/v1/index")
     async def index(request: Request):
@@ -1225,7 +1272,7 @@ def create_app(
         def send_test() -> None:
             backend = get_backend("email", snapshot.config)
             backend.send(
-                title="[Stock Robot] 邮箱排版测试",
+                title=f"[{APP_NAME}] 邮箱排版测试",
                 content=(
                     "# 邮箱推送测试\n\n邮件发送与报告排版均已启用。\n\n"
                     "| 项目 | 示例 |\n|---|---|\n| 表格 | 可见边框与表头 |\n\n"

@@ -301,6 +301,12 @@ function reportHeader(report) {
 function investmentSummary(report) {
   const overview = record(report.overview);
   const signal = record(report.signal);
+  const quality = record(report.data_quality);
+  if (quality.signal_allowed === false) {
+    return quality.status === "unavailable"
+      ? "主要分析数据不可用，暂无分析结论。"
+      : "计分数据不完整，暂无操作信号和仓位建议。";
+  }
   const explicit = naturalText(report.summary) || naturalText(overview.summary);
   if (explicit) return explicit;
 
@@ -321,13 +327,22 @@ function investmentSummary(report) {
 function summarySection(report, sectionIdPrefix) {
   const card = section("report-summary", "投资摘要", "panel", sectionIdPrefix);
   card.appendChild(reportHeader(report));
+  const quality = record(report.data_quality);
+  if (quality.status) {
+    const badge = statusBadge(quality.status);
+    badge.textContent = {ok: "数据完整", partial: "数据不完整 · 暂无操作信号", unavailable: "数据不可用 · 暂无结论"}[quality.status] || "数据状态未记录";
+    card.appendChild(badge);
+  }
   card.appendChild(markdownBlock(investmentSummary(report), "report-investment-summary md"));
 
   const overview = record(report.overview);
-  const facts = el("div", "kv");
+  const facts = el("div", "kv report-summary-facts");
   if (overview.year_high !== null && overview.year_high !== undefined
       && overview.year_low !== null && overview.year_low !== undefined) {
-    facts.appendChild(kv("年内最高 / 最低",
+    const range = overview.price_start && overview.price_end
+      ? `${readable(overview.price_start)} — ${readable(overview.price_end)}` : "区间未记录";
+    facts.appendChild(kv("样本区间", range));
+    facts.appendChild(kv("区间最高 / 最低",
       `${readable(overview.year_high)} / ${readable(overview.year_low)}`));
   }
   if (overview.price_position && overview.price_position !== "暂无") {
@@ -339,8 +354,11 @@ function summarySection(report, sectionIdPrefix) {
     position.appendChild(value);
     facts.appendChild(position);
   }
-  if (report.generated_at) facts.appendChild(kv("生成时间", readable(report.generated_at)));
   if (facts.children.length) card.appendChild(facts);
+  const meta = el("div", "report-summary-meta");
+  if (report.generated_at) meta.appendChild(el("span", "", `生成时间：${readable(report.generated_at)}`));
+  if (Number.isFinite(quality.coverage)) meta.appendChild(el("span", "", `计分数据覆盖：${quality.coverage}%`));
+  if (meta.children.length) card.appendChild(meta);
   return card;
 }
 
@@ -348,8 +366,12 @@ function scoreSection(report, sectionIdPrefix) {
   const card = section("report-score", "综合评分", "panel", sectionIdPrefix);
   const score = record(report.score);
   const big = el("div", "score-big");
-  const number = el("div", "score-num", scoreText(score.final));
-  number.appendChild(el("small", "", "/10"));
+  const number = el("div", "score-num", scoreText(score.final, "暂无评分"));
+  if (score.final !== null && score.final !== undefined && score.final !== "") {
+    number.appendChild(el("small", "", "/10"));
+  } else {
+    number.classList.add("report-score-unavailable");
+  }
   big.appendChild(number);
 
   const rows = el("div", "score-rows");
@@ -380,11 +402,17 @@ function dimensionSection(name, label, data, sectionIdPrefix) {
   }
 
   const dimension = record(data);
-  const header = el("div", "dim-head");
+  const header = el("div", "dim-head report-dimension-heading");
+  const title = card.children[0];
+  title.remove();
+  header.appendChild(title);
   header.appendChild(statusBadge(dimension.status));
-  header.appendChild(el("span", "dim-score", scoreText(dimension.score)));
+  header.appendChild(el("span", "dim-score", scoreText(dimension.score, "暂无评分")));
   card.appendChild(header);
   card.appendChild(markdownBlock(naturalText(dimension.summary), "dim-sum md"));
+  if (naturalText(dimension.score_detail)) {
+    card.appendChild(el("div", "report-score-detail", `评分依据：${naturalText(dimension.score_detail)}`));
+  }
 
   const metrics = record(dimension.metrics);
   if (Object.keys(metrics).length) {
@@ -456,8 +484,29 @@ function commentaryParts(report) {
   return { intro, points };
 }
 
-function commentarySection(report, sectionIdPrefix) {
+function commentarySection(report, sectionIdPrefix, options) {
   const card = section("report-commentary", "AI 解读", "llm", sectionIdPrefix);
+  const state = report.commentary_status;
+  if (state && state !== "ok") {
+    const messages = {failed: "AI 解读生成失败，数据报告已保留。", disabled: "AI 解读未启用。", insufficient: "主要分析数据不足，未生成 AI 解读。", config: "AI 解读尚未配置。"};
+    card.appendChild(el("div", "report-empty", messages[state] || "暂无 AI 解读"));
+    const configure = state === "config";
+    const callback = configure ? options.onConfigure : options.onRetryCommentary;
+    if (!options.readOnly && (configure || state === "failed") && typeof callback === "function") {
+      const button = el("button", configure ? "subs-btn report-configure-commentary" : "subs-btn report-retry-commentary",
+        configure ? "配置 AI 解读" : options.commentaryBusy ? "正在生成…" : "重试 AI 解读");
+      button.type = "button";
+      button.disabled = Boolean(options.commentaryBusy);
+      button.addEventListener("click", () => callback());
+      card.appendChild(button);
+    }
+    if (options.commentaryError) {
+      const error = el("div", "report-commentary-error", String(options.commentaryError));
+      error.setAttribute("role", "alert");
+      card.appendChild(error);
+    }
+    return card;
+  }
   const { intro, points } = commentaryParts(report);
   if (intro) {
     card.appendChild(markdownBlock(intro, "report-commentary-intro dim-sum md"));
@@ -477,6 +526,63 @@ function commentarySection(report, sectionIdPrefix) {
   return card;
 }
 
+function pendingSection(report, sectionIdPrefix) {
+  const card = section("report-pending", "待验证事项", "panel", sectionIdPrefix);
+  const items = Array.isArray(report.pending_verifications) ? report.pending_verifications : [];
+  if (!items.length) {
+    card.appendChild(el("div", "report-empty", "暂无待验证事项"));
+    return card;
+  }
+  const list = el("ul", "report-pending-list");
+  for (const item of items) list.appendChild(el("li", "", readable(item)));
+  card.appendChild(list);
+  return card;
+}
+
+function qualitySection(report, sectionIdPrefix) {
+  const card = section("report-quality", "数据覆盖与时效", "panel", sectionIdPrefix);
+  const quality = record(report.data_quality);
+  if (quality.status) {
+    const heading = el("div", "report-section-heading");
+    const title = card.children[0];
+    title.remove();
+    heading.appendChild(title);
+    const badge = statusBadge(quality.status);
+    badge.textContent = {ok: "计分维度完整", partial: "计分维度不完整", unavailable: "数据不可用"}[quality.status] || "未记录";
+    heading.appendChild(badge);
+    card.appendChild(heading);
+  }
+  const supplied = Array.isArray(quality.dimensions) ? quality.dimensions : [];
+  const qualityTitles = {financial: "财务", technical: "技术", valuation: "估值", industry: "行业", sentiment: "舆情"};
+  const dimensions = supplied.length ? supplied : DIMENSIONS.map(([key]) => ({key, title: qualityTitles[key], fields: []}));
+  for (const value of dimensions) {
+    const dimension = record(value);
+    const row = el("div", "report-quality-row");
+    const heading = el("div", "report-quality-heading");
+    heading.appendChild(el("h3", "", readable(dimension.title)));
+    heading.appendChild(statusBadge(dimension.status));
+    row.appendChild(heading);
+    const fields = Array.isArray(dimension.fields) ? dimension.fields.map(record) : [];
+    const fixed = ["样本范围", "数据来源", "数据截止"];
+    const ordered = fixed.map(label => ({label, value: fields.find(field => field.label === label)?.value ?? "未记录"}));
+    ordered.push(...fields.filter(field => !fixed.includes(field.label)));
+    const grid = el("dl", "report-quality-fields");
+    for (const field of ordered) {
+      const item = el("div", "report-quality-field");
+      if (field.label === "数据来源") item.classList.add("report-quality-source");
+      else if (field.label === "数据截止") item.classList.add("report-quality-date");
+      else if (field.label !== "样本范围") item.classList.add("report-quality-wide");
+      if (field.label === "缺失原因" || field.label === "分析限制") item.classList.add("report-quality-limitation");
+      item.appendChild(el("dt", "", readable(field.label)));
+      item.appendChild(el("dd", "", readable(field.value, "未记录")));
+      grid.appendChild(item);
+    }
+    row.appendChild(grid);
+    card.appendChild(row);
+  }
+  return card;
+}
+
 export function renderStockReport(report, options = {}) {
   const data = record(report);
   const sectionIdPrefix = options.sectionIdPrefix || "";
@@ -490,7 +596,21 @@ export function renderStockReport(report, options = {}) {
     article.appendChild(dimensionSection(name, label, dimensions[name], sectionIdPrefix));
   }
   article.appendChild(risksSection(data, sectionIdPrefix));
-  article.appendChild(commentarySection(data, sectionIdPrefix));
+  article.appendChild(commentarySection(data, sectionIdPrefix, options));
+  if (options.archiveMarkdown) {
+    // 原文补充章沿用安全 Markdown 渲染，未知章节仍保留在原文入口。
+    const parts = String(options.archiveMarkdown).split(/\n(?=##\s+)/);
+    for (const [index, part] of parts.entries()) {
+      const match = part.match(/^##\s+(.+)$/m);
+      if (!match || !/多风格观察|工具局限性/.test(match[1])) continue;
+      const title = match[1].replace(/^[一二三四五六七八九十]+[、.．]\s*/, "");
+      const card = section(`report-archive-${index}`, title, "panel", sectionIdPrefix);
+      card.appendChild(markdownBlock(localizeReportMarkdown(part.replace(/^##\s+.+\n?/, "")), "md report-archive-body"));
+      article.appendChild(card);
+    }
+  }
+  article.appendChild(pendingSection(data, sectionIdPrefix));
+  article.appendChild(qualitySection(data, sectionIdPrefix));
   return article;
 }
 

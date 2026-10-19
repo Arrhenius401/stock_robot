@@ -1,0 +1,10 @@
+include requirements-core.lock.txt requirements-rag.lock.txt
+include scripts/run-radar-collector.py
+include data/industry_mapping.csv data/eastmoney_sw_mapping.csv
+include data/index_mapping.csv data/etf_index_mapping.csv
+recursive-include config *.yaml
+recursive-include src/analysis/config *.yaml
+recursive-include src/api/static *.html *.css *.js *.png
+recursive-include src/report/templates *.jinja2
+recursive-include src/llm/prompt_templates *.jinja2
+global-exclude __pycache__ *.py[cod]

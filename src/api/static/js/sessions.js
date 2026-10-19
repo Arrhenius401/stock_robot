@@ -6,7 +6,7 @@ import {
 } from "./state.js";
 import { api } from "./api.js";
 import { renderMessageHistory, clearChatScroll, cancelSessionRuns } from "./chat.js";
-import { closeReportDrawer } from "./report-drawer.js";
+import { closeReportDrawer } from "./report-drawer.js?v=20261012-report-library-1";
 import { el } from "./components.js";
 
 const listEl = () => document.getElementById("sessionList");

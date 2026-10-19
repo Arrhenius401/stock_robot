@@ -4,6 +4,7 @@ import logging
 from mcp.adapter import MCPAdapter
 from mcp.client import ExternalMCPClient
 from mcp.server import InternalMCPServer
+from stock_robot.metadata import DISTRIBUTION_NAME, VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -15,8 +16,8 @@ class MCPGateway:
     - 外部 Client: 连接第三方 MCP Server，发现其工具并适配为 ToolProtocol
     """
 
-    def __init__(self, server_name: str = "stock-robot",
-                 server_version: str = "0.1.0"):
+    def __init__(self, server_name: str = DISTRIBUTION_NAME,
+                 server_version: str = VERSION):
         self._server = InternalMCPServer(name=server_name, version=server_version)
         self._clients: dict[str, ExternalMCPClient] = {}
         self._adapter = MCPAdapter()

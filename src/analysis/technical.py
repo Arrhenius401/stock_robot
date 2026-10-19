@@ -23,12 +23,14 @@ class TechnicalAnalyzer(AnalysisModule):
 
         metrics = {"latest_close": latest_close}
 
-        if context.sufficiency and context.sufficiency.price.level == SufficiencyLevel.INSUFFICIENT:
+        if len(closes) < 20 or context.sufficiency.price.level == SufficiencyLevel.INSUFFICIENT:
             return AnalysisResult(dimension=self.dimension, status="unavailable",
                                   summary="行情数据不足", metrics=metrics,
                                   score=None, score_detail="技术面数据不足，跳过打分")
 
-        status = "partial" if len(closes) < 20 else "ok"
+        status = "partial" if (
+            len(closes) < 60 or context.sufficiency.price.level != SufficiencyLevel.SUFFICIENT
+        ) else "ok"
         summary = self._build_summary(metrics, status)
 
         if config:

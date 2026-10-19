@@ -28,7 +28,11 @@ class ValuationAnalyzer(AnalysisModule):
         if context.enriched_valuation and context.enriched_valuation.pe_percentile is not None:
             metrics["pe_percentile"] = context.enriched_valuation.pe_percentile
 
-        status = "partial"
+        status = "ok" if (
+            context.enriched_valuation
+            and len(context.enriched_valuation.daily_points) >= 120
+            and context.sufficiency.valuation.level == SufficiencyLevel.SUFFICIENT
+        ) else "partial"
         summary = self._build_summary(metrics)
 
         if context.sufficiency and context.sufficiency.valuation.level == SufficiencyLevel.INSUFFICIENT:

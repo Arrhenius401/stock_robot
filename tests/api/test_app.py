@@ -112,12 +112,19 @@ def make_multi_symbol_core():
 
 class FakePipeline:
     def run(self, symbol, name, market="a-shares"):
-        from data.schemas import AnalysisContext, AnalysisResult
+        from data.schemas import (
+            AnalysisContext,
+            AnalysisResult,
+            DataSufficiency,
+            DimensionSufficiency,
+    SufficiencyLevel,
+        )
         results = [AnalysisResult(
             dimension="financial", status="ok", summary="财务健康", score=8.0,
         )]
         return results, {"bulk": "AI 解读"}, AnalysisContext(
             symbol=symbol, name=name, market=market,
+            sufficiency=DataSufficiency(financial=DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT, sample_count=6)),
         )
 
 
@@ -171,8 +178,8 @@ def make_core():
 
 
 class TestAnalyzeSignal:
-    def test_analyze_response_contains_signal(self, mocker, tmp_path):
-        """/api/v1/analyze 响应含结构化 signal 字段（FakePipeline 得分为 8 → 进攻）"""
+    def test_analyze_incomplete_response_suppresses_signal(self, mocker, tmp_path):
+        """只有财务维度可用时，高分也不能生成操作信号。"""
         from fastapi.testclient import TestClient
 
         from api.app import create_app
@@ -184,12 +191,8 @@ class TestAnalyzeSignal:
         resp = client.post("/api/v1/analyze", json={"symbol": "000001"})
         assert resp.status_code == 200
         payload = resp.json()
-        assert payload["signal"] == {
-            "level": "attack",
-            "label": "进攻",
-            "action": "可考虑建仓/加仓",
-            "position": "60%-80%",
-        }
+        assert payload["signal"] is None
+        assert payload["data_quality"]["signal_allowed"] is False
 
 
 class ChatModeLLM:
@@ -1248,13 +1251,20 @@ class TestAnalyzeEndpoint:
 
         class EmptyCommentaryPipeline:
             def run(self, symbol, name, market="a-shares"):
-                from data.schemas import AnalysisContext, AnalysisResult
+                from data.schemas import (
+                    AnalysisContext,
+                    AnalysisResult,
+                    DataSufficiency,
+                    DimensionSufficiency,
+    SufficiencyLevel,
+                )
                 results = [AnalysisResult(
                     dimension="financial", status="ok", summary="财务健康",
                     score=8.0, score_detail="财务稳健",
                 )]
                 return results, {"bulk": ""}, AnalysisContext(
                     symbol=symbol, name=name, market=market,
+                    sufficiency=DataSufficiency(financial=DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT, sample_count=6)),
                 )
 
         from typing import cast

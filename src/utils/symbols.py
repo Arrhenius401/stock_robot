@@ -22,6 +22,16 @@ def _extract_prefix_and_digits(raw: str) -> tuple[str, str]:
     return (m.group(1) or "").lower(), m.group(2)
 
 
+def _hk_digits(raw: str) -> str:
+    matched = re.fullmatch(r"(?i)(?:hk)?(\d{5})(?:\.hk)?", raw.strip())
+    return matched.group(1) if matched else ""
+
+
+def symbol_market(symbol: str) -> str:
+    """返回已校验个股代码的市场标识。"""
+    return "hk" if _hk_digits(symbol) else "a-shares"
+
+
 def _code_to_market(code: str) -> str:
     """根据代码首位判断所属交易所"""
     first = code[0]
@@ -34,12 +44,17 @@ def _code_to_market(code: str) -> str:
 
 def normalize_symbol(raw: str) -> str:
     """清理前缀并补零到 6 位"""
+    hk_code = _hk_digits(raw)
+    if hk_code:
+        return f"{hk_code}.HK"
     cleaned = re.sub(r"^(sh|sz|SH|SZ)", "", raw.strip())
     return cleaned.zfill(6)
 
 
 def validate_symbol(symbol: str) -> bool:
     """校验 A 股代码格式，前缀与代码交易所必须一致"""
+    if _hk_digits(symbol):
+        return True
     prefix, digits = _extract_prefix_and_digits(symbol)
     if len(digits) < 5:
         return False

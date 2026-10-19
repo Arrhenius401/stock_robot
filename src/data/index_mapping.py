@@ -4,8 +4,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
 
+from utils.paths import resource_root
+
 IndexStyle = Literal["broad", "sector", "overseas", "strategy"]
-_DATA = Path(__file__).parent.parent.parent / "data"
+_DATA = resource_root() / "data"
 
 
 @dataclass

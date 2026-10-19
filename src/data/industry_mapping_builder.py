@@ -16,6 +16,8 @@ import requests
 import yaml
 from filelock import FileLock, Timeout
 
+from utils.paths import industry_mapping_path
+
 logger = logging.getLogger(__name__)
 
 OVERVIEW_URL = "https://legulegu.com/stockdata/sw-industry-overview/"
@@ -51,7 +53,7 @@ class IndustryMappingError(Exception):
 
 
 def _csv_path() -> Path:
-    return Path(__file__).parent.parent.parent / "data" / "industry_mapping.csv"
+    return industry_mapping_path(writable=True)
 
 
 def _candidate_path() -> Path:

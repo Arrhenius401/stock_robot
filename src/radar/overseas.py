@@ -16,6 +16,7 @@ import requests
 import yaml
 
 from radar.models import RadarUniverse
+from utils.paths import resource_root
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,7 @@ class OverseasService:
 
     def __init__(self, db_path: Path, mapping_path: Path | None = None):
         self.db_path = Path(db_path)
-        path = mapping_path or Path(__file__).resolve().parents[2] / 'config/radar_overseas_v1.yaml'
+        path = mapping_path or resource_root() / 'config/radar_overseas_v1.yaml'
         config = yaml.safe_load(path.read_text(encoding='utf-8'))
         self.version = config['version']
         self.mappings: dict[str, dict[str, Any]] = config['mappings']

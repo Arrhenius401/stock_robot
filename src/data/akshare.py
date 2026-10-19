@@ -2,7 +2,7 @@
 import csv
 import logging
 from datetime import date, datetime, timedelta
-from pathlib import Path
+from threading import local
 from typing import Any, cast
 
 import akshare as ak
@@ -13,6 +13,7 @@ ak = cast(Any, ak)
 from data.base import DataSource
 from data.schemas import (
     CapitalFlowData,
+    DataCollectionRecord,
     FinancialData,
     IndexPriceData,
     IndexValuationData,
@@ -30,7 +31,9 @@ logger = logging.getLogger(__name__)
 
 def _resolve_eastmoney_to_sw(industry: str) -> tuple[str, str] | None:
     """仅解析本地人工核验的高置信东财→申万唯一映射。"""
-    path = Path(__file__).parent.parent.parent / "data" / "eastmoney_sw_mapping.csv"
+    from utils.paths import resource_root
+
+    path = resource_root() / "data" / "eastmoney_sw_mapping.csv"
     try:
         with open(path, encoding="utf-8") as file:
             for row in csv.DictReader(file):
@@ -279,10 +282,27 @@ def _parse_debt_new(bs_df: Any) -> dict[str, tuple[float | None, float | None, f
 class AkShareAdapter(DataSource):
     """AkShare 数据源适配器 — 支持 A 股全部数据类型"""
 
+    def __init__(self):
+        # 同一适配器供多个采集线程复用；失败诊断不能共享实例字段。
+        self._collection_diagnostics = local()
+
+    def get_collection_error(self) -> DataCollectionRecord | None:
+        """返回当前线程最后一次采集的安全诊断。"""
+        return getattr(self._collection_diagnostics, "record", None)
+
+    def _record_collection_error(self, source: str, error: Exception):
+        kind = "timeout" if isinstance(error, TimeoutError) or "Timeout" in type(error).__name__ else "fetch_failed"
+        self._collection_diagnostics.record = DataCollectionRecord(
+            source=source, error_kind=kind,
+            error_message="数据请求超时" if kind == "timeout" else "数据请求失败",
+        )
+
     def supports(self, market: str, data_type: str) -> bool:
         if market == "a-shares" and data_type in (
             "price", "financial", "valuation", "industry", "news"
         ):
+            return True
+        if market == "hk" and data_type in ("price", "financial", "valuation"):
             return True
         elif data_type in ("index_price", "index_valuation", "index_capital_flow",
                            "index_macro", "index_sentiment"):
@@ -291,6 +311,7 @@ class AkShareAdapter(DataSource):
 
     def fetch(self, symbol: str, **kwargs) -> list:
         data_type = kwargs.get("data_type", "price")
+        self._collection_diagnostics.record = None
         # 指数数据分发（需显式传入 index_style 默认值，故单独处理）
         if data_type == "index_price":
             return self._fetch_index_price(symbol, kwargs.get("index_style", "broad"))
@@ -307,12 +328,23 @@ class AkShareAdapter(DataSource):
             if method is None:
                 logger.warning(f"AkShare 不支持数据类型: {data_type}")
                 return []
-            return method(symbol, **kwargs)
+            results = method(symbol, **kwargs)
+            labels = {"financial": "同花顺财报", "valuation": "腾讯估值快照",
+                      "industry": "AkShare 行业与同行池", "news": "东方财富新闻与公告"}
+            for item in results:
+                if not getattr(item, "_data_source", ""):
+                    item._data_source = labels.get(data_type, "AkShare")
+            return results
         except Exception as e:
             logger.error(f"AkShare 数据获取失败 {symbol}/{data_type}: {e}")
+            labels = {"financial": "同花顺财报", "valuation": "腾讯估值快照",
+                      "industry": "AkShare 行业与同行池", "news": "东方财富新闻与公告"}
+            self._record_collection_error(labels.get(data_type, "AkShare"), e)
             return []
 
     def _fetch_price(self, symbol: str, **kwargs) -> list[PriceData]:
+        if kwargs.get("market") == "hk":
+            return self._fetch_hk_price(symbol, **kwargs)
         # 回测等场景可显式指定起止日期（YYYYMMDD）；未完整指定时保持默认近一年（days=250）行为
         results: list[PriceData] = []
         start_date = kwargs.get("start_date")
@@ -346,7 +378,7 @@ class AkShareAdapter(DataSource):
                             logger.debug(f"涨跌幅解析失败，回退按前收盘计算: {e}")
                     if change_pct is None and prev_close:
                         change_pct = round((close_f - prev_close) / prev_close * 100, 2)
-                    results.append(PriceData(
+                    item = PriceData(
                         symbol=symbol,
                         trade_date=datetime.strptime(str(date_val)[:10], "%Y-%m-%d").astimezone().date(),
                         open=float(open_val),
@@ -355,7 +387,9 @@ class AkShareAdapter(DataSource):
                         close=close_f,
                         volume=int(float(vol_val)),
                         change_pct=change_pct,
-                    ))
+                    )
+                    item._data_source = "腾讯行情（前复权）" if source_label == "tencent" else "东方财富行情（前复权）"
+                    results.append(item)
                     # 异常行不更新 prev_close（真实数据中异常行罕见；若连续异常，
                     # 下一正常行将相对最后正常收盘计算，属可接受的近似）
                     prev_close = close_f
@@ -372,7 +406,10 @@ class AkShareAdapter(DataSource):
             logger.warning(f"腾讯源仅返回 {len(results)} 条行情数据（不足 60），尝试东方财富源")
         except Exception as e:
             logger.warning(f"腾讯源行情获取失败: {e}")
+            self._record_collection_error("腾讯行情（前复权）", e)
 
+        # 短历史仍然有效；备源返回更少数据时保留主源。
+        primary_results = results
         # 腾讯源数据不足或失败 → 回退东方财富源
         try:
             df = _ak_hist(symbol=symbol, period="daily",
@@ -383,11 +420,14 @@ class AkShareAdapter(DataSource):
             logger.warning(f"东方财富源仅返回 {len(results)} 条行情数据（不足 60）")
         except Exception as e:
             logger.warning(f"东方财富源行情获取也失败: {e}")
+            self._record_collection_error("东方财富行情（前复权）", e)
 
         # 两个源都不足，返回能拿到的那份（即使不足 60 条）
-        return results
+        return results if len(results) >= len(primary_results) else primary_results
 
     def _fetch_financial(self, symbol: str, **kwargs) -> list[FinancialData]:
+        if kwargs.get("market") == "hk":
+            return self._fetch_hk_financial(symbol)
         df: Any = ak.stock_financial_abstract_ths(symbol=symbol)
 
         # 从资产负债表端点补充 total_equity / total_assets（同花顺源，非东方财富）
@@ -484,24 +524,55 @@ class AkShareAdapter(DataSource):
 
     def _fetch_valuation(self, symbol: str, **kwargs) -> list[ValuationData]:
         """估值：腾讯实时快照（含 PE/PB，独立口径）。失败返回空列表。"""
+        if kwargs.get("market") == "hk":
+            return self._fetch_hk_valuation(symbol)
         import requests as _req
 
         tx_symbol = f"sh{symbol}" if symbol.startswith("6") else f"sz{symbol}"
         try:
             resp = _req.get(f"https://qt.gtimg.cn/q={tx_symbol}", timeout=10)
             fields = resp.text.split("~")
-            # 字段: [3]=现价, [39]=PE(TTM), [46]=PB；字段数不足视为上游结构变化
             if len(fields) < 47:
                 logger.warning(f"腾讯快照字段数异常: {len(fields)}")
                 return []
             pe = float(fields[39]) if fields[39] else None
             pb = float(fields[46]) if fields[46] else None
-        except Exception:  # 第三方网络边界，兜底降级
+        except Exception as e:
             logger.debug("腾讯快照获取失败，估值数据缺失")
+            self._record_collection_error("腾讯估值快照", e)
             return []
+        return [ValuationData(symbol=symbol, date=datetime.now().astimezone().date(), pe_ttm=pe, pb=pb, ps_ttm=None)]
 
-        return [ValuationData(symbol=symbol, date=datetime.now().astimezone().date(),
-                              pe_ttm=pe, pb=pb, ps_ttm=None)]
+    def _fetch_hk_price(self, symbol: str, **kwargs) -> list[PriceData]:
+        code = symbol.removesuffix(".HK")
+        df: Any = ak.stock_hk_hist(symbol=code, period="daily", start_date=kwargs.get("start_date", "19700101"), end_date=kwargs.get("end_date", "22220101"), adjust="")
+        rows = []
+        for _, row in df.iterrows():
+            rows.append(PriceData(symbol=symbol, trade_date=_parse_date(row["日期"]), open=float(row["开盘"]), high=float(row["最高"]), low=float(row["最低"]), close=float(row["收盘"]), volume=int(float(row["成交量"])), change_pct=float(row["涨跌幅"]) if row.get("涨跌幅") is not None else None))
+        return rows
+
+    def _fetch_hk_financial(self, symbol: str) -> list[FinancialData]:
+        code = symbol.removesuffix(".HK")
+        income: Any = ak.stock_financial_hk_report_em(stock=code, symbol="利润表", indicator="报告期")
+        balance: Any = ak.stock_financial_hk_report_em(stock=code, symbol="资产负债表", indicator="报告期")
+        cash_flow: Any = ak.stock_financial_hk_report_em(stock=code, symbol="现金流量表", indicator="报告期")
+        assets = {_parse_date(row["REPORT_DATE"]): row for _, row in balance.iterrows()}
+        cash_flows = {_parse_date(row["REPORT_DATE"]): row for _, row in cash_flow.iterrows()}
+        result = []
+        for _, row in income.iterrows():
+            period = _parse_date(row["REPORT_DATE"])
+            bs = assets.get(period, {})
+            cf = cash_flows.get(period, {})
+            result.append(FinancialData(symbol=symbol, fiscal_quarter=period, revenue=parse_cn_number(row.get("OPERATE_INCOME")), net_profit=parse_cn_number(row.get("PARENT_NETPROFIT", row.get("HOLDER_PROFIT"))), total_assets=parse_cn_number(bs.get("TOTAL_ASSETS")), total_equity=parse_cn_number(bs.get("TOTAL_EQUITY")), operating_cash_flow=parse_cn_number(cf.get("NETCASH_OPERATE"))))
+        return result
+
+    def _fetch_hk_valuation(self, symbol: str) -> list[ValuationData]:
+        code = symbol.removesuffix(".HK")
+        df: Any = ak.stock_hk_spot_em()
+        row = df[df["代码"].astype(str).str.zfill(5) == code]
+        if row.empty:
+            return []
+        return [ValuationData(symbol=symbol, date=datetime.now().astimezone().date(), pe_ttm=parse_cn_number(row["市盈率-动态"].iloc[0]), pb=parse_cn_number(row["市净率"].iloc[0]))]
 
     def _fetch_industry(self, symbol: str, **kwargs) -> list[IndustryData]:
         from data.schemas import PeerBasicInfo
@@ -609,6 +680,7 @@ class AkShareAdapter(DataSource):
                     ))
         except Exception as e:
             logger.warning(f"新闻数据获取失败: {e}")
+            self._record_collection_error("东方财富新闻", e)
 
         # 拉取公告（个股接口，直接按代码过滤，替代全市场拉取再过滤）
         try:
@@ -633,6 +705,7 @@ class AkShareAdapter(DataSource):
                         ))
         except Exception as e:
             logger.warning(f"公告数据获取失败: {e}")
+            self._record_collection_error("东方财富公告", e)
 
         # 去重并按日期排序，最多保留 30 条
         items.sort(key=lambda x: x.publish_date, reverse=True)
