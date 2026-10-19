@@ -127,12 +127,15 @@ def with_commentary_fallback(
     commentary: dict[str, str],
     summary: ScoreSummary,
     no_llm: bool,
+    *, unscored: bool = False,
 ) -> dict[str, str]:
     if no_llm:
         return commentary
     bulk = (commentary.get("bulk") or "").strip()
     if bulk and not bulk.startswith(LLM_UNAVAILABLE_PREFIXES):
         return commentary
+    if unscored:
+        return {**commentary, "bulk": "AI 解读当前不可用，可用分析指标已保留；港股综合评分、申万同行比较与交易信号不适用。"}
     return {**commentary, "bulk": _fallback_neutral_commentary(summary)}
 
 
@@ -149,10 +152,16 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
     if not quality["has_scored_data"]:
         summary.base_score = None
         summary.final_score = None
+    if not quality["has_analysis_data"]:
         commentary = {}
-    commentary = with_commentary_fallback(commentary, summary, no_llm) if quality["has_scored_data"] else commentary
+    commentary = with_commentary_fallback(commentary, summary, no_llm, unscored=ctx.market == "hk") if quality["has_analysis_data"] else commentary
+    if ctx.market == "hk":
+        summary.base_score = None
+        summary.final_score = None
     price_info = compute_price_info(ctx)
-    if ctx.sw_industry:
+    if ctx.market == "hk":
+        industry = "不适用（港股不使用申万行业分类）"
+    elif ctx.sw_industry:
         industry = ctx.sw_industry
     elif (ctx.industry_data and ctx.industry_data.industry
           and ctx.industry_data.industry != "未知"):
@@ -171,6 +180,7 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
     return builder.build(
         symbol=symbol,
         name=name,
+        market="港股" if ctx.market == "hk" else "A 股",
         results=results,
         commentary=commentary,
         no_llm=no_llm,

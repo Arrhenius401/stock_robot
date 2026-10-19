@@ -1,16 +1,23 @@
 """AkShare 数据源适配器 — A 股数据采集"""
 import csv
 import logging
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 from threading import local
 from typing import Any, cast
 
 import akshare as ak
+from pandas import NaT
 
 # akshare 无完整类型标注，接口返回值形态随版本变化，统一按 Any 处理
 ak = cast(Any, ak)
 
 from data.base import DataSource
+from data.hk_eastmoney import (
+    daily_history,
+    financial_statement,
+    finite_number,
+    stock_snapshot,
+)
 from data.schemas import (
     CapitalFlowData,
     DataCollectionRecord,
@@ -194,6 +201,8 @@ def _ak_board_industry_cons_em(symbol):
 
 def _parse_date(value) -> date:
     """解析 AkShare 日期值为 date（支持 date/datetime/字符串，格式 YYYY-MM-DD / YYYYMMDD）"""
+    if value is NaT:
+        raise ValueError("日期为空 NaT")
     if isinstance(value, datetime):
         return value.date()
     if isinstance(value, date):
@@ -312,6 +321,11 @@ class AkShareAdapter(DataSource):
     def fetch(self, symbol: str, **kwargs) -> list:
         data_type = kwargs.get("data_type", "price")
         self._collection_diagnostics.record = None
+        labels = {"financial": "同花顺财报", "valuation": "腾讯估值快照",
+                  "industry": "AkShare 行业与同行池", "news": "东方财富新闻与公告"}
+        if kwargs.get("market") == "hk":
+            labels.update(price="东方财富港股行情（不复权）", financial="东方财富港股财报",
+                          valuation="东方财富港股估值快照")
         # 指数数据分发（需显式传入 index_style 默认值，故单独处理）
         if data_type == "index_price":
             return self._fetch_index_price(symbol, kwargs.get("index_style", "broad"))
@@ -329,16 +343,12 @@ class AkShareAdapter(DataSource):
                 logger.warning(f"AkShare 不支持数据类型: {data_type}")
                 return []
             results = method(symbol, **kwargs)
-            labels = {"financial": "同花顺财报", "valuation": "腾讯估值快照",
-                      "industry": "AkShare 行业与同行池", "news": "东方财富新闻与公告"}
             for item in results:
                 if not getattr(item, "_data_source", ""):
                     item._data_source = labels.get(data_type, "AkShare")
             return results
         except Exception as e:
             logger.error(f"AkShare 数据获取失败 {symbol}/{data_type}: {e}")
-            labels = {"financial": "同花顺财报", "valuation": "腾讯估值快照",
-                      "industry": "AkShare 行业与同行池", "news": "东方财富新闻与公告"}
             self._record_collection_error(labels.get(data_type, "AkShare"), e)
             return []
 
@@ -545,34 +555,91 @@ class AkShareAdapter(DataSource):
 
     def _fetch_hk_price(self, symbol: str, **kwargs) -> list[PriceData]:
         code = symbol.removesuffix(".HK")
-        df: Any = ak.stock_hk_hist(symbol=code, period="daily", start_date=kwargs.get("start_date", "19700101"), end_date=kwargs.get("end_date", "22220101"), adjust="")
-        rows = []
-        for _, row in df.iterrows():
-            rows.append(PriceData(symbol=symbol, trade_date=_parse_date(row["日期"]), open=float(row["开盘"]), high=float(row["最高"]), low=float(row["最低"]), close=float(row["收盘"]), volume=int(float(row["成交量"])), change_pct=float(row["涨跌幅"]) if row.get("涨跌幅") is not None else None))
-        return rows
+        today = datetime.now().astimezone().date()
+        start = _parse_date(kwargs.get("start_date") or (today - timedelta(days=365)))
+        end = _parse_date(kwargs.get("end_date") or today)
+        if start > end:
+            raise ValueError("港股行情起始日期晚于结束日期")
+        # 一次有界请求；接口间歇失败由采集边界明确降级，不无限重试。
+        lines = daily_history(code, start.strftime("%Y%m%d"), end.strftime("%Y%m%d"), (end - start).days + 1)
+        rows: dict[date, PriceData] = {}
+        for line in lines:
+            try:
+                fields = line.split(",")
+                period = _parse_date(fields[0])
+                values = [finite_number(value) for value in fields[1:6]]
+                if len(values) != 5 or any(value is None for value in values) or not start <= period <= end:
+                    continue
+                opening, close, high, low, volume = cast(list[float], values)
+                if min(opening, close, high, low) <= 0 or volume < 0:
+                    continue
+                rows[period] = PriceData(symbol=symbol, trade_date=period, open=opening, high=high,
+                    low=low, close=close, volume=int(volume), change_pct=finite_number(fields[8]) if len(fields) > 8 else None)
+            except (ValueError, TypeError, IndexError, AttributeError) as error:
+                logger.debug("跳过港股异常行情行: %s", error)
+        return [rows[key] for key in sorted(rows)]
 
     def _fetch_hk_financial(self, symbol: str) -> list[FinancialData]:
         code = symbol.removesuffix(".HK")
-        income: Any = ak.stock_financial_hk_report_em(stock=code, symbol="利润表", indicator="报告期")
-        balance: Any = ak.stock_financial_hk_report_em(stock=code, symbol="资产负债表", indicator="报告期")
-        cash_flow: Any = ak.stock_financial_hk_report_em(stock=code, symbol="现金流量表", indicator="报告期")
-        assets = {_parse_date(row["REPORT_DATE"]): row for _, row in balance.iterrows()}
-        cash_flows = {_parse_date(row["REPORT_DATE"]): row for _, row in cash_flow.iterrows()}
+        income = financial_statement(code, "利润表")
+        def aggregate(records: list[dict[str, Any]]) -> dict[date, dict[str, float]]:
+            """同一日期多科目长表聚合；不求和重复科目，不让空值覆盖有效值。"""
+            periods: dict[date, dict[str, float]] = {}
+            for row in records:
+                try:
+                    if (str(row.get("SECUCODE", symbol)) != symbol
+                            or str(row.get("SECURITY_CODE", code)) != code):
+                        continue
+                    period = _parse_date(row.get("REPORT_DATE"))
+                    item = str(row.get("STD_ITEM_CODE", ""))
+                    amount = finite_number(row.get("AMOUNT"))
+                    if item and amount is not None:
+                        periods.setdefault(period, {}).setdefault(item, amount)
+                except (ValueError, TypeError) as error:
+                    logger.debug("跳过港股异常财报行: %s", error)
+            return periods
+
+        income_periods = aggregate(income)
+
+        def supplement(statement: str) -> dict[date, dict[str, float]]:
+            try:
+                return aggregate(financial_statement(code, statement))
+            except Exception as error:  # 第三方补充报表隔离；本文件已豁免 BLE001
+                logger.warning("港股%s获取失败，仅保留其他已获取财务字段: %s", statement, error)
+                previous = self.get_collection_error()
+                self._record_collection_error(f"东方财富港股财报（{statement}）", error)
+                diagnostic = self.get_collection_error()
+                if diagnostic is not None:
+                    messages = [previous.error_message] if previous is not None else []
+                    messages.append(f"{statement}：{diagnostic.error_message}")
+                    self._collection_diagnostics.record = diagnostic.model_copy(update={
+                        "error_message": "；".join(messages),
+                    })
+                return {}
+
+        assets, cash_flows = supplement("资产负债表"), supplement("现金流量表")
         result = []
-        for _, row in income.iterrows():
-            period = _parse_date(row["REPORT_DATE"])
+        for period, row in sorted(income_periods.items()):
             bs = assets.get(period, {})
             cf = cash_flows.get(period, {})
-            result.append(FinancialData(symbol=symbol, fiscal_quarter=period, revenue=parse_cn_number(row.get("OPERATE_INCOME")), net_profit=parse_cn_number(row.get("PARENT_NETPROFIT", row.get("HOLDER_PROFIT"))), total_assets=parse_cn_number(bs.get("TOTAL_ASSETS")), total_equity=parse_cn_number(bs.get("TOTAL_EQUITY")), operating_cash_flow=parse_cn_number(cf.get("NETCASH_OPERATE"))))
+            # 营业额不是营运收入；归母权益不是包含少数股东的总权益，分别保留。
+            result.append(FinancialData(symbol=symbol, fiscal_quarter=period,
+                revenue=row.get("004001001"), net_profit=row.get("004025002"), basic_eps=row.get("004027002"),
+                total_assets=bs.get("004009999"), total_equity=bs.get("004036999"),
+                common_equity=bs.get("004030999"), operating_cash_flow=cf.get("003999")))
         return result
 
     def _fetch_hk_valuation(self, symbol: str) -> list[ValuationData]:
         code = symbol.removesuffix(".HK")
-        df: Any = ak.stock_hk_spot_em()
-        row = df[df["代码"].astype(str).str.zfill(5) == code]
-        if row.empty:
+        snapshot = stock_snapshot(code)
+        pe, pb = finite_number(snapshot.get("f164")), finite_number(snapshot.get("f167"))
+        timestamp = finite_number(snapshot.get("f86"))
+        pe = pe if pe is not None and pe > 0 else None
+        pb = pb if pb is not None and pb > 0 else None
+        if timestamp is None or timestamp <= 0 or (pe is None and pb is None):
             return []
-        return [ValuationData(symbol=symbol, date=datetime.now().astimezone().date(), pe_ttm=parse_cn_number(row["市盈率-动态"].iloc[0]), pb=parse_cn_number(row["市净率"].iloc[0]))]
+        snapshot_date = datetime.fromtimestamp(timestamp, tz=UTC).astimezone(timezone(timedelta(hours=8))).date()
+        return [ValuationData(symbol=symbol, date=snapshot_date, pe_ttm=pe, pb=pb)]
 
     def _fetch_industry(self, symbol: str, **kwargs) -> list[IndustryData]:
         from data.schemas import PeerBasicInfo

@@ -1,4 +1,5 @@
 """报告数据覆盖、来源和复核事项的共享事实视图。"""
+import math
 from datetime import date
 from typing import Any
 
@@ -14,6 +15,25 @@ _DIMENSIONS = (
 _LEVEL = {"sufficient": 2, "partial": 1, "insufficient": 0}
 _STATUS = {2: "ok", 1: "partial", 0: "unavailable"}
 _RESULT_LEVEL = {"ok": 2, "partial": 1, "unavailable": 0}
+_HK_METRICS = {
+    "financial": {"revenue", "net_profit", "total_assets", "total_equity", "roe", "gross_margin", "operating_cash_flow", "operating_cash_flow_per_share", "revenue_growth_yoy", "profit_growth_yoy"},
+    "technical": {"latest_close", "ma_5", "ma_20", "ma_60"},
+    "valuation": {"pe_ttm", "pb", "ps_ttm"},
+}
+
+
+def has_analysis_data(results: list[AnalysisResult], ctx: AnalysisContext | None = None) -> bool:
+    """港股使用有效实测指标，A 股维持既有可评分门槛。"""
+    if ctx is None or ctx.market != "hk":
+        return any(r.dimension in ("financial", "technical", "valuation", "industry")
+                   and r.score is not None and r.status != "unavailable" for r in results)
+    return any(
+        r.status in ("ok", "partial")
+        and any(isinstance(value, (int, float)) and not isinstance(value, bool)
+                and math.isfinite(value)
+                for key, value in r.metrics.items() if key in _HK_METRICS.get(r.dimension, set()))
+        for r in results
+    )
 
 
 def _sample_dates(ctx: AnalysisContext, key: str) -> tuple[str, str]:
@@ -62,7 +82,7 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult]) -> d
         suff = getattr(ctx.sufficiency, suff_key)
         result = result_map.get(key)
         level = min(_LEVEL.get(suff.level, 0), _RESULT_LEVEL.get(result.status, 0) if result else 0)
-        if weight and (result is None or result.score is None):
+        if ctx.market != "hk" and weight and (result is None or result.score is None):
             level = min(level, 1)
         if weight:
             coverage += weight * (level / 2)
@@ -110,11 +130,13 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult]) -> d
             fields.append({"label": "分析限制", "value": "历史估值序列未经实测锚定校验"})
             pending.append("估值：核对历史估值序列的锚定口径")
         dimensions.append({"key": key, "title": title, "status": _STATUS[level], "fields": fields})
+    analysis_available = has_analysis_data(results, ctx) if ctx.market == "hk" else has_scored
     return {
-        "status": "ok" if all_complete else "partial" if has_scored else "unavailable",
+        "status": "ok" if all_complete else "partial" if analysis_available else "unavailable",
         "coverage": round(coverage * 100, 1),
-        "signal_allowed": all_complete and has_scored,
+        "signal_allowed": ctx.market != "hk" and all_complete and has_scored,
         "has_scored_data": has_scored,
+        "has_analysis_data": analysis_available,
         "dimensions": dimensions,
         "pending_verifications": list(dict.fromkeys(pending)),
     }

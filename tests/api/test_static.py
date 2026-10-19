@@ -188,7 +188,7 @@ def _module_url(path: str) -> str:
     url = Path(path).resolve().as_uri()
     # 与聊天模块的正式导入保持同一 URL，避免产生两份抽屉状态单例。
     if path.endswith("/report-drawer.js"):
-        url += "?v=20261012-report-library-1"
+        url += "?v=20261019-hk-live-data-1"
     return url
 
 
@@ -309,7 +309,7 @@ class TestStaticUI:
         app_js = (await client.get("/js/app.js")).text
         api_js = (await client.get("/js/api.js")).text
 
-        assert 'import { initReportLibrary } from "./report-library.js?v=20261012-report-library-1";' in app_js
+        assert 'import { initReportLibrary } from "./report-library.js?v=20261019-hk-live-data-1";' in app_js
         assert "initReportLibrary();" in app_js
         assert "listReports(" in api_js
         assert "getReport(" in api_js
@@ -346,7 +346,7 @@ class TestStaticUI:
     async def test_app_initializes_report_drawer(self, client):
         resp = await client.get("/js/app.js")
 
-        assert 'import { initReportDrawer } from "./report-drawer.js?v=20261012-report-library-1";' in resp.text
+        assert 'import { initReportDrawer } from "./report-drawer.js?v=20261019-hk-live-data-1";' in resp.text
         assert "initReportDrawer();" in resp.text
 
     def test_markdown_renderer_escapes_untrusted_input_and_formats_safe_blocks(self):
@@ -401,6 +401,23 @@ if (!code.includes("**代码原样** [不应解析](https://example.com)")
             check=False,
         )
         assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+
+    def test_hk_report_renderer_explains_unscored_metrics_and_currency(self, tmp_path):
+        renderer_url = json.dumps(_module_url("src/api/static/js/report-renderer.js"))
+        script = _DOM_STUB + r'''
+const { renderStockReport } = await import(__RENDERER_URL__);
+const report = {
+  market: "hk", symbol: "00700.HK", name: "腾讯控股",
+  score: { final: null }, score_rows: [{ label: "财务健康", score: "N/A", weight: "30%" }],
+  data_quality: { status: "partial", signal_allowed: false, has_analysis_data: true, coverage: 47.5 },
+  dimensions: { financial: { status: "partial", metrics: { latest_quarter: "2026-06-30", revenue: 396431000000 } } },
+};
+const article = renderStockReport(report);
+if (!article.textContent.includes("最新报告期") || !article.textContent.includes("原币")) throw new Error("港股期间或币种说明缺失");
+if (!article.textContent.includes("评分不适用") || !article.textContent.includes("分析数据覆盖")) throw new Error("港股仍被当作待完成A股评分");
+if (article.textContent.includes("计分数据覆盖") || byClass(article, "score-rows").length) throw new Error("港股展示了A股计分控件");
+'''.replace("__RENDERER_URL__", renderer_url)
+        _run_node(tmp_path, script)
 
     def test_report_renderer_handles_variants_and_unsafe_text(self, tmp_path):
         renderer_url = json.dumps(_module_url("src/api/static/js/report-renderer.js"))

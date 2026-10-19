@@ -31,7 +31,7 @@ const METRIC_LABELS = {
   etf_sample_count: "ETF交易日样本数", etf_unavailable_reason: "ETF表现不可用原因",
   latest_close: "最新收盘价", latest_price: "最新价格", change_pct: "涨跌幅",
   year_high: "近一年最高价", year_low: "近一年最低价", price_position: "价格位置",
-  latest_quarter: "最新财报季度", revenue: "营业收入", net_profit: "净利润",
+  latest_quarter: "最新报告期", revenue: "营业收入", net_profit: "净利润",
   total_assets: "总资产", total_equity: "股东权益", operating_cash_flow: "经营活动现金流",
   operating_cash_flow_per_share: "每股经营现金流", revenue_growth_yoy: "营收同比增长",
   profit_growth_yoy: "净利润同比增长", roe: "净资产收益率", gross_margin: "毛利率",
@@ -302,6 +302,11 @@ function investmentSummary(report) {
   const overview = record(report.overview);
   const signal = record(report.signal);
   const quality = record(report.data_quality);
+  if (report.market === "hk") {
+    return quality.has_analysis_data
+      ? "依据可用港股指标进行观察；A 股综合评分、申万同行比较与交易信号不适用。"
+      : "主要分析数据不可用，暂无分析结论；港股不适用 A 股综合评分或交易信号。";
+  }
   if (quality.signal_allowed === false) {
     return quality.status === "unavailable"
       ? "主要分析数据不可用，暂无分析结论。"
@@ -330,7 +335,9 @@ function summarySection(report, sectionIdPrefix) {
   const quality = record(report.data_quality);
   if (quality.status) {
     const badge = statusBadge(quality.status);
-    badge.textContent = {ok: "数据完整", partial: "数据不完整 · 暂无操作信号", unavailable: "数据不可用 · 暂无结论"}[quality.status] || "数据状态未记录";
+    badge.textContent = (report.market === "hk"
+      ? {ok: "分析数据可用 · 评分不适用", partial: "部分分析数据可用 · 评分不适用", unavailable: "数据不可用 · 暂无结论"}
+      : {ok: "数据完整", partial: "数据不完整 · 暂无操作信号", unavailable: "数据不可用 · 暂无结论"})[quality.status] || "数据状态未记录";
     card.appendChild(badge);
   }
   card.appendChild(markdownBlock(investmentSummary(report), "report-investment-summary md"));
@@ -357,13 +364,18 @@ function summarySection(report, sectionIdPrefix) {
   if (facts.children.length) card.appendChild(facts);
   const meta = el("div", "report-summary-meta");
   if (report.generated_at) meta.appendChild(el("span", "", `生成时间：${readable(report.generated_at)}`));
-  if (Number.isFinite(quality.coverage)) meta.appendChild(el("span", "", `计分数据覆盖：${quality.coverage}%`));
+  if (Number.isFinite(quality.coverage)) meta.appendChild(el("span", "", `${report.market === "hk" ? "分析数据覆盖" : "计分数据覆盖"}：${quality.coverage}%`));
   if (meta.children.length) card.appendChild(meta);
+  if (report.market === "hk") card.appendChild(el("div", "report-empty", "财务金额为财报原币，未换汇；不与港币行情混算历史估值。"));
   return card;
 }
 
 function scoreSection(report, sectionIdPrefix) {
   const card = section("report-score", "综合评分", "panel", sectionIdPrefix);
+  if (report.market === "hk") {
+    card.appendChild(el("div", "report-empty", "不适用：港股不套用 A 股综合评分、申万同行比较或交易信号。"));
+    return card;
+  }
   const score = record(report.score);
   const big = el("div", "score-big");
   const number = el("div", "score-num", scoreText(score.final, "暂无评分"));
@@ -394,7 +406,7 @@ function scoreSection(report, sectionIdPrefix) {
   return card;
 }
 
-function dimensionSection(name, label, data, sectionIdPrefix) {
+function dimensionSection(name, label, data, sectionIdPrefix, unscored = false) {
   const card = section(`report-${name}`, label, "panel", sectionIdPrefix);
   if (!data || typeof data !== "object" || Array.isArray(data)) {
     card.appendChild(el("div", "report-empty", "暂无数据"));
@@ -407,10 +419,10 @@ function dimensionSection(name, label, data, sectionIdPrefix) {
   title.remove();
   header.appendChild(title);
   header.appendChild(statusBadge(dimension.status));
-  header.appendChild(el("span", "dim-score", scoreText(dimension.score, "暂无评分")));
+  header.appendChild(el("span", "dim-score", unscored ? "评分不适用" : scoreText(dimension.score, "暂无评分")));
   card.appendChild(header);
   card.appendChild(markdownBlock(naturalText(dimension.summary), "dim-sum md"));
-  if (naturalText(dimension.score_detail)) {
+  if (!unscored && naturalText(dimension.score_detail)) {
     card.appendChild(el("div", "report-score-detail", `评分依据：${naturalText(dimension.score_detail)}`));
   }
 
@@ -548,7 +560,9 @@ function qualitySection(report, sectionIdPrefix) {
     title.remove();
     heading.appendChild(title);
     const badge = statusBadge(quality.status);
-    badge.textContent = {ok: "计分维度完整", partial: "计分维度不完整", unavailable: "数据不可用"}[quality.status] || "未记录";
+    badge.textContent = (report.market === "hk"
+      ? {ok: "分析数据可用", partial: "分析数据部分可用", unavailable: "数据不可用"}
+      : {ok: "计分维度完整", partial: "计分维度不完整", unavailable: "数据不可用"})[quality.status] || "未记录";
     heading.appendChild(badge);
     card.appendChild(heading);
   }
@@ -593,7 +607,7 @@ export function renderStockReport(report, options = {}) {
 
   const dimensions = record(data.dimensions);
   for (const [name, label] of DIMENSIONS) {
-    article.appendChild(dimensionSection(name, label, dimensions[name], sectionIdPrefix));
+    article.appendChild(dimensionSection(name, label, dimensions[name], sectionIdPrefix, data.market === "hk"));
   }
   article.appendChild(risksSection(data, sectionIdPrefix));
   article.appendChild(commentarySection(data, sectionIdPrefix, options));

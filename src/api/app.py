@@ -837,7 +837,7 @@ def create_app(
             if (artifact is None or artifact.get("session_id") != body.get("session_id")
                     or artifact.get("payload", {}).get("commentary_retry_id") != token):
                 raise HTTPException(status_code=404, detail="本次报告成果不存在或不属于该会话")
-        if not build_data_quality(record.context, record.results)["has_scored_data"]:
+        if not build_data_quality(record.context, record.results)["has_analysis_data"]:
             raise HTTPException(status_code=422, detail="主要数据不足，暂不生成 AI 结论")
         snapshot = _runtime_snapshot()
         agent_core = _snapshot_core(snapshot)
@@ -850,6 +850,7 @@ def create_app(
                 agent_core.pipeline._generate_commentary,
                 record.symbol, record.name, record.results,
                 record.context.sw_industry, record.context.style_category,
+                context=record.context,
             )
             bulk = (commentary.get("bulk") or "").strip()
             if not bulk or bulk.startswith(LLM_UNAVAILABLE_PREFIXES):

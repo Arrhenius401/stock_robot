@@ -65,6 +65,9 @@
 
 ## 三、五大维度标准化打分
 
+{% if market == "港股" %}
+> 不适用：港股不套用 A 股综合评分、申万同行比较或交易信号。
+{% else %}
 {{ score_rows | md_table({"维度": "label", "得分": "score", "权重": "weight", "充足状态": "sufficiency"}) }}
 
 **综合得分（扣风险前）：** {{ (base_score|string) ~ "/10" if base_score is not none else "暂无" }}
@@ -78,12 +81,13 @@
 **{{ dim.label }}**：{{ dim.detail }}
 {% endif %}
 {% endfor %}
+{% endif %}
 
 ---
 
 ## 四、AI 中性解读 + 风险汇总
 
-{% if data_quality and not data_quality.has_scored_data %}
+{% if data_quality and not data_quality.has_analysis_data %}
 > 主要分析数据不可用，暂不生成 AI 结论。
 {% elif no_llm %}
 > 纯量化模式，未启用 AI 解读。
@@ -104,7 +108,7 @@
 
 ## 五、多风格观察视角
 
-{% if no_llm or (data_quality and not data_quality.has_scored_data) %}
+{% if no_llm or (data_quality and not data_quality.has_analysis_data) %}
 > 本次未生成模型观察视角。
 {% else %}
 > 多风格观察视角内容已包含在上方「AI 中性解读」的第 3 段中，详见上方 ## 3.多风格观察视角 部分。
@@ -114,7 +118,10 @@
 
 ## 六、工具局限性 + 免责声明
 
-> 本报告数据来源为 AkShare 公开接口，数据时效性和准确性可能受网络、接口限流等因素影响。
+> 本报告使用公开市场数据，实际采集来源见「数据覆盖与时效」；数据时效性和准确性可能受网络、接口限流等因素影响。
+{% if market == "港股" %}
+> 财务金额保持原始财报原币口径，未进行币种转换；港币行情与财报金额不混算。财报按报告期展示，不将半年度或年度报告视作季度数据。
+{% endif %}
 > 所有分析方法均为量化指标客观计算，不包含人工主观判断。
 > 报告中的分数和多风格视角仅用于客观描述不同投资风格下的关注点差异，不构成任何形式的投资建议。
 > 市场有风险，投资需谨慎。使用者需自行承担全部投资决策风险。
@@ -137,7 +144,7 @@
 ## 八、数据覆盖与时效
 
 {% if data_quality %}
-计分维度覆盖：{{ data_quality.coverage }}%。{% if not data_quality.signal_allowed %}数据依据不完整，暂无操作信号和仓位建议。{% endif %}
+{% if market == "港股" %}分析数据覆盖：{{ data_quality.coverage }}%。港股评分与操作信号不适用。{% else %}计分维度覆盖：{{ data_quality.coverage }}%。{% if not data_quality.signal_allowed %}数据依据不完整，暂无操作信号和仓位建议。{% endif %}{% endif %}
 
 {% for dimension in data_quality.dimensions %}
 ### {{ dimension.title }} · {{ {"ok": "正常", "partial": "部分数据", "unavailable": "数据不可用"}[dimension.status] }}

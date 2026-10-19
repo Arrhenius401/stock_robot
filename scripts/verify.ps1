@@ -133,7 +133,10 @@ foreach ($file in $changedFiles) {
         # 静态资源变化必须验证所属业务模块，不能按非 Python 文件跳过。
         $resourceParts = $path.Split("\")
         $resourceTests = if ($resourceParts.Count -ge 4) { Join-Path "tests" $resourceParts[2] } else { "" }
-        if ($resourceTests -and (Test-Path -LiteralPath $resourceTests -PathType Container)) {
+        if ($resourceParts.Count -ge 4 -and $resourceParts[2] -eq "report") {
+            Add-UniqueTarget $testTargets "tests/report"
+            Add-UniqueTarget $testTargets "tests/api/test_app.py"
+        } elseif ($resourceTests -and (Test-Path -LiteralPath $resourceTests -PathType Container)) {
             Add-UniqueTarget $testTargets $resourceTests
         } else {
             $unmappedFiles.Add($path)

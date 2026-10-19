@@ -36,6 +36,7 @@ METRIC_DISPLAY_NAMES = {
     "valuation_notes": "估值数据覆盖说明",
 
     "latest_quarter": "最新财报季度",
+    "report_period": "最新报告期",
     "revenue": "营业收入",
     "net_profit": "净利润",
     "total_assets": "总资产",

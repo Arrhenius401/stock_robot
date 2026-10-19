@@ -177,6 +177,12 @@ class Pipeline:
                                 source=getattr(result[0], "_data_source", "") or source.__class__.__name__,
                                 collected_at=datetime.now().astimezone(), cache_status="live",
                             )
+                            if isinstance(diagnostic, DataCollectionRecord):
+                                # 部分报表成功仍须保留补充接口失败，缓存与报告不能抹去缺失原因。
+                                record = record.model_copy(update={
+                                    "error_kind": diagnostic.error_kind,
+                                    "error_message": diagnostic.error_message,
+                                })
                             if data_type == "price" and not self._is_healthy(data_type, result):
                                 logger.warning("行情格式校验失败 %s", symbol)
                                 failure_record = DataCollectionRecord(source=record.source,
@@ -187,11 +193,6 @@ class Pipeline:
                                 self._breaker.record_success(symbol, data_type)
                             else:
                                 # 退化结果：不落库（_set_cache 门控双保险），计失败促断路器
-                                if isinstance(diagnostic, DataCollectionRecord):
-                                    record = record.model_copy(update={
-                                        "error_kind": diagnostic.error_kind,
-                                        "error_message": diagnostic.error_message,
-                                    })
                                 self._set_cache(symbol, data_type, result, record)
                                 self._breaker.record_failure(symbol, data_type)
                                 if data_type == "news" and stale_cached is not None:
@@ -314,7 +315,7 @@ class Pipeline:
         if self._llm_enabled:
             commentary = self._generate_commentary(
                 symbol, name, results, ctx.sw_industry, ctx.style_category,
-                on_progress=on_progress
+                on_progress=on_progress, context=ctx
             )
 
         return results, commentary, ctx
@@ -323,11 +324,13 @@ class Pipeline:
                              results: list[AnalysisResult],
                              sw_industry: str = "",
                              style_category: str = "",
-                             on_progress: ProgressCallback = None) -> dict[str, str]:
+                             on_progress: ProgressCallback = None,
+                             context: AnalysisContext | None = None) -> dict[str, str]:
         """单次批量 LLM 调用，生成四段结构化解读"""
         commentary = {}
-        if not any(r.dimension in ("financial", "technical", "valuation", "industry")
-                   and r.score is not None and r.status != "unavailable" for r in results):
+        from report.quality import build_data_quality, has_analysis_data
+
+        if not has_analysis_data(results, context):
             return commentary
         provider = self._config.get("llm.provider", "openai")
         llm = self._registry.get_llm_backend(provider)
@@ -389,7 +392,8 @@ class Pipeline:
             template_dir = Path(__file__).parent.parent / "llm" / "prompt_templates"
             env = Environment(loader=FileSystemLoader(str(template_dir)))
 
-            template = env.get_template(f"batch_analysis_{provider}.jinja2")
+            template = env.get_template("batch_analysis_hk.jinja2" if context is not None and context.market == "hk"
+                                        else f"batch_analysis_{provider}.jinja2")
             prompt = template.render(
                 sw_industry=sw_industry,
                 style_category=style_category,
@@ -398,6 +402,13 @@ class Pipeline:
                 risk_flags=all_risk_flags,
                 covered_dims="、".join(covered) if covered else "无",
                 missing_dims="、".join(missing) if missing else "无",
+                analysis_facts=json.dumps([
+                    {"dimension": r.dimension, "status": r.status, "metrics": r.metrics,
+                     "summary": r.summary, "risk_flags": r.risk_flags}
+                    for r in results
+                ], ensure_ascii=False, default=str),
+                data_quality=json.dumps(build_data_quality(context, results), ensure_ascii=False)
+                if context is not None else "",
             )
 
             if on_progress:
