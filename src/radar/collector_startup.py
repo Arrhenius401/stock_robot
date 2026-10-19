@@ -16,6 +16,9 @@ from tempfile import NamedTemporaryFile
 from typing import Any
 from xml.etree import ElementTree as ET
 
+from stock_robot.metadata import APP_NAME
+from utils.paths import resource_root
+
 logger = logging.getLogger(__name__)
 
 
@@ -91,6 +94,13 @@ class CollectorStartup:
             result['error'] = str(exc)
         return result
 
+    def _launcher_script(self) -> Path:
+        source = self.project / "scripts/run-radar-collector.py"
+        resources = resource_root()
+        if source.is_file() or (resources / "pyproject.toml").is_file():
+            return source
+        return resources / "scripts/run-radar-collector.py"
+
     def windows_xml(self, user: str) -> str:
         """当前用户登录触发，失败恢复、不依赖电池或空闲条件。"""
         ns = 'http://schemas.microsoft.com/windows/2004/02/mit/task'
@@ -127,7 +137,7 @@ class CollectorStartup:
         node(restart, 'Count', '3')
         action = node(node(root, 'Actions', Context='Author'), 'Exec')
         node(action, 'Command', str(self.python))
-        node(action, 'Arguments', f'"{self.project / "scripts/run-radar-collector.py"}" --supervise radar daemon')
+        node(action, 'Arguments', f'"{self._launcher_script()}" --supervise radar daemon')
         node(action, 'WorkingDirectory', str(self.project))
         return ET.tostring(root, encoding='unicode')
 
@@ -136,7 +146,7 @@ class CollectorStartup:
         if self.platform != 'win32':
             raise StartupError('系统启动设置由服务器部署命令管理，请安装或禁用 systemd 服务')
         if enabled:
-            if not (self.project / 'scripts/run-radar-collector.py').is_file():
+            if not self._launcher_script().is_file():
                 raise StartupError('项目采集启动脚本不存在')
             if not self.python.is_file():
                 raise StartupError(f'Python 程序不存在：{self.python}')
@@ -368,10 +378,10 @@ class CollectorStartup:
             raise ValueError('服务工作目录含无法安全表达的控制字符或结尾字符')
         working_directory = working_directory.replace('%', '%%')
         return (
-            '[Unit]\nDescription=Stock Robot radar collector\nAfter=network-online.target\n'
+            f'[Unit]\nDescription={APP_NAME} radar collector\nAfter=network-online.target\n'
             'Wants=network-online.target\n\n[Service]\nType=simple\n'
             f'User={user}\nWorkingDirectory={working_directory}\n'
-            f'ExecStart=:{quote(self.python)} {quote(self.project / "scripts/run-radar-collector.py")} radar daemon\n'
+            f'ExecStart=:{quote(self.python)} {quote(self._launcher_script())} radar daemon\n'
             'Restart=on-failure\nRestartSec=15\nTimeoutStopSec=45\n'
             '\n[Install]\nWantedBy=multi-user.target\n'
         )

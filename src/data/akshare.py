@@ -2,7 +2,6 @@
 import csv
 import logging
 from datetime import date, datetime, timedelta
-from pathlib import Path
 from threading import local
 from typing import Any, cast
 
@@ -32,7 +31,9 @@ logger = logging.getLogger(__name__)
 
 def _resolve_eastmoney_to_sw(industry: str) -> tuple[str, str] | None:
     """仅解析本地人工核验的高置信东财→申万唯一映射。"""
-    path = Path(__file__).parent.parent.parent / "data" / "eastmoney_sw_mapping.csv"
+    from utils.paths import resource_root
+
+    path = resource_root() / "data" / "eastmoney_sw_mapping.csv"
     try:
         with open(path, encoding="utf-8") as file:
             for row in csv.DictReader(file):

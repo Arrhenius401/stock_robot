@@ -50,6 +50,7 @@ from radar.store import RadarStore
 from radar.universe import UniverseConfigError, UniverseRepository
 from radar.update_service import UpdateService, UpdateStore
 from utils.config import Config
+from utils.paths import resource_root, runtime_root
 
 
 class RefreshRequest(BaseModel):
@@ -148,7 +149,7 @@ def create_radar_router() -> APIRouter:
 
     def services() -> tuple[UniverseRepository, RadarStore, RadarRefresher]:
         config = Config()
-        root = Path(__file__).parents[2]
+        root = resource_root()
         repository = UniverseRepository(root / "config" / "radar_universes")
         store = RadarStore(config.config_dir / "radar.db")
         provider = FallbackETFDataProvider((
@@ -308,7 +309,7 @@ def create_radar_router() -> APIRouter:
     def collector_startup_status():
         """系统注册与服务在线分别返回，Linux 网页只查询。"""
         runtime = _collector_runtime(CollectorStore(Config().config_dir / "radar_collector.db"))
-        return {**CollectorStartup(Path(__file__).parents[2]).status(), "service_online": runtime["online"], "runtime": runtime}
+        return {**CollectorStartup(runtime_root()).status(), "service_online": runtime["online"], "runtime": runtime}
 
     @router.put("/collector/startup")
     @router.put("/collector/autostart")
@@ -316,7 +317,7 @@ def create_radar_router() -> APIRouter:
         client = request.client
         if client is None or client.host not in {"127.0.0.1", "::1"}:
             raise HTTPException(status_code=403, detail="仅允许本机页面管理采集启动项")
-        adapter = CollectorStartup(Path(__file__).parents[2])
+        adapter = CollectorStartup(runtime_root())
         if adapter.platform != "win32":
             raise HTTPException(status_code=403, detail="服务器启动设置由部署命令管理，网页只读")
         status_store = CollectorStore(Config().config_dir / "radar_collector.db")
@@ -396,7 +397,7 @@ def create_radar_router() -> APIRouter:
     @router.get("/score-profiles/{profile_id}")
     def get_score_profile(profile_id: str):
         """暴露版本化评分依据，供 Web 详情页解释当前分数。"""
-        root = Path(__file__).parents[2]
+        root = resource_root()
         try:
             profile = ScoreProfileRepository(root / "config" / "radar_score_profiles").get(profile_id)
         except ScoreProfileConfigError as exc:
@@ -422,7 +423,7 @@ def create_radar_router() -> APIRouter:
     @router.get("/backtests/latest")
     def latest_backtest(universe_id: str):
         """读取指定标的池最近一次完整回测产物，作为“成立以来”的缓存源。"""
-        root = Path(__file__).parents[2] / "reports"
+        root = runtime_root() / "reports"
         reports = list_reports(root, report_type="backtest", query=universe_id)
         radar_reports = [
             report for report in reports
@@ -438,7 +439,7 @@ def create_radar_router() -> APIRouter:
     @router.get("/backtests")
     def get_backtest(universe_id: str, end_date: date, start_date: date | None = None):
         """从覆盖所选区间的完整产物派生窗口，不重复运行策略。"""
-        root = Path(__file__).parents[2] / "reports"
+        root = runtime_root() / "reports"
         reports = list_reports(root, report_type="backtest", query=universe_id)
         matching = [
             report for report in reports
@@ -483,7 +484,7 @@ def create_radar_router() -> APIRouter:
             AkShareETFDataProvider(pacer=RequestPacer(config.get("radar.minimum_interval_seconds", 1.0))),
             TencentETFDataProvider(), SinaETFDataProvider(), OfficialExchangeETFDataProvider(),
         ))
-        root = Path(__file__).parents[2]
+        root = resource_root()
         try:
             calendar = TradingCalendar(config.config_dir / "radar_collector.db", refresh_enabled=False)
             metadata = calendar.cached_data()
@@ -533,7 +534,7 @@ def create_radar_router() -> APIRouter:
             tasks[task_id] = {"status": "running", "universe_id": body.universe_id}
 
         def run() -> None:
-            root = Path(__file__).parents[2]
+            root = runtime_root()
             command = [
                 sys.executable, "-m", "stock_robot.cli", "radar", "backtest",
                 "--universe", body.universe_id, "--start", body.start_date.isoformat(),

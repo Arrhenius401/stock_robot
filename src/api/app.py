@@ -37,6 +37,7 @@ from push.models import Subscription
 from push.names import resolve_subscription
 from push.store import ActiveRunError, MissingSubscriptionError
 from push.symbol_search import search_symbols
+from stock_robot.metadata import APP_NAME, VERSION
 
 logger = logging.getLogger(__name__)
 _TITLE_REFINE_TIMEOUT_SECONDS = 0.25
@@ -303,7 +304,7 @@ def create_app(
         push_executor = snapshot.push_executor
         push = snapshot.push_scheduler
 
-    app = FastAPI(title="Stock Robot API", version="0.2.0",
+    app = FastAPI(title=f"{APP_NAME} API", version=VERSION,
                   description="AI 驱动的股票分析研报助手 HTTP API")
 
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
@@ -360,7 +361,7 @@ def create_app(
 
     @app.get("/health")
     async def health():
-        return {"status": "ok", "version": "0.2.0"}
+        return {"status": "ok", "version": VERSION}
 
     @app.get("/api/v1/tools")
     async def list_tools():
@@ -1271,7 +1272,7 @@ def create_app(
         def send_test() -> None:
             backend = get_backend("email", snapshot.config)
             backend.send(
-                title="[Stock Robot] 邮箱排版测试",
+                title=f"[{APP_NAME}] 邮箱排版测试",
                 content=(
                     "# 邮箱推送测试\n\n邮件发送与报告排版均已启用。\n\n"
                     "| 项目 | 示例 |\n|---|---|\n| 表格 | 可见边框与表头 |\n\n"

@@ -101,8 +101,10 @@ def supervise(command: list[str], *, restart_delay: float = 15) -> int:
 def main() -> None:
     """系统任务和人工命令均固定项目来源与工作目录。"""
     project = Path(__file__).resolve().parents[1]
-    sys.path.insert(0, str(project / "src"))
-    os.chdir(project)
+    # 源码脚本固定源码根目录；wheel 随包脚本保留调用方的可写工作目录。
+    if (project / "src/stock_robot").is_dir():
+        sys.path.insert(0, str(project / "src"))
+        os.chdir(project)
     if sys.argv[1:2] == ["--supervise"]:
         raise SystemExit(supervise([sys.executable, str(Path(__file__).resolve()), *sys.argv[2:]]))
     from stock_robot.cli import main as cli_main

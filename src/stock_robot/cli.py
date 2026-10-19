@@ -18,7 +18,9 @@ from rich.table import Table
 console = Console()
 logger = logging.getLogger(__name__)
 
-from utils.config import Config
+from stock_robot.metadata import APP_NAME, VERSION
+from utils.config import DEFAULT_CONFIG, Config
+from utils.paths import resource_root, runtime_root
 
 _RUNTIME_LOG_HANDLER_NAME = "stock-robot-runtime-log"
 
@@ -185,8 +187,9 @@ class _HelpHintGroup(click.Group):
 
 
 @click.group(cls=_HelpHintGroup, invoke_without_command=True, no_args_is_help=False,
+             help=f"{APP_NAME} — AI 驱动的股票分析研报助手",
              epilog="运行 stock-robot help <命令> 查看详细用法。")
-@click.version_option(version="0.1.0")
+@click.version_option(version=VERSION)
 @click.pass_context
 def main(ctx: click.Context):
     """Stock Robot — AI 驱动的股票分析研报助手"""
@@ -467,7 +470,7 @@ def backtest(symbol, strategy, start, end, benchmark):
         sys.exit(1)
 
     try:
-        strategies_dir = Path(__file__).parents[2] / "config" / "strategies"
+        strategies_dir = resource_root() / "config" / "strategies"
         strategy_repo = StrategyRepository(strategies_dir)
         strategy_repo.get(strategy_id)  # 提前校验策略存在，失败时快速红字退出
 
@@ -666,8 +669,8 @@ def cache_status():
 
 def _resolve_api_bind(host: str | None, port: int | None, config: Config) -> tuple[str, int]:
     """解析 API 监听地址：CLI 显式参数 > 配置文件 > 默认值"""
-    resolved_host = host or config.get("api.host", "127.0.0.1")
-    resolved_port = port if port is not None else config.get("api.port", 25618)
+    resolved_host = host or config.get("api.host", DEFAULT_CONFIG["api"]["host"])
+    resolved_port = port if port is not None else config.get("api.port", DEFAULT_CONFIG["api"]["port"])
     return resolved_host, resolved_port
 
 
@@ -716,8 +719,8 @@ def _run_web_server(app, host: str, port: int, runtime_log_path: Path) -> None:
 
 
 @main.command("run")
-@click.option("--host", default=None, help="监听地址（默认读配置 api.host，缺省 127.0.0.1）")
-@click.option("--port", default=None, type=int, help="监听端口（默认读配置 api.port，缺省 25618）")
+@click.option("--host", default=None, help=f"监听地址（默认读配置 api.host，缺省 {DEFAULT_CONFIG['api']['host']}）")
+@click.option("--port", default=None, type=int, help=f"监听端口（默认读配置 api.port，缺省 {DEFAULT_CONFIG['api']['port']}）")
 def run(host, port):
     """启动 Web API 服务（含 Web UI）"""
     from api.app import create_app
@@ -742,7 +745,7 @@ def run(host, port):
         progress.update(task_id, completed=3, description="正在启动 HTTP 服务")
 
     web_url = f"http://{bind_host}:{bind_port}"
-    logger.info("Stock Robot API 启动于 %s", web_url)
+    logger.info("%s API 启动于 %s", APP_NAME, web_url)
     logger.info("Web 服务正在运行: %s", web_url)
     console.print(f"[green]Web 服务正在运行: {web_url}[/green]")
     _run_web_server(app, bind_host, bind_port, runtime_log_path)
@@ -806,7 +809,7 @@ def _run_agent_query(query, planner, executor, memory, renderer, chat_responder)
 
 def _run_interactive_chat(planner, executor, memory, renderer, chat_responder):
     """交互式对话循环"""
-    console.print("[bold]Stock Robot Agent[/bold] — AI 驱动的投资研究助手")
+    console.print(f"[bold]{APP_NAME} Agent[/bold] — AI 驱动的投资研究助手")
     console.print("输入你的投研问题；输入 /help 查看聊天命令，输入 /exit 退出。")
     console.print("[dim]终端命令帮助：stock-robot help[/dim]\n")
 
@@ -1241,7 +1244,7 @@ def _radar_services():
     from radar.universe import UniverseRepository
 
     config = Config()
-    root = Path(__file__).parents[2]
+    root = resource_root()
     repository = UniverseRepository(root / "config" / "radar_universes")
     provider = FallbackETFDataProvider((
         LocalETFDataProvider(config.config_dir / "radar_local_data" / "etf"),
@@ -1497,7 +1500,7 @@ def radar_backtest(universe_id, start, end, strategy, rerun):
         return
     if start.date() >= end.date():
         raise click.ClickException("start 必须早于 end")
-    root = Path(__file__).parents[2]
+    root = resource_root()
     universe = UniverseRepository(root / "config" / "radar_universes").active_on(universe_id, end.date())
     try:
         selected_strategy = StrategyRepository(root / "config" / "radar_strategies").get(strategy)
@@ -1528,7 +1531,7 @@ def radar_backtest(universe_id, start, end, strategy, rerun):
     benchmark_specs = [item.model_dump() for item in benchmark_catalog.benchmarks]
     if not rerun:
         existing = find_reusable_radar_backtest(
-            root / "reports",
+            runtime_root() / "reports",
             universe_id=universe.id,
             strategy_id=strategy,
             strategy_fingerprint=selected_strategy.fingerprint,
@@ -1676,7 +1679,7 @@ def radar_backtest_walkforward(ctx, universe_id, start, end, window_years, strat
         start_date=start.date(),
         end_date=end.date(),
         window_years=window_years,
-        reports_dir=Path(__file__).parents[2] / "reports",
+        reports_dir=runtime_root() / "reports",
     )
     console.print(f"[green]稳健性报告已保存: {output}[/green]")
     return output

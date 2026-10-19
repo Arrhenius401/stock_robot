@@ -329,7 +329,9 @@ class OfficialExchangeETFDataProvider:
         daily_fetcher: Callable[[str, date, date], pd.DataFrame] | None = None,
         downloader: Callable[[str], bytes] | None = None,
     ):
-        self._config_path = config_path or Path(__file__).parents[2] / "config" / "radar_exchange_sources.yaml"
+        from utils.paths import resource_root
+
+        self._config_path = config_path or resource_root() / "config" / "radar_exchange_sources.yaml"
         self._daily_fetcher = daily_fetcher
         self._downloader = downloader or self._bounded_download
         self._circuit_open = False

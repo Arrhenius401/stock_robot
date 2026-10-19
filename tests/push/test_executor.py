@@ -69,6 +69,12 @@ class _Config:
 
 
 class TestPushExecutor:
+    def test_email_subject_uses_public_name(self, monkeypatch):
+        monkeypatch.setattr("push.executor.APP_NAME", "测试应用")
+        backend = _Backend()
+        PushExecutor(_Core(), None, _Config())._push_stock("600519", "email", backend, "样本")
+        assert backend.calls[0]["title"] == "[测试应用] 样本 分析报告"
+
     def test_stock_email_without_main_data_suppresses_ai(self, mocker, tmp_path):
         from push.store import PushStore
 

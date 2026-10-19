@@ -50,6 +50,14 @@ def test_full_scope_is_explicit():
     assert plan["PythonTargets"] == ["."]
 
 
+def test_version_only_change_checks_metadata_and_installed_distribution():
+    result = _run("-PlanOnly", "-Files", "src/stock_robot/metadata.py")
+    assert result.returncode == 0, result.stderr
+    plan = json.loads(result.stdout)
+    assert set(plan["TestTargets"]) == {"tests/test_release_metadata.py", "tests/test_distribution.py"}
+    assert plan["UnmappedFiles"] == []
+
+
 def test_docs_only_check_does_not_require_virtual_environment():
     result = _run("-Files", "AGENTS.md", "-VenvPath", "tmp/nonexistent-check-runtime")
     assert result.returncode == 0, result.stderr

@@ -1,6 +1,5 @@
 """回测产物写入 — 运行目录、五类文件与 Markdown 报告。"""
 
-import importlib.metadata
 import json
 import logging
 import os
@@ -11,6 +10,7 @@ from pathlib import Path
 
 from backtest.models import BacktestResult
 from backtest.strategy import strategy_fingerprint
+from stock_robot.metadata import VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -83,11 +83,8 @@ def write_backtest_artifacts(
 
 
 def _app_version() -> str:
-    """读取实现版本；包未安装（如源码直跑）时回退到项目声明版本。"""
-    try:
-        return importlib.metadata.version("stock-robot")
-    except importlib.metadata.PackageNotFoundError:
-        return "0.1.0"
+    """读取当前源码版本，不受环境中残留的已安装元数据影响。"""
+    return VERSION
 
 
 def _write_manifest(

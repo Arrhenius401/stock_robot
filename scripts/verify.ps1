@@ -87,11 +87,21 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $powershellTargets $path
     }
 
+    if ($path -eq "src\stock_robot\metadata.py") {
+        Add-UniqueTarget $testTargets "tests/test_release_metadata.py"
+        Add-UniqueTarget $testTargets "tests/test_distribution.py"
+        continue
+    }
+    if ($path -in @("src\stock_robot\_build.py", "MANIFEST.in")) {
+        Add-UniqueTarget $testTargets "tests/test_distribution.py"
+        continue
+    }
     if ($path -eq "pyproject.toml" -or $path -eq "uv.lock" -or $path -eq "tests\conftest.py") {
         $planWarnings.Add("依赖、检查配置或全局测试夹具发生变化：本次仅运行冒烟检查，合并或发布前需显式执行 -Scope Full。")
         Add-UniqueTarget $testTargets "tests/test_integration.py"
         Add-UniqueTarget $testTargets "tests/test_cli.py"
         Add-UniqueTarget $testTargets "tests/utils"
+        Add-UniqueTarget $testTargets "tests/test_distribution.py"
         continue
     }
     if ($path.StartsWith("config\", [StringComparison]::OrdinalIgnoreCase)) {

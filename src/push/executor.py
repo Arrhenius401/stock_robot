@@ -14,6 +14,7 @@ from push.summary import (
     build_stock_summary,
 )
 from report.signal import load_signal_config
+from stock_robot.metadata import APP_NAME
 from utils.symbols import (
     normalize_index_symbol,
     normalize_symbol,
@@ -113,7 +114,7 @@ class PushExecutor:
         signal_cfg = load_signal_config(self._config)
         if channel == "email":
             content = build_stock_full(symbol, name, results, commentary, ctx, signal_cfg)
-            title = f"[Stock Robot] {name} 分析报告"
+            title = f"[{APP_NAME}] {name} 分析报告"
         else:
             content = build_stock_summary(symbol, name, results, ctx, signal_cfg)
             title = f"{name} 分析报告"
