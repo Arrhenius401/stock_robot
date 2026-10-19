@@ -114,6 +114,21 @@ def metric_display_name(key: object) -> str:
     return METRIC_DISPLAY_NAMES.get(text, text)
 
 
+_TECHNICAL_METRIC_DIGITS = {
+    "latest_close": 2, "ma_5": 2, "ma_20": 2, "ma_60": 2,
+    "volume_ratio": 2, "macd_dif": 3, "macd_dea": 3, "macd_bar": 3,
+}
+
+
+def format_metric_value(key: object, value: Any) -> Any:
+    """技术指标按显示精度格式化；其他指标保持原有格式。"""
+    digits = _TECHNICAL_METRIC_DIGITS.get(str(key))
+    if (digits is not None and isinstance(value, (int, float))
+            and not isinstance(value, bool) and math.isfinite(value)):
+        return f"{value:.{digits}f}"
+    return value
+
+
 def risk_display_name(key: object) -> str:
     """返回风险标签的中文显示名，未知标签保留原值。"""
     text = str(key)
