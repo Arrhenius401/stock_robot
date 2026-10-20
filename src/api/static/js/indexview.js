@@ -2,7 +2,7 @@
 import { store, switchView } from "./state.js";
 import { api } from "./api.js";
 import { renderMarkdown } from "./markdown.js";
-import { appendReadableMetric, riskText, formatMetricValue } from "./report-renderer.js?v=20261020-report-p0";
+import { appendReadableMetric, riskText, formatMetricValue } from "./report-renderer.js?v=20261020-capital-display";
 import { el, kv, tagChip, priceBar, errorCard, skeleton,
          showEntryError, clearEntryError } from "./components.js";
 
@@ -87,6 +87,7 @@ function compareCell(header, row) {
     return tdWithTag(TAGS.valuation[text]);
   }
   if (header === "资金") {
+    if (row.capital_display) return tdWithTag([row.capital_display.label, row.capital_display.tone]);
     return tdWithTag(TAGS.capital[text]);
   }
   if (header === "综合评级") {
@@ -183,7 +184,9 @@ function reportCard(r) {
     const section = r[field];
     if (!section) continue;
     if (Array.isArray(visible) && visible.length && !visible.includes(key)) continue;
-    card.appendChild(sectionCard(label, section, tagFor(key, r[tagField])));
+    const display = key === 'capital' ? section.display : null;
+    card.appendChild(sectionCard(label, display ? {...section, summary:display.summary} : section,
+      display ? tagChip(display.label,display.tone) : tagFor(key, r[tagField])));
   }
   card.appendChild(compositeCard(r));
   const risks = riskCard(r.risk_list || []);

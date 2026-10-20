@@ -342,7 +342,8 @@ def _render_compare_table(compare) -> Table | str:
     for h in compare.headers:
         table.add_column(h)
     for row in compare.rows:
-        table.add_row(*[str(row.get(header_key_map.get(h, h), "")) for h in compare.headers])
+        table.add_row(*[str(row["capital_display"]["label"] if h == "资金" and row.get("capital_display")
+                            else row.get(header_key_map.get(h, h), "")) for h in compare.headers])
     return table
 
 

@@ -63,11 +63,7 @@
 {% if "capital" in visible_sections %}
 ## 资金面
 
-{% if section_capital.status != "unavailable" %}
-{{ section_capital.summary }}
-{% else %}
-资金流向数据不可用。
-{% endif %}
+{{ capital_display.summary }}
 {% endif %}
 
 ---
@@ -104,7 +100,7 @@
 | 技术面 | {{ tag_labels.get(tag_technical, tag_technical) }} |
 | 估值面 | {{ "暂无估值判断" if "strategy" in visible_sections and tag_valuation == "invalid" else tag_labels.get(tag_valuation, tag_valuation) }} |
 {% if "capital" in visible_sections %}
-| 资金面 | {{ tag_labels.get(tag_capital, tag_capital) }} |
+| 资金面 | {{ capital_display.label }} |
 {% endif %}
 {% if "macro" in visible_sections %}
 | 宏观面 | {{ tag_labels.get(tag_macro, tag_macro) }} |

@@ -5,6 +5,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 
 from data.schemas import AnalysisResult, IndexAnalysisContext, IndexReport
+from report.capital_display import capital_presentation
 from report.formatter import format_metric_value
 from utils.numbers import is_finite_number, is_positive_finite, is_valid_percentile
 
@@ -36,6 +37,7 @@ class IndexReportBuilder:
         technical = self._build_section(results_map, "index_technical")
         valuation = self._build_section(results_map, "index_valuation")
         capital = self._build_section(results_map, "index_capital_flow")
+        capital["display"] = capital_presentation(capital)
         macro = self._build_section(results_map, "index_macro")
         sentiment = self._build_section(results_map, "index_sentiment")
 
@@ -163,6 +165,7 @@ def render_index_report_markdown(report: IndexReport) -> str:
         section_technical=report.section_technical,
         section_valuation=report.section_valuation,
         section_capital=report.section_capital,
+        capital_display=capital_presentation(report.section_capital),
         section_macro=report.section_macro,
         section_sentiment=report.section_sentiment,
         section_strategy=getattr(report, "section_strategy", None),

@@ -2,6 +2,10 @@
 
 ## 2026-10-20 P0 实施增补
 
+### 资金流报告层修复计划
+
+用户已确认零/微小非零/缺失三种展示行为，继续复用 codex/report-p0 工作树（起点 c813bad）。先测试，再新增独立报告展示转换，保留 section 原始 summary/metrics/tag，新增 display 文案及徽标元数据；综合研判仍使用原分析标签。网页、Markdown 与多指数对比使用 display，终端比较优先取展示标签。公共数值格式只为资金字段避免将微小非零值显示为零，保持既有亿单位或单位未记录提示。验证 raw tag、原始结果、composite/position 不变，覆盖零值与另一个非零字段混合、None/NaN/Inf、正负小值及正常值。按改动范围 Ruff/Pyright/pytest；本地真实服务提交指数分析并核对展示，不改变布局，不做云端验收，不推进 P1 或合并发布。
+
 用户已确认完整规则及金额自动单位。工作树 D:/code/stock_robot/tmp/worktrees/report-p0，分支 codex/report-p0，起点 dev 7f45655；复用主仓 .venv 并显式 PYTHONPATH 指向工作树 src。原主题文档收敛于本设计和本计划。
 
 1. 先补股票估值回归：688326 负 PE 不产生折价；有限正数公共判定和分位区间检查；行业充实、三种 scorer、估值分析器逐层防御。保留正常得分、权重、银行/周期专项规则和市值排名。无有效估值时无维度评分，不重分权重。
@@ -11,6 +15,15 @@
 5. 按受影响文件 Ruff/Pyright、唯一临时目录的模块 pytest；完成代码审查及修复复核。使用 .venv/Scripts/stock-robot.exe 的真实启动路径检查报告发送响应、宽窄屏与 Markdown 下载一致性；真实网络或模型未覆盖须如实记录。不默认全量、不推送合并或发布。
 
 代码职责：股票估值（analysis/scorers、analysis/valuation、industry_enricher 及相关测试）；指数（index 分析/构建及相关测试）；主会话（公共 utils 数值判定、report 格式化/模板、Web、模型输入与整合）。先测试后实现，审查及验证摘要收敛于本节。
+
+### 资金流报告层修复验收结果
+
+- 新增共享资金展示转换，单指数、比较表、Markdown、CLI 和网页统一使用展示标签；原始 summary/metrics/tag、综合研判及仓位系数不回写、不重算。零值显示“无净流入或净流出”，缺失显示“暂无数据”，微小非零值保留有效精度；单位沿用既有口径，不猜测缩放。
+- 回归覆盖负零、零与非零混合、None/NaN/Inf、正负微小值、普通值和不可用状态；验证原始分析结果、标签及综合结果不变。Python/JavaScript 数值契约包含科学计数法边界。
+- 合并规格/质量审查发现 Markdown 综合表和不可用摘要两处仍走旧文案，已修复、增加断言并复审关闭。
+- 最终执行 `scripts/verify.ps1 -Scope Changed -Source Staged -VenvPath D:/code/stock_robot/.venv`：Ruff 通过，Pyright 0 错误/警告，pytest **490 passed, 3 skipped, 4 warnings**（30.48 秒；既有 Starlette/LangGraph 弃用警告）。未运行 Full 门禁；合并/发布前仍需全量验证。
+- 使用工作树 PYTHONPATH 与主仓 `.venv/Scripts/stock-robot.exe run --host 127.0.0.1 --port 8765` 启动真实服务，浏览器提交 000300、000905；卡片、摘要与比较列均正确显示零资金流，主力资金缺失保持“暂无数据”。1280px 和 390px 页面无水平溢出，窄屏文案正常换行。截图保存主仓忽略目录 `tmp/acceptance/capital-display/`。沪深 300 本次行情缺失在页面明确显示，不属于本轮修复范围。
+- 微小值和非有限值为离线回归覆盖，并非真实网络样本；未做云端、QQ 或付费模型验收。历史归档不重写，数据源、计算规则、插件与版本号不变。用户已发版，本轮与此前 P0 修复留作下一版本；不改写发布标签，不推送、合并或发布。
 
 ### P0 实施与验收结果
 

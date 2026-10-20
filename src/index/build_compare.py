@@ -2,6 +2,7 @@
 from dataclasses import dataclass, field
 
 from data.schemas import IndexAnalysisContext, IndexReport, IndexValuationData
+from report.capital_display import capital_presentation
 from report.formatter import format_metric_value
 from utils.numbers import is_positive_finite, is_valid_percentile
 
@@ -40,6 +41,8 @@ class IndexCompareReportBuilder:
                 "trend": report.tag_technical,
                 "valuation": report.tag_valuation,
                 "capital": "N/A" if ctx.target.index_style == "strategy" else report.tag_capital,
+                "capital_display": {"label": "不适用", "tone": "gray"} if ctx.target.index_style == "strategy"
+                else capital_presentation(report.section_capital),
                 "composite": report.composite_comment,
             })
         return CompareTable(headers=headers, rows=rows)

@@ -192,8 +192,15 @@ export function formatMetricValue(key, value) {
   if (value == null || value === 'N/A') return '暂无数据';
   if (typeof value !== 'number') return value;
   if (!Number.isFinite(value)) return '数据异常';
-  if (key === 'north_bound') return fixedNumber(value,2)+' 亿';
-  if (['main_net_inflow','margin_balance'].includes(key)) return fixedNumber(value,2)+'（原始单位未记录）';
+  const flowNumber = () => {
+    if (value===0 || Number(value.toFixed(2))!==0) return fixedNumber(value,2);
+    const compact = Number(value.toPrecision(8));
+    return Math.abs(compact)<0.0001
+      ? compact.toExponential().replace(/e([+-])(\d)$/, (_,sign,digit)=>`e${sign}0${digit}`)
+      : String(compact);
+  };
+  if (key === 'north_bound') return flowNumber()+' 亿';
+  if (['main_net_inflow','margin_balance'].includes(key)) return flowNumber()+'（原始单位未记录）';
   if (AMOUNT_KEYS.has(key)) {
     const [divisor,unit] = Math.abs(value)>=1e8 ? [1e8,' 亿'] : Math.abs(value)>=1e4 ? [1e4,' 万'] : [1,''];
     return fixedNumber(value/divisor,2)+unit;

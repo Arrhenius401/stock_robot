@@ -149,9 +149,9 @@ def format_metric_value(key: object, value: Any) -> Any:
     if not isinstance(value, (int, float)) or isinstance(value, bool) or not is_finite_number(value):
         return value
     if key == "north_bound":
-        return _fixed_number(value, 2) + " 亿"
+        return (f"{value:.8g}" if value != 0 and round(value, 2) == 0 else _fixed_number(value, 2)) + " 亿"
     if key in {"main_net_inflow", "margin_balance"}:
-        return _fixed_number(value, 2) + "（原始单位未记录）"
+        return (f"{value:.8g}" if value != 0 and round(value, 2) == 0 else _fixed_number(value, 2)) + "（原始单位未记录）"
     if key in _AMOUNT_KEYS:
         unit, divisor = (" 亿", 1e8) if abs(value) >= 1e8 else (" 万", 1e4) if abs(value) >= 1e4 else ("", 1)
         return _fixed_number(value / divisor, 2) + unit
