@@ -2,6 +2,8 @@
 from dataclasses import dataclass, field
 
 from data.schemas import IndexAnalysisContext, IndexReport, IndexValuationData
+from report.formatter import format_metric_value
+from utils.numbers import is_positive_finite, is_valid_percentile
 
 
 @dataclass
@@ -24,13 +26,17 @@ class IndexCompareReportBuilder:
             # 防御性取值：报告结构不完整（如 mock/异常数据）时降级为 N/A，不中断整个管道
             overview = report.overview if isinstance(report.overview, dict) else {}
             change_pct = overview.get("change_pct", 0)
-            change_str = f"{change_pct:+.2f}%" if change_pct is not None else "N/A"
+            change_str = format_metric_value("change_pct", change_pct)
+            def percentile_text(value, snapshot, val=val):
+                if not isinstance(val, IndexValuationData):
+                    return "暂无数据"
+                return format_metric_value("pe_percentile", value) if val.valuation_valid and is_positive_finite(snapshot) and is_valid_percentile(value) else "历史样本不足或指标不适用"
             rows.append({
                 "name": ctx.target.name,
-                "latest": overview.get("latest_close", "N/A"),
+                "latest": format_metric_value("latest_close", overview.get("latest_close")),
                 "change": change_str,
-                "pe_pct": f"{val.pe_percentile:.0f}%" if isinstance(val, IndexValuationData) and val.pe_percentile is not None else "N/A",
-                "pb_pct": f"{val.pb_percentile:.0f}%" if isinstance(val, IndexValuationData) and val.pb_percentile is not None else "N/A",
+                "pe_pct": percentile_text(val.pe_percentile if val else None, val.pe_ttm if val else None),
+                "pb_pct": percentile_text(val.pb_percentile if val else None, val.pb if val else None),
                 "trend": report.tag_technical,
                 "valuation": report.tag_valuation,
                 "capital": "N/A" if ctx.target.index_style == "strategy" else report.tag_capital,

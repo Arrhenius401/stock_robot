@@ -12,6 +12,7 @@ const DIMENSIONS = [
 
 // 数据层字段只在内部协议中使用；界面统一显示业务中文名称。
 const METRIC_LABELS = {
+  amount_basis: "财务金额口径", valuation_applicability: "估值适用性", applicable: "可用于高低估判断", reason: "原因",
   ma_5: "5 日均线", ma_20: "20 日均线", ma_60: "60 日均线",
   volume_ratio: "近5日与此前20日均量比",
   macd_dif: "MACD DIF", macd_dea: "MACD DEA", macd_bar: "MACD 柱值",
@@ -108,7 +109,7 @@ export function metricLabel(key) {
 function scoreText(value, fallback = "—") {
   if (value === null || value === undefined || value === "") return fallback;
   const number = Number(value);
-  return Number.isFinite(number) ? number.toFixed(1) : readable(value, fallback);
+  return Number.isFinite(number) ? number.toFixed(1) : fallback;
 }
 
 export function riskText(value) {
@@ -137,8 +138,7 @@ function peerText(value, peerNames) {
 }
 
 function marketCapText(value) {
-  const amount = Number(value);
-  return Number.isFinite(amount) ? `${(amount / 1e8).toFixed(2)} 亿元` : metricText(value);
+  return formatMetricValue("market_cap", value);
 }
 
 function appendTopPeers(grid, value, peerNames) {
@@ -154,9 +154,9 @@ function appendTopPeers(grid, value, peerNames) {
     const title = name ? `${name}（${symbol}）` : symbol;
     if (!title) continue;
     const details = [
-      ["市值", item.market_cap], ["PE(TTM)", item.pe_ttm], ["PB", item.pb],
-    ].filter(([, metric]) => metric !== null && metric !== undefined && metric !== "")
-      .map(([label, metric]) => `${label} ${label === "市值" ? marketCapText(metric) : metricText(metric)}`);
+      ["市值", "market_cap", item.market_cap], ["PE(TTM)", "pe_ttm", item.pe_ttm], ["PB", "pb", item.pb],
+    ].filter(([, , metric]) => metric !== null && metric !== undefined && metric !== "")
+      .map(([label, key, metric]) => `${label} ${key === "market_cap" ? marketCapText(metric) : formatMetricValue(key, metric)}`);
     list.appendChild(el("li", "", details.length ? `${title}：${details.join(" · ")}` : title));
   }
   if (!list.children.length) list.appendChild(el("li", "", "暂无数据"));
@@ -175,13 +175,53 @@ function appendListMetric(grid, key, value) {
   grid.appendChild(wrap);
 }
 
-const TECHNICAL_METRIC_DIGITS = {
-  latest_close: 2, ma_5: 2, ma_20: 2, ma_60: 2,
-  volume_ratio: 2, macd_dif: 3, macd_dea: 3, macd_bar: 3,
-};
+const PRICE_KEYS = new Set(['latest_close','latest_price','year_high','year_low','ma_5','ma_20','ma_60']);
+const MULTIPLE_KEYS = new Set(['pe_ttm','pe_snapshot','pb','ps_ttm','industry_median_pe','industry_median_pb']);
+const RATIO_KEYS = new Set(['roe','gross_margin','revenue_growth_yoy','profit_growth_yoy','industry_median_gross_margin']);
+const PERCENT_KEYS = new Set(['change_pct','pe_percentile','pb_percentile','target_pe_premium','dividend_yield','shibor_3m','cpi_yoy','shibor_percentile','pmi_percentile']);
+const AMOUNT_KEYS = new Set(['revenue','net_profit','deducted_net_profit','total_assets','total_equity','common_equity','operating_cash_flow','market_cap']);
+const ONE_DIGIT_KEYS = new Set(['score','base_score','final_score','risk_deduction']);
+const TWO_DIGIT_KEYS = new Set(['volume_ratio','operating_cash_flow_per_share','basic_eps','pmi','usd_cny']);
+
+function fixedNumber(value, digits) {
+  const normalized = Number(value.toFixed(digits)) === 0 ? 0 : value;
+  return normalized.toLocaleString('en-US', {minimumFractionDigits:digits, maximumFractionDigits:digits});
+}
+
+export function formatMetricValue(key, value) {
+  if (value == null || value === 'N/A') return '暂无数据';
+  if (typeof value !== 'number') return value;
+  if (!Number.isFinite(value)) return '数据异常';
+  if (key === 'north_bound') return fixedNumber(value,2)+' 亿';
+  if (['main_net_inflow','margin_balance'].includes(key)) return fixedNumber(value,2)+'（原始单位未记录）';
+  if (AMOUNT_KEYS.has(key)) {
+    const [divisor,unit] = Math.abs(value)>=1e8 ? [1e8,' 亿'] : Math.abs(value)>=1e4 ? [1e4,' 万'] : [1,''];
+    return fixedNumber(value/divisor,2)+unit;
+  }
+  if (RATIO_KEYS.has(key)) return fixedNumber(value*100,2)+'%';
+  if (PERCENT_KEYS.has(key) || key.endsWith('_pct')) return fixedNumber(value,2)+'%';
+  if (MULTIPLE_KEYS.has(key)) return fixedNumber(value,2)+(value<=0?'（不适用于高低估判断）':'');
+  if (PRICE_KEYS.has(key)) return value!==0 && Number(value.toFixed(2))===0 ? String(Number(value.toPrecision(8))) : fixedNumber(value,2);
+  if (['macd_dif','macd_dea','macd_bar'].includes(key)) return fixedNumber(value,3);
+  if (ONE_DIGIT_KEYS.has(key)) return fixedNumber(value,1);
+  if (TWO_DIGIT_KEYS.has(key)) return fixedNumber(value,2);
+  return value;
+}
 
 function appendMetrics(grid, key, value, prefix = "") {
   const label = prefix ? `${prefix} · ${metricLabel(key)}` : metricLabel(key);
+  if (Array.isArray(value)) {
+    const wrap = el('div', 'report-metric-list-wrap');
+    wrap.appendChild(el('div','k',label));
+    const list = el('ul','report-metric-list');
+    for (const item of value) {
+      const row = item && typeof item === 'object'
+        ? Object.entries(item).map(([field,cell])=>`${metricLabel(field)}：${formatMetricValue(field,cell)}`).join(' · ')
+        : String(formatMetricValue(key,item));
+      list.appendChild(el('li','',row));
+    }
+    wrap.appendChild(list); grid.appendChild(wrap); return;
+  }
   if (key.endsWith("_source_url") && typeof value === "string" && /^https:\/\//i.test(value)) {
     // 官方来源使用短链接文案，避免长网址撑出窄屏卡片。
     const item = el("div");
@@ -208,17 +248,23 @@ function appendMetrics(grid, key, value, prefix = "") {
     }
     return;
   }
-  let text = metricText(value);
-  const digits = TECHNICAL_METRIC_DIGITS[key];
-  if (digits !== undefined && value != null && value !== "" && Number.isFinite(Number(value))) {
-    text = Number(value).toFixed(digits);
-  }
-  if (key.endsWith("_pct") && value != null && value !== "" && Number.isFinite(Number(value))) text = `${Number(Number(value).toFixed(2))}%`;
+  let text = metricText(formatMetricValue(key,value));
+  if (typeof value === 'boolean') text = value ? '是' : '否';
   if (key === "strategy_kind") text = {dividend: "红利", dividend_low_volatility: "红利低波动", free_cash_flow: "自由现金流"}[value] || text;
   grid.appendChild(kv(label, text));
 }
 
 export function appendReadableMetric(grid, key, value, context = {}) {
+  // 适用性结构供机器消费；正文用原因列表和对应指标状态展示，避免重复展开。
+  if (key === 'valuation_applicability') return;
+  const rules = context.valuation_applicability;
+  const snapshot = {pe_percentile:'pe_ttm',pb_percentile:'pb',target_pe_premium:'pe_ttm'}[key];
+  if (rules && snapshot && value == null) {
+    const rule = rules[snapshot] || {};
+    const text = !rule.applicable ? (context[snapshot] != null ? '不适用' : rule.reason || '暂无数据')
+      : key === 'target_pe_premium' ? '暂无可比数据' : '历史样本不足';
+    grid.appendChild(kv(metricLabel(key),text)); return;
+  }
   if (key === "headlines" || key === "top_headlines") {
     appendListMetric(grid, key, value);
     return;
@@ -298,13 +344,13 @@ function reportHeader(report) {
 
   const right = el("div", "price-box");
   if (overview.latest_close !== null && overview.latest_close !== undefined) {
-    right.appendChild(el("span", "stock-price", readable(overview.latest_close)));
+    right.appendChild(el("span", "stock-price", formatMetricValue('latest_close',overview.latest_close)));
   }
   if (overview.change_pct !== null && overview.change_pct !== undefined) {
     const pct = Number(overview.change_pct);
     const direction = pct > 0 ? "up" : pct < 0 ? "down" : "flat";
     const sign = pct > 0 ? "+" : "";
-    right.appendChild(el("span", `chg ${direction}`, `${sign}${readable(overview.change_pct)}%`));
+    right.appendChild(el("span", `chg ${direction}`, `${sign}${formatMetricValue('change_pct',overview.change_pct)}`));
   }
   header.appendChild(right);
   return header;
@@ -362,7 +408,7 @@ function summarySection(report, sectionIdPrefix) {
       ? `${readable(overview.price_start)} — ${readable(overview.price_end)}` : "区间未记录";
     facts.appendChild(kv("样本区间", range));
     facts.appendChild(kv("区间最高 / 最低",
-      `${readable(overview.year_high)} / ${readable(overview.year_low)}`));
+      `${formatMetricValue('year_high',overview.year_high)} / ${formatMetricValue('year_low',overview.year_low)}`));
   }
   if (overview.price_position && overview.price_position !== "暂无") {
     const position = el("div");
@@ -383,7 +429,7 @@ function summarySection(report, sectionIdPrefix) {
     meta.appendChild(el("span", "", coverage));
   }
   if (meta.children.length) card.appendChild(meta);
-  if (report.market === "hk") card.appendChild(el("div", "report-empty", "财务金额为财报原币，未换汇；不与港币行情混算历史估值。"));
+  if (report.market === "hk") card.appendChild(el("div", "report-empty", "财务金额为财报原币，币种未记录，未换汇；不与港币行情混算历史估值。"));
   return card;
 }
 

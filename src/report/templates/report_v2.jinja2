@@ -40,6 +40,12 @@
 > {{ r.summary }}（保留可用指标快照）
 {% endif %}
 {{ r.metrics | md_table }}
+{% for note in r.metrics.get("valuation_notes", []) %}
+- {{ note }}
+{% endfor %}
+{% if r.metrics.get("roe_trend") %}
+{{ r.metrics["roe_trend"] | md_table({"报告期": "quarter", "ROE": "roe"}) }}
+{% endif %}
 {% if r.metrics.get("peers") %}
 **同行业公司：**
 {% for peer in r.metrics["peers"] %}
@@ -72,11 +78,11 @@
 {% else %}
 {{ score_rows | md_table({"维度": "label", "得分": "score", "权重": "weight", "充足状态": "sufficiency"}) }}
 
-**综合得分（扣风险前）：** {{ (base_score|string) ~ "/10" if base_score is not none else "暂无" }}
+**综合得分（扣风险前）：** {{ (base_score | metric_value("base_score")) ~ "/10" if base_score is not none else "暂无" }}
 {% if risk_deduction > 0 %}
-**风险扣分：** -{{ risk_deduction }}
+**风险扣分：** -{{ risk_deduction | metric_value("risk_deduction") }}
 {% endif %}
-**最终综合得分：** {{ (final_score|string) ~ "/10" if final_score is not none else "暂无" }}
+**最终综合得分：** {{ (final_score | metric_value("final_score")) ~ "/10" if final_score is not none else "暂无" }}
 
 {% for dim in score_rows %}
 {% if dim.detail %}

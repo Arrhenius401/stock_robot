@@ -10,6 +10,7 @@ from data.schemas import (
     PeerComparison,
     SufficiencyLevel,
 )
+from utils.numbers import is_finite_number, is_positive_finite
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +60,8 @@ class IndustryEnricher(DataEnricher):
             reason = f"可比较公司仅 {peer_count} 家（<3），无法进行有效对比"
 
         # 计算行业中位数 PE/PB（从头部同行中取有效值）
-        peer_pes = [p.pe_ttm for p in peer_comparisons if p.pe_ttm is not None and p.pe_ttm > 0]
-        peer_pbs = [p.pb for p in peer_comparisons if p.pb is not None and p.pb > 0]
+        peer_pes = [p.pe_ttm for p in peer_comparisons if p.pe_ttm is not None and is_positive_finite(p.pe_ttm)]
+        peer_pbs = [p.pb for p in peer_comparisons if p.pb is not None and is_positive_finite(p.pb)]
 
         industry_median_pe = statistics.median(peer_pes) if peer_pes else None
         industry_median_pb = statistics.median(peer_pbs) if peer_pbs else None
@@ -68,8 +69,11 @@ class IndustryEnricher(DataEnricher):
         # 计算目标 PE 溢价/折价
         target_pe = ctx.valuation_data.pe_ttm if ctx.valuation_data else None
         target_pe_premium = None
-        if target_pe is not None and industry_median_pe is not None and industry_median_pe > 0:
+        if (target_pe is not None and industry_median_pe is not None
+                and is_positive_finite(target_pe) and is_positive_finite(industry_median_pe)):
             target_pe_premium = (target_pe - industry_median_pe) / industry_median_pe * 100
+            if not is_finite_number(target_pe_premium):
+                target_pe_premium = None
 
         # 计算目标市值排名（从采集层传入的排名）
         target_market_cap_rank = getattr(ind_data, '_target_rank', None)

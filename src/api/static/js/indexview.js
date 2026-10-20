@@ -2,7 +2,7 @@
 import { store, switchView } from "./state.js";
 import { api } from "./api.js";
 import { renderMarkdown } from "./markdown.js";
-import { appendReadableMetric, riskText } from "./report-renderer.js?v=20261019-hk-shared-analysis-2";
+import { appendReadableMetric, riskText, formatMetricValue } from "./report-renderer.js?v=20261020-report-p0";
 import { el, kv, tagChip, priceBar, errorCard, skeleton,
          showEntryError, clearEntryError } from "./components.js";
 
@@ -132,11 +132,11 @@ function reportCard(r) {
   const o = r.overview || {};
   const priceBox = el("div", "price-box");
   if (o.latest_close != null) {
-    priceBox.appendChild(el("span", "stock-price", String(o.latest_close)));
+    priceBox.appendChild(el("span", "stock-price", formatMetricValue('latest_close',o.latest_close)));
   }
   if (o.change_pct != null) {
     const cls = o.change_pct > 0 ? "up" : o.change_pct < 0 ? "down" : "flat";
-    priceBox.appendChild(el("span", `chg ${cls}`, `${o.change_pct > 0 ? "+" : ""}${o.change_pct}%`));
+    priceBox.appendChild(el("span", `chg ${cls}`, `${o.change_pct > 0 ? "+" : ""}${formatMetricValue('change_pct',o.change_pct)}`));
   }
   hdr.appendChild(priceBox);
   card.appendChild(hdr);
@@ -162,14 +162,14 @@ function reportCard(r) {
     const panel = el("div", "panel");
     panel.appendChild(el("div", "panel-title", "概览"));
     const kvs = el("div", "kv");
-    if (o.pe_ttm != null) kvs.appendChild(kv("PE-TTM", `${o.pe_ttm}x`));
-    if (o.pe_ttm == null && o.pe_snapshot != null) kvs.appendChild(kv("官方单张PE", `${o.pe_snapshot}x`));
-    if (o.pb != null) kvs.appendChild(kv("PB", String(o.pb)));
-    if (o.pe_percentile != null) {
+    if (o.pe_ttm != null) kvs.appendChild(kv("PE-TTM", formatMetricValue('pe_ttm',o.pe_ttm)));
+    if (o.pe_ttm == null && o.pe_snapshot != null) kvs.appendChild(kv("官方单张PE", formatMetricValue('pe_snapshot',o.pe_snapshot)));
+    if (o.pb != null) kvs.appendChild(kv("PB", formatMetricValue('pb',o.pb)));
+    if (o.valuation_valid && o.pe_percentile != null) {
       const box = el("div");
       box.appendChild(el("div", "k", o.strategy_valuation ? `PE 分位（近 ${o.percentile_lookback_years || 5} 年窗口内 ${o.pe_sample_count || 0} 个交易日）` : `PE 分位（近 ${o.percentile_lookback_years || 5} 年）`));
       const val = el("div", "v");
-      val.appendChild(el("span", "", `${o.pe_percentile}%`));
+      val.appendChild(el("span", "", formatMetricValue('pe_percentile',o.pe_percentile)));
       val.appendChild(priceBar(o.pe_percentile));
       box.appendChild(val);
       kvs.appendChild(box);

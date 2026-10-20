@@ -1,6 +1,7 @@
 """通用计分器 — 纯 YAML 驱动，无硬编码阈值"""
 from analysis.scorers.base import BaseScorer
 from analysis.technical_indicators import calculate_macd, moving_average, volume_ratio
+from analysis.valuation_rules import valuation_evidence
 from data.schemas import AnalysisContext
 
 
@@ -53,7 +54,7 @@ class GeneralScorer(BaseScorer):
             s, _ = self._tier_score(latest.roe, roe_cfg.get("tiers", []))
             max_s = roe_cfg.get("max_score", 3)
             total += s
-            label = f"{latest.roe*100:.1f}%" if latest.roe is not None else "缺失"
+            label = f"{latest.roe*100:.2f}%" if latest.roe is not None else "缺失"
             details.append(f"ROE {label}，得 {s}/{max_s} 分")
             if (latest.roe is not None and latest.roe < 0
                     and roe_cfg.get("extra_config", {}).get("negative_to_zero")):
@@ -68,7 +69,7 @@ class GeneralScorer(BaseScorer):
             s, _ = self._range_score(asset_liability, debt_cfg.get("tiers", []))
             max_s = debt_cfg.get("max_score", 2)
             total += s
-            label = f"{asset_liability:.0f}%" if asset_liability is not None else "缺失"
+            label = f"{asset_liability:.2f}%" if asset_liability is not None else "缺失"
             details.append(f"资产负债率 {label}，得 {s}/{max_s} 分")
             extreme = debt_cfg.get("extra_config", {}).get("extreme_threshold", 90)
             if asset_liability is not None and asset_liability > extreme:
@@ -109,7 +110,7 @@ class GeneralScorer(BaseScorer):
                             break
                     max_s = gm_cfg.get("max_score", 2)
                     total += s
-                    details.append(f"近4期毛利率波动 {gm_range*100:.1f}pp，得 {s}/{max_s} 分")
+                    details.append(f"近4期毛利率波动 {gm_range*100:.2f}pp，得 {s}/{max_s} 分")
 
         return round(total, 1), "；".join(details), risks
 
@@ -118,8 +119,6 @@ class GeneralScorer(BaseScorer):
         cfg = self.config.get("valuation", {})
         if not cfg.get("enabled", True):
             return 0.0, "估值维度已禁用", []
-        ev = ctx.enriched_valuation
-        ei = ctx.enriched_industry
 
         total = 0.0
         details = []
@@ -128,12 +127,12 @@ class GeneralScorer(BaseScorer):
         # PE 历史分位
         pe_cfg = cfg.get("pe_percentile", {})
         if pe_cfg.get("enabled", True):
-            pe_pct = ev.pe_percentile if ev else None
+            pe_pct, _, _ = valuation_evidence(ctx)
             reverse = pe_cfg.get("percentile_reverse", False)
             s, _ = self._tier_score(pe_pct, pe_cfg.get("tiers", []), reverse=reverse)
             max_s = pe_cfg.get("max_score", 4)
             total += s
-            pct_label = f"{pe_pct:.0f}%" if pe_pct is not None else "缺失"
+            pct_label = f"{pe_pct:.2f}%" if pe_pct is not None else "不适用或历史样本不足"
             details.append(f"PE 分位 {pct_label}，得 {s}/{max_s} 分")
             if pe_pct is not None and pe_pct > 90:
                 risks.append("high_pe_premium")
@@ -141,24 +140,23 @@ class GeneralScorer(BaseScorer):
         # PB 历史分位
         pb_cfg = cfg.get("pb_percentile", {})
         if pb_cfg.get("enabled", True):
-            pb_pct = ev.pb_percentile if ev else None
-            pb_val = ctx.valuation_data.pb if ctx.valuation_data else None
-            if pb_val is not None and pb_val <= 0:
-                details.append("PB 为负，得 0 分")
-            elif pb_pct is not None:
+            _, pb_pct, _ = valuation_evidence(ctx)
+            if pb_pct is None:
+                details.append("PB 分位不适用或历史样本不足，不计分")
+            else:
                 s, _ = self._tier_score(pb_pct, pb_cfg.get("tiers", []))
                 max_s = pb_cfg.get("max_score", 2)
                 total += s
-                details.append(f"PB 分位 {pb_pct:.0f}%，得 {s}/{max_s} 分")
+                details.append(f"PB 分位 {pb_pct:.2f}%，得 {s}/{max_s} 分")
 
         # 行业溢价
         prem_cfg = cfg.get("industry_premium", {})
         if prem_cfg.get("enabled", True):
-            premium = ei.target_pe_premium if ei else None
+            _, _, premium = valuation_evidence(ctx)
             s, _ = self._tier_score(premium, prem_cfg.get("tiers", []))
             max_s = prem_cfg.get("max_score", 4)
             total += s
-            label = f"{premium:.0f}%" if premium is not None else "缺失"
+            label = f"{premium:.2f}%" if premium is not None else "不适用或数据不足"
             details.append(f"行业溢价 {label}，得 {s}/{max_s} 分")
 
         return round(total, 1), "；".join(details), risks

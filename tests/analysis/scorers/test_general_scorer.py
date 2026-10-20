@@ -77,7 +77,7 @@ class TestGeneralScorerValuation:
             symbol="000333", name="美的集团",
             valuation_data=ValuationData(symbol="000333", date=date(2025,12,31), pe_ttm=18.5, pb=3.2),
             enriched_valuation=EnrichedValuation(pe_percentile=25.0, pb_percentile=40.0),
-            enriched_industry=EnrichedIndustry(target_pe_premium=-10.0),
+            enriched_industry=EnrichedIndustry(target_pe_premium=-10.0, industry_median_pe=20.56),
         )
 
     def test_score_valuation_returns_tuple(self, config, ctx):

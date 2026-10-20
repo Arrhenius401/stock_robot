@@ -12,6 +12,7 @@ from data.schemas import (
     EnrichedValuation,
     SufficiencyLevel,
 )
+from utils.numbers import is_positive_finite
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +90,7 @@ class ValuationEnricher(DataEnricher):
             # 港币价格与财报原币不混算，不请求 A 股股本、不伪造历史分位。
             snapshot = ctx.valuation_data
             valid = snapshot is not None and any(
-                value is not None and value > 0 for value in (snapshot.pe_ttm, snapshot.pb))
+                is_positive_finite(value) for value in (snapshot.pe_ttm, snapshot.pb, snapshot.ps_ttm))
             ctx.enriched_valuation = EnrichedValuation(validated=valid) if valid else None
             ctx.sufficiency.valuation = DimensionSufficiency(
                 level=SufficiencyLevel.PARTIAL if valid else SufficiencyLevel.INSUFFICIENT,
@@ -233,7 +234,7 @@ class ValuationEnricher(DataEnricher):
         """总股本：实测 PE/PB 反推锚点优先，其次三级链。"""
         # 实测锚定：估值数据来自腾讯快照（独立口径），锚定计算只用内存数据
         measured_pe = ctx.valuation_data.pe_ttm if ctx.valuation_data else None
-        if measured_pe is not None and measured_pe > 0:
+        if measured_pe is not None and is_positive_finite(measured_pe):
             sorted_prices = sorted(ctx.price_data or [], key=lambda x: x.trade_date)
             if sorted_prices:
                 latest_close = sorted_prices[-1].close
@@ -248,7 +249,7 @@ class ValuationEnricher(DataEnricher):
                             )
                         return anchor
         measured_pb = ctx.valuation_data.pb if ctx.valuation_data else None
-        if measured_pb is not None and measured_pb > 0:
+        if measured_pb is not None and is_positive_finite(measured_pb):
             sorted_prices = sorted(ctx.price_data or [], key=lambda x: x.trade_date)
             if sorted_prices and sorted_prices[-1].close > 0:
                 return measured_pb * ttm_equity / sorted_prices[-1].close

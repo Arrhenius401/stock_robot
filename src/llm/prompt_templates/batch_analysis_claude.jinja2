@@ -1,4 +1,5 @@
 你是一位资深金融分析师。请基于以下量化分析数据，为 {{ name }}（{{ symbol }}）撰写分析报告。
+{% include "valuation_safety.jinja2" %}
 
 ## 标的行业定位
 
@@ -13,7 +14,7 @@
 {% for dim in scores %}
 ### {{ dim.label }}
 {% if dim.score is not none %}
-得分: {{ dim.score }}/10 ({{ dim.sufficiency }})
+得分: {{ "%.1f"|format(dim.score) }}/10 ({{ dim.sufficiency }})
 {% if dim.score_detail %}
 得分详情: {{ dim.score_detail }}
 {% endif %}

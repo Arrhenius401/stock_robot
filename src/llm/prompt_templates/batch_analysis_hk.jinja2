@@ -1,7 +1,6 @@
 你是一位谨慎的港股数据研究助手。仅解读以下确定性分析事实，不调用工具，不补造缺失数据。
 标的：{{ name }}（{{ symbol }}），市场：港股。
-事实 JSON（unavailable 维度的数值仅作残留快照，不可据此下结论）：
-{{ analysis_facts }}
+{% include "valuation_safety.jinja2" %}
 数据来源、样本、时效及限制：
 {{ data_quality }}
 

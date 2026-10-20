@@ -4,6 +4,8 @@ from typing import Any, Literal
 from analysis.base import AnalysisModule
 from data.schemas import AnalysisResult, IndexAnalysisContext, IndexValuationData
 from index.enricher import index_tag_label, tag_valuation
+from report.formatter import format_metric_value
+from utils.numbers import is_finite_number, is_positive_finite, is_valid_percentile
 
 
 class IndexValuationAnalyzer(AnalysisModule):
@@ -21,30 +23,31 @@ class IndexValuationAnalyzer(AnalysisModule):
         if context.target.index_style == "strategy":
             return self._analyze_strategy(val)
 
-        pe_pct = val.pe_percentile
-        pb_pct = val.pb_percentile
+        pe_pct = val.pe_percentile if val.valuation_valid and is_positive_finite(val.pe_ttm) and is_valid_percentile(val.pe_percentile) else None
+        pb_pct = val.pb_percentile if val.valuation_valid and is_positive_finite(val.pb) and is_valid_percentile(val.pb_percentile) else None
         vtag = tag_valuation(pe_pct)
 
         metrics = {
-            "pe_ttm": val.pe_ttm,
-            "pb": val.pb,
+            "pe_ttm": val.pe_ttm if is_finite_number(val.pe_ttm) else None,
+            "pb": val.pb if is_finite_number(val.pb) else None,
             "pe_percentile": pe_pct,
             "pb_percentile": pb_pct,
-            "dividend_yield": val.dividend_yield,
-            "valuation_valid": val.valuation_valid,
+            "dividend_yield": val.dividend_yield if is_finite_number(val.dividend_yield) else None,
+            "valuation_valid": pe_pct is not None,
             "tag": vtag,
             "percentile_lookback_years": val.percentile_lookback_years,
             "sample_start": val.percentile_sample_start,
             "sample_end": val.percentile_sample_end,
         }
 
-        if not val.valuation_valid:
+        if pe_pct is None:
             return AnalysisResult(dimension=self.dimension, status="partial",
-                                  summary=f"PE-TTM {val.pe_ttm}，估值样本不足，分位仅供参考",
+                                  summary="估值快照仅作披露，历史样本不足或分位无效，不判断高低估",
                                   metrics=metrics)
 
         status = "ok"
-        summary = f"PE-TTM {val.pe_ttm}，历史分位 {pe_pct}%，估值：{index_tag_label(vtag)}"
+        summary = (f"PE-TTM {format_metric_value('pe_ttm', val.pe_ttm)}，"
+                   f"历史分位 {format_metric_value('pe_percentile', pe_pct)}，估值：{index_tag_label(vtag)}")
         return AnalysisResult(dimension=self.dimension, status=status,
                               summary=summary, metrics=metrics)
 
@@ -57,30 +60,38 @@ class IndexValuationAnalyzer(AnalysisModule):
             "pe_source_url", "pb_source_url", "pe_sample_count", "pb_sample_count",
         )
         metrics = {key: getattr(val, key) for key in fields if getattr(val, key) is not None and getattr(val, key) != ""}
+        for key in ("pe_ttm", "pe_snapshot", "pb", "dividend_yield"):
+            if key in metrics and not is_finite_number(metrics[key]):
+                metrics.pop(key)
+        if not val.valuation_valid or not is_positive_finite(val.pb) or not is_valid_percentile(val.pb_percentile):
+            metrics.pop("pb_percentile", None)
+        if not val.valuation_valid or not is_positive_finite(val.pe_ttm) or not is_valid_percentile(val.pe_percentile):
+            metrics.pop("pe_percentile", None)
         metrics["valuation_notes"] = val.valuation_notes
-        has_values = any(getattr(val, key) is not None for key in ("pe_ttm", "pe_snapshot", "pb"))
+        has_values = any(is_finite_number(getattr(val, key)) for key in ("pe_ttm", "pe_snapshot", "pb"))
         if not has_values:
             reason = "；".join(val.valuation_notes) or "公开官方估值未取得有效数值"
             return AnalysisResult(dimension=self.dimension, status="unavailable", summary=reason, metrics=metrics)
         parts = []
-        if val.pe_ttm is not None:
-            parts.append(f"PE-TTM {val.pe_ttm:g}")
-        elif val.pe_snapshot is not None:
-            parts.append(f"官方单张PE {val.pe_snapshot:g}")
-        if val.pb is not None:
-            parts.append(f"PB {val.pb:g}")
-        if val.pe_percentile is not None and val.valuation_valid:
+        if is_finite_number(val.pe_ttm):
+            parts.append(f"PE-TTM {format_metric_value('pe_ttm', val.pe_ttm)}")
+        elif is_finite_number(val.pe_snapshot):
+            parts.append(f"官方单张PE {format_metric_value('pe_snapshot', val.pe_snapshot)}")
+        if is_finite_number(val.pb):
+            parts.append(f"PB {format_metric_value('pb', val.pb)}")
+        if is_valid_percentile(val.pe_percentile) and val.valuation_valid and is_positive_finite(val.pe_ttm):
             metrics.update({
                 "tag": tag_valuation(val.pe_percentile),
                 "percentile_lookback_years": val.percentile_lookback_years,
                 "sample_start": val.percentile_sample_start,
                 "sample_end": val.percentile_sample_end,
             })
-            parts.append(f"近{val.percentile_lookback_years}年窗口内实际可用样本 {val.pe_sample_count} 个交易日，PE历史分位 {val.pe_percentile:g}%")
+            parts.append(f"近{val.percentile_lookback_years}年窗口内实际可用样本 {val.pe_sample_count} 个交易日，"
+                         f"PE历史分位 {format_metric_value('pe_percentile', val.pe_percentile)}")
             parts.append(f"PE估值：{index_tag_label(metrics['tag'])}")
         else:
             metrics.pop("pe_percentile", None)
             parts.append("没有有效PE历史分位，不判断高低估")
         # PE 与 PB 历史独立判断；公开单张 PB 只表示该月末快照。
-        complete = val.valuation_valid and val.pe_percentile is not None and val.pb_percentile is not None
+        complete = "pe_percentile" in metrics and "pb_percentile" in metrics
         return AnalysisResult(dimension=self.dimension, status="ok" if complete else "partial", summary="，".join(parts), metrics=metrics)

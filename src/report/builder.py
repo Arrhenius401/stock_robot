@@ -5,7 +5,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 
 from data.schemas import AnalysisResult
-from report.formatter import format_metric_value, metric_display_name
+from report.formatter import format_metric_value, format_metrics, metric_display_name
 
 
 def _display_width(s: str) -> int:
@@ -32,17 +32,18 @@ def _md_table(data, headers=None):
     rows = []
 
     if isinstance(data, dict):
+        data = format_metrics(data)
         # 过滤掉列表和仅供 Web 渲染的内部映射，它们在模板中单独展示。
         filtered = {
             k: v
             for k, v in data.items()
-            if not isinstance(v, list) and k not in {"peer_names", "tag"}
+            if not isinstance(v, (list, dict)) and k not in {"peer_names", "tag"}
         }
         if not filtered:
             return ""
         headers = ["指标", "数值"]
         for k, v in filtered.items():
-            rows.append([metric_display_name(k), str(format_metric_value(k, v)) if v is not None else "N/A"])
+            rows.append([metric_display_name(k), str(format_metric_value(k, v))])
 
     elif isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
         if headers is None:
@@ -58,7 +59,7 @@ def _md_table(data, headers=None):
             row = []
             for key in data_keys:
                 val = item.get(key, "")
-                row.append(str(val) if val is not None else "N/A")
+                row.append(str(format_metric_value(key, val)))
             rows.append(row)
         headers = display_headers
     else:
@@ -101,6 +102,7 @@ class ReportBuilder:
             lstrip_blocks=True,
         )
         self._env.filters["md_table"] = _md_table
+        self._env.filters["metric_value"] = lambda value, key: format_metric_value(key, value)
         from report.formatter import risk_display_name
         self._env.filters["risk_display_name"] = risk_display_name
 

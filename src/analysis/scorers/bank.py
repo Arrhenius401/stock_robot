@@ -1,5 +1,6 @@
 """银行专用计分器 — PB 为主要估值指标，自定义风控指标"""
 from analysis.scorers.general import GeneralScorer
+from analysis.valuation_rules import valuation_evidence
 from data.schemas import AnalysisContext
 
 
@@ -29,7 +30,7 @@ class BankScorer(GeneralScorer):
             s, _ = self._tier_score(latest.roe, roe_cfg.get("tiers", []))
             max_s = roe_cfg.get("max_score", 3)
             total += s
-            label = f"{latest.roe*100:.1f}%" if latest.roe is not None else "缺失"
+            label = f"{latest.roe*100:.2f}%" if latest.roe is not None else "缺失"
             details.append(f"ROE {label}，得 {s}/{max_s} 分")
             if latest.roe is not None and latest.roe < 0:
                 risks.append("roe_low")
@@ -63,8 +64,6 @@ class BankScorer(GeneralScorer):
 
     def score_valuation(self, ctx: AnalysisContext) -> tuple[float, str, list[str]]:
         cfg = self.config.get("valuation", {})
-        ev = ctx.enriched_valuation
-        ei = ctx.enriched_industry
 
         total = 0.0
         details = []
@@ -78,22 +77,22 @@ class BankScorer(GeneralScorer):
         # PB — 核心估值指标，权重提升至 6 分
         pb_cfg = cfg.get("pb_percentile", {})
         if pb_cfg.get("enabled", True):
-            pb_pct = ev.pb_percentile if ev else None
-            pb_val = ctx.valuation_data.pb if ctx.valuation_data else None
-            if pb_val is not None and pb_val <= 0:
-                details.append("PB 为负，得 0 分")
-            elif pb_pct is not None:
+            _, pb_pct, _ = valuation_evidence(ctx)
+            if pb_pct is None:
+                details.append("PB 分位不适用或历史样本不足，不计分")
+            else:
                 s, _ = self._tier_score(pb_pct, pb_cfg.get("tiers", []))
                 max_s = pb_cfg.get("max_score", 6)
                 total += s
-                details.append(f"PB 分位 {pb_pct:.0f}%，得 {s}/{max_s} 分")
+                details.append(f"PB 分位 {pb_pct:.2f}%，得 {s}/{max_s} 分")
 
         # 行业溢价
         prem_cfg = cfg.get("industry_premium", {})
-        if prem_cfg.get("enabled", True) and ei and ei.target_pe_premium is not None:
-            s, _ = self._tier_score(ei.target_pe_premium, prem_cfg.get("tiers", []))
+        _, _, premium = valuation_evidence(ctx)
+        if prem_cfg.get("enabled", True) and premium is not None:
+            s, _ = self._tier_score(premium, prem_cfg.get("tiers", []))
             max_s = prem_cfg.get("max_score", 4)
             total += s
-            details.append(f"行业溢价 {ei.target_pe_premium:.0f}%，得 {s}/{max_s} 分")
+            details.append(f"行业溢价 {premium:.2f}%，得 {s}/{max_s} 分")
 
         return round(total, 1), "；".join(details), risks

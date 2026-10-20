@@ -5,6 +5,8 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 
 from data.schemas import AnalysisResult, IndexAnalysisContext, IndexReport
+from report.formatter import format_metric_value
+from utils.numbers import is_finite_number, is_positive_finite, is_valid_percentile
 
 
 class IndexReportBuilder:
@@ -18,12 +20,16 @@ class IndexReportBuilder:
         )
         from report.builder import _md_table
         self._env.filters["md_table"] = _md_table
+        self._env.filters["metric_value"] = lambda value, key: format_metric_value(key, value)
 
     def build(self, ctx: IndexAnalysisContext,
               results: list[AnalysisResult]) -> IndexReport:
         results_map = {r.dimension: r for r in results}
 
         tags = self._extract_tags(results_map)
+        val = ctx.valuation_data
+        if not val or not val.valuation_valid or not is_positive_finite(val.pe_ttm) or not is_valid_percentile(val.pe_percentile):
+            tags["index_valuation"] = "invalid"
         visible = self._compute_visible_sections(ctx.target.index_style)
 
         overview = self._build_overview(ctx, results_map)
@@ -63,6 +69,10 @@ class IndexReportBuilder:
         tags = {}
         for dim, r in results_map.items():
             tag = r.metrics.get("tag", "") if r.metrics else ""
+            if dim == "index_valuation" and (r.status == "unavailable"
+                    or not r.metrics.get("valuation_valid", True)
+                    or not is_valid_percentile(r.metrics.get("pe_percentile"))):
+                tag = "invalid"
             if tag:
                 tags[dim] = tag
         return tags
@@ -90,13 +100,13 @@ class IndexReportBuilder:
         return {
             "latest_close": latest_close,
             "change_pct": change_pct,
-            "pe_ttm": val.pe_ttm if val else None,
-            "pb": val.pb if val else None,
-            "pe_snapshot": val.pe_snapshot if val else None,
+            "pe_ttm": val.pe_ttm if val and is_finite_number(val.pe_ttm) else None,
+            "pb": val.pb if val and is_finite_number(val.pb) else None,
+            "pe_snapshot": val.pe_snapshot if val and is_finite_number(val.pe_snapshot) else None,
             "pe_sample_count": val.pe_sample_count if val else 0,
             "strategy_valuation": ctx.target.index_style == "strategy",
-            "pe_percentile": val.pe_percentile if val else None,
-            "valuation_valid": val.valuation_valid if val else True,
+            "pe_percentile": val.pe_percentile if val and val.valuation_valid and is_positive_finite(val.pe_ttm) and is_valid_percentile(val.pe_percentile) else None,
+            "valuation_valid": bool(val and val.valuation_valid and is_positive_finite(val.pe_ttm) and is_valid_percentile(val.pe_percentile)),
             "percentile_lookback_years": val.percentile_lookback_years if val else 5,
         }
 
@@ -143,6 +153,7 @@ def render_index_report_markdown(report: IndexReport) -> str:
     from report.builder import _md_table
 
     env.filters["md_table"] = _md_table
+    env.filters["metric_value"] = lambda value, key: format_metric_value(key, value)
     template = env.get_template("index_report.jinja2")
     return template.render(
         code=report.code,

@@ -2,6 +2,7 @@
 from dataclasses import dataclass, field
 
 from data.schemas import AnalysisContext, AnalysisResult
+from report.formatter import format_metric_value
 from report.signal import SIGNAL_LABELS, SignalConfig, derive_signal
 
 DIM_WEIGHTS = {"financial": 0.30, "technical": 0.20,
@@ -109,7 +110,7 @@ def _fallback_neutral_commentary(summary: ScoreSummary) -> str:
         (
             f"1. 综合数据表现{tendency}。当前可用维度：{available_text}；"
             f"缺失或未计分维度：{missing_text}。"
-            + (f"最终综合得分为 {summary.final_score}/10。" if summary.final_score is not None else "暂无综合得分。")
+            + (f"最终综合得分为 {summary.final_score:.1f}/10。" if summary.final_score is not None else "暂无综合得分。")
         ),
     ]
     if summary.risk_deduction > 0:
@@ -185,8 +186,8 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
         commentary=commentary,
         no_llm=no_llm,
         industry=industry,
-        year_high=f"{price_info['year_high']:.2f}" if price_info['year_high'] else "暂无",
-        year_low=f"{price_info['year_low']:.2f}" if price_info['year_low'] else "暂无",
+        year_high=str(format_metric_value("year_high", price_info['year_high'])),
+        year_low=str(format_metric_value("year_low", price_info['year_low'])),
         price_position=price_info['price_position'],
         score_rows=summary.score_rows,
         base_score=summary.base_score,

@@ -2,6 +2,7 @@
 from typing import Any, Literal
 
 from analysis.base import AnalysisModule
+from analysis.valuation_rules import valuation_evidence
 from data.schemas import AnalysisContext, AnalysisResult, SufficiencyLevel
 
 
@@ -50,7 +51,7 @@ class IndustryAnalyzer(AnalysisModule):
                     "peer_count": enriched.peer_count,
                     "industry_median_pe": enriched.industry_median_pe,
                     "industry_median_pb": enriched.industry_median_pb,
-                    "target_pe_premium": enriched.target_pe_premium,
+                    "target_pe_premium": valuation_evidence(context)[2],
                     "target_market_cap_rank": enriched.target_market_cap_rank,
                     "top_peers": [peer.model_dump() for peer in enriched.top_peers],
                 })

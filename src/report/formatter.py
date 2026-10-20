@@ -14,6 +14,8 @@ from rich.console import Group
 from rich.markdown import Markdown
 from rich.table import Table
 
+from utils.numbers import is_finite_number
+
 logger = logging.getLogger(__name__)
 
 _STOCK_SYMBOL_PATTERN = r"(?:\d{6}|\d{5}\.HK)"
@@ -21,6 +23,10 @@ _STOCK_SYMBOL_PATTERN = r"(?:\d{6}|\d{5}\.HK)"
 _SEP_RE = re.compile(r'^\|[-\s:|]+\|$')
 
 METRIC_DISPLAY_NAMES = {
+    "amount_basis": "财务金额口径",
+    "valuation_applicability": "估值适用性",
+    "applicable": "可用于高低估判断",
+    "reason": "原因",
     "pe_snapshot_basis": "单张PE计算口径",
     "pe_snapshot_source_url": "单张PE官方来源",
     "pe_snapshot_as_of": "单张PE数据日期",
@@ -114,19 +120,80 @@ def metric_display_name(key: object) -> str:
     return METRIC_DISPLAY_NAMES.get(text, text)
 
 
-_TECHNICAL_METRIC_DIGITS = {
-    "latest_close": 2, "ma_5": 2, "ma_20": 2, "ma_60": 2,
-    "volume_ratio": 2, "macd_dif": 3, "macd_dea": 3, "macd_bar": 3,
-}
+_PRICE_KEYS = {"latest_close", "latest_price", "year_high", "year_low", "ma_5", "ma_20", "ma_60"}
+_MULTIPLE_KEYS = {"pe_ttm", "pe_snapshot", "pb", "ps_ttm", "industry_median_pe", "industry_median_pb"}
+_RATIO_KEYS = {"roe", "gross_margin", "revenue_growth_yoy", "profit_growth_yoy", "industry_median_gross_margin"}
+_PERCENT_KEYS = {"change_pct", "pe_percentile", "pb_percentile", "target_pe_premium", "dividend_yield",
+                 "shibor_3m", "cpi_yoy", "shibor_percentile", "pmi_percentile"}
+# 这些字段在适配层按基本货币单位记录；币种由各报告上下文披露，不由上市地推断。
+_AMOUNT_KEYS = {"revenue", "net_profit", "deducted_net_profit", "total_assets", "total_equity", "common_equity",
+                "operating_cash_flow", "market_cap"}
+_ONE_DIGIT_KEYS = {"score", "base_score", "final_score", "risk_deduction"}
+_THREE_DIGIT_KEYS = {"macd_dif", "macd_dea", "macd_bar"}
+_TWO_DIGIT_KEYS = {"volume_ratio", "operating_cash_flow_per_share", "basic_eps", "pmi", "usd_cny"}
+
+
+def _fixed_number(value: float, digits: int) -> str:
+    """避免二进制尾数和负零；极小非零价格由调用者另行保留。"""
+    text = f"{value:,.{digits}f}"
+    return text.removeprefix("-") if round(value, digits) == 0 else text
 
 
 def format_metric_value(key: object, value: Any) -> Any:
-    """技术指标按显示精度格式化；其他指标保持原有格式。"""
-    digits = _TECHNICAL_METRIC_DIGITS.get(str(key))
-    if (digits is not None and isinstance(value, (int, float))
-            and not isinstance(value, bool) and math.isfinite(value)):
-        return f"{value:.{digits}f}"
+    """只按已知字段口径格式化显示，不改动计算或持久化数值。"""
+    key = str(key)
+    if value is None or (isinstance(value, str) and value == "N/A"):
+        return "暂无数据"
+    if isinstance(value, float) and not math.isfinite(value):
+        return "数据异常"
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or not is_finite_number(value):
+        return value
+    if key == "north_bound":
+        return _fixed_number(value, 2) + " 亿"
+    if key in {"main_net_inflow", "margin_balance"}:
+        return _fixed_number(value, 2) + "（原始单位未记录）"
+    if key in _AMOUNT_KEYS:
+        unit, divisor = (" 亿", 1e8) if abs(value) >= 1e8 else (" 万", 1e4) if abs(value) >= 1e4 else ("", 1)
+        return _fixed_number(value / divisor, 2) + unit
+    if key in _RATIO_KEYS:
+        return _fixed_number(value * 100, 2) + "%"
+    if key in _PERCENT_KEYS or key.endswith("_pct"):
+        return _fixed_number(value, 2) + "%"
+    if key in _MULTIPLE_KEYS:
+        text = _fixed_number(value, 2)
+        return text + "（不适用于高低估判断）" if value <= 0 else text
+    if key in _PRICE_KEYS:
+        return f"{value:.8g}" if value != 0 and round(value, 2) == 0 else _fixed_number(value, 2)
+    if key in _THREE_DIGIT_KEYS:
+        return _fixed_number(value, 3)
+    if key in _ONE_DIGIT_KEYS:
+        return _fixed_number(value, 1)
+    if key in _TWO_DIGIT_KEYS:
+        return _fixed_number(value, 2)
     return value
+
+
+def format_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
+    """模型事实及嵌套表格使用字段语义，保留代码、日期与未知字段。"""
+    def display(key: str, value: Any) -> Any:
+        if isinstance(value, dict):
+            return format_metrics(value)
+        if isinstance(value, list):
+            return [display(key, item) for item in value]
+        return format_metric_value(key, value)
+
+    formatted = {key: display(key, value) for key, value in metrics.items()}
+    applicability = metrics.get("valuation_applicability")
+    if isinstance(applicability, dict):
+        for snapshot, derived in (("pe_ttm", "pe_percentile"), ("pb", "pb_percentile")):
+            rule = applicability.get(snapshot, {})
+            if isinstance(rule, dict) and not rule.get("applicable"):
+                formatted[derived] = "不适用" if metrics.get(snapshot) is not None else rule.get("reason", "暂无数据")
+            elif metrics.get(derived) is None:
+                formatted[derived] = "历史样本不足"
+        if metrics.get("target_pe_premium") is None:
+            formatted["target_pe_premium"] = "不适用" if not applicability.get("pe_ttm", {}).get("applicable") else "暂无可比数据"
+    return formatted
 
 
 def risk_display_name(key: object) -> str:

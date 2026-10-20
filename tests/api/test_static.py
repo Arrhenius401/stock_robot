@@ -188,7 +188,7 @@ def _module_url(path: str) -> str:
     url = Path(path).resolve().as_uri()
     # 与聊天模块的正式导入保持同一 URL，避免产生两份抽屉状态单例。
     if path.endswith("/report-drawer.js"):
-        url += "?v=20261019-hk-shared-analysis-2"
+        url += "?v=20261020-report-p0"
     return url
 
 
@@ -309,7 +309,7 @@ class TestStaticUI:
         app_js = (await client.get("/js/app.js")).text
         api_js = (await client.get("/js/api.js")).text
 
-        assert 'import { initReportLibrary } from "./report-library.js?v=20261019-hk-shared-analysis-2";' in app_js
+        assert 'import { initReportLibrary } from "./report-library.js?v=20261020-report-p0";' in app_js
         assert "initReportLibrary();" in app_js
         assert "listReports(" in api_js
         assert "getReport(" in api_js
@@ -346,7 +346,7 @@ class TestStaticUI:
     async def test_app_initializes_report_drawer(self, client):
         resp = await client.get("/js/app.js")
 
-        assert 'import { initReportDrawer } from "./report-drawer.js?v=20261019-hk-shared-analysis-2";' in resp.text
+        assert 'import { initReportDrawer } from "./report-drawer.js?v=20261020-report-p0";' in resp.text
         assert "initReportDrawer();" in resp.text
 
     def test_markdown_renderer_escapes_untrusted_input_and_formats_safe_blocks(self):
@@ -528,7 +528,7 @@ if (!article.textContent.includes("同行业公司") || !article.textContent.inc
   throw new Error("行业字段必须显示中文标签与公司名（代码）");
 }
 if (!article.textContent.includes("头部同行公司")
-    || !article.textContent.includes("招商银行（600036）：市值 603.30 亿元 · PE(TTM) 6.2 · PB 0.8")) {
+    || !article.textContent.includes("招商银行（600036）：市值 603.30 亿 · PE(TTM) 6.20 · PB 0.80")) {
   throw new Error("头部同行应以公司名、代码和指标的结构化格式展示");
 }
 if (article.textContent.includes("roe_low") || article.textContent.includes("bearish_ma")

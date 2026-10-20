@@ -59,7 +59,7 @@ class TestBankScorer:
         scorer = BankScorer(config, {})
         score, detail, _ = scorer.score_financial(ctx)
         assert score > 0
-        assert "ROE 12.0%" in detail
+        assert "ROE 12.00%" in detail
 
     def test_bank_gross_margin_skipped(self, config, ctx):
         scorer = BankScorer(config, {})

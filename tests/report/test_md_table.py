@@ -12,19 +12,19 @@ class TestMdTableDict:
         assert "营业收入" in result
         assert "100" in result
         assert "ROE" in result
-        assert "0.12" in result
+        assert "12.00%" in result
 
     def test_with_none_value(self):
         data = {"ps_ttm": None}
         result = _md_table(data)
-        assert "N/A" in result
+        assert "暂无数据" in result
 
     def test_filters_list_values(self):
         data = {"peers": ["000001", "600036"], "roe": 0.12}
         result = _md_table(data)
         assert "peers" not in result  # list 字段被过滤
         assert "ROE" in result
-        assert "0.12" in result
+        assert "12.00%" in result
 
     def test_empty_dict(self):
         result = _md_table({})
@@ -44,7 +44,7 @@ class TestMdTableDict:
         assert "443.23" in result
         assert "0.86" in result
         assert "-5.305" in result
-        assert "0.12" in result
+        assert "12.00%" in result
         for raw in ("443.2266666666667", "0.8621968458224063", "-5.305251657462463"):
             assert raw not in result
 

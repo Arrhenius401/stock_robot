@@ -85,7 +85,7 @@ def test_hk_shared_prompt_uses_real_metrics_without_scores(tmp_path, provider):
     registry.register_llm_backend(backend, provider=provider)
     pipe = Pipeline(registry, config)
     assert pipe._generate_commentary(ctx.symbol, ctx.name, [result], context=ctx) == {"bulk": "港股事实解读"}
-    assert "396431000000" in backend.prompt
+    assert "3,964.31 亿" in backend.prompt
     assert "2026-06-30" in backend.prompt
     assert "原币" in backend.prompt
     assert "禁止" in backend.prompt

@@ -19,6 +19,7 @@ from data.schemas import (
     SufficiencyLevel,
 )
 from data.validation import financial_has_facts
+from report.formatter import format_metrics
 from utils.config import Config
 
 logger = logging.getLogger(__name__)
@@ -404,7 +405,7 @@ class Pipeline:
                 covered_dims="、".join(covered) if covered else "无",
                 missing_dims="、".join(missing) if missing else "无",
                 analysis_facts=json.dumps([
-                    {"dimension": r.dimension, "status": r.status, "metrics": r.metrics,
+                    {"dimension": r.dimension, "status": r.status, "metrics": format_metrics(r.metrics),
                      "summary": r.summary, "risk_flags": r.risk_flags}
                     for r in results
                 ], ensure_ascii=False, default=str),

@@ -28,6 +28,7 @@ class FinancialAnalyzer(AnalysisModule):
             "total_equity": latest.total_equity,
             "roe": latest.roe,
             "gross_margin": latest.gross_margin,
+            "amount_basis": "财报原币，币种未记录；金额以基本货币单位记录，展示为万/亿，未换汇",
         }
         if latest.operating_cash_flow is not None:
             metrics["operating_cash_flow"] = latest.operating_cash_flow
@@ -108,12 +109,12 @@ class FinancialAnalyzer(AnalysisModule):
         rev_growth = metrics.get("revenue_growth_yoy")
         if rev_growth is not None:
             direction = "增长" if rev_growth > 0 else "下降"
-            parts.append(f"营收同比{direction}{abs(rev_growth)*100:.1f}%")
+            parts.append(f"营收同比{direction}{abs(rev_growth)*100:.2f}%")
         profit_growth = metrics.get("profit_growth_yoy")
         if profit_growth is not None:
             direction = "增长" if profit_growth > 0 else "下降"
-            parts.append(f"净利润同比{direction}{abs(profit_growth)*100:.1f}%")
+            parts.append(f"净利润同比{direction}{abs(profit_growth)*100:.2f}%")
         roe = metrics.get("roe")
         if roe is not None:
-            parts.append(f"ROE {roe*100:.1f}%")
+            parts.append(f"ROE {roe*100:.2f}%")
         return "；".join(parts) if parts else "财务指标数据不足"
