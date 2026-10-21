@@ -291,6 +291,7 @@ def test_fetch_hk_price_uses_hk_history_and_maps_ohlcv(mocker):
 
 
 def test_fetch_hk_financial_maps_profit_and_balance_sheet(mocker):
+    mocker.patch("data.akshare.financial_report_directory", return_value=[])
     income = pd.DataFrame([{
         "REPORT_DATE": "2026-06-30", "STD_ITEM_CODE": code, "AMOUNT": amount,
     } for code, amount in (("004001001", 1000), ("004025002", 200), ("004027002", 1.2))])

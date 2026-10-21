@@ -17,6 +17,7 @@ from data.base import DataSource
 from data.hk_alternatives import baidu_metric, tencent_history
 from data.hk_eastmoney import (
     daily_history,
+    financial_report_directory,
     financial_statement,
     finite_number,
     stock_snapshot,
@@ -633,7 +634,7 @@ class AkShareAdapter(DataSource):
                     start = _parse_date(row["START_DATE"]) if row.get("START_DATE") else None
                     if start is not None and start > end:
                         start = None
-                    currency = str(row.get("CURRENCY_CODE") or row.get("CURRENCY") or "")
+                    currency = FinancialData.normalize_report_currency(row.get("CURRENCY_CODE") or row.get("CURRENCY"))
                     grouped.setdefault(end, set()).add((start, currency))
                 except (TypeError, ValueError):
                     logger.debug("港股财报期间元信息无效，不生成比较口径")
@@ -661,19 +662,61 @@ class AkShareAdapter(DataSource):
         assets, cash_flows = supplement("资产负债表"), supplement("现金流量表")
         income_meta = period_metadata(income)
         cash_meta = period_metadata(statement_rows.get("现金流量表", []))
+        directory_meta: dict[date, tuple[date | None, str, str]] = {}
+        try:
+            grouped: dict[date, set[tuple[date | None, str, str]]] = {}
+            for entry in financial_report_directory(code):
+                if entry.get("SECUCODE") != symbol or entry.get("SECURITY_CODE") != code:
+                    continue
+                try:
+                    end = _parse_date(entry.get("REPORT_DATE"))
+                except (TypeError, ValueError):
+                    logger.debug("港股财报目录报告日期无效，不补元信息")
+                    continue
+                try:
+                    beginning = _parse_date(entry.get("START_DATE"))
+                    if beginning > end:
+                        beginning = None
+                except (TypeError, ValueError):
+                    logger.debug("港股财报目录期间起点无效，不补元信息")
+                    beginning = None
+                currency = FinancialData.normalize_report_currency(entry.get("CURRENCY"))
+                standard = entry.get("ACCOUNT_STANDARD")
+                standard = standard.strip() if isinstance(standard, str) else ""
+                if standard.casefold() in {"--", "-", "n/a", "na", "nan", "null", "none", "unknown",
+                                          "未知", "未记录", "暂无数据"}:
+                    standard = ""
+                grouped.setdefault(end, set()).add((beginning, currency, standard))
+            directory_meta = {end: next(iter(values)) if len(values) == 1 else (None, "", "")
+                              for end, values in grouped.items()}
+        except Exception as error:  # 第三方目录隔离；失败不丢弃已获取的三张报表
+            logger.warning("港股财报目录获取失败，保留原始报表与未知元信息: %s", error)
+            self._append_collection_error("东方财富港股财报（报告目录）", error)
         result = []
         for period, row in sorted(income_periods.items()):
             bs = assets.get(period, {})
             cf = cash_flows.get(period, {})
             start, currency = income_meta.get(period, (None, ""))
             cf_start, cf_currency = cash_meta.get(period, (None, ""))
+            reporting_basis = "东方财富港股财报-报告期"
+            if period in directory_meta:
+                directory_start, directory_currency, standard = directory_meta[period]
+                if (start is not None and start == directory_start and directory_currency and standard
+                        and (not currency or currency == directory_currency)):
+                    currency = directory_currency
+                    reporting_basis += f"-{standard}"
+                    if cf_start == directory_start and not cf_currency:
+                        cf_currency = directory_currency
+                else:
+                    # 冲突目录不能覆盖源字段，也不能悄悄回退为可比较口径。
+                    currency, reporting_basis = "", ""
             # 营业额不是营运收入；归母权益不是包含少数股东的总权益，分别保留。
             result.append(FinancialData(symbol=symbol, fiscal_quarter=period,
                 revenue=row.get("004001001"), net_profit=row.get("004025002"), basic_eps=row.get("004027002"),
                 total_assets=bs.get("004009999"), total_equity=bs.get("004036999"),
                 common_equity=bs.get("004030999"), operating_cash_flow=cf.get("003999"),
                 period_start=start, period_basis="cumulative" if start is not None else "unknown",
-                reporting_basis="东方财富港股财报-报告期", report_currency=currency,
+                reporting_basis=reporting_basis, report_currency=currency,
                 cash_flow_basis="reported" if cf.get("003999") is not None and start is not None
                     and cf_start == start and cf_currency == currency else "unknown",
                 cash_flow_period_start=cf_start))

@@ -50,6 +50,33 @@ def financial_statement(code: str, statement: str) -> list[dict[str, Any]]:
     return records
 
 
+def financial_report_directory(code: str) -> list[dict[str, Any]]:
+    """复用原版财报目录，单次获取当前标的的逐期币种与会计准则。"""
+    response = requests.get("https://datacenter.eastmoney.com/securities/api/data/v1/get", params={
+        "reportName": "RPT_CUSTOM_HKSK_APPFN_CASHFLOW_SUMMARY",
+        "columns": "SECUCODE,SECURITY_CODE,SECURITY_NAME_ABBR,START_DATE,REPORT_DATE,FISCAL_YEAR,"
+                   "CURRENCY,ACCOUNT_STANDARD,REPORT_TYPE",
+        "filter": f'(SECUCODE="{code}.HK")', "pageNumber": "1", "pageSize": "1",
+        "source": "F10", "client": "PC",
+    }, timeout=10)
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict) or payload.get("success") is not True:
+        raise ValueError("东财港股财报目录响应失败或格式异常")
+    result = payload.get("result")
+    data = result.get("data") if isinstance(result, dict) else None
+    if not isinstance(data, list) or len(data) != 1 or not isinstance(data[0], dict):
+        raise ValueError("东财港股财报目录结果异常")
+    records = data[0].get("REPORT_LIST")
+    if not isinstance(records, list) or len(records) > 10000:
+        raise ValueError("东财港股财报目录缺失或超过单次上限")
+    for row in records:
+        if (not isinstance(row, dict) or row.get("SECUCODE") != f"{code}.HK"
+                or row.get("SECURITY_CODE") != code):
+            raise ValueError("东财港股财报目录标的代码不匹配或结构异常")
+    return records
+
+
 def stock_snapshot(code: str) -> dict[str, Any]:
     response = requests.get("https://push2.eastmoney.com/api/qt/stock/get", params={
         "secid": f"116.{code}", "fields": "f43,f57,f58,f86,f164,f167", "fltt": "2", "invt": "2",

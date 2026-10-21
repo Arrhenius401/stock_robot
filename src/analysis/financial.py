@@ -30,7 +30,8 @@ class FinancialAnalyzer(AnalysisModule):
             "total_equity": latest.total_equity,
             "roe": latest.roe,
             "gross_margin": latest.gross_margin,
-            "amount_basis": "财报原币，币种未记录；金额以基本货币单位记录，展示为万/亿，未换汇",
+            "amount_basis": (f"最新利润表原币：{latest.report_currency}（不代表其他报表币种）" if latest.report_currency
+                             else "财报原币，币种未记录") + "；金额以基本货币单位记录，展示为万/亿，未换汇",
         }
         if latest.operating_cash_flow is not None:
             metrics["operating_cash_flow"] = latest.operating_cash_flow

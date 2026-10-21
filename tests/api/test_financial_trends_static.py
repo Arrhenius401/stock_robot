@@ -19,5 +19,9 @@ const limited=renderStockReport({dimensions:{financial:{status:'partial',
  metrics:{operating_trends:[],trend_note:'同口径同期样本不足'}}}});
 if(limited.textContent.includes('经营趋势')) throw new Error('没有趋势时不应留下空标题');
 if(!limited.textContent.includes('同口径同期样本不足')) throw new Error('降级原因丢失');
+const known=renderStockReport({market:'hk',dimensions:{financial:{status:'partial',
+ metrics:{amount_basis:'最新利润表原币：CNY（不代表其他报表币种）',operating_trends:[text],trend_note:''}}}});
+if(known.textContent.includes('币种未记录')) throw new Error('摘要不得以固定文案否定已知币种');
+if(!known.textContent.includes('CNY')) throw new Error('明确币种未披露');
 '''
     _run_node(tmp_path, script)

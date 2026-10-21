@@ -2,8 +2,15 @@
 from datetime import date
 
 import pandas as pd
+import pytest
 
 from data.akshare import AkShareAdapter
+
+
+@pytest.fixture(autouse=True)
+def isolate_report_directory(mocker):
+    """旧元信息样本不隐式触网；目录行为在专项测试中覆盖。"""
+    mocker.patch("data.akshare.financial_report_directory", return_value=[])
 
 
 def test_ths_period_and_estimated_cashflow_are_explicit(mocker):

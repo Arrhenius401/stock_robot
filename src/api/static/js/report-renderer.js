@@ -439,7 +439,7 @@ function summarySection(report, sectionIdPrefix) {
     meta.appendChild(el("span", "", coverage));
   }
   if (meta.children.length) card.appendChild(meta);
-  if (report.market === "hk") card.appendChild(el("div", "report-empty", "财务金额为财报原币，币种未记录，未换汇；不与港币行情混算历史估值。"));
+  if (report.market === "hk") card.appendChild(el("div", "report-empty", "财务金额按各表原币展示，未换汇；不与港币行情混算历史估值。"));
   return card;
 }
 
