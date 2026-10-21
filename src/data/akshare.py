@@ -464,7 +464,6 @@ class AkShareAdapter(DataSource):
 
         results = []
         periods = df.get("报告期", [])
-        currencies = df.get("币种", df.get("currency", []))
         revenues = df.get("营业总收入", [])
         profits = df.get("净利润", [])
         deducted_profits = df.get("扣非净利润", [])
@@ -509,6 +508,20 @@ class AkShareAdapter(DataSource):
                 total_equity, total_assets, common_equity = balance_map.get(
                     date_key, (None, None, None))
 
+                # 境内定期财报以人民币列报；契约只绑定此 A 股来源，不推广到港股或模型默认值。
+                source_row = df.iloc[idx]
+                currency_hints = [hint for key in ("币种", "currency", "CURRENCY", "CURRENCY_CODE")
+                                  for hint in (source_row.get(key), df.attrs.get(key))
+                                  if hint is not None and not (isinstance(hint, str) and not hint.strip())]
+                currencies = {FinancialData.normalize_report_currency(hint) for hint in currency_hints}
+                if kwargs.get("market", "a-shares") == "a-shares":
+                    currency = "CNY" if currencies <= {"CNY", "RMB"} else ""
+                    if not currency:
+                        logger.warning("A 股财报币种不符合人民币列报口径 %s/%s，保留数值但不作金额趋势比较",
+                                       symbol, fiscal_date)
+                else:
+                    currency = next(iter(currencies)) if len(currencies) == 1 else ""
+
                 results.append(FinancialData(
                     symbol=symbol,
                     fiscal_quarter=fiscal_date,
@@ -527,8 +540,7 @@ class AkShareAdapter(DataSource):
                         (3, 31), (6, 30), (9, 30), (12, 31)} else None,
                     period_basis="cumulative",
                     reporting_basis="同花顺财务摘要-按报告期",
-                    report_currency=str(currencies.iloc[idx] if hasattr(currencies, 'iloc') else currencies[idx])
-                        if idx < len(currencies) else str(df.attrs.get("currency", "") or ""),
+                    report_currency=currency,
                     cash_flow_basis="estimated" if ocf is not None else "unknown",
                 ))
             except (ValueError, IndexError, TypeError) as e:
