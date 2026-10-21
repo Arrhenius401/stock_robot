@@ -132,6 +132,7 @@ class FinancialData(BaseModel):
     operating_cash_flow_per_share: float | None = None
     roe: float | None = None
     gross_margin: float | None = None
+    gross_margin_basis: str = ""  # 派生毛利率的计算口径；旧缓存及直接披露值默认为空
     basic_eps: float | None = None  # 基本每股收益，用于总股本反推
     # 趋势专用口径；旧缓存缺失时保持未知，不凭市场或日期补造。
     period_start: "date | None" = None

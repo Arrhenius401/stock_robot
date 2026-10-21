@@ -10,8 +10,10 @@ def test_web_shows_fixed_trends_once_and_labels_source(tmp_path):
     script += r'''
 const text='2026-06-30 较 2025-06-30：净利润扭亏为盈（-300.00 万 → 500.00 万）。';
 const report=renderStockReport({market:'hk',dimensions:{financial:{status:'partial',
- metrics:{operating_trends:[text],trend_note:'币种未记录，金额比较受限',cash_flow_source:'推算值（非直接披露）'}}}});
-for(const word of ['经营趋势','趋势分析限制','经营现金流来源','扭亏为盈','推算值']){
+ metrics:{operating_trends:[text],trend_note:'币种未记录，金额比较受限',cash_flow_source:'推算值（非直接披露）',
+ gross_margin:0.5724660617132261,gross_margin_basis:'计算值：同期间披露毛利÷营运收入；营运收入可能包含其他营业收入'}}}});
+for(const word of ['经营趋势','趋势分析限制','经营现金流来源','扭亏为盈','推算值',
+ '毛利率计算口径','毛利÷营运收入','其他营业收入','57.25%']){
  if(!report.textContent.includes(word)) throw new Error('缺少 '+word);
 }
 if(report.textContent.split(text).length!==2) throw new Error('摘要丢失或重复');

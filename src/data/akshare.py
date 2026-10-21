@@ -22,6 +22,7 @@ from data.hk_eastmoney import (
     finite_number,
     stock_snapshot,
 )
+from data.hk_financial_metrics import GROSS_MARGIN_BASIS, gross_margins
 from data.schemas import (
     CapitalFlowData,
     DataCollectionRecord,
@@ -633,6 +634,7 @@ class AkShareAdapter(DataSource):
             return periods
 
         income_periods = aggregate(income)
+        margins = gross_margins(income, symbol)
         statement_rows: dict[str, list[dict[str, Any]]] = {"利润表": income}
 
         def period_metadata(records: list[dict[str, Any]]) -> dict[date, tuple[date | None, str]]:
@@ -723,10 +725,12 @@ class AkShareAdapter(DataSource):
                     # 冲突目录不能覆盖源字段，也不能悄悄回退为可比较口径。
                     currency, reporting_basis = "", ""
             # 营业额不是营运收入；归母权益不是包含少数股东的总权益，分别保留。
+            margin = margins.get(period) if start is not None else None
             result.append(FinancialData(symbol=symbol, fiscal_quarter=period,
                 revenue=row.get("004001001"), net_profit=row.get("004025002"), basic_eps=row.get("004027002"),
                 total_assets=bs.get("004009999"), total_equity=bs.get("004036999"),
                 common_equity=bs.get("004030999"), operating_cash_flow=cf.get("003999"),
+                gross_margin=margin, gross_margin_basis=GROSS_MARGIN_BASIS if margin is not None else "",
                 period_start=start, period_basis="cumulative" if start is not None else "unknown",
                 reporting_basis=reporting_basis, report_currency=currency,
                 cash_flow_basis="reported" if cf.get("003999") is not None and start is not None

@@ -7,8 +7,8 @@ import {
 import { api } from "./api.js";
 import { renderMarkdown } from "./markdown.js";
 import { el } from "./components.js";
-import { openReportDrawer, closeReportDrawer } from "./report-drawer.js?v=20261021-financial-currency";
-import { renderReportSummary } from "./report-renderer.js?v=20261021-financial-currency";
+import { openReportDrawer, closeReportDrawer } from "./report-drawer.js?v=20261021-hk-gross-margin";
+import { renderReportSummary } from "./report-renderer.js?v=20261021-hk-gross-margin";
 
 const scrollEl = () => document.getElementById("chatScroll");
 

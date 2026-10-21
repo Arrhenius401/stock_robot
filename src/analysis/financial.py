@@ -33,6 +33,8 @@ class FinancialAnalyzer(AnalysisModule):
             "amount_basis": (f"最新利润表原币：{latest.report_currency}（不代表其他报表币种）" if latest.report_currency
                              else "财报原币，币种未记录") + "；金额以基本货币单位记录，展示为万/亿，未换汇",
         }
+        if latest.gross_margin is not None and latest.gross_margin_basis:
+            metrics["gross_margin_basis"] = latest.gross_margin_basis
         if latest.operating_cash_flow is not None:
             metrics["operating_cash_flow"] = latest.operating_cash_flow
         elif latest.operating_cash_flow_per_share is not None:

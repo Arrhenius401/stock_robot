@@ -188,7 +188,7 @@ def _module_url(path: str) -> str:
     url = Path(path).resolve().as_uri()
     # 与聊天模块的正式导入保持同一 URL，避免产生两份抽屉状态单例。
     if path.endswith("/report-drawer.js"):
-        url += "?v=20261021-financial-currency"
+        url += "?v=20261021-hk-gross-margin"
     return url
 
 
@@ -309,7 +309,7 @@ class TestStaticUI:
         app_js = (await client.get("/js/app.js")).text
         api_js = (await client.get("/js/api.js")).text
 
-        assert 'import { initReportLibrary } from "./report-library.js?v=20261021-financial-currency";' in app_js
+        assert 'import { initReportLibrary } from "./report-library.js?v=20261021-hk-gross-margin";' in app_js
         assert "initReportLibrary();" in app_js
         assert "listReports(" in api_js
         assert "getReport(" in api_js
@@ -346,7 +346,7 @@ class TestStaticUI:
     async def test_app_initializes_report_drawer(self, client):
         resp = await client.get("/js/app.js")
 
-        assert 'import { initReportDrawer } from "./report-drawer.js?v=20261021-financial-currency";' in resp.text
+        assert 'import { initReportDrawer } from "./report-drawer.js?v=20261021-hk-gross-margin";' in resp.text
         assert "initReportDrawer();" in resp.text
 
     def test_markdown_renderer_escapes_untrusted_input_and_formats_safe_blocks(self):
