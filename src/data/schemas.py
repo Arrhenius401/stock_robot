@@ -2,7 +2,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel, Field, PrivateAttr, field_validator
 
 
 class SufficiencyLevel(StrEnum):
@@ -133,6 +133,23 @@ class FinancialData(BaseModel):
     roe: float | None = None
     gross_margin: float | None = None
     basic_eps: float | None = None  # 基本每股收益，用于总股本反推
+    # 趋势专用口径；旧缓存缺失时保持未知，不凭市场或日期补造。
+    period_start: "date | None" = None
+    period_basis: Literal["unknown", "cumulative", "single"] = "unknown"
+    reporting_basis: str = ""
+    report_currency: str = ""
+    cash_flow_basis: Literal["unknown", "reported", "estimated"] = "unknown"
+    cash_flow_period_start: "date | None" = None
+
+    @field_validator("report_currency", mode="before")
+    @classmethod
+    def normalize_report_currency(cls, value: Any) -> str:
+        """只规范明确的币种标识，不将占位或市场信息当作币种。"""
+        if not isinstance(value, str):
+            return ""
+        code = {"人民币": "CNY", "人民币元": "CNY", "港币": "HKD", "港元": "HKD", "美元": "USD"}.get(
+            value.strip(), value.strip().upper())
+        return code if len(code) == 3 and code.isascii() and code.isalpha() and code not in {"NAN", "XXX"} else ""
 
 
 class PriceData(BaseModel):

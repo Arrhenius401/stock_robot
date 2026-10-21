@@ -23,6 +23,10 @@ _STOCK_SYMBOL_PATTERN = r"(?:\d{6}|\d{5}\.HK)"
 _SEP_RE = re.compile(r'^\|[-\s:|]+\|$')
 
 METRIC_DISPLAY_NAMES = {
+    "operating_trends": "经营趋势",
+    "trend_note": "趋势分析限制",
+    "cash_flow_source": "经营现金流来源",
+    "deducted_net_profit": "扣非净利润",
     "amount_basis": "财务金额口径",
     "valuation_applicability": "估值适用性",
     "applicable": "可用于高低估判断",

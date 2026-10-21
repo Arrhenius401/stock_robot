@@ -2,7 +2,9 @@
 from typing import Any, Literal
 
 from analysis.base import AnalysisModule
+from analysis.financial_trends import build_financial_trends
 from data.schemas import AnalysisContext, AnalysisResult, SufficiencyLevel
+from utils.numbers import is_finite_number
 
 
 class FinancialAnalyzer(AnalysisModule):
@@ -35,25 +37,18 @@ class FinancialAnalyzer(AnalysisModule):
         elif latest.operating_cash_flow_per_share is not None:
             metrics["operating_cash_flow_per_share"] = latest.operating_cash_flow_per_share
 
-        if len(sorted_data) >= 2:
-            previous_period = latest.fiscal_quarter.replace(year=latest.fiscal_quarter.year - 1)
-            prev_year = next(
-                (item for item in sorted_data if item.fiscal_quarter == previous_period), None)
-            if prev_year is not None:
-                if (latest.revenue is not None and prev_year.revenue is not None
-                        and prev_year.revenue > 0):
-                    metrics["revenue_growth_yoy"] = round(
-                        (latest.revenue - prev_year.revenue) / prev_year.revenue, 4)
-                if (latest.net_profit is not None and prev_year.net_profit is not None
-                        and prev_year.net_profit > 0):
-                    metrics["profit_growth_yoy"] = round(
-                        (latest.net_profit - prev_year.net_profit) / prev_year.net_profit, 4)
-
         roe_trend = []
         for d in sorted_data[:8]:
             if d.roe is not None:
                 roe_trend.append({"quarter": d.fiscal_quarter.isoformat(), "roe": round(d.roe, 4)})
         metrics["roe_trend"] = roe_trend
+        trends = build_financial_trends(financials, context.symbol)
+        metrics.update(trends["latest_yoy"])
+        metrics["operating_trends"] = trends["highlights"]
+        metrics["trend_note"] = trends["note"]
+        if latest.operating_cash_flow is not None:
+            metrics["cash_flow_source"] = {"reported": "直接披露", "estimated": "推算值（非直接披露）"}.get(
+                latest.cash_flow_basis, "来源未记录")
 
         status = "ok" if (
             len(sorted_data) >= 4
@@ -115,6 +110,6 @@ class FinancialAnalyzer(AnalysisModule):
             direction = "增长" if profit_growth > 0 else "下降"
             parts.append(f"净利润同比{direction}{abs(profit_growth)*100:.2f}%")
         roe = metrics.get("roe")
-        if roe is not None:
+        if roe is not None and is_finite_number(roe) and is_finite_number(roe * 100):
             parts.append(f"ROE {roe*100:.2f}%")
         return "；".join(parts) if parts else "财务指标数据不足"

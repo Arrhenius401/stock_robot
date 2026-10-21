@@ -40,6 +40,12 @@
 > {{ r.summary }}（保留可用指标快照）
 {% endif %}
 {{ r.metrics | md_table }}
+{% if r.metrics.get("operating_trends") %}
+**经营趋势：**
+{% for trend in r.metrics["operating_trends"] %}
+- {{ trend }}
+{% endfor %}
+{% endif %}
 {% for note in r.metrics.get("valuation_notes", []) %}
 - {{ note }}
 {% endfor %}

@@ -12,6 +12,8 @@ const DIMENSIONS = [
 
 // 数据层字段只在内部协议中使用；界面统一显示业务中文名称。
 const METRIC_LABELS = {
+  operating_trends: "经营趋势", trend_note: "趋势分析限制",
+  cash_flow_source: "经营现金流来源", deducted_net_profit: "扣非净利润",
   amount_basis: "财务金额口径", valuation_applicability: "估值适用性", applicable: "可用于高低估判断", reason: "原因",
   ma_5: "5 日均线", ma_20: "20 日均线", ma_60: "60 日均线",
   volume_ratio: "近5日与此前20日均量比",
@@ -262,6 +264,7 @@ function appendMetrics(grid, key, value, prefix = "") {
 }
 
 export function appendReadableMetric(grid, key, value, context = {}) {
+  if (key === 'operating_trends' && (!Array.isArray(value) || value.length === 0)) return;
   // 适用性结构供机器消费；正文用原因列表和对应指标状态展示，避免重复展开。
   if (key === 'valuation_applicability') return;
   const rules = context.valuation_applicability;

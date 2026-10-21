@@ -2,7 +2,7 @@
 import { store, switchView } from "./state.js";
 import { api } from "./api.js";
 import { renderMarkdown } from "./markdown.js";
-import { appendReadableMetric, riskText, formatMetricValue } from "./report-renderer.js?v=20261020-capital-display";
+import { appendReadableMetric, riskText, formatMetricValue } from "./report-renderer.js?v=20261021-financial-trends";
 import { el, kv, tagChip, priceBar, errorCard, skeleton,
          showEntryError, clearEntryError } from "./components.js";
 

@@ -463,6 +463,7 @@ class AkShareAdapter(DataSource):
 
         results = []
         periods = df.get("报告期", [])
+        currencies = df.get("币种", df.get("currency", []))
         revenues = df.get("营业总收入", [])
         profits = df.get("净利润", [])
         deducted_profits = df.get("扣非净利润", [])
@@ -521,6 +522,13 @@ class AkShareAdapter(DataSource):
                     roe=roe,
                     gross_margin=gross_margin,
                     basic_eps=basic_eps,
+                    period_start=date(fiscal_date.year, 1, 1) if (fiscal_date.month, fiscal_date.day) in {
+                        (3, 31), (6, 30), (9, 30), (12, 31)} else None,
+                    period_basis="cumulative",
+                    reporting_basis="同花顺财务摘要-按报告期",
+                    report_currency=str(currencies.iloc[idx] if hasattr(currencies, 'iloc') else currencies[idx])
+                        if idx < len(currencies) else str(df.attrs.get("currency", "") or ""),
+                    cash_flow_basis="estimated" if ocf is not None else "unknown",
                 ))
             except (ValueError, IndexError, TypeError) as e:
                 logger.warning(f"跳过异常财务数据行 {idx}: {e}")
@@ -612,10 +620,31 @@ class AkShareAdapter(DataSource):
             return periods
 
         income_periods = aggregate(income)
+        statement_rows: dict[str, list[dict[str, Any]]] = {"利润表": income}
+
+        def period_metadata(records: list[dict[str, Any]]) -> dict[date, tuple[date | None, str]]:
+            """只采用来源明确给出的期间起点与币种；冲突时不生成趋势口径。"""
+            grouped: dict[date, set[tuple[date | None, str]]] = {}
+            for row in records:
+                if str(row.get("SECUCODE", symbol)) != symbol or str(row.get("SECURITY_CODE", code)) != code:
+                    continue
+                try:
+                    end = _parse_date(row.get("REPORT_DATE"))
+                    start = _parse_date(row["START_DATE"]) if row.get("START_DATE") else None
+                    if start is not None and start > end:
+                        start = None
+                    currency = str(row.get("CURRENCY_CODE") or row.get("CURRENCY") or "")
+                    grouped.setdefault(end, set()).add((start, currency))
+                except (TypeError, ValueError):
+                    logger.debug("港股财报期间元信息无效，不生成比较口径")
+            return {end: next(iter(values)) if len(values) == 1 else (None, "")
+                    for end, values in grouped.items()}
 
         def supplement(statement: str) -> dict[date, dict[str, float]]:
             try:
-                return aggregate(financial_statement(code, statement))
+                records = financial_statement(code, statement)
+                statement_rows[statement] = records
+                return aggregate(records)
             except Exception as error:  # 第三方补充报表隔离；本文件已豁免 BLE001
                 logger.warning("港股%s获取失败，仅保留其他已获取财务字段: %s", statement, error)
                 previous = self.get_collection_error()
@@ -630,15 +659,24 @@ class AkShareAdapter(DataSource):
                 return {}
 
         assets, cash_flows = supplement("资产负债表"), supplement("现金流量表")
+        income_meta = period_metadata(income)
+        cash_meta = period_metadata(statement_rows.get("现金流量表", []))
         result = []
         for period, row in sorted(income_periods.items()):
             bs = assets.get(period, {})
             cf = cash_flows.get(period, {})
+            start, currency = income_meta.get(period, (None, ""))
+            cf_start, cf_currency = cash_meta.get(period, (None, ""))
             # 营业额不是营运收入；归母权益不是包含少数股东的总权益，分别保留。
             result.append(FinancialData(symbol=symbol, fiscal_quarter=period,
                 revenue=row.get("004001001"), net_profit=row.get("004025002"), basic_eps=row.get("004027002"),
                 total_assets=bs.get("004009999"), total_equity=bs.get("004036999"),
-                common_equity=bs.get("004030999"), operating_cash_flow=cf.get("003999")))
+                common_equity=bs.get("004030999"), operating_cash_flow=cf.get("003999"),
+                period_start=start, period_basis="cumulative" if start is not None else "unknown",
+                reporting_basis="东方财富港股财报-报告期", report_currency=currency,
+                cash_flow_basis="reported" if cf.get("003999") is not None and start is not None
+                    and cf_start == start and cf_currency == currency else "unknown",
+                cash_flow_period_start=cf_start))
         return result
 
     def _fetch_hk_valuation(self, symbol: str) -> list[ValuationData]:
