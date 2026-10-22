@@ -1,4 +1,5 @@
 """真实 QQ 失败报告与港股无评分解读回归。"""
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,7 @@ from data.schemas import (
     AnalysisContext,
     AnalysisResult,
     DimensionSufficiency,
+    FinancialData,
     SufficiencyLevel,
 )
 from report.payload import build_stock_payload
@@ -94,3 +96,24 @@ def test_hk_shared_prompt_uses_real_metrics_without_scores(tmp_path, provider):
     result.metrics = {"latest_quarter": "2026-06-30", "revenue": None}
     assert pipe._generate_commentary(ctx.symbol, ctx.name, [result], context=ctx) == {}
     assert not backend.prompt
+
+
+def test_hk_financial_source_and_selection_note_are_visible():
+    ctx = hk_context()
+    ctx.financial_data = [FinancialData(
+        symbol="00700.HK",
+        fiscal_quarter=date(2026, 6, 30),
+        revenue=1.0,
+        financial_source="东方财富港股财报",
+        financial_selection_status="complete",
+        financial_selection_note="完整来源包",
+    )]
+    result = AnalysisResult(
+        dimension="financial", status="partial", summary="港股报告期",
+        metrics={"revenue": 1.0, "latest_quarter": "2026-06-30"},
+    )
+    quality = build_data_quality(ctx, [result])
+    financial = next(item for item in quality["dimensions"] if item["key"] == "financial")
+    fields = {field["label"]: field["value"] for field in financial["fields"]}
+    assert fields["数据来源"] == "东方财富港股财报"
+    assert fields["财务包说明"] == "完整来源包"

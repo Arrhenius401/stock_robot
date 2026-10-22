@@ -106,7 +106,7 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult]) -> d
             {"label": "数据来源", "value": getattr(record, "source", "") or "未记录"},
             {"label": "数据截止", "value": cutoff},
         ]
-        if key == "financial" and ctx.market == "a-shares" and ctx.financial_data:
+        if key == "financial" and ctx.market in {"a-shares", "hk"} and ctx.financial_data:
             latest = max(ctx.financial_data, key=lambda row: row.fiscal_quarter)
             if latest.financial_source and not getattr(record, "source", ""):
                 fields[1]["value"] = latest.financial_source

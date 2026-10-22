@@ -653,6 +653,27 @@ class AkShareAdapter(DataSource):
         ], self._append_collection_error)
 
     def _fetch_hk_financial(self, symbol: str) -> list[FinancialData]:
+        from data.financial_selection import FinancialPackage, select_financial
+        from data.hk_financial_policy import (
+            HK_DEPENDENCIES,
+            HK_REQUIRED_FIELDS,
+            annotate_selection,
+            package_complete,
+        )
+
+        selection = select_financial(
+            [("东方财富港股财报", lambda: FinancialPackage(
+                "东方财富港股财报", self._fetch_hk_eastmoney_financial(symbol), {},
+            ))],
+            symbol=symbol,
+            required=HK_REQUIRED_FIELDS,
+            completeness=package_complete,
+            dependencies=HK_DEPENDENCIES,
+            on_error=self._append_collection_error,
+        )
+        return annotate_selection(selection)
+
+    def _fetch_hk_eastmoney_financial(self, symbol: str) -> list[FinancialData]:
         code = symbol.removesuffix(".HK")
         income = financial_statement(code, "利润表")
         def aggregate(records: list[dict[str, Any]]) -> dict[date, dict[str, float]]:
