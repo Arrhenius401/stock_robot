@@ -1,12 +1,13 @@
 """通用整包选择核心：不依赖财务模型。"""
 
 import copy
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import date
 
 import pytest
 
-from data.package_selection import Position, SourcePackage, select_package
+from data.package_selection import Position, Selection, SourcePackage, select_package
 
 PERIOD = date(2026, 6, 30)
 FIELDS = frozenset({"alpha", "beta"})
@@ -28,18 +29,45 @@ def position(field: str) -> Position:
     )
 
 
-def package(source="主源", alpha=100.0, beta=10.0):
+def package(
+    source: str = "主源",
+    alpha: float | None = 100.0,
+    beta: float | None = 10.0,
+) -> SourcePackage[FakeRow]:
     row = FakeRow("X", PERIOD, alpha=alpha, beta=beta)
     return SourcePackage(source, [row], {PERIOD: {name: position(name) for name in FIELDS}})
 
 
-def select(*packages, **kwargs):
+def _code(row: FakeRow) -> str:
+    return row.code
+
+
+def _period(row: FakeRow) -> date:
+    return row.period
+
+
+def select(
+    *packages: SourcePackage[FakeRow],
+    required_periods: frozenset[date] = frozenset(),
+    row_compatible: Callable[[FakeRow, Position, str], bool] | None = None,
+    apply_metadata: Callable[[FakeRow, str, FakeRow], None] | None = None,
+) -> Selection[FakeRow]:
     return select_package(
         [(p.source, lambda p=p: p) for p in packages],
-        entity="X", fields=FIELDS,
-        entity_of=lambda row: row.code, period_of=lambda row: row.period,
-        required=REQUIRED, **kwargs,
+        entity="X",
+        fields=FIELDS,
+        entity_of=_code,
+        period_of=_period,
+        required=REQUIRED,
+        required_periods=required_periods,
+        row_compatible=row_compatible,
+        apply_metadata=apply_metadata,
     )
+
+
+def selected(result: Selection[FakeRow]) -> FakeRow:
+    assert result.package is not None
+    return result.package.rows[0]
 
 
 def test_complete_primary_does_not_call_backup():
@@ -50,7 +78,7 @@ def test_complete_primary_does_not_call_backup():
 
     result = select_package(
         [("主源", lambda: primary), ("备用", forbidden)], entity="X", fields=FIELDS,
-        entity_of=lambda row: row.code, period_of=lambda row: row.period, required=REQUIRED,
+        entity_of=_code, period_of=_period, required=REQUIRED,
     )
     assert result.package is primary
     assert result.complete
@@ -68,8 +96,8 @@ def test_equivalent_partial_packages_fill_only_missing():
     primary, donor = package(beta=None), package("备用", alpha=None)
     result = select(primary, donor)
     assert result.package is not primary
-    assert result.package.rows[0].alpha == 100
-    assert result.package.rows[0].beta == 10
+    assert selected(result).alpha == 100
+    assert selected(result).beta == 10
     assert result.supplements == {PERIOD: {"beta": "备用"}}
     assert primary.rows[0].beta is None
     assert result.complete
@@ -79,14 +107,14 @@ def test_position_mismatch_blocks_supplement():
     primary, donor = package(beta=None), package("备用", alpha=None)
     donor.positions[PERIOD]["beta"] = replace(donor.positions[PERIOD]["beta"], currency="USD")
     result = select(primary, donor)
-    assert result.package.rows[0].beta is None
+    assert selected(result).beta is None
     assert not result.complete
 
 
 def test_row_compatible_callback_blocks_supplement():
     primary, donor = package(beta=None), package("备用", alpha=None)
     result = select(primary, donor, row_compatible=lambda row, pos, name: name != "beta")
-    assert result.package.rows[0].beta is None
+    assert selected(result).beta is None
 
 
 def test_apply_metadata_runs_after_supplement():
@@ -105,7 +133,7 @@ def test_older_complete_does_not_replace_new_partial():
     older = package("旧备用")
     older.rows[0] = replace(older.rows[0], period=date(2026, 3, 31))
     result = select(primary, older)
-    assert result.package.rows[0].period == PERIOD
+    assert selected(result).period == PERIOD
     assert not result.complete
 
 
@@ -114,7 +142,7 @@ def test_newer_partial_is_not_hidden_by_older_primary():
     newer = package("新备用", beta=None)
     newer.rows[0] = replace(newer.rows[0], period=date(2026, 9, 30))
     result = select(primary, newer)
-    assert result.package.rows[0].period == date(2026, 9, 30)
+    assert selected(result).period == date(2026, 9, 30)
 
 
 def test_empty_shell_does_not_block_valid_backup():
@@ -142,8 +170,8 @@ def test_missing_required_period_prevents_complete():
 def test_unknown_configuration_field_is_rejected():
     with pytest.raises(ValueError, match="字段"):
         select_package(
-            [], entity="X", fields=FIELDS, entity_of=lambda row: row.code,
-            period_of=lambda row: row.period, required=frozenset({"typo"}),
+            [], entity="X", fields=FIELDS, entity_of=_code,
+            period_of=_period, required=frozenset({"typo"}),
         )
 
 
@@ -156,7 +184,7 @@ def test_provider_error_is_isolated_and_next_is_used():
 
     result = select_package(
         [("主源", failed), ("备用", lambda: backup)], entity="X", fields=FIELDS,
-        entity_of=lambda row: row.code, period_of=lambda row: row.period, required=REQUIRED,
+        entity_of=_code, period_of=_period, required=REQUIRED,
         on_error=lambda source, error: errors.append((source, type(error))),
     )
     assert result.package is backup
