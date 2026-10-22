@@ -21,7 +21,7 @@ def test_ths_period_and_estimated_cashflow_are_explicit(mocker):
         "扣非净利润": [90], "每股经营现金流": [2], "基本每股收益": [1], "币种": ["CNY"],
     }))
     mocker.patch("akshare.stock_financial_debt_new_ths", return_value=pd.DataFrame())
-    row = AkShareAdapter()._fetch_financial("688326")[0]
+    row = AkShareAdapter()._fetch_ths_financial("688326")[0]
     assert row.period_basis == "cumulative" and row.period_start == date(2026, 1, 1)
     assert row.report_currency == "CNY"
     assert row.operating_cash_flow == 200 and row.cash_flow_basis == "estimated"
@@ -33,7 +33,7 @@ def test_ths_domestic_report_has_cny_contract_without_extra_request(mocker):
     }))
     debt = mocker.patch("akshare.stock_financial_debt_new_ths", return_value=pd.DataFrame())
     network = mocker.patch("requests.get", side_effect=AssertionError("币种不应增加网络请求"))
-    rows = AkShareAdapter()._fetch_financial("688326")
+    rows = AkShareAdapter()._fetch_ths_financial("688326")
     assert all(row.report_currency == "CNY" for row in rows)
     assert [row.revenue for row in rows] == [100, 120]
     assert [row.net_profit for row in rows] == [10, 15]
@@ -49,7 +49,7 @@ def test_ths_domestic_report_accepts_rmb_aliases_or_missing_currency(mocker, cur
         "报告期": ["2026-06-30"], "营业总收入": [100], "净利润": [10], "币种": [currency],
     }))
     mocker.patch("akshare.stock_financial_debt_new_ths", return_value=pd.DataFrame())
-    assert AkShareAdapter()._fetch_financial("688326", market="a-shares")[0].report_currency == "CNY"
+    assert AkShareAdapter()._fetch_ths_financial("688326", market="a-shares")[0].report_currency == "CNY"
 
 
 @pytest.mark.parametrize(("column", "attribute"), [("USD", None), ("HKD", None), ("未知", None),
@@ -61,7 +61,7 @@ def test_ths_currency_contradiction_preserves_values_but_blocks_amount_trends(mo
         frame.attrs["currency"] = attribute
     mocker.patch("akshare.stock_financial_abstract_ths", return_value=frame)
     mocker.patch("akshare.stock_financial_debt_new_ths", return_value=pd.DataFrame())
-    rows = AkShareAdapter()._fetch_financial("688326")
+    rows = AkShareAdapter()._fetch_ths_financial("688326")
     assert [r.revenue for r in rows] == [100, 120]
     assert [r.net_profit for r in rows] == [10, 15]
     assert all(r.report_currency == "" for r in rows)
@@ -74,7 +74,7 @@ def test_cny_contract_does_not_apply_to_model_defaults_or_other_markets(mocker):
         "报告期": ["2026-06-30"], "营业总收入": [100], "净利润": [10],
     }))
     mocker.patch("akshare.stock_financial_debt_new_ths", return_value=pd.DataFrame())
-    assert AkShareAdapter()._fetch_financial("688326", market="us")[0].report_currency == ""
+    assert AkShareAdapter()._fetch_ths_financial("688326", market="us")[0].report_currency == ""
     for symbol in ("688326", "00700.HK"):
         row = FinancialData(symbol=symbol, fiscal_quarter=date(2026, 6, 30))
         assert row.report_currency == ""

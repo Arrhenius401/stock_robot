@@ -106,6 +106,22 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult]) -> d
             {"label": "数据来源", "value": getattr(record, "source", "") or "未记录"},
             {"label": "数据截止", "value": cutoff},
         ]
+        if key == "financial" and ctx.market == "a-shares" and ctx.financial_data:
+            latest = max(ctx.financial_data, key=lambda row: row.fiscal_quarter)
+            if latest.financial_source and not getattr(record, "source", ""):
+                fields[1]["value"] = latest.financial_source
+            if latest.financial_selection_note:
+                fields.append({"label": "财务包说明", "value": latest.financial_selection_note})
+            if (len(set(latest.field_sources.values())) > 1
+                    or any(source != latest.financial_source for source in latest.field_sources.values())):
+                from report.formatter import metric_display_name
+
+                # 仅展开最新报告的补位来源，历史逐项记录留在缓存，避免报告无限膨胀。
+                sources: dict[str, list[str]] = {}
+                for name, source in sorted(latest.field_sources.items()):
+                    sources.setdefault(source, []).append(metric_display_name(name))
+                fields.append({"label": "最新报告字段来源", "value": "；".join(
+                    f"{source}：{'、'.join(names)}" for source, names in sources.items())})
         if key == "valuation" and ctx.enriched_valuation and ctx.enriched_valuation.daily_points:
             fields[1]["value"] = "行情与财务派生计算"
             price_source = getattr(records.get("price"), "source", "") or "未记录"

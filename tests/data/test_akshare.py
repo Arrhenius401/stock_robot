@@ -5,7 +5,17 @@ import pandas as pd
 import pytest
 
 from data.akshare import AkShareAdapter
+from data.financial_selection import FinancialPackage
 from data.schemas import FinancialData, PriceData
+
+
+@pytest.fixture(autouse=True)
+def isolate_a_financial_backups(monkeypatch):
+    """旧主源解析样本不隐式触网；主备调用顺序由专项集成测试覆盖。"""
+    monkeypatch.setattr("data.a_financial_sources.fetch_sina_financial",
+                        lambda _: FinancialPackage("新浪财报", [], {}))
+    monkeypatch.setattr("data.a_financial_sources.fetch_eastmoney_financial",
+                        lambda _: FinancialPackage("东方财富财报", [], {}))
 
 
 class TestAkShareAdapter:

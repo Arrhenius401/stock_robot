@@ -141,6 +141,12 @@ class FinancialData(BaseModel):
     report_currency: str = ""
     cash_flow_basis: Literal["unknown", "reported", "estimated"] = "unknown"
     cash_flow_period_start: "date | None" = None
+    # 显式持久化来源，不依赖不会进入 model_dump 的 _data_source。
+    financial_source: str = ""
+    field_sources: dict[str, str] = Field(default_factory=dict)
+    field_positions: dict[str, dict[str, str]] = Field(default_factory=dict)
+    financial_selection_status: Literal["unknown", "complete", "partial"] = "unknown"
+    financial_selection_note: str = ""
 
     @field_validator("report_currency", mode="before")
     @classmethod

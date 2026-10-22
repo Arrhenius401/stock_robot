@@ -434,6 +434,45 @@ class AkShareAdapter(DataSource):
     def _fetch_financial(self, symbol: str, **kwargs) -> list[FinancialData]:
         if kwargs.get("market") == "hk":
             return self._fetch_hk_financial(symbol)
+        from data.a_financial_policy import (
+            DEPENDENCIES,
+            SNAPSHOT_FIELDS,
+            annotate_selection,
+            package_complete,
+        )
+        from data.a_financial_sources import (
+            fetch_eastmoney_financial,
+            fetch_sina_financial,
+        )
+        from data.financial_selection import FinancialPackage, select_financial
+
+        observed_periods: set[date] = set()
+
+        def complete(package: FinancialPackage) -> bool:
+            # 已观察到的历史不能因备用响应截短而被静默丢弃；范围仍为原最多十二期。
+            observed_periods.update(row.fiscal_quarter for row in package.rows)
+            window = set(sorted(observed_periods)[-12:])
+            return window <= {row.fiscal_quarter for row in package.rows} and package_complete(package)
+
+        def primary() -> FinancialPackage:
+            return FinancialPackage("同花顺财报", self._fetch_ths_financial(symbol, **kwargs), {})
+
+        selection = select_financial(
+            [("同花顺财报", primary), ("新浪财报", lambda: fetch_sina_financial(symbol)),
+             ("东方财富财报", lambda: fetch_eastmoney_financial(symbol))],
+            symbol=symbol, required=SNAPSHOT_FIELDS, completeness=complete,
+            dependencies=DEPENDENCIES, on_error=self._append_collection_error,
+        )
+        if (selection.package is not None and selection.package.source != "同花顺财报"
+                and self.get_collection_error() is None):
+            self._collection_diagnostics.record = DataCollectionRecord(
+                source="同花顺财报", error_kind="incomplete",
+                error_message="同花顺财报：字段或历史不足，采用备用财务来源",
+            )
+        return annotate_selection(selection)
+
+    def _fetch_ths_financial(self, symbol: str, **kwargs) -> list[FinancialData]:
+        """原同花顺主源采集与算法原样保留，外层仅负责主备选择。"""
         df: Any = ak.stock_financial_abstract_ths(symbol=symbol)
 
         # 从资产负债表端点补充 total_equity / total_assets（同花顺源，非东方财富）

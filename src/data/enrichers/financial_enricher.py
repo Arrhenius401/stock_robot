@@ -31,6 +31,13 @@ class FinancialEnricher(DataEnricher):
             weight = 0.0
             reason = f"季报仅 {count} 期或关键字段大面积缺失，无法完成财务分析"
 
+        if ctx.market == "a-shares" and any(f.financial_selection_status == "partial" for f in financials):
+            # 已确认的选包缺项不能被旧期数门槛重新标为完整；旧缓存 unknown 保持兼容。
+            if level == SufficiencyLevel.SUFFICIENT:
+                level, weight = SufficiencyLevel.PARTIAL, 0.5
+            notes = list(dict.fromkeys(f.financial_selection_note for f in financials if f.financial_selection_note))
+            reason = f"具备 {count} 期财报；" + ("；".join(notes) or "来源包仍有缺项，仅按实际可用事实分析")
+
         ctx.sufficiency.financial = DimensionSufficiency(
             level=level, reason=reason, sample_count=count, score_weight=weight,
         )
