@@ -122,9 +122,9 @@ def test_apply_metadata_runs_after_supplement():
     seen = []
     result = select(
         primary, donor,
-        apply_metadata=lambda row, name, other: seen.append((name, donor.source)),
+        apply_metadata=lambda row, name, other: seen.append((name, other.beta, row.beta)),
     )
-    assert seen == [("beta", donor.source)]
+    assert seen == [("beta", 10.0, 10.0)]
     assert result.supplements == {PERIOD: {"beta": donor.source}}
 
 
@@ -143,6 +143,15 @@ def test_newer_partial_is_not_hidden_by_older_primary():
     newer.rows[0] = replace(newer.rows[0], period=date(2026, 9, 30))
     result = select(primary, newer)
     assert selected(result).period == date(2026, 9, 30)
+
+
+def test_empty_shell_is_removed_before_latest_comparison():
+    valid = package("有效备用")
+    mixed = package("含空壳", beta=None)
+    mixed.rows.append(FakeRow("X", date(2026, 9, 30)))
+    result = select(mixed, valid)
+    assert result.package is valid
+    assert result.complete
 
 
 def test_empty_shell_does_not_block_valid_backup():

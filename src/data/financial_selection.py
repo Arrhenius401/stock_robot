@@ -27,7 +27,7 @@ class FinancialPackage(SourcePackage[FinancialData]):
 
 @dataclass
 class FinancialSelection(Selection[FinancialData]):
-    pass
+    package: FinancialPackage | None = None
 
 
 def _valid(value: object) -> bool:

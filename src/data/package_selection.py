@@ -190,6 +190,9 @@ def select_package(
 
     完整性针对包内全部报告期及调用方明确要求的期间。选择器不扩大窗口、不推断上市日，
     也不以旧完整包覆盖已经观察到的更新报告期。有效主值永不覆盖。
+
+    row_compatible 对当前包与供体包使用同一 Position 校验；apply_metadata 在字段写入后调用，
+    用于同步现金流披露/推算或毛利率口径等附随字段。
     """
     configured = required | frozenset().union(*dependencies)
     if not required or configured - fields:
