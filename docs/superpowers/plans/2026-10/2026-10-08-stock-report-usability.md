@@ -197,6 +197,15 @@
 - **未验证项**：浏览器创建早于服务就绪遭连接拒绝；服务启动后浏览器观察被工具安全策略阻止，未绕过，未将 HTTP 验收冒充浏览器目视验收。没有改前端样式/SSE；页面目视效果仍待可用浏览器验证。东财本轮为真实响应离线回放，未重复全部供应商实时网络；北京市场和全市场覆盖未由三个样本证明。既有 Pipeline 两次尝试及原主源 SDK 超时策略未重构，极端全源失败延迟仍有后续优化空间。不做云端/QQ/付费模型，不改版本，不推送合并发布。
 - **最终消费方复核**：额外运行 `tests/test_enrichers.py tests/test_scoring.py tests/analysis/scorers tests/core/test_pipeline.py tests/analysis/test_financial.py`，85 项通过，未扩大为 Full。暂存内容与已验证源码一致，`git diff --cached --check` 通过。本轮独立验收服务 PID 9928 已核对启动命令并停止；报告和日志保留忽略目录，不提交临时产物。原主仓未参与本次代码编辑。
 
+#### A 股主备收尾验收（2026-10-22）
+
+- 本轮沿用同一工作树和同主题文档，补做上一节遗留的浏览器目视与全量门禁。真实服务沿 `D:/code/stock_robot/.venv/Scripts/stock-robot.exe run --host 127.0.0.1 --port 8765` 启动，cwd 为忽略 `tmp/acceptance/a-financial-live`，工作树 PYTHONPATH 加载源码，LLM/推送关闭。浏览器为真实 Edge（headless + CDP，非 Mock），从页面输入 600519 并点击“生成研报”，报告生成时间 `2026-10-22T14:12:19.277955+08:00`，11 个报告章节均渲染，无“分析失败”文案。
+- 目视与 DOM 检查：标题为贵州茅台；财务维度显示“财务健康 正常”、最新报告期、营收/净利润/总资产/股东权益/ROE/毛利率、`财务金额口径 CNY`、经营现金流 707.74 亿及经营趋势；数据覆盖显示“财务 正常 / 12期财报 / 数据来源 同花顺财报 / 财务包说明 完整来源包 / 缓存状态 缓存，原采集时间 2026-10-22T13:40:40.191647+08:00”。本次浏览器读取的是上节两次真实 POST 生成的缓存包，不是本轮重新联网采集；未把缓存渲染表述为新的实时采集。
+- 宽屏 1280px：`clientWidth=scrollWidth=1280`，报告卡 x=234 / width=980；390px：`clientWidth=scrollWidth=390`，卡片 x=12 / width=366，财务与数据覆盖章节均正常换行，无遮挡或水平溢出。截图在主仓忽略目录 `tmp/acceptance/report-p0/a-financial-browser-{wide,390,financial-wide,financial-390,quality-wide,quality-390}.jpg`；CDP 脚本与断言结果在 worktree 忽略目录 `tmp/acceptance/a-financial-browser-*.py|json`。
+- 全量门禁首轮 `scripts/verify.ps1 -Scope Full -VenvPath D:/code/stock_robot/.venv`：Ruff 通过、Pyright 0 错误/警告，pytest **1 failed, 2237 passed, 4 skipped**（224.69 秒）。唯一失败 `tests/api/test_static_strategy_indices.py::test_strategy_report_units_missing_and_legacy` 为 P0 数值格式化统一两位小数后遗留的旧断言（期望“40%”，实际“40.00%”，同测试其他百分比均已是两位小数），不是本事项业务回归；已保留首轮失败日志。最小修复将该断言更新为“40.00%”，该文件复跑 **6 passed**。
+- 重跑 Full：Ruff 通过、Pyright 0 错误/警告，pytest **2238 passed, 4 skipped, 12 warnings**（206.93 秒，既有 Starlette/LangGraph 弃用警告），校验脚本已清理成功临时目录；失败首轮的诊断目录保留在忽略 `tmp/pytest/verify-11404-*`。浏览器验收后服务与 Edge 已停止，行业映射未被改写；本轮未做云端/QQ/付费模型调用，不修改版本，不推送合并发布。
+- 覆盖边界仍保留：东财部分仍为真实响应离线回放；北京市场及全市场覆盖未由三个样本证明；浏览器证据来自 headless Edge 的 DOM 与截图，不冒称人工桌面窗口观察；旧缓存与历史归档未迁移。
+
 ### 已完成只读调查
 
 - 财务采集已提供多期数据：A 股最多最近十二期，已有财务分析主要披露最新快照、最近同比及 ROE 序列。模型缺少明确期间口径和现金流披露/推算标记，实施须先核实、补充来源证据，未知不能靠日期或市场猜测。不得为趋势需求修改已有评分输入。

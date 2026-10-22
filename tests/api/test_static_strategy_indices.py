@@ -55,7 +55,7 @@ section_performance:{status:"success",metrics:{return_pct:12.123456789,return_ba
 const {openIndex} = await import(__INDEX__);
 await openIndex("515300");
 const box=document.getElementById("indexContent");
-for(const text of ["515300","跟踪指数","40%","银行","25.00%","15.00%","缺少资本开支","12.12%","价格指数，不含分红","前复权价格，含分红调整"]) {
+for(const text of ["515300","跟踪指数","40.00%","银行","25.00%","15.00%","缺少资本开支","12.12%","价格指数，不含分红","前复权价格，含分红调整"]) {
  if(!box.textContent.includes(text)) throw new Error("报告缺少 "+text+"："+box.textContent);
 }
 if(box.textContent.includes("[object Object]") || box.textContent.includes("fcf yield")) throw new Error("裸对象或内部键外泄");
