@@ -105,7 +105,7 @@ A 股 `a_financial_policy.py`、`a_financial_sources.py` 和 `_fetch_financial` 
 
 - 新标注复用 `FinancialData` 已有字段，随原 `model_dump` JSON 缓存往返；不改 TTL、断路器或 Pipeline。
 - 旧港股缓存缺少来源字段时保持 `unknown`，不迁移、不补造。
-- 数据覆盖区继续消费 `financial_source` / `financial_selection_note`，本轮不新增前端布局或文案模板。
+- 质量展示中的财务来源、财务包说明和逐字段来源展开条件从仅 A 股扩展到 A 股与港股；字段标签、布局和文案模板不变，A 股行为保持一致。
 - 港股财务充足度规则保持现有“部分可用”判断，不套用 A 股部分包降级规则；无评分、无操作信号的状态不变。
 
 ## 失败处理
