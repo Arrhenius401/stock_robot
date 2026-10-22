@@ -22,6 +22,16 @@ class FinancialAnalyzer(AnalysisModule):
         sorted_data = sorted(financials, key=lambda x: x.fiscal_quarter, reverse=True)
         latest = sorted_data[0]
 
+        if context.market == "hk":
+            amount_basis = (f"金额币种：{latest.report_currency}（仅代表已核实的利润表金额）"
+                            if latest.report_currency else "金额币种未核实；仅保留数据源数值，不作金额趋势比较")
+            if latest.disclosure_currency:
+                amount_basis += f"；目录列报币种：{latest.disclosure_currency}（不等同于金额币种）"
+            amount_basis += "；展示缩写为万/亿，不推断上游换汇情况"
+        else:
+            amount_basis = (f"最新利润表原币：{latest.report_currency}（不代表其他报表币种）" if latest.report_currency
+                            else "财报原币，币种未记录") + "；金额以基本货币单位记录，展示为万/亿，未换汇"
+
         metrics: dict[str, object] = {
             "latest_quarter": latest.fiscal_quarter.isoformat(),
             "revenue": latest.revenue,
@@ -30,9 +40,10 @@ class FinancialAnalyzer(AnalysisModule):
             "total_equity": latest.total_equity,
             "roe": latest.roe,
             "gross_margin": latest.gross_margin,
-            "amount_basis": (f"最新利润表原币：{latest.report_currency}（不代表其他报表币种）" if latest.report_currency
-                             else "财报原币，币种未记录") + "；金额以基本货币单位记录，展示为万/亿，未换汇",
+            "amount_basis": amount_basis,
         }
+        if latest.revenue_basis:
+            metrics["revenue_basis"] = latest.revenue_basis
         if latest.gross_margin is not None and latest.gross_margin_basis:
             metrics["gross_margin_basis"] = latest.gross_margin_basis
         if latest.operating_cash_flow is not None:

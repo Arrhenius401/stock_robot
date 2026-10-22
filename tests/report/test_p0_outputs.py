@@ -42,7 +42,7 @@ def test_actual_prompt_contains_formatted_facts_and_invalid_pe_reason(tmp_path, 
     assert "不适用于高低估判断" in backend.prompt
     assert "300.00 万" in backend.prompt
     assert "-9.56%" in backend.prompt
-    assert "币种未记录" in backend.prompt
+    assert ("金额币种未核实" if market == "hk" else "币种未记录") in backend.prompt
 
 
 def test_tables_scores_and_original_screenshot_values():

@@ -38,7 +38,7 @@ def test_real_qq_failure_sample_and_corrected_market_report():
     text = build_report(ctx.symbol, ctx.name, [result], {"bulk": "基于营业收入的解读"}, ctx)
     assert "市场：港股" in text
     assert "基于营业收入的解读" in text
-    assert "原币" in text
+    assert "金额币种未核实" in text
     assert "不适用" in text
     assert "申万行业待补全" not in text
     assert "最新财报季度" not in text
@@ -79,7 +79,10 @@ def test_hk_shared_prompt_uses_real_metrics_without_scores(tmp_path, provider):
             return "港股事实解读"
 
     ctx = hk_context()
-    result = AnalysisResult(dimension="financial", status="partial", summary="半年度报告", metrics={"revenue": 396431000000, "latest_quarter": "2026-06-30"})
+    cached = FinancialData.model_validate({"symbol": "00700.HK", "fiscal_quarter": "2026-06-30",
+        "report_currency": "CNY", "gross_margin_basis": "计算值：同期间披露毛利÷营运收入；未换汇"})
+    result = AnalysisResult(dimension="financial", status="partial", summary="半年度报告", metrics={
+        "revenue": 396431000000, "latest_quarter": "2026-06-30", "gross_margin_basis": cached.gross_margin_basis})
     config = Config(config_dir=tmp_path)
     config.data["llm"]["provider"] = provider
     registry = Registry()
@@ -89,7 +92,9 @@ def test_hk_shared_prompt_uses_real_metrics_without_scores(tmp_path, provider):
     assert pipe._generate_commentary(ctx.symbol, ctx.name, [result], context=ctx) == {"bulk": "港股事实解读"}
     assert "3,964.31 亿" in backend.prompt
     assert "2026-06-30" in backend.prompt
-    assert "原币" in backend.prompt
+    assert "金额币种未核实" in backend.prompt
+    assert "保持财报原币，未做换汇" not in backend.prompt
+    assert "；未换汇" not in backend.prompt
     assert "禁止" in backend.prompt
     assert "不适用" in backend.prompt
     backend.prompt = ""

@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 GROSS_MARGIN_BASIS = (
     "计算值：同期间披露毛利÷营运收入；营运收入可能包含其他营业收入，"
-    "与本报告保留的营业额口径不同；未换汇"
+    "与本报告保留的营业额口径不同；不推断上游换汇情况"
 )
 _GROSS_PROFIT = "004007999"
 _OPERATING_REVENUE = "004001999"

@@ -2,7 +2,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, PrivateAttr, field_validator
+from pydantic import BaseModel, Field, PrivateAttr, ValidationInfo, field_validator
 
 
 class SufficiencyLevel(StrEnum):
@@ -138,7 +138,11 @@ class FinancialData(BaseModel):
     period_start: "date | None" = None
     period_basis: Literal["unknown", "cumulative", "single"] = "unknown"
     reporting_basis: str = ""
+    # 港股目录列报币种不能证明三表 AMOUNT 币种；旧缓存默认没有金额证据。
+    amount_currency_verified: bool = False
     report_currency: str = ""
+    disclosure_currency: str = ""
+    revenue_basis: str = ""
     cash_flow_basis: Literal["unknown", "reported", "estimated"] = "unknown"
     cash_flow_period_start: "date | None" = None
     # 显式持久化来源，不依赖不会进入 model_dump 的 _data_source。
@@ -148,7 +152,7 @@ class FinancialData(BaseModel):
     financial_selection_status: Literal["unknown", "complete", "partial"] = "unknown"
     financial_selection_note: str = ""
 
-    @field_validator("report_currency", mode="before")
+    @field_validator("report_currency", "disclosure_currency", mode="before")
     @classmethod
     def normalize_report_currency(cls, value: Any) -> str:
         """只规范明确的币种标识，不将占位或市场信息当作币种。"""
@@ -157,6 +161,22 @@ class FinancialData(BaseModel):
         code = {"人民币": "CNY", "人民币元": "CNY", "港币": "HKD", "港元": "HKD", "美元": "USD"}.get(
             value.strip(), value.strip().upper())
         return code if len(code) == 3 and code.isascii() and code.isalpha() and code not in {"NAN", "XXX"} else ""
+
+    @field_validator("report_currency")
+    @classmethod
+    def require_hk_amount_evidence(cls, value: str, info: ValidationInfo) -> str:
+        """旧港股缓存的目录币种不能恢复为已核实的金额币种；A 股保持兼容。"""
+        if str(info.data.get("symbol", "")).endswith(".HK") and not info.data.get("amount_currency_verified"):
+            return ""
+        return value
+
+    @field_validator("gross_margin_basis")
+    @classmethod
+    def remove_legacy_hk_conversion_claim(cls, value: str, info: ValidationInfo) -> str:
+        """旧缓存仍可能保存旧版毛利率说明，读取时移除无证据的断言。"""
+        if str(info.data.get("symbol", "")).endswith(".HK") and value.endswith("；未换汇"):
+            return value.removesuffix("；未换汇") + "；不推断上游换汇情况"
+        return value
 
 
 class PriceData(BaseModel):

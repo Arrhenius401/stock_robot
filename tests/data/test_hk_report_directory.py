@@ -63,17 +63,18 @@ def test_directory_rejects_invalid_or_wrong_symbol_response(mocker, payload):
         hk_eastmoney.financial_report_directory("00700")
 
 
-def test_directory_fills_explicit_currency_and_standard_without_changing_amounts(source):
+def test_directory_fills_disclosure_metadata_not_amount_currency(source):
     _, request = source
     rows = AkShareAdapter()._fetch_hk_financial("00700.HK")
     request.assert_called_once_with("00700")
     assert [r.revenue for r in rows] == [100, 120]
     assert [r.net_profit for r in rows] == [100, 120]
     assert all(r.total_assets == 500 for r in rows)
-    assert all(r.report_currency == "CNY" and "国际会计准则" in r.reporting_basis for r in rows)
-    assert all(r.cash_flow_basis == "reported" for r in rows)
+    assert all(r.report_currency == "" and r.disclosure_currency == "CNY"
+               and "国际会计准则" in r.reporting_basis for r in rows)
+    assert all(r.cash_flow_basis == "unknown" for r in rows)
     assert rows[-1].period_start == date(2026, 1, 1)
-    assert build_financial_trends(rows, "00700.HK")["highlights"]
+    assert build_financial_trends(rows, "00700.HK")["highlights"] == []
 
 
 @pytest.mark.parametrize("extra", [
@@ -117,24 +118,29 @@ def test_statement_currency_conflict_is_not_overwritten_by_directory(source):
         if row["REPORT_DATE"] == "2026-06-30":
             row["CURRENCY"] = "HKD"
     rows = AkShareAdapter()._fetch_hk_financial("00700.HK")
-    assert rows[-1].revenue == 120 and rows[-1].report_currency == ""
+    assert rows[-1].revenue == 120 and rows[-1].report_currency == "HKD"
+    assert rows[-1].disclosure_currency == "CNY"
     assert build_financial_trends(rows, "00700.HK")["highlights"] == []
 
 
 def test_cashflow_conflict_only_disables_cashflow_comparison(source):
     frames, _ = source
+    for row in frames[0] + frames[2]:
+        row["CURRENCY"] = "CNY"
     frames[2][-1]["CURRENCY"] = "HKD"
     rows = AkShareAdapter()._fetch_hk_financial("00700.HK")
     assert rows[-1].report_currency == "CNY" and rows[-1].cash_flow_basis == "unknown"
     assert rows[-1].operating_cash_flow == 120
     ctx = AnalysisContext(symbol="00700.HK", name="腾讯控股", market="hk", financial_data=rows)
     metric = FinancialAnalyzer().analyze(ctx).metrics["amount_basis"]
-    assert "最新利润表原币：CNY" in metric
-    assert "不代表其他报表币种" in metric
+    assert "金额币种：CNY" in metric
+    assert "仅代表已核实的利润表金额" in metric
 
 
 def test_changed_accounting_standard_is_not_joined_into_a_trend(source):
-    _, request = source
+    frames, request = source
+    for row in frames[0] + frames[2]:
+        row["CURRENCY_CODE"] = "CNY"
     request.return_value[-1]["ACCOUNT_STANDARD"] = "中国会计准则"
     rows = AkShareAdapter()._fetch_hk_financial("00700.HK")
     assert all(r.report_currency == "CNY" for r in rows)
@@ -153,7 +159,9 @@ def test_directory_timeout_preserves_three_statement_values_and_logs(source, cap
 
 
 def test_metadata_enables_disclosure_without_changing_score_status_or_risks(source):
-    _, request = source
+    frames, request = source
+    for row in frames[0] + frames[2]:
+        row["CURRENCY_CODE"] = "CNY"
     rows = AkShareAdapter()._fetch_hk_financial("00700.HK")
     known = FinancialEnricher().enrich(AnalysisContext(symbol="00700.HK", name="腾讯控股", market="hk",
                                                     financial_data=rows))
@@ -166,6 +174,6 @@ def test_metadata_enables_disclosure_without_changing_score_status_or_risks(sour
     assert (after.score, after.score_detail, after.risk_flags, after.status) == (
         before.score, before.score_detail, before.risk_flags, before.status)
     assert after.metrics["operating_trends"] and not before.metrics["operating_trends"]
-    assert "CNY" in after.metrics["amount_basis"] and "币种未记录" not in after.metrics["amount_basis"]
-    assert "币种未记录" in before.metrics["amount_basis"]
+    assert "金额币种：CNY" in after.metrics["amount_basis"]
+    assert "金额币种未核实" in before.metrics["amount_basis"]
     request.assert_called_once()

@@ -773,27 +773,40 @@ class AkShareAdapter(DataSource):
             start, currency = income_meta.get(period, (None, ""))
             cf_start, cf_currency = cash_meta.get(period, (None, ""))
             reporting_basis = "东方财富港股财报-报告期"
+            disclosure_currency = ""
             if period in directory_meta:
                 directory_start, directory_currency, standard = directory_meta[period]
-                if (start is not None and start == directory_start and directory_currency and standard
-                        and (not currency or currency == directory_currency)):
-                    currency = directory_currency
+                if start is not None and start == directory_start and standard:
+                    # 目录列报币种只作披露元信息，不为 AMOUNT 作币种或未换汇背书。
+                    disclosure_currency = directory_currency
                     reporting_basis += f"-{standard}"
-                    if cf_start == directory_start and not cf_currency:
-                        cf_currency = directory_currency
                 else:
                     # 冲突目录不能覆盖源字段，也不能悄悄回退为可比较口径。
                     currency, reporting_basis = "", ""
+            # 银行与普通企业的科目位置不同，按整期模板选择，不逐字段跨模板补值。
+            standard_template = any(key.startswith("004") for key in row)
+            bank_template = any(key.startswith("001") for key in row)
+            if standard_template and bank_template:
+                logger.warning("港股利润表科目模板冲突 %s/%s，跳过该期", symbol, period)
+                continue
+            if bank_template:
+                revenue, profit, eps = "001003999", "001025002", "001027002"
+                total_assets, total_equity, common_equity = "001001999", "001011999", "001009999"
+            else:
+                revenue, profit, eps = "004001001", "004025002", "004027002"
+                total_assets, total_equity, common_equity = "004009999", "004036999", "004030999"
             # 营业额不是营运收入；归母权益不是包含少数股东的总权益，分别保留。
-            margin = margins.get(period) if start is not None else None
+            margin = margins.get(period) if start is not None and not bank_template else None
             result.append(FinancialData(symbol=symbol, fiscal_quarter=period,
-                revenue=row.get("004001001"), net_profit=row.get("004025002"), basic_eps=row.get("004027002"),
-                total_assets=bs.get("004009999"), total_equity=bs.get("004036999"),
-                common_equity=bs.get("004030999"), operating_cash_flow=cf.get("003999"),
+                revenue=row.get(revenue), net_profit=row.get(profit), basic_eps=row.get(eps),
+                total_assets=bs.get(total_assets), total_equity=bs.get(total_equity),
+                common_equity=bs.get(common_equity), operating_cash_flow=cf.get("003999"),
                 gross_margin=margin, gross_margin_basis=GROSS_MARGIN_BASIS if margin is not None else "",
                 period_start=start, period_basis="cumulative" if start is not None else "unknown",
                 reporting_basis=reporting_basis, report_currency=currency,
-                cash_flow_basis="reported" if cf.get("003999") is not None and start is not None
+                amount_currency_verified=bool(currency), disclosure_currency=disclosure_currency,
+                revenue_basis="银行：经营收入总额" if bank_template else "",
+                cash_flow_basis="reported" if cf.get("003999") is not None and start is not None and currency
                     and cf_start == start and cf_currency == currency else "unknown",
                 cash_flow_period_start=cf_start))
         return result

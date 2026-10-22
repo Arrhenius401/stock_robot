@@ -28,6 +28,7 @@ METRIC_DISPLAY_NAMES = {
     "cash_flow_source": "经营现金流来源",
     "deducted_net_profit": "扣非净利润",
     "amount_basis": "财务金额口径",
+    "revenue_basis": "营收科目口径",
     "gross_margin_basis": "毛利率计算口径",
     "valuation_applicability": "估值适用性",
     "applicable": "可用于高低估判断",
