@@ -1452,3 +1452,34 @@ git commit -m "docs(港股): 记录多源框架实施与真实验收"
 - [ ] 没有实现或声称任何真实港股备用源已可替换。
 - [ ] 所有测试命令使用唯一 `basetemp` 与 `cache_dir`；成功后清理，失败产物保留并记录。
 - [ ] 不推送、不合并、不发布。
+
+## 实施与验收记录（2026-10-22）
+
+### 已提交实现与相关检查
+
+- 交接基线为 `codex/hk-multi-source` / `7a1cdd9`，接手时工作区干净。通用核心及 A 股财务门面已提交；港股策略、东财单源接线和来源展示亦已提交，原东财方法体保持不变，不增加请求或真实备用源。
+- 通用核心 14 项、A 股选包/备用/源/缓存 144 项相关验证通过；港股指定六文件 143 项和补充受影响范围 144 项通过，规格/质量审查已完成。以上为交接前已执行记录，不冒称本轮重新运行。
+- 交接前 Changed 门禁返回“未发现待验证的改动”，因为对应代码已经提交；不能将该返回值当作执行了测试。已完成的相关检查与以下 Full 记录分别列出。
+
+### 真实港股验收（交接前完成，本轮核对留存证据）
+
+- 正常 Pipeline 强制刷新 `00700.HK` 财务得到 **96 期**，最新期 `2026-06-30`，来源 `东方财富港股财报`，选包状态 `complete`，说明 `完整来源包`。最新营收 `396431000000.0`、经营现金流 `154061000000.0`，币种 `CNY`，报表口径 `东方财富港股财报-报告期-国际会计准则`。
+- 使用项目真实启动路径和真实浏览器完成生成/展示：标题 `00700.HK`、11 个报告章节，无“分析失败”。数据覆盖中的财务仍为“部分数据”，这是原港股充足度/不推算滚动年值的规则，不是来源包不完整；同时显示 96 期、东财来源和“完整来源包”。
+- 宽屏 1280px：`clientWidth=scrollWidth=1280`，报告卡 x=234、宽 980；窄屏 390px：`clientWidth=scrollWidth=390`，卡片 x=12、宽 366，无水平溢出。截图分别为 `D:/code/stock_robot/tmp/acceptance/hk-multi-source/quality-wide.jpg` 和 `quality-390.jpg`；本轮已读取留存截图，确认来源与说明可见，窄屏正常换行。没有重新启动浏览器或绕过工具策略。
+- 下载报告 id 为 `c3RvY2svMDA3MDAuSEsvMjAyNi0xMC8wMDcwMC5IS18yMDI2MTAyMl8xNTUxNDgubWQ`。下载正文 **6,157 个字符**，含来源与“完整来源包”，保存在忽略的 `tmp/acceptance/hk-multi-source-downloaded.md`。本轮复核保存文件：CRLF 原样解码 6,330 字符、173 个 CRLF，按文本读取归一化换行后 6,157 字符，与交接下载结果一致，不是报告内容变化。
+- 刷新/浏览器探针保留在忽略的 `tmp/acceptance/hk-multi-source-refresh.py`、`hk-multi-source-browser.py`。交接服务、浏览器已停止，本轮不重复真实采集、不触碰云端或付费模型。
+
+### Full 阻塞与用户选择的最小修复
+
+- 修复前两次 Full 均为 `2268 passed, 4 skipped, 1 failed`，分别失败于 `test_artifacts_persist_benchmark_configuration_and_metrics`、`test_artifacts_persist_replay_configuration_and_warnings`。异常是 `src/radar/artifacts.py` 原子目录 `os.replace` 的 `PermissionError [WinError 5]`。本分支此前未修改雷达；交接中独立复跑 20 次失败 4 次，日志留在 `D:/code/stock_robot/tmp/acceptance/hk-multi-source-full.log`、`hk-multi-source-full-rerun.log`，失败目录保留诊断。
+- 用户明确选择“最小重试修复”后，才修改雷达生产代码：仅将最终 `os.replace` 包装为 `_replace_with_retry`，最多 **3 次尝试（含首次）**，两次重试固定各 **50 毫秒**，最多额外等待 100 毫秒。仅捕获 `PermissionError`，记录 debug 后短暂等待；最后一次失败原样抛出。其他异常立即抛出，原子替换、目标目录语义及外层清理逻辑均未改变；没有修改 ACL、杀软或文件系统设置。占用进程未被精确归因，本修复是有界缓解，不承诺消除所有持续权限错误。
+- 新增七个参数化边界用例：首次成功、第一次/第二次失败后恢复、持续失败到上限且保留原异常实例、非权限异常不重试。先因 helper 不存在而收集失败，随后 `tests/radar/test_artifacts.py` **10 项通过**；两文件 Ruff 与 Pyright **0 错误、0 警告**。
+- 同一雷达测试文件再以 20 个独立 pytest 进程、独立 basetemp/cache 目录顺序运行，**20/20 轮全部通过**（每轮 10 项），未再复现原子替换失败。Full 完成后，针对已验证位于本工作树 tmp/pytest 内的重复验证/单轮绿测目录发起清理，命令被环境策略拒绝；保留两目录，不重试删除或修改权限，不影响验证结论与提交。失败诊断目录亦保留。初始红/绿测试出现过 pytest 缓存自己的 WinError 5 警告；不把缓存警告当作业务失败，也不因此扩展生产修复范围。
+- 本次小修复由主会话直接实施与审查 diff，未派发无关重构。真实港股验收在财务代码未变的情况下复用，不以雷达重试为由重复浏览器、采集或付费验证。
+
+### 修复后 Full 与交付边界
+
+- 执行命令：`powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify.ps1 -Scope Full -VenvPath D:/code/stock_robot/.venv`；完整输出保存在忽略的 `tmp/acceptance/hk-multi-source-full-after-retry.log`。**Full 通过**：Ruff 全通过，Pyright `0 errors, 0 warnings, 0 informations`，pytest **2276 passed, 4 skipped, 12 warnings in 281.67s**，退出码 0。警告为既有 Starlette/httpx 与 LangGraph 弃用提示；本次无雷达产物权限失败。Full 自己的临时目录已由脚本清理。
+- 验证后仅回填本计划记录，生产源码和测试未再修改；提交前复用上述同状态检查并执行 `git diff --cached --check`，不因整理文档再次运行 Full。主仓用户已有的队列计划改动保持原样，未暂存或修改。
+- 本轮仅收敛用户批准的雷达权限重试、回归和本主题验收记录，不改港股财务事实、原 A 股门面、行情/估值、评分、版本或插件。
+- 仍无真实港股财务备用源，东财是本轮唯一完整来源；只验证了 `00700.HK`，不能声称其他港股或全市场均可完全接替。无云端、QQ、付费模型验收；仅本地提交，不推送、不合并、不发布。
