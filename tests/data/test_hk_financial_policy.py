@@ -1,6 +1,7 @@
 """港股财务完整性与来源标注。"""
 
 from datetime import date
+from typing import Any
 
 from data.financial_selection import FinancialPackage, FinancialSelection
 from data.hk_financial_policy import annotate_selection, package_complete
@@ -10,19 +11,19 @@ PERIOD = date(2026, 6, 30)
 EARLIER = date(2025, 12, 31)
 
 
-def row(period=PERIOD, **changes):
-    values = dict(
-        symbol="00700.HK", fiscal_quarter=period,
-        revenue=100.0, net_profit=10.0, total_assets=500.0,
-        total_equity=300.0, basic_eps=1.0, operating_cash_flow=20.0,
-        report_currency="CNY", period_start=date(period.year, 1, 1),
-        period_basis="cumulative", cash_flow_basis="reported",
-    )
+def row(period: date = PERIOD, **changes: Any) -> FinancialData:
+    values: dict[str, Any] = {
+        "symbol": "00700.HK", "fiscal_quarter": period,
+        "revenue": 100.0, "net_profit": 10.0, "total_assets": 500.0,
+        "total_equity": 300.0, "basic_eps": 1.0, "operating_cash_flow": 20.0,
+        "report_currency": "CNY", "period_start": date(period.year, 1, 1),
+        "period_basis": "cumulative", "cash_flow_basis": "reported",
+    }
     values.update(changes)
     return FinancialData(**values)
 
 
-def package(rows, source="东方财富港股财报"):
+def package(rows: list[FinancialData], source: str = "东方财富港股财报") -> FinancialPackage:
     return FinancialPackage(source, rows, {})
 
 
