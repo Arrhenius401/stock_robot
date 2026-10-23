@@ -52,6 +52,7 @@ from stock_robot.stock_research import (
     list_records,
     review_evidence,
 )
+from stock_robot.stock_structured_admission import structured_admission_command
 from stock_robot.stock_structured_financial import (
     structured_collect_command,
     structured_screen_command,
@@ -1731,6 +1732,7 @@ radar.add_command(style_evaluate)
 radar.add_command(prepare_facts)
 radar.add_command(structured_collect_command)
 radar.add_command(structured_screen_command)
+radar.add_command(structured_admission_command)
 radar.add_command(market_window_command)
 radar.add_command(market_history_command)
 radar.add_command(capital_history_command)
