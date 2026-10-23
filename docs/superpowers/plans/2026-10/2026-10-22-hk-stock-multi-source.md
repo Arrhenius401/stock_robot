@@ -1636,3 +1636,19 @@ git commit -m "docs(港股): 记录多源框架实施与真实验收"
 - 新增测试最终 17 项，均为确定性构造，未新增静态响应文件。当前主仓用户队列计划 SHA256 仍为 `1B5A032B963D2BDDB4A3B62D579AE2EC8AA7FE15AB2F507744D3AB9C2319BE6F`，没有触碰。正式文档仍为本主题一份设计+一份计划；临时日志和报告不提交。Full 不重复，不推送、合并、发布或修改版本。
 - 提交前 `./scripts/verify.ps1 -Scope Changed -Source Staged -VenvPath D:/code/stock_robot/.venv` **通过，退出 0**：13 个文件的 Ruff 全通过、Pyright **0 errors / 0 warnings**，pytest **1029 passed, 4 warnings in 109.72s**，日志 `tmp/acceptance/hk-valuation-staged.log`。四条警告均为既有 Starlette/httpx 与 LangGraph 弃用提示，脚本清理本次运行目录成功。
 - 门禁后主会话 diff 复核修正一行旧诊断条件：当原快照完整、PE/PB 曲线日期不重合时，仍保留完整快照，不应误标“仅保留日期较新指标”；该文案仅适用于没有原快照的原百度回退。新增对应回归后，复核两个港股来源测试文件及新历史测试共 **74 passed in 0.80s**，改动两文件 Ruff 通过、Pyright **0 errors**。此前通过的其他范围结果复用，不因一行诊断条件重复整个 Changed；最后仅回填文档并执行暂存 diff 检查。三个真实报告当前项完整且曲线有共同日，不受此条件修正影响，未重复外网。
+
+### 港股申万路线复核（2026-10-23，调查未取得分类数据）
+
+- 用户要求优先复用原有申万机制，撤回未经充分核实即改用东财分类的主路线建议。本轮只调查，不更换生产分类来源、不决定尚搁置的同行中位数和负值评分规则，也不接入舆情。申万 2021 官方说明覆盖港股通等标的，因此不能将当前接线缺失表述为申万标准不适用港股；标准覆盖也不代表所有港股均有分类。依据：<https://wxweb.swsresearch.com/swsreport/2021_08/328340.pdf>。
+- 代码核对：当前 IndustryClassifier 依赖本地分类 CSV，先前检查 5534 条记录中没有港股代码；industry_mapping_builder 的行业树及成分来源为乐咕乐股，成分代码匹配六位数字。此限制需要未来实现时处理，但不证明原网页含有被解析器丢弃的港股，不能仅放宽正则就宣称支持。
+- 读取已安装 AkShare 源码，stock_industry_clf_hist_sw 直接下载官方 `https://www.swsresearch.com/swindex/pdf/SwClass2021/StockClassifyUse_stock.xls`；index_component_sw 使用官方 `/institute-sw/api/index_publish/details/component_stocks/`，参数为 swindexcode/page/page_size。未安装或升级依赖。
+- 前轮普通 requests 请求遇本地证书链校验失败；随后 urllib 使用系统默认证书校验（没有关闭 TLS 校验）后，Excel 和官网分类下载页均返回 HTTP 508；乐咕乐股行业总览返回 HTTP 403。本轮浏览器打开官网分类下载页超时、会话运行时重置，未取得 DOM 或下载链接。搜索引擎仍可检索到官网“2021新版分类/全部行业分类下载”，不将搜索摘要当作成功下载。
+- 为区分旧文件失效与官方 API 可达性，再对 AkShare 公开源码列明的成分 API 请求一次：swindexcode=801001、page=1、page_size=10000、超时 12 秒，系统证书校验开启，同样 HTTP 508，未取得成分记录。801001 是现成接口默认样本，不是港股行业验证；没有猜测港股指数代码或私有参数。探针 `tmp/acceptance/sw_public_probe.py` 位于忽略目录，仅作研究，不接入生产。
+- 结论：已确认标准有港股覆盖、现有项目未接线；尚未验证当前免费的港股分类及完整同行名单可取得、可更新。508/403/超时只说明本次访问失败，不能判断上游数据不存在、永久失效或 IP 被封。没有合法可达数据前，不伪造分类、不自动替换分类体系、不添加付费源或绕过访问限制。
+- 正式改动仅本计划追加调查结果，执行 git diff --check；没有业务代码变更，不运行 pytest/Full，不推送、合并或发布。该记录不是行业功能验收通过。
+
+### 用户授权合回 dev 的全量门禁（2026-10-23）
+
+- 用户随后要求将本轮工作全部合并。核对 dev=b4d2001 为当前分支 HEAD=027f930 的祖先，差异为四笔本地提交，覆盖银行财务修复、估值历史与 PS 披露、共享估值日期展示及调查记录；不包括其他工作树任务，也不代表港股行业/舆情已实现。
+- 合并前运行 `./scripts/verify.ps1 -Scope Full -VenvPath D:/code/stock_robot/.venv`，退出 0：Ruff 通过、Pyright 0 errors / 0 warnings / 0 informations，pytest **2321 passed, 4 skipped, 12 warnings in 197.11s**；警告为现有 Starlette/httpx 和 LangGraph 弃用提示。日志保留在 `tmp/acceptance/hk-merge-full-20261023.log`，脚本报告已清理本次测试临时目录。未重复云端、QQ、模型或真实数据请求；同代码状态此前真实报告与浏览器验收结果复用。
+- 仅回填本文档后执行差异检查，提交调查与验收记录，再采用 `git merge --ff-only codex/hk-multi-source` 合回本地主仓 dev，保持现有提交历史。主仓用户原有队列计划不属于合并范围，合并前 SHA256 为 `1B5A032B963D2BDDB4A3B62D579AE2EC8AA7FE15AB2F507744D3AB9C2319BE6F`，须在操作后复核。此次授权不扩展为推送、发布、删除其他分支或工作树。
