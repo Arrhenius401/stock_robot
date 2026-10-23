@@ -43,6 +43,27 @@ class ValuationAnalyzer(AnalysisModule):
             f"{ {'pe_ttm': 'PE(TTM)', 'pb': 'PB', 'ps_ttm': 'PS(TTM)'}[key]}：{info['reason']}"
             for key, info in applicability.items() if not info["applicable"]
         ]
+        if context.market == "hk":
+            metrics["historical_valuation_applicability"] = {
+                key: {"applicable": metrics[key] is not None}
+                for key in ("pe_percentile", "pb_percentile")
+            }
+            notes = metrics["valuation_notes"]
+            notes.extend(latest.valuation_notes)
+            notes.append(f"PE/PB 当前快照日期：{latest.date}；历史分位使用下述曲线参照值，不用其他来源快照排名")
+            if latest.ps_ttm is not None:
+                notes.append(f"PS(TTM)：{latest.ps_source or '来源未记录'}，日期 {latest.ps_as_of or '未记录'}；仅披露，不计入评分")
+            if context.enriched_valuation:
+                for metric in ("pe", "pb"):
+                    summary = getattr(context.enriched_valuation, f"{metric}_history_summary")
+                    if summary.sample_count:
+                        notes.append(
+                            f"{metric.upper()} 近一年历史：{summary.source}，{summary.start} 至 {summary.as_of}，"
+                            f"有效样本 {summary.sample_count}，参照值 {summary.reference:.2f} 倍，"
+                            f"中位数 {summary.median:.2f} 倍，最低 {summary.low:.2f} 倍，最高 {summary.high:.2f} 倍")
+                    if summary.reason:
+                        notes.append(f"{metric.upper()} 历史分位：{summary.reason}")
+            notes.append("历史低分位不等于低风险或值得买；PS 不代表各行业均适用，银行等需另行判断")
         if not any(info["applicable"] for info in applicability.values()):
             return AnalysisResult(dimension=self.dimension, status="unavailable",
                                   summary="没有适用于高低估判断的估值指标；原始非正值仅作披露",
@@ -55,7 +76,7 @@ class ValuationAnalyzer(AnalysisModule):
         ) else "partial"
         if not all(info["applicable"] for info in applicability.values()):
             status = "partial"
-        summary = self._build_summary(metrics)
+        summary = self._build_summary(metrics, historical_reference=context.market == "hk")
 
         if context.sufficiency and context.sufficiency.valuation.level == SufficiencyLevel.INSUFFICIENT:
             return AnalysisResult(dimension=self.dimension, status="unavailable",
@@ -75,7 +96,7 @@ class ValuationAnalyzer(AnalysisModule):
                               metrics=metrics)
 
     @staticmethod
-    def _build_summary(metrics: dict) -> str:
+    def _build_summary(metrics: dict, historical_reference: bool = False) -> str:
         parts = []
         pe = metrics.get("pe_ttm")
         if pe is not None:
@@ -85,5 +106,6 @@ class ValuationAnalyzer(AnalysisModule):
             parts.append(f"PB {pb:.2f}" + ("（不适用）" if not is_positive_finite(pb) else ""))
         pct = metrics.get("pe_percentile")
         if pct is not None:
-            parts.append(f"PE处于历史{pct:.2f}%分位")
+            subject = "PE曲线参照值" if historical_reference else "PE"
+            parts.append(f"{subject}处于历史{pct:.2f}%分位")
         return "；".join(parts) if parts else "估值数据不足"

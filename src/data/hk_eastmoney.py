@@ -1,5 +1,6 @@
 """港股东财单标的请求；不扫描全市场，明确限时、限量与不复权口径。"""
 import math
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import requests
@@ -86,6 +87,31 @@ def stock_snapshot(code: str) -> dict[str, Any]:
     if not isinstance(data, dict) or str(data.get("f57", "")) != code:
         return {}
     return data
+
+
+def valuation_comparison_snapshot(code: str) -> dict[str, Any]:
+    """复用东财估值对比，仅请求目标自身一行，保留指标日期。"""
+    response = requests.get("https://datacenter.eastmoney.com/securities/api/data/v1/get", params={
+        "reportName": "RPT_PCF10_INDUSTRY_HKCVALUE",
+        "columns": "SECUCODE,CORRE_SECUCODE,REPORT_DATE,PS_TTM",
+        "filter": f'(SECUCODE="{code}.HK")(CORRE_SECUCODE="{code}.HK")',
+        "pageNumber": "1", "pageSize": "1", "source": "F10", "client": "PC",
+    }, timeout=10)
+    response.raise_for_status()
+    payload = response.json()
+    result = payload.get("result") if isinstance(payload, dict) and payload.get("success") is True else None
+    if (not isinstance(result, dict) or type(result.get("count")) is not int or type(result.get("pages")) is not int
+            or result.get("count") != 1 or result.get("pages") != 1
+            or not isinstance(result.get("data"), list) or len(result["data"]) != 1):
+        raise ValueError("东财港股估值对比结果缺失或分页异常")
+    row = result["data"][0]
+    if (not isinstance(row, dict) or row.get("SECUCODE") != f"{code}.HK"
+            or row.get("CORRE_SECUCODE") != f"{code}.HK"):
+        raise ValueError("东财港股估值对比代码不匹配")
+    period = datetime.fromisoformat(str(row.get("REPORT_DATE"))).date()
+    if period > datetime.now(timezone(timedelta(hours=8))).date():
+        raise ValueError("东财港股估值对比日期晚于采集日期")
+    return row
 
 
 def daily_history(code: str, start: str, end: str, limit: int) -> list[str]:

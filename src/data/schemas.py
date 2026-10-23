@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from datetime import date as DateType
 from enum import StrEnum
 from typing import Any, Literal
 
@@ -45,6 +46,19 @@ class DailyValuationPoint(BaseModel):
     ps: float | None = None
 
 
+class ValuationHistorySummary(BaseModel):
+    """单个估值指标的同源历史统计，不以其他来源快照作为分位参照。"""
+    source: str = ""
+    sample_count: int = 0
+    start: date | None = None
+    as_of: date | None = None
+    reference: float | None = None
+    median: float | None = None
+    high: float | None = None
+    low: float | None = None
+    reason: str = ""
+
+
 class EnrichedValuation(BaseModel):
     """充实后的估值数据 — 日频 PE/PB/PS 序列"""
     daily_points: list[DailyValuationPoint] = Field(default_factory=list)
@@ -55,6 +69,8 @@ class EnrichedValuation(BaseModel):
     pe_high: float | None = None
     pe_low: float | None = None
     validated: bool = False  # 是否经实测 PE 锚定校验
+    pe_history_summary: ValuationHistorySummary = Field(default_factory=ValuationHistorySummary)
+    pb_history_summary: ValuationHistorySummary = Field(default_factory=ValuationHistorySummary)
 
 
 class PeerComparison(BaseModel):
@@ -200,6 +216,12 @@ class ValuationData(BaseModel):
     pe_ttm: float | None = None
     pb: float | None = None
     ps_ttm: float | None = None
+    ps_as_of: "date | None" = None
+    ps_source: str = ""
+    pe_history: dict[DateType, float] = Field(default_factory=dict)
+    pb_history: dict[DateType, float] = Field(default_factory=dict)
+    history_source: str = ""
+    valuation_notes: list[str] = Field(default_factory=list)
 
 
 class PeerBasicInfo(BaseModel):

@@ -21,6 +21,7 @@ from data.hk_eastmoney import (
     financial_statement,
     finite_number,
     stock_snapshot,
+    valuation_comparison_snapshot,
 )
 from data.hk_financial_metrics import GROSS_MARGIN_BASIS, gross_margins
 from data.schemas import (
@@ -815,6 +816,8 @@ class AkShareAdapter(DataSource):
         code = symbol.removesuffix(".HK")
         if len(code) != 5 or not code.isdigit():
             raise ValueError("港股代码必须为五位数字")
+        item: ValuationData | None = None
+        notes: list[str] = []
         try:
             snapshot = stock_snapshot(code)
             if snapshot.get("f57") != code:
@@ -830,10 +833,21 @@ class AkShareAdapter(DataSource):
                 raise ValueError("东方财富港股估值日期晚于采集日期")
             item = ValuationData(symbol=symbol, date=snapshot_date, pe_ttm=pe, pb=pb)
             item._data_source = "东方财富港股估值快照"
-            return [item]
         except Exception as error:  # 第三方快照隔离；本文件已豁免 BLE001
             logger.warning("东方财富港股估值失败，切换百度: %s", error)
             self._append_collection_error("东方财富港股估值快照", error)
+
+        ps, ps_date = None, None
+        try:
+            ps_row = valuation_comparison_snapshot(code)
+            ps = finite_number(ps_row.get("PS_TTM"))
+            ps_date = date.fromisoformat(str(ps_row["REPORT_DATE"])[:10])
+            if ps is None:
+                notes.append("PS(TTM)：东财估值对比未提供有效数值")
+        except Exception as error:  # 第三方 PS 请求隔离，不影响已有快照或历史
+            logger.warning("东方财富港股 PS 获取失败: %s", error)
+            self._append_collection_error("东方财富港股PS", error)
+            notes.append("PS(TTM)：东方财富估值对比采集失败")
 
         # 两项请求独立，最多两个并发；诊断在调用线程写回，避免 thread-local 丢失。
         curves: dict[str, dict[date, float]] = {}
@@ -848,22 +862,33 @@ class AkShareAdapter(DataSource):
                 except Exception as error:  # 第三方指标请求隔离；保留另一项成功结果
                     logger.warning("百度港股%s获取失败: %s", metric, error)
                     self._append_collection_error(f"百度港股{metric}", error)
+                    notes.append(f"{metric}历史：百度近一年曲线采集失败")
         pe_curve, pb_curve = curves.get("市盈率(TTM)", {}), curves.get("市净率", {})
         common = pe_curve.keys() & pb_curve.keys()
         if common:
             period = max(common)
         elif pe_curve or pb_curve:
             period = max(pe_curve.keys() | pb_curve.keys())
-            if pe_curve and pb_curve:
+            if pe_curve and pb_curve and item is None:
                 diagnostic = self.get_collection_error()
                 if diagnostic is not None:
                     self._collection_diagnostics.record = diagnostic.model_copy(update={
                         "error_message": diagnostic.error_message + "；百度 PE/PB 无共同日期，仅保留日期较新指标",
                     })
+        elif item is not None:
+            period = item.date
+        elif ps_date is not None and ps is not None:
+            period = ps_date
         else:
             return []
-        item = ValuationData(symbol=symbol, date=period, pe_ttm=pe_curve.get(period), pb=pb_curve.get(period))
-        item._data_source = "百度港股估值（PE TTM/PB）"
+        if item is None:
+            item = ValuationData(symbol=symbol, date=period, pe_ttm=pe_curve.get(period), pb=pb_curve.get(period))
+            item._data_source = "百度港股估值（PE TTM/PB）" if pe_curve or pb_curve else "东方财富港股估值对比"
+        item.ps_ttm, item.ps_as_of = ps, ps_date if ps is not None else None
+        item.ps_source = "东方财富港股估值对比" if ps is not None else ""
+        item.pe_history, item.pb_history = pe_curve, pb_curve
+        item.history_source = "百度港股估值（近一年）" if curves else ""
+        item.valuation_notes = notes
         return [item]
 
     def _fetch_industry(self, symbol: str, **kwargs) -> list[IndustryData]:

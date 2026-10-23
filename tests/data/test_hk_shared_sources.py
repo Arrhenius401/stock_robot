@@ -7,6 +7,12 @@ import pytest
 from data.akshare import AkShareAdapter
 
 
+@pytest.fixture(autouse=True)
+def isolate_ps_snapshot(mocker):
+    """本文件只验证原行情/百度来源，新 PS 独立测试且禁止意外联网。"""
+    mocker.patch("data.akshare.valuation_comparison_snapshot", side_effect=TimeoutError())
+
+
 def history(count, close=505):
     return [[(date(2026, 7, 1) + timedelta(days=i)).isoformat(), "500", str(close), "510", "495", "100"]
             for i in range(count)]
@@ -114,13 +120,13 @@ def test_baidu_rejects_wrong_code_and_non_ttm(mocker, code, metric):
         baidu_metric("00700", "市盈率(TTM)")
 
 
-def test_one_snapshot_metric_does_not_fetch_baidu(mocker):
+def test_one_snapshot_metric_survives_missing_history(mocker):
     mocker.patch("data.akshare.stock_snapshot", return_value={"f57": "00700", "f86": 1792138094, "f164": 14})
-    backup = mocker.patch("data.akshare.baidu_metric")
+    backup = mocker.patch("data.akshare.baidu_metric", return_value={})
     rows = AkShareAdapter().fetch("00700.HK", market="hk", data_type="valuation")
     assert rows[0].pe_ttm == 14
     assert rows[0].pb is None
-    backup.assert_not_called()
+    assert backup.call_count == 2
 
 
 def test_hk_backup_success_preserves_primary_failure(mocker):

@@ -11,6 +11,7 @@ from data.schemas import (
     DimensionSufficiency,
     EnrichedValuation,
     SufficiencyLevel,
+    ValuationHistorySummary,
 )
 from utils.numbers import is_positive_finite
 
@@ -87,17 +88,7 @@ def _compute_ttm(financials: list) -> tuple[float | None, float | None]:
 class ValuationEnricher(DataEnricher):
     def enrich(self, ctx: AnalysisContext) -> AnalysisContext:
         if ctx.market == "hk":
-            # 港币价格与财报原币不混算，不请求 A 股股本、不伪造历史分位。
-            snapshot = ctx.valuation_data
-            valid = snapshot is not None and any(
-                is_positive_finite(value) for value in (snapshot.pe_ttm, snapshot.pb, snapshot.ps_ttm))
-            ctx.enriched_valuation = EnrichedValuation(validated=valid) if valid else None
-            ctx.sufficiency.valuation = DimensionSufficiency(
-                level=SufficiencyLevel.PARTIAL if valid else SufficiencyLevel.INSUFFICIENT,
-                reason="仅有实测估值快照，无同口径历史分位" if valid else "港股实测估值快照缺失，不混用财报币种推导估值",
-                sample_count=1 if valid else 0, score_weight=0.5 if valid else 0.0,
-            )
-            return ctx
+            return self._enrich_hk(ctx)
         prices = ctx.price_data or []
         financials = ctx.financial_data or []
 
@@ -227,6 +218,56 @@ class ValuationEnricher(DataEnricher):
         ctx.sufficiency.valuation = DimensionSufficiency(
             level=level, reason=reason, sample_count=valid_count, score_weight=weight,
         )
+        return ctx
+
+    @staticmethod
+    def _enrich_hk(ctx: AnalysisContext) -> AnalysisContext:
+        """只统计实测同源曲线，不用港币行情与未知财报币种推导倍数。"""
+        snapshot = ctx.valuation_data
+        valid = snapshot is not None and any(
+            is_positive_finite(value) for value in (snapshot.pe_ttm, snapshot.pb, snapshot.ps_ttm))
+        if not valid or snapshot is None:
+            ctx.enriched_valuation = None
+            ctx.sufficiency.valuation = DimensionSufficiency(
+                level=SufficiencyLevel.INSUFFICIENT, reason="港股实测估值快照缺失，不混用财报币种推导估值",
+                sample_count=0, score_weight=0.0)
+            return ctx
+        prices = {p.trade_date: p for p in ctx.price_data or []
+                  if is_positive_finite(p.close) and p.trade_date <= ctx.collected_at.date()}
+        points = []
+        for period, price in sorted(prices.items()):
+            pe = snapshot.pe_history.get(period) if snapshot.history_source else None
+            pb = snapshot.pb_history.get(period) if snapshot.history_source else None
+            pe = pe if is_positive_finite(pe) else None
+            pb = pb if is_positive_finite(pb) else None
+            if pe is not None or pb is not None:
+                points.append(DailyValuationPoint(trade_date=period, close=price.close, pe=pe, pb=pb))
+        enriched = EnrichedValuation(daily_points=points, validated=True)
+        for metric in ("pe", "pb"):
+            samples = [(p.trade_date, getattr(p, metric)) for p in points if getattr(p, metric) is not None]
+            values = [value for _, value in samples]
+            summary = ValuationHistorySummary(source=snapshot.history_source, sample_count=len(samples))
+            if samples:
+                summary.start, summary.as_of = samples[0][0], samples[-1][0]
+                summary.reference = values[-1]
+                summary.median, summary.low, summary.high = median(values), min(values), max(values)
+            if len(samples) >= 120:
+                percentile = round(sum(value < values[-1] for value in values) / len(values) * 100, 1)
+                setattr(enriched, f"{metric}_percentile", percentile)
+            else:
+                summary.reason = f"有效交易日样本 {len(samples)}，不足 120 个，不计算分位"
+            setattr(enriched, f"{metric}_history_summary", summary)
+        enriched.pe_median = enriched.pe_history_summary.median
+        enriched.pe_low = enriched.pe_history_summary.low
+        enriched.pe_high = enriched.pe_history_summary.high
+        ctx.enriched_valuation = enriched
+        complete = enriched.pe_percentile is not None and enriched.pb_percentile is not None
+        ctx.sufficiency.valuation = DimensionSufficiency(
+            level=SufficiencyLevel.SUFFICIENT if complete else SufficiencyLevel.PARTIAL,
+            reason="近一年实测曲线，按行情交易日对齐；PE/PB 分别以同源末值计算分位" if complete else
+                   "仅有快照或部分历史；" + "；".join(s.reason for s in
+                   (enriched.pe_history_summary, enriched.pb_history_summary) if s.reason),
+            sample_count=max(1, len(points)), score_weight=1.0 if complete else 0.5)
         return ctx
 
     def _get_total_shares(self, ctx: AnalysisContext, ttm_profit: float,

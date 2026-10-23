@@ -106,6 +106,13 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult]) -> d
             {"label": "数据来源", "value": getattr(record, "source", "") or "未记录"},
             {"label": "数据截止", "value": cutoff},
         ]
+        if key == "valuation" and hk and ctx.valuation_data:
+            valuation = ctx.valuation_data
+            fields.append({"label": "估值字段来源", "value": "；".join(filter(None, [
+                f"PE/PB 快照：{getattr(record, 'source', '') or '未记录'}（{valuation.date}）",
+                f"历史分位：{valuation.history_source}，各指标日期与样本数见估值说明" if valuation.history_source else "",
+                f"PS(TTM)：{valuation.ps_source}（{valuation.ps_as_of}）" if valuation.ps_ttm is not None else "",
+            ]))})
         if key == "financial" and ctx.market in {"a-shares", "hk"} and ctx.financial_data:
             latest = max(ctx.financial_data, key=lambda row: row.fiscal_quarter)
             if latest.financial_source and not getattr(record, "source", ""):
@@ -122,7 +129,7 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult]) -> d
                     sources.setdefault(source, []).append(metric_display_name(name))
                 fields.append({"label": "最新报告字段来源", "value": "；".join(
                     f"{source}：{'、'.join(names)}" for source, names in sources.items())})
-        if key == "valuation" and ctx.enriched_valuation and ctx.enriched_valuation.daily_points:
+        if key == "valuation" and ctx.enriched_valuation and ctx.enriched_valuation.daily_points and not hk:
             fields[1]["value"] = "行情与财务派生计算"
             price_source = getattr(records.get("price"), "source", "") or "未记录"
             financial_source = getattr(records.get("financial"), "source", "") or "未记录"
@@ -134,7 +141,7 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult]) -> d
         collected = getattr(record, "collected_at", None)
         if collected:
             cache_text += f" · 原采集时间 {collected.isoformat()}"
-        if key == "valuation" and ctx.enriched_valuation and ctx.enriched_valuation.daily_points:
+        if key == "valuation" and ctx.enriched_valuation and ctx.enriched_valuation.daily_points and not hk:
             cache_text = f"实测估值快照：{cache_text}；行情与财务缓存状态见对应维度"
         fields.append({"label": "缓存状态", "value": cache_text})
         reasons = [suff.reason] if suff.reason and level < 2 else []

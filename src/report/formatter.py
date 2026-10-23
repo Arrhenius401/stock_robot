@@ -31,6 +31,7 @@ METRIC_DISPLAY_NAMES = {
     "revenue_basis": "营收科目口径",
     "gross_margin_basis": "毛利率计算口径",
     "valuation_applicability": "估值适用性",
+    "historical_valuation_applicability": "独立历史分位适用性",
     "applicable": "可用于高低估判断",
     "reason": "原因",
     "pe_snapshot_basis": "单张PE计算口径",
@@ -192,6 +193,12 @@ def format_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
     applicability = metrics.get("valuation_applicability")
     if isinstance(applicability, dict):
         for snapshot, derived in (("pe_ttm", "pe_percentile"), ("pb", "pb_percentile")):
+            historical = metrics.get("historical_valuation_applicability", {})
+            historical_rule = historical.get(derived, {}) if isinstance(historical, dict) else {}
+            # 港股同源历史已独立校验；快照缺项不能覆盖其有效分位，旧 A 股路径不变。
+            if (isinstance(historical_rule, dict) and historical_rule.get("applicable") is True
+                    and metrics.get(derived) is not None):
+                continue
             rule = applicability.get(snapshot, {})
             if isinstance(rule, dict) and not rule.get("applicable"):
                 formatted[derived] = "不适用" if metrics.get(snapshot) is not None else rule.get("reason", "暂无数据")

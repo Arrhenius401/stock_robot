@@ -492,7 +492,8 @@ class Pipeline:
                         or item.low > min(item.open, item.close)):
                     return False
         elif data_type == "valuation":
-            if all(v.pe_ttm is None and v.pb is None for v in data):
+            if all(v.pe_ttm is None and v.pb is None
+                   and (not v.symbol.endswith(".HK") or v.ps_ttm is None) for v in data):
                 return False
         elif data_type == "news":
             news = data[0]
