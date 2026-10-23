@@ -311,7 +311,7 @@ def test_stock_membership_lifecycle_has_bounded_mapping():
     }
 
 
-@pytest.mark.parametrize('path', ['src/radar/stocks/update_runs.py', 'src/radar/stocks/update_runner.py', 'src/stock_robot/stock_updates.py'])
+@pytest.mark.parametrize('path', ['src/radar/stocks/update_runs.py', 'src/radar/stocks/update_runner.py', 'src/radar/stocks/financial_task.py', 'src/stock_robot/stock_updates.py'])
 def test_stock_updates_have_bounded_mapping(path):
     result = _run('-PlanOnly', '-Files', path)
     assert result.returncode == 0, result.stderr
@@ -319,6 +319,7 @@ def test_stock_updates_have_bounded_mapping(path):
     assert plan['UnmappedFiles'] == []
     assert set(plan['TestTargets']) == {
         'tests/radar/test_stock_update_runs.py', 'tests/radar/test_stock_update_runner.py', 'tests/radar/test_stock_updates_cli.py',
+        'tests/radar/test_stock_financial_task.py', 'tests/api/test_stock_radar_management.py',
         'tests/radar/test_stock_membership_store.py', 'tests/radar/test_stock_research_store.py', 'tests/radar/test_stock_official_roster.py',
     }
 

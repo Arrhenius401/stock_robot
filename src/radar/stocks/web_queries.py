@@ -9,6 +9,7 @@ from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any
 
+from radar.stocks.financial_task import financial_progress
 from radar.stocks.index_scope import INDEX_SOURCES, POOL_INDEX_CODES
 from radar.stocks.update_runs import StockUpdateStore
 
@@ -35,8 +36,15 @@ def empty_page(page: int) -> dict[str, Any]:
 
 def public_task(row: Any) -> dict[str, Any]:
     task = (json.loads(json.dumps(dict(row))) if isinstance(row['pool_ids'], list) else StockUpdateStore._decode(row))
-    for key in ('lease_token', 'worker_id'):
+    for key in ('lease_token', 'worker_id', 'lease_until'):
         task.pop(key, None)
+    if task['kind'] == 'financial_review':
+        task['progress'] = financial_progress(task)
+        latest = {item['scope']: item for item in task['results']}
+        task['source_stopped'] = any(item.get('artifact', {}).get('source_stopped') is True for item in latest.values())
+        # 固定范围保存在私有任务中，网页仅需范围摘要。
+        task['input_snapshot'] = {key: value for key, value in task['input_snapshot'].items()
+                                  if key in {'kind', 'pool_ids', 'scope_as_of', 'scope_complete', 'scope_sha256', 'source_run_id'}}
     for result in task['results']:
         artifact = result.get('artifact')
         if isinstance(artifact, dict):
@@ -57,6 +65,7 @@ def scope_snapshot(connection: sqlite3.Connection | None, state_dir: Path, pool_
     if row is None:
         return result
     result.update(scope_status=row['status'], scope_error=row['error'], scope_as_of=row['target_date'])
+    result['source_run_id'] = row['run_id']
     items = json.loads(row['results'])
     item = next((entry for entry in reversed(items) if entry.get('scope') == 'index_scope_v1'), None)
     if item is None:
@@ -77,6 +86,7 @@ def scope_snapshot(connection: sqlite3.Connection | None, state_dir: Path, pool_
     if len(raw) != size or hashlib.sha256(raw).hexdigest() != sha:
         raise OSError('指数范围产物摘要不一致')
     payload = json.loads(raw)
+    result['scope_sha256'] = sha
     scope = payload.get('pools', {}).get(pool_id)
     if not isinstance(scope, dict):
         return result

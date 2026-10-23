@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from radar.stocks.admission import RULE_VERSION
 from radar.stocks.evaluation_store import StockEvaluationStore
+from radar.stocks.financial_task import financial_results
 from radar.stocks.membership_drafts import StockMembershipDraftStore
 from radar.stocks.membership_store import StockMembershipStore
 from radar.stocks.pools import StockPoolConfigError, StockPoolRepository
@@ -26,6 +27,7 @@ from radar.stocks.research_store import (
     StockRevisionConflict,
     _symbol,
 )
+from radar.stocks.structured_screen import RULE_VERSION as FINANCIAL_RULE_VERSION
 from radar.stocks.style import STYLE_RULE_VERSION
 from radar.stocks.update_runner import StockUpdateRunner
 from radar.stocks.update_runs import StockUpdateStore
@@ -71,6 +73,10 @@ class DiscoverInput(Input):
 
 class UpdateInput(Input):
     as_of: date | None = None
+
+
+class FinancialInput(Input):
+    resume_run_id: Text | None = None
 
 
 class ChangeInput(Input):
@@ -318,6 +324,37 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
         wake(tasks)
         return public_task(run)
 
+    @router.get('/{pool_id}/financial-review/scope')
+    def financial_scope(pool_id: str):
+        pool(pool_id)
+        with read_connection(db) as connection:
+            result = scope_snapshot(connection, state, pool_id)
+        return {**{key: value for key, value in result.items() if key != 'companies'},
+                'pool_id': pool_id, 'total': len(result['companies']), 'as_of': result['scope_as_of']}
+
+    @router.post('/{pool_id}/financial-review', status_code=202)
+    def start_financial(pool_id: str, body: FinancialInput | None = None):
+        pool(pool_id)
+        if body is not None and body.resume_run_id is not None:
+            # 先只读确认身份，拒绝错误请求时不创建存储。
+            old = next((StockUpdateStore._decode(row) for row in task_rows() if row['run_id'] == body.resume_run_id), None)
+            if old is None or old['kind'] != 'financial_review' or old['pool_ids'] != [pool_id]:
+                raise HTTPException(404, '当前池的财务任务不存在')
+            tasks = updates()
+            run = tasks.resume_financial(body.resume_run_id, pool_id)
+        else:
+            with read_connection(db) as connection:
+                scope = scope_snapshot(connection, state, pool_id)
+            if not scope['scope_complete'] or scope['scope_status'] != 'complete' or not scope['companies']:
+                raise StockResearchError('请先准备当前池完整指数候选范围')
+            snapshot = {**scope, 'kind': 'financial_review', 'pool_ids': [pool_id]}
+            tasks = updates()
+            run = tasks.enqueue(kind='financial_review', pool_ids=[pool_id],
+                                target_date=datetime.now().astimezone().date(), rule_version=FINANCIAL_RULE_VERSION,
+                                snapshot=snapshot)
+        wake(tasks)
+        return public_task(run)
+
     def task_rows():
         with read_connection(db) as connection:
             if not has_table(connection, 'stocks_update_runs'):
@@ -326,12 +363,12 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
             return connection.execute('SELECT * FROM stocks_update_runs ORDER BY created_at DESC,run_id DESC').fetchall()
 
     @router.get('/updates/latest')
-    def latest(pool_id: str | None = None):
+    def latest(pool_id: str | None = None, kind: Literal['financial_review', 'refresh_members', 'discover_candidates'] | None = None):
         if pool_id is not None:
             pool(pool_id)
         for row in task_rows():
             value = public_task(row)
-            if pool_id is None or pool_id in value['pool_ids']:
+            if (pool_id is None or pool_id in value['pool_ids']) and (kind is None or value['kind'] == kind):
                 return value
         return None
 
@@ -346,6 +383,13 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
         for row in task_rows():
             if row['run_id'] == run_id:
                 return public_task(row)
+        raise HTTPException(404, '股票更新任务不存在')
+
+    @router.get('/updates/{run_id}/financial-results')
+    def financial_page(run_id: str, page: int = Query(1, ge=1)):
+        for row in task_rows():
+            if row['run_id'] == run_id:
+                return financial_results(StockUpdateStore._decode(row), state/'stock-updates'/'artifacts', page)
         raise HTTPException(404, '股票更新任务不存在')
 
     @router.get('/{pool_id}/members')

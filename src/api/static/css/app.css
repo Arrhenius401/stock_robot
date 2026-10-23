@@ -1,6 +1,6 @@
 /* ============ 基础 ============ */
 * { box-sizing: border-box; margin: 0; padding: 0; }
-/* 股票任务在卡片内展示，避免遗留ETF浮动提示遮挡切池控件。 */
+/* 股票页隐藏ETF消息，由同一窗口外壳展示股票任务。 */
 body:has(#view-radar.active .stock-management) #radarUpdateNotice { display: none; }
 :root {
   --bg: #0d1017; --panel: #131722; --panel-2: #20263a; --border: #262b36;
@@ -1603,3 +1603,12 @@ body.subs-modal-open { overflow: hidden; }
 .stock-management .stock-error, .stock-management .stock-task { overflow-wrap:anywhere; }
 @media(max-width:760px) { .stock-management { padding:14px; } .stock-management .stock-company { min-width:0; } .stock-management .stock-search { flex-basis:100%; width:100%; } .stock-management .stock-reviewer { width:100%; } }
 .stock-management a { color:var(--blue); }
+
+/* 股票与ETF复用消息窗口外壳，各页只展示对应任务。 */
+body:not(:has(#view-radar.active .stock-management)) #radarStockUpdateNotice { display:none; }
+#radarStockUpdateNotice { top:auto; bottom:24px; max-height:calc(100dvh - 32px); overflow:auto; }
+.stock-task-tabs { display:flex; gap:6px; padding-bottom:10px; border-bottom:1px solid var(--border-soft); }
+.stock-task-tabs button { flex:1; padding:7px 8px; }
+.stock-task-tabs button[aria-pressed=true] { background:var(--panel-2); color:var(--accent); }
+.stock-financial-counts { line-height:1.8; font-weight:600; }
+@media(max-width:760px) { #radarStockUpdateNotice { bottom:12px; right:12px; } }

@@ -1,8 +1,10 @@
-import { createRadarUpdateUI } from "./radar-update-ui.js?v=20261004-overseas-2";
+import { createStockTaskUI } from './radar-stock-tasks.js?v=20261022-financial-task-1';
+import { createRadarUpdateUI } from "./radar-update-ui.js?v=20261022-financial-task-1";
 import { createRadarPoolPicker } from "./radar-pool-picker.js?v=20261014-pools-2";
-import { renderRadarStockPool } from "./radar-stock-view.js?v=20261017-stock-management-1";
+import { renderRadarStockPool } from "./radar-stock-view.js?v=20261022-financial-task-1";
 // 配置雷达基础视图：使用浏览器兼容语法直接消费完成快照。
 var allocationUpdates = null;
+var allocationStockTasks = null;
 var allocationLoadGeneration = 0;
 var allocationPickerFocusGeneration = null;
 var allocationState = { universes: [], poolHistory: Object.create(null), poolViews: Object.create(null), stockPayload: null, universeId: null, snapshot: null, snapshotHistorical: false, collectorStatus: null, detail: null, benchmark: "csi_300", backtestPeriod: "inception", performancePeriod: "inception", performanceCache: {} };
@@ -622,7 +624,7 @@ function allocationLoad(focusPicker) {
     ]);
   }).then(function (payload) {
     if (!payload || generation !== allocationLoadGeneration) return;
-    if (stock) { allocationState.stockPayload = payload; renderRadarStockPool(root, allocationHeader(), selectedPool, payload, { request: allocationRequest, isCurrent: function () { return generation === allocationLoadGeneration && allocationState.universeId === selectedPool.id && window.location.hash.indexOf("#radar") === 0; } }); allocationFocusCurrentPicker(generation); return; }
+    if (stock) { if (!allocationStockTasks) allocationStockTasks = createStockTaskUI(allocationRequest, function (task, finished) { if (finished && task.kind === 'discover_candidates' && (task.pool_ids || []).indexOf(allocationState.universeId) !== -1 && window.location.hash.indexOf('#radar') === 0) allocationLoad(); }); allocationState.stockPayload = payload; renderRadarStockPool(root, allocationHeader(), selectedPool, payload, { request: allocationRequest, taskUI: allocationStockTasks, isCurrent: function () { return generation === allocationLoadGeneration && allocationState.universeId === selectedPool.id && window.location.hash.indexOf("#radar") === 0; } }); allocationFocusCurrentPicker(generation); return; }
     if (payload[0] && payload[0].universe_id !== selectedPool.id) throw new Error("快照所属池与当前选择不一致，请重新选择正确的标的池。");
     allocationState.snapshot = payload[0]; allocationState.snapshotHistorical = historical; allocationState.collectorStatus = payload[1];
     allocationShowList(); allocationRestoreDetail(); allocationFocusCurrentPicker(generation);

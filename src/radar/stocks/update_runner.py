@@ -15,9 +15,14 @@ from pathlib import Path
 from typing import Any
 
 from radar.stocks.capital_history import collect_capital_history
+from radar.stocks.financial_task import (
+    read_financial_artifact,
+    verify_financial_payload,
+)
 from radar.stocks.index_discovery import collect_index_scope
 from radar.stocks.market_history import collect_stock_history
 from radar.stocks.research_store import StockResearchError, StockRevisionConflict, _sha
+from radar.stocks.structured_collect import collect_structured_company
 from radar.stocks.update_runs import StockUpdateStore
 
 logger = logging.getLogger(__name__)
@@ -68,6 +73,7 @@ class StockUpdateRunner:
                  roster_collector: Callable[..., Any] = collect_index_scope,
                  history_collector: Callable[..., Any] = collect_stock_history,
                  capital_collector: Callable[..., Any] = collect_capital_history,
+                 financial_collector: Callable[..., Any] = collect_structured_company,
                  market_window: list[date] | None = None,
                  window_loader: Callable[[date], tuple[list[date] | None, Any]] | None = None):
         self.store = store
@@ -79,6 +85,7 @@ class StockUpdateRunner:
         self.roster_collector = roster_collector
         self.history_collector = history_collector
         self.capital_collector = capital_collector
+        self.financial_collector = financial_collector
         self.market_window = market_window
         self.window_loader = window_loader
 
@@ -119,6 +126,44 @@ class StockUpdateRunner:
                              'import': imported, 'formal_screening_enabled': False, 'members_published': 0}}
         self.store.record_item(task['run_id'], worker, item, lease_token=token)
         return item
+
+    def _financial(self, task: dict[str, Any], worker: str, token: str) -> str:
+        latest = {item['scope']: item for item in task['results']}
+        pending = False
+        for company in task['input_snapshot']['companies']:
+            symbol, scope = company['symbol'], 'financial:' + company['symbol']
+            previous = latest.get(scope)
+            if previous is not None and previous['status'] == 'completed':
+                self._verify_artifact(previous)
+                payload = read_financial_artifact(previous, self.artifact_dir)
+                screened = verify_financial_payload(payload, task, symbol)
+                if screened['financial_numeric_status'] != previous['artifact'].get('financial_numeric_status'):
+                    raise StockResearchError('已完成财务产物数值结论与记录不匹配')
+                continue
+            stopped = False
+            try:
+                collection = self.financial_collector(symbol, self.cache_dir/'structured-financial',
+                                                       as_of=date.fromisoformat(task['target_date']))
+                stopped = isinstance(collection, dict) and collection.get('source_stopped') is True
+                payload = {'symbol': symbol, 'as_of': task['target_date'], 'collection': collection}
+                screened = verify_financial_payload(payload, task, symbol)
+                outcome = screened['financial_numeric_status']
+            except StockRevisionConflict:
+                raise
+            except Exception as exc:  # noqa: BLE001 财务来源独立隔离，错误不能当作公司未盈利
+                logger.warning('股票财务采集失败 %s: %s', symbol, exc)
+                payload = {'symbol': symbol, 'as_of': task['target_date'], 'collection': None}
+                outcome = 'pending_verification'
+            incomplete = outcome == 'pending_verification'
+            pending = pending or incomplete
+            item = {'scope': scope, 'status': 'partial' if incomplete else 'completed',
+                    'summary': '财务资料待补，不能当作未盈利' if incomplete else '盈利数值复核已完成，尚未通过全部入池条件',
+                    'artifact': {**_artifact(self.artifact_dir, payload), 'symbol': symbol,
+                                 'financial_numeric_status': outcome, 'source_stopped': stopped}}
+            self.store.record_item(task['run_id'], worker, item, lease_token=token)
+            if stopped:
+                return 'partial'
+        return 'partial' if pending else 'completed'
 
     def _refresh(self, task: dict[str, Any], worker: str, token: str) -> list[dict[str, Any]]:
         cutoff = date.fromisoformat(task['target_date'])
@@ -188,6 +233,8 @@ class StockUpdateRunner:
                     self._verify_artifact(completed)
                 item = completed or self._discovery(task, worker_id, token)
                 status = item['status']
+            elif task['kind'] == 'financial_review':
+                status = self._financial(task, worker_id, token)
             else:
                 self._refresh(task, worker_id, token)
                 current = self.store.get(run_id)

@@ -33,6 +33,8 @@ export function renderRadarStockPool(root, header, pool, payload, options = {}) 
   sessions.set(pool.id, state);
   const content = node('section', 'panel radar-stock-empty stock-management');
   const taskBox = node('div', 'stock-task');
+  const taskUI = options.taskUI;
+  taskBox.hidden = !!taskUI;
   const body = node('div', 'stock-body');
   const notice = node('p', 'radar-note stock-notice'); notice.setAttribute('role', 'status'); notice.hidden = true;
   let disposed = false, timer = null, serial = 0, pollGeneration = 0, taskBusy = false, observer = null;
@@ -47,6 +49,8 @@ export function renderRadarStockPool(root, header, pool, payload, options = {}) 
   root.replaceChildren(header, content);
   if (typeof MutationObserver !== 'undefined') { observer = new MutationObserver(() => { if (!current()) dispose(); }); observer.observe(root, { childList: true }); }
   const refresh = header.querySelector('.radar-refresh');
+  if (taskUI) { const finance = button('财务复核', () => taskUI.confirmFinancial(pool).catch(messageError), 'stock-financial-review'); const controls = header.querySelector('.radar-update-actions'); if (controls) controls.prepend(finance); else header.append(finance); }
+  function messageError(error) { message('任务未能启动：' + error.message); }
   if (refresh) refresh.onclick = () => startTask('/' + encodeURIComponent(pool.id) + '/update', {});
   function message(text) { notice.textContent = text; notice.hidden = !text; }
   function errorBox(error, retry) {
@@ -86,7 +90,9 @@ export function renderRadarStockPool(root, header, pool, payload, options = {}) 
     }
   }
   async function startTask(path, data) {
-    if (taskBusy || !current()) return;
+    if (!current()) return;
+    if (taskUI) { try { await taskUI.start(pool, path === '/discover' ? 'discover_candidates' : 'refresh_members'); } catch (error) { messageError(error); } return; }
+    if (taskBusy) return;
     busyButtons(true); message('');
     pollGeneration++; if (timer !== null) window.clearTimeout(timer); timer = null;
     try { const task = await request(API + path, post(data)); if (!current()) return; drawTask(task); await poll((task?.task || task?.run || task)?.run_id); }
@@ -236,6 +242,7 @@ export function renderRadarStockPool(root, header, pool, payload, options = {}) 
     } catch (error) { if (current() && token === serial) errorBox(error, show); }
   }
   function show() { if (!current()) return; const token = ++serial; if (state.view === 'members') showMembers(); else if (state.view === 'candidates') showCandidates(token); else if (state.view === 'detail') showDetail(token); else showHistory(token); }
-  show(); poll();
+  show();
+  if (taskUI) { busyButtons(false); taskUI.select(pool); } else poll();
   return dispose;
 }

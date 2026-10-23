@@ -138,9 +138,11 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/radar/test_stock_admission_cli.py"
         continue
     }
-    if ($path -in @("src\radar\stocks\update_runs.py", "src\radar\stocks\update_runner.py", "src\stock_robot\stock_updates.py")) {
+    if ($path -in @("src\radar\stocks\update_runs.py", "src\radar\stocks\update_runner.py", "src\radar\stocks\financial_task.py", "src\stock_robot\stock_updates.py")) {
         Add-UniqueTarget $testTargets "tests/radar/test_stock_update_runs.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_update_runner.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_task.py"
+        Add-UniqueTarget $testTargets "tests/api/test_stock_radar_management.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_updates_cli.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_membership_store.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_research_store.py"
@@ -309,6 +311,13 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/radar/test_stock_update_service.py"
         Add-UniqueTarget $testTargets "tests/api/test_radar_pools.py"
         Add-UniqueTarget $testTargets "tests/api/test_app.py"
+        continue
+    }
+    if ($path -in @("src\api\static\js\radar-task-window.js", "src\api\static\js\radar-stock-tasks.js")) {
+        Add-UniqueTarget $testTargets "tests/api/test_radar_task_window.py"
+        Add-UniqueTarget $testTargets "tests/api/test_radar_update_ui.py"
+        Add-UniqueTarget $testTargets "tests/api/test_stock_task_ui.py"
+        Add-UniqueTarget $testTargets "tests/api/test_stock_radar_management_ui.py"
         continue
     }
     if ($path -eq "src\api\static\js\radar-stock-view.js") {

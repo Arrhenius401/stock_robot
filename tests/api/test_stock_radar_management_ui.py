@@ -121,3 +121,18 @@ view.classList.remove('active'); const count = calls.length;
 const timer = [...timers.values()][0]; timers.clear(); await timer(); await tick();
 assert.equal(calls.length, count); assert.equal(timers.size, 0); dispose();
 """))
+
+
+def test_integrated_stock_view_uses_shared_task_window_instead_of_inline_card(tmp_path):
+    _run_node(tmp_path, _script(r"""
+let selected=0,finance=0,started=[];
+const taskUI={select:async()=>selected++,confirmFinancial:async()=>finance++,start:async(p,k)=>started.push(k)};
+const request=async()=>{throw Error('页面重复轮询任务');};
+const dispose=renderRadarStockPool(root,header,pool,empty,{request,taskUI});await tick();
+assert.equal(byClass(root,'stock-task')[0].hidden,true);
+assert.equal(selected,1);
+await click(root,'财务复核');assert.equal(finance,1);
+await click(root,'准备候选');assert.deepEqual(started,['discover_candidates']);
+assert.equal(timers.size,0);
+dispose();
+"""))

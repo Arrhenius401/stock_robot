@@ -15,10 +15,12 @@ from radar.stocks.research_store import (
     StockResearchError,
     StockRevisionConflict,
     _json,
+    _sha,
+    _symbol,
     _text,
 )
 
-_KINDS = {'refresh_members', 'discover_candidates'}
+_KINDS = {'refresh_members', 'discover_candidates', 'financial_review'}
 _TERMINAL = {'completed', 'partial', 'failed', 'cancelled'}
 _ITEM_STATUSES = {'completed', 'partial', 'failed', 'not_configured'}
 _PHASES = {'snapshot', 'collect', 'review', 'finalizing'}
@@ -89,18 +91,49 @@ class StockUpdateStore:
         result['automatic_enabled'] = False
         return result
 
-    def enqueue(self, *, kind: str, pool_ids: list[str], target_date: date | str, rule_version: str) -> dict[str, Any]:
+    @staticmethod
+    def _financial_snapshot(snapshot: Any, pools: list[str], target: str) -> dict[str, Any]:
+        if (not isinstance(snapshot, dict) or snapshot.get('kind') != 'financial_review'
+                or snapshot.get('pool_ids') != pools or len(pools) != 1
+                or snapshot.get('scope_complete') is not True):
+            raise StockResearchError('财务复核须固定当前池完整指数范围')
+        scope_date = StockUpdateStore._date(snapshot.get('scope_as_of'))
+        if scope_date > target:
+            raise StockResearchError('指数范围日期不能晚于财务研究日期')
+        companies = snapshot.get('companies')
+        if not isinstance(companies, list) or not companies:
+            raise StockResearchError('财务复核范围为空，请先准备候选')
+        prepared = []
+        for row in companies:
+            if not isinstance(row, dict):
+                raise StockResearchError('财务范围公司须为对象')
+            prepared.append({'symbol': _symbol(row.get('symbol')), 'name': _text(row.get('name'), '公司名称')})
+        if len({row['symbol'] for row in prepared}) != len(prepared):
+            raise StockResearchError('财务范围公司代码重复')
+        return {'kind': 'financial_review', 'pool_ids': pools, 'scope_complete': True,
+                'scope_as_of': scope_date, 'scope_sha256': _sha(snapshot.get('scope_sha256')),
+                'source_run_id': _text(snapshot.get('source_run_id'), '范围任务标识'),
+                'source_snapshots': json.loads(_json(snapshot.get('source_snapshots', []))),
+                'companies': sorted(prepared, key=lambda row: row['symbol']),
+                'formal_screening_enabled': False}
+
+    def enqueue(self, *, kind: str, pool_ids: list[str], target_date: date | str, rule_version: str,
+                snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
         if not isinstance(kind, str) or kind not in _KINDS:
             raise StockResearchError('股票更新任务类型无效')
         pools, target, rules = self._pools(pool_ids), self._date(target_date), _text(rule_version, '规则版本')
         if date.fromisoformat(target) > self.research._now().astimezone(_CHINA).date():
             raise StockResearchError('目标日期不能晚于当前北京时间日期')
+        if kind == 'financial_review':
+            snapshot = self._financial_snapshot(snapshot, pools, target)
+        elif snapshot is not None:
+            raise StockResearchError('该任务不接受外部范围快照')
         identity = (kind, _json(pools), target, rules)
         with self.research._write() as connection:
             existing = connection.execute("SELECT * FROM stocks_update_runs WHERE kind=? AND pool_ids=? AND target_date=? AND rule_version=? AND status IN ('queued','running')", identity).fetchone()
             if existing is not None:
                 return self._decode(existing)
-            snapshot = self._snapshot(connection, kind, pools)
+            snapshot = snapshot if snapshot is not None else self._snapshot(connection, kind, pools)
             now = self.research._now().isoformat()
             run_id = uuid.uuid4().hex
             connection.execute('INSERT INTO stocks_update_runs VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', (run_id, kind, _json(pools), target, rules, _json(snapshot), 'queued', 'queued', '[]', None, now, now, None, None, None, 0))
@@ -115,6 +148,29 @@ class StockUpdateStore:
         if row is None:
             raise StockResearchError('股票更新任务不存在')
         return self._decode(row)
+
+    def resume_financial(self, run_id: str, pool_id: str) -> dict[str, Any]:
+        """用户显式重排原任务；不读取新范围，不改写已经成功的公司。"""
+        with self.research._write() as connection:
+            row = connection.execute('SELECT * FROM stocks_update_runs WHERE run_id=?',
+                                     (_text(run_id, '任务标识'),)).fetchone()
+            if row is None:
+                raise StockResearchError('财务任务不存在')
+            task = self._decode(row)
+            if task['kind'] != 'financial_review' or task['pool_ids'] != [pool_id]:
+                raise StockResearchError('只能继续当前池的财务任务')
+            if task['status'] in {'queued', 'running'}:
+                return task
+            if task['status'] not in {'partial', 'failed'}:
+                raise StockResearchError('该财务任务无需继续')
+            self._financial_snapshot(task['input_snapshot'], [pool_id], task['target_date'])
+            active = connection.execute("SELECT 1 FROM stocks_update_runs WHERE kind=? AND pool_ids=? AND target_date=? AND rule_version=? AND status IN ('queued','running')",
+                                        (task['kind'], _json(task['pool_ids']), task['target_date'], task['rule_version'])).fetchone()
+            if active is not None:
+                raise StockRevisionConflict('同一范围日期已有排队或执行中的财务任务')
+            connection.execute("UPDATE stocks_update_runs SET status='queued',phase='queued',error=NULL,worker_id=NULL,lease_until=NULL,lease_token=NULL,attempt=0,updated_at=? WHERE run_id=?",
+                               (self.research._now().isoformat(), task['run_id']))
+            return self._decode(connection.execute('SELECT * FROM stocks_update_runs WHERE run_id=?', (task['run_id'],)).fetchone())
 
     def claim(self, worker_id: str) -> dict[str, Any] | None:
         worker_id = _text(worker_id, '执行者标识')

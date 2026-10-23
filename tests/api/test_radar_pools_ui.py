@@ -54,6 +54,7 @@ const allocationElement=(tag,cls,text)=>{const n=document.createElement(tag);n.c
 const allocationHeader=()=>document.createElement('header');
 let recover=0,lists=0,renders=[];
 const allocationUpdates={recover:()=>recover++};
+let allocationStockTasks=null;const createStockTaskUI=()=>({});
 const allocationShowList=()=>lists++;
 const allocationRestoreDetail=()=>{};
 const renderRadarStockPool=(root,header,pool,payload)=>renders.push(pool.id);

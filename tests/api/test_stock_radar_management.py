@@ -222,3 +222,55 @@ def test_new_enabled_pool_without_scope_is_explicitly_unsupported(tmp_path):
         assert response.status_code == 200
         assert response.json()['scope_status'] == 'unsupported'
         assert response.json()['total'] == 0
+
+
+def test_financial_empty_scope_is_read_only_and_cannot_start(tmp_path):
+    state = tmp_path/'missing-financial'
+    with client(state) as web:
+        base = '/api/v1/radar/stocks/'
+        scope = web.get(base+'dividend_value/financial-review/scope')
+        assert scope.status_code == 200 and scope.json()['total'] == 0
+        assert web.post(base+'dividend_value/financial-review', json={}).status_code == 422
+        assert web.get(base+'updates/latest?kind=financial_review').json() is None
+        assert web.post(base+'dividend_value/financial-review', json={'symbols': ['600000']}).status_code == 422
+    assert not state.exists()
+
+
+def test_financial_start_freezes_scope_and_kind_filtered_recovery(tmp_path):
+    from radar.stocks.update_runner import StockUpdateRunner
+    from tests.radar.test_stock_update_service import packet, task_store
+
+    tasks = task_store(tmp_path)
+    tasks.enqueue(kind='discover_candidates', pool_ids=['dividend_value'], target_date=date(2026, 10, 15), rule_version='test')
+    def collect(cache, as_of):
+        value = packet(as_of)
+        value['pools']['dividend_value']['complete'] = True
+        value['status'], value['scope_complete'] = 'complete', True
+        return value
+    StockUpdateRunner(tasks, tmp_path/'stock-updates/cache', tmp_path/'stock-updates/artifacts',
+                      roster_collector=collect).execute_one('scope-worker')
+    class IdleService:
+        def __init__(self, runner):
+            self.runner = runner
+        def wake(self):
+            return None
+        def stop(self):
+            return None
+    app = FastAPI()
+    app.include_router(create_stock_router(state_dir=tmp_path, service_factory=IdleService))
+    with TestClient(app) as web:
+        base = '/stocks/'
+        scope = web.get(base+'dividend_value/financial-review/scope').json()
+        assert scope['scope_complete'] is True and scope['total'] == 1
+        started = web.post(base+'dividend_value/financial-review', json={})
+        assert started.status_code == 202, started.text
+        task = started.json()
+        assert task['kind'] == 'financial_review' and task['progress']['not_attempted'] == 1
+        latest = web.get(base+'updates/latest?pool_id=dividend_value&kind=financial_review').json()
+        assert latest['run_id'] == task['run_id']
+        assert web.get(base+'updates/latest?kind=refresh_members').json() is None
+        results = web.get(base+'updates/'+task['run_id']+'/financial-results').json()
+        assert results['items'][0]['financial_numeric_status'] == 'not_attempted'
+        assert 'lease_token' not in task and 'lease_until' not in task
+        assert 'companies' not in task['input_snapshot']
+        assert tasks.get(task['run_id'])['input_snapshot']['scope_sha256'] == scope['scope_sha256']
