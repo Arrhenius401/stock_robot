@@ -216,6 +216,8 @@ class ValuationData(BaseModel):
     pe_ttm: float | None = None
     pb: float | None = None
     ps_ttm: float | None = None
+    pe_as_of: "date | None" = None
+    pb_as_of: "date | None" = None
     ps_as_of: "date | None" = None
     ps_source: str = ""
     pe_history: dict[DateType, float] = Field(default_factory=dict)

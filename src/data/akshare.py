@@ -607,7 +607,19 @@ class AkShareAdapter(DataSource):
             logger.debug("腾讯快照获取失败，估值数据缺失")
             self._record_collection_error("腾讯估值快照", e)
             return []
-        return [ValuationData(symbol=symbol, date=datetime.now().astimezone().date(), pe_ttm=pe, pb=pb, ps_ttm=None)]
+        period = None
+        try:
+            # 腾讯快照第 30 位为行情时间；失败只影响日期元数据，不丢弃估值。
+            stamp = fields[30]
+            if len(stamp) == 14 and stamp.isdigit():
+                candidate = datetime.strptime(stamp, "%Y%m%d%H%M%S").replace(
+                    tzinfo=timezone(timedelta(hours=8))).date()
+                if candidate <= datetime.now(timezone(timedelta(hours=8))).date():
+                    period = candidate
+        except ValueError:
+            logger.debug("腾讯估值快照行情日期无效，保留数值并标注日期未知")
+        return [ValuationData(symbol=symbol, date=datetime.now().astimezone().date(), pe_ttm=pe, pb=pb,
+                              pe_as_of=period if pe is not None else None, pb_as_of=period if pb is not None else None)]
 
     def _fetch_hk_price(self, symbol: str, **kwargs) -> list[PriceData]:
         code = symbol.removesuffix(".HK")

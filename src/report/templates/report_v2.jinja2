@@ -37,9 +37,15 @@
 > 不适用：本期港股分析不支持此维度，不计入覆盖率。
 {% elif r and r.metrics %}
 {% if r.status != "ok" %}
-> {{ r.summary }}（保留可用指标快照）
+> {{ valuation_display.summary if dim == "valuation" and valuation_display else r.summary }}（保留可用指标快照）
 {% endif %}
+{% if dim == "valuation" and valuation_display %}
+> {{ valuation_display.cutoff }}
+
+{{ valuation_display.metrics | md_table }}
+{% else %}
 {{ r.metrics | md_table }}
+{% endif %}
 {% if r.metrics.get("operating_trends") %}
 **经营趋势：**
 {% for trend in r.metrics["operating_trends"] %}
@@ -156,6 +162,14 @@
 ---
 
 ## 八、数据覆盖与时效
+
+{% if valuation_display and valuation_display.details %}
+### 估值数据说明
+
+{% for item in valuation_display.details %}
+- {{ item }}
+{% endfor %}
+{% endif %}
 
 {% if data_quality %}
 {% if market == "港股" %}可用维度覆盖：{{ data_quality.available_dimensions }}/{{ data_quality.applicable_dimensions }}（{{ data_quality.coverage }}%）。仅表示适用维度中可分析的比例，不代表字段完整。港股评分与操作信号不适用。{% else %}计分维度覆盖：{{ data_quality.coverage }}%。{% if not data_quality.signal_allowed %}数据依据不完整，暂无操作信号和仓位建议。{% endif %}{% endif %}

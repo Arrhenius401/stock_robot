@@ -267,7 +267,7 @@ function appendMetrics(grid, key, value, prefix = "") {
 export function appendReadableMetric(grid, key, value, context = {}) {
   if (key === 'operating_trends' && (!Array.isArray(value) || value.length === 0)) return;
   // 适用性结构供机器消费；正文用原因列表和对应指标状态展示，避免重复展开。
-  if (key === 'valuation_applicability') return;
+  if (key === 'valuation_applicability' || key === 'historical_valuation_applicability' || key === 'valuation_details') return;
   const rules = context.valuation_applicability;
   const snapshot = {pe_percentile:'pe_ttm',pb_percentile:'pb',target_pe_premium:'pe_ttm'}[key];
   if (rules && snapshot && value == null) {
@@ -499,12 +499,14 @@ function dimensionSection(name, label, data, sectionIdPrefix, unscored = false, 
   header.appendChild(statusBadge(dimension.status));
   header.appendChild(el("span", "dim-score", unscored ? "评分不适用" : scoreText(dimension.score, "暂无评分")));
   card.appendChild(header);
-  card.appendChild(markdownBlock(naturalText(dimension.summary), "dim-sum md"));
+  card.appendChild(markdownBlock(naturalText(dimension.display?.summary ?? dimension.summary), "dim-sum md"));
   if (!unscored && naturalText(dimension.score_detail)) {
     card.appendChild(el("div", "report-score-detail", `评分依据：${naturalText(dimension.score_detail)}`));
   }
 
-  const metrics = record(dimension.metrics);
+  const display = record(dimension.display);
+  if (display.cutoff) card.appendChild(el("div", "dim-sum", display.cutoff));
+  const metrics = Object.keys(record(display.metrics)).length ? record(display.metrics) : record(dimension.metrics);
   if (Object.keys(metrics).length) {
     const grid = el("div", "mtr");
     for (const [metric, value] of Object.entries(metrics)) {
@@ -632,6 +634,11 @@ function pendingSection(report, sectionIdPrefix) {
 function qualitySection(report, sectionIdPrefix) {
   const card = section("report-quality", "数据覆盖与时效", "panel", sectionIdPrefix);
   const quality = record(report.data_quality);
+  const valuationDetails = record(record(report.dimensions).valuation).display?.details;
+  if (Array.isArray(valuationDetails) && valuationDetails.length) {
+    card.appendChild(el("h3", "", "估值数据说明"));
+    for (const text of valuationDetails) card.appendChild(el("p", "dim-sum", text));
+  }
   if (quality.status) {
     const heading = el("div", "report-section-heading");
     const title = card.children[0];

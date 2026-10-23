@@ -52,8 +52,13 @@ def _sample_dates(ctx: AnalysisContext, key: str) -> tuple[str, str]:
         if dates:
             sample = f"{len(dates)}个估值样本（{min(dates).isoformat()} 至 {max(dates).isoformat()}）"
         elif ctx.valuation_data:
-            dates = [ctx.valuation_data.date]
             sample = "单日估值快照"
+        if ctx.valuation_data:
+            val = ctx.valuation_data
+            periods = [val.pe_as_of, val.pb_as_of, val.ps_as_of]
+            if ctx.market == "hk":
+                periods.append(val.date)
+            dates.extend(period for period in periods if period is not None)
     elif key == "industry":
         count = ctx.enriched_industry.peer_count if ctx.enriched_industry else len(ctx.industry_data.peers) if ctx.industry_data else 0
         if count:

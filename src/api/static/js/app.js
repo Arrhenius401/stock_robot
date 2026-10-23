@@ -1,13 +1,13 @@
 // 应用主入口：导航接线、工作台覆盖层与各视图初始化。
 import { bus, store, switchView } from "./state.js";
-import { initChat } from "./chat.js?v=20261021-hk-gross-margin";
-import { initReportView, openReport } from "./report.js?v=20261021-hk-gross-margin";
-import { initReportDrawer } from "./report-drawer.js?v=20261021-hk-gross-margin";
-import { closeReportDrawer } from "./report-drawer.js?v=20261021-hk-gross-margin";
+import { initChat } from "./chat.js?v=20261023-valuation-dates";
+import { initReportView, openReport } from "./report.js?v=20261023-valuation-dates";
+import { initReportDrawer } from "./report-drawer.js?v=20261023-valuation-dates";
+import { closeReportDrawer } from "./report-drawer.js?v=20261023-valuation-dates";
 import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js";
-import { initIndexView } from "./indexview.js?v=20261021-hk-gross-margin";
-import { initReportLibrary } from "./report-library.js?v=20261021-hk-gross-margin";
-import { initSessions, initSessionStartup } from "./sessions.js?v=20261021-hk-gross-margin";
+import { initIndexView } from "./indexview.js?v=20261023-valuation-dates";
+import { initReportLibrary } from "./report-library.js?v=20261023-valuation-dates";
+import { initSessions, initSessionStartup } from "./sessions.js?v=20261023-valuation-dates";
 import { initSubscriptions } from "./subscriptions.js?v=20260928-run-notice-2";
 import { initSettings } from "./settings.js?v=20261007-auto-budget-2";
 import { initLogs } from "./logs.js?v=20260927-page-heading-1";

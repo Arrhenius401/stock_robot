@@ -2,7 +2,7 @@
 import { store, switchView } from "./state.js";
 import { api } from "./api.js";
 import { renderMarkdown } from "./markdown.js";
-import { appendReadableMetric, riskText, formatMetricValue } from "./report-renderer.js?v=20261021-hk-gross-margin";
+import { appendReadableMetric, riskText, formatMetricValue } from "./report-renderer.js?v=20261023-valuation-dates";
 import { el, kv, tagChip, priceBar, errorCard, skeleton,
          showEntryError, clearEntryError } from "./components.js";
 
@@ -109,6 +109,7 @@ function compareCard(compare) {
   const table = el("table");
   const thead = el("thead");
   const headRow = el("tr");
+  if (compare.valuation_cutoff) card.appendChild(el("p", "dim-sum", compare.valuation_cutoff));
   for (const h of compare.headers) headRow.appendChild(el("th", "", String(h)));
   thead.appendChild(headRow);
   table.appendChild(thead);
@@ -162,15 +163,18 @@ function reportCard(r) {
   if (o.pe_ttm != null || o.pe_snapshot != null || o.pb != null || o.pe_percentile != null) {
     const panel = el("div", "panel");
     panel.appendChild(el("div", "panel-title", "概览"));
+    const dateDisplay = o.valuation_display || {};
+    if (dateDisplay.cutoff) panel.appendChild(el("p", "dim-sum", dateDisplay.cutoff));
+    const dated = (key, value) => dateDisplay.metrics?.[key] ?? formatMetricValue(key, value);
     const kvs = el("div", "kv");
-    if (o.pe_ttm != null) kvs.appendChild(kv("PE-TTM", formatMetricValue('pe_ttm',o.pe_ttm)));
-    if (o.pe_ttm == null && o.pe_snapshot != null) kvs.appendChild(kv("官方单张PE", formatMetricValue('pe_snapshot',o.pe_snapshot)));
-    if (o.pb != null) kvs.appendChild(kv("PB", formatMetricValue('pb',o.pb)));
+    if (o.pe_ttm != null) kvs.appendChild(kv("PE-TTM", dated('pe_ttm',o.pe_ttm)));
+    if (o.pe_ttm == null && o.pe_snapshot != null) kvs.appendChild(kv("官方单张PE", dated('pe_snapshot',o.pe_snapshot)));
+    if (o.pb != null) kvs.appendChild(kv("PB", dated('pb',o.pb)));
     if (o.valuation_valid && o.pe_percentile != null) {
       const box = el("div");
       box.appendChild(el("div", "k", o.strategy_valuation ? `PE 分位（近 ${o.percentile_lookback_years || 5} 年窗口内 ${o.pe_sample_count || 0} 个交易日）` : `PE 分位（近 ${o.percentile_lookback_years || 5} 年）`));
       const val = el("div", "v");
-      val.appendChild(el("span", "", formatMetricValue('pe_percentile',o.pe_percentile)));
+      val.appendChild(el("span", "", dated('pe_percentile',o.pe_percentile)));
       val.appendChild(priceBar(o.pe_percentile));
       box.appendChild(val);
       kvs.appendChild(box);
@@ -188,6 +192,12 @@ function reportCard(r) {
     card.appendChild(sectionCard(label, display ? {...section, summary:display.summary} : section,
       display ? tagChip(display.label,display.tone) : tagFor(key, r[tagField])));
   }
+  if (r.section_valuation?.display?.details?.length) {
+    const details = el("div", "panel");
+    details.appendChild(el("div", "panel-title", "估值数据说明"));
+    for (const text of r.section_valuation.display.details) details.appendChild(el("p", "dim-sum", text));
+    card.appendChild(details);
+  }
   card.appendChild(compositeCard(r));
   const risks = riskCard(r.risk_list || []);
   if (risks) card.appendChild(risks);
@@ -201,6 +211,7 @@ function tagFor(kind, tag) {
 }
 
 function sectionCard(label, section, tag) {
+  section = section.display?.summary ? {...section, summary:section.display.summary} : section;
   const card = el("div", "panel");
   const head = el("div", "dim-head");
   head.appendChild(el("span", "dim-name", label));
@@ -214,7 +225,7 @@ function sectionCard(label, section, tag) {
     sum.innerHTML = renderMarkdown(section.summary);
     card.appendChild(sum);
   }
-  const metrics = section.metrics || {};
+  const metrics = section.display?.metrics || section.metrics || {};
   const keys = Object.keys(metrics).filter((k) => k !== "tag");
   if (keys.length) {
     const mtr = el("div", "mtr");

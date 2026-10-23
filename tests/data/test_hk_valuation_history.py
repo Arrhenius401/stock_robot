@@ -138,7 +138,7 @@ def test_ps_notes_reach_analysis_without_industry_premium():
     result = ValuationAnalyzer().analyze(ctx)
     assert result.metrics["ps_ttm"] == 3.8
     assert result.metrics["target_pe_premium"] is None
-    assert any("2026-01-01" in note and "PS" in note for note in result.metrics["valuation_notes"])
+    assert any("2026-01-01" in note and "PS" in note for note in result.metrics["valuation_details"])
 
 
 def test_report_discloses_history_and_does_not_call_it_financial_derivation():

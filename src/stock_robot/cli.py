@@ -338,7 +338,7 @@ def _render_compare_table(compare) -> Table | str:
         "PE 分位": "pe_pct", "PB 分位": "pb_pct", "趋势": "trend",
         "估值": "valuation", "资金": "capital", "综合评级": "composite",
     }
-    table = Table(title="指数横向对比")
+    table = Table(title="指数横向对比", caption=getattr(compare, "valuation_cutoff", ""))
     for h in compare.headers:
         table.add_column(h)
     for row in compare.rows:

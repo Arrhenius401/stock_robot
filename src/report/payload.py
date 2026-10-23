@@ -11,6 +11,7 @@ from report.scoring import (
     with_commentary_fallback,
 )
 from report.signal import SIGNAL_LABELS, SignalConfig, derive_signal
+from report.valuation_dates import stock_date_presentation
 
 
 def build_stock_payload(
@@ -56,7 +57,8 @@ def build_stock_payload(
                   "final": summary.final_score if ctx.market != "hk" and quality["has_scored_data"] else None,
                   "risk_deduction": summary.risk_deduction},
         "score_rows": summary.score_rows,
-        "dimensions": {r.dimension: r.model_dump(mode="json", exclude={"dimension", "charts"})
+        "dimensions": {r.dimension: {**r.model_dump(mode="json", exclude={"dimension", "charts"}),
+                       **({"display": stock_date_presentation(ctx, r.metrics, r.summary)} if r.dimension == "valuation" else {})}
                        for r in results},
         "commentary": bulk, "comments": [bulk] if bulk else [],
         "commentary_status": status, "signal": signal, "data_quality": quality,

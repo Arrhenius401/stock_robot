@@ -117,7 +117,7 @@ class ReportBuilder:
               signal: dict | None = None,
               data_quality: dict | None = None,
               price_start: str | None = None, price_end: str | None = None,
-              market: str = "A 股") -> str:
+              market: str = "A 股", valuation_display: dict | None = None) -> str:
         results_map = {r.dimension: r for r in results}
         if market == "港股" and "financial" in results_map:
             financial = results_map["financial"]
@@ -147,4 +147,5 @@ class ReportBuilder:
             data_quality=data_quality,
             price_start=price_start,
             price_end=price_end,
+            valuation_display=valuation_display,
         )

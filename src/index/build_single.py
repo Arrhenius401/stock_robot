@@ -7,6 +7,7 @@ from jinja2 import Environment, FileSystemLoader
 from data.schemas import AnalysisResult, IndexAnalysisContext, IndexReport
 from report.capital_display import capital_presentation
 from report.formatter import format_metric_value
+from report.valuation_dates import index_date_presentation
 from utils.numbers import is_finite_number, is_positive_finite, is_valid_percentile
 
 
@@ -36,6 +37,8 @@ class IndexReportBuilder:
         overview = self._build_overview(ctx, results_map)
         technical = self._build_section(results_map, "index_technical")
         valuation = self._build_section(results_map, "index_valuation")
+        valuation["display"] = index_date_presentation(val, valuation["metrics"], strategy=ctx.target.index_style == "strategy", summary=valuation["summary"])
+        overview["valuation_display"] = index_date_presentation(val, overview, strategy=ctx.target.index_style == "strategy")
         capital = self._build_section(results_map, "index_capital_flow")
         capital["display"] = capital_presentation(capital)
         macro = self._build_section(results_map, "index_macro")

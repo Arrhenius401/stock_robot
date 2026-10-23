@@ -953,7 +953,7 @@ def create_app(
                 _save_web_index_report(report)
             compare = None
             if result.compare is not None:
-                compare = {"headers": result.compare.headers,
+                compare = {"headers": result.compare.headers, "valuation_cutoff": getattr(result.compare, "valuation_cutoff", ""),
                            "rows": result.compare.rows}
             payload = {
                 "reports": [r.model_dump(mode="json") for r in result.reports],

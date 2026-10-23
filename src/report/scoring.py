@@ -178,6 +178,9 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
                   "action": action.action, "position": action.position}
 
     builder = ReportBuilder()
+    from report.valuation_dates import stock_date_presentation
+
+    valuation = next((r for r in results if r.dimension == "valuation"), None)
     return builder.build(
         symbol=symbol,
         name=name,
@@ -199,4 +202,5 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
         data_quality=quality,
         price_start=price_info["price_start"],
         price_end=price_info["price_end"],
+        valuation_display=stock_date_presentation(ctx, valuation.metrics, valuation.summary) if valuation else None,
     )

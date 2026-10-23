@@ -49,15 +49,17 @@ class ValuationAnalyzer(AnalysisModule):
                 for key in ("pe_percentile", "pb_percentile")
             }
             notes = metrics["valuation_notes"]
+            details: list[str] = []
+            metrics["valuation_details"] = details
             notes.extend(latest.valuation_notes)
-            notes.append(f"PE/PB 当前快照日期：{latest.date}；历史分位使用下述曲线参照值，不用其他来源快照排名")
+            details.append(f"PE/PB 当前快照日期：{latest.date}；历史分位使用下述曲线参照值，不用其他来源快照排名")
             if latest.ps_ttm is not None:
-                notes.append(f"PS(TTM)：{latest.ps_source or '来源未记录'}，日期 {latest.ps_as_of or '未记录'}；仅披露，不计入评分")
+                details.append(f"PS(TTM)：{latest.ps_source or '来源未记录'}，日期 {latest.ps_as_of or '未记录'}；仅披露，不计入评分")
             if context.enriched_valuation:
                 for metric in ("pe", "pb"):
                     summary = getattr(context.enriched_valuation, f"{metric}_history_summary")
                     if summary.sample_count:
-                        notes.append(
+                        details.append(
                             f"{metric.upper()} 近一年历史：{summary.source}，{summary.start} 至 {summary.as_of}，"
                             f"有效样本 {summary.sample_count}，参照值 {summary.reference:.2f} 倍，"
                             f"中位数 {summary.median:.2f} 倍，最低 {summary.low:.2f} 倍，最高 {summary.high:.2f} 倍")

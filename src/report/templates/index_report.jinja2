@@ -2,6 +2,11 @@
 # 指数分析报告：{{ name }} ({{ code }})
 
 > 生成时间：{{ generated_at }}
+{% if overview.valuation_display %}
+> {{ overview.valuation_display.cutoff }}
+{% endif %}
+
+{% set overview_values = overview.valuation_display.metrics if overview.valuation_display else {} %}
 
 {% if requested_instrument %}
 > 输入识别为ETF：{{ requested_instrument.name }}（{{ requested_instrument.symbol }}），跟踪指数 {{ code }}。下面指数与ETF表现分别标明口径。
@@ -15,15 +20,15 @@
 | 涨跌幅 | {{ overview.change_pct | metric_value("change_pct") }} |
 {% if "strategy" in visible_sections %}
 {% if overview.pe_ttm is number %}
-| PE-TTM | {{ overview.pe_ttm | metric_value("pe_ttm") }} |
+| PE-TTM | {{ overview_values.pe_ttm if overview.valuation_display else overview.pe_ttm | metric_value("pe_ttm") }} |
 {% elif overview.pe_snapshot is number %}
-| 官方单张PE | {{ overview.pe_snapshot | metric_value("pe_snapshot") }} |
+| 官方单张PE | {{ overview_values.pe_snapshot if overview.valuation_display else overview.pe_snapshot | metric_value("pe_snapshot") }} |
 {% endif %}
 {% if overview.pb is number %}
-| PB | {{ overview.pb | metric_value("pb") }} |
+| PB | {{ overview_values.pb if overview.valuation_display else overview.pb | metric_value("pb") }} |
 {% endif %}
 {% else %}
-| PE-TTM | {{ overview.pe_ttm | metric_value("pe_ttm") }}{% if overview.pe_percentile is number %}（历史分位 {{ overview.pe_percentile | metric_value("pe_percentile") }}，回看 {{ overview.percentile_lookback_years }} 年）{% endif %} |
+| PE-TTM | {{ overview_values.pe_ttm if overview.valuation_display else overview.pe_ttm | metric_value("pe_ttm") }}{% if overview.pe_percentile is number %}（历史分位 {{ overview_values.pe_percentile if overview.valuation_display else overview.pe_percentile | metric_value("pe_percentile") }}，回看 {{ overview.percentile_lookback_years }} 年）{% endif %} |
 {% if not overview.valuation_valid %}
 > ⚠️ 历史样本不足或分位无效，不判断高低估。
 {% endif %}
@@ -45,9 +50,9 @@
 
 ## 估值面
 
-{{ section_valuation.summary or "估值数据不可用。" }}
+{{ (section_valuation.display.summary if section_valuation.display else section_valuation.summary) or "估值数据不可用。" }}
 {% if "strategy" in visible_sections %}
-{{ section_valuation.metrics | md_table }}
+{{ (section_valuation.display.metrics if section_valuation.display else section_valuation.metrics) | md_table }}
 {% for note in section_valuation.metrics.valuation_notes or [] %}
 - {{ note }}
 {% endfor %}
@@ -55,7 +60,7 @@
 {% if not section_valuation.metrics.valuation_valid %}
 > 历史样本不足或分位无效，不判断高低估。
 {% endif %}
-{{ section_valuation.metrics | md_table }}
+{{ (section_valuation.display.metrics if section_valuation.display else section_valuation.metrics) | md_table }}
 {% endif %}
 
 ---
@@ -94,6 +99,13 @@
 ---
 
 ## 综合评估
+
+{% if section_valuation.display and section_valuation.display.details %}
+### 估值数据说明
+{% for item in section_valuation.display.details %}
+- {{ item }}
+{% endfor %}
+{% endif %}
 
 | 维度 | 标签 |
 |------|------|
