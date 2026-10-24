@@ -50,6 +50,11 @@ const METRIC_LABELS = {
   top_peers: "头部同行公司", symbol: "股票代码", name: "公司名称", market_cap: "总市值",
   industry_median_pe: "行业市盈率中位数", industry_median_pb: "行业市净率中位数",
   target_pe_premium: "相对行业市盈率溢价", target_market_cap_rank: "行业市值排名",
+  classification_scheme: "分类体系", industry_source: "行业数据来源",
+  industry_data_date: "行业数据日期", industry_scheme_note: "分类口径说明",
+  target_pe: "目标市盈率（行业池口径）", target_pb: "目标市净率（行业池口径）",
+  target_pe_percentile: "相对行业市盈率分位", target_pb_percentile: "相对行业市净率分位",
+  peer_pe_sample: "有效市盈率样本数", peer_pb_sample: "有效市净率样本数",
   headline_count: "新闻数量", north_bound: "北向资金净流入", main_net_inflow: "主力资金净流入",
   headlines: "近期新闻", top_headlines: "近期要闻", roe_trend: "净资产收益率走势",
   quarter: "报告期", valuation_valid: "估值样本有效", percentile_lookback_years: "分位回看年限",
@@ -179,9 +184,9 @@ function appendListMetric(grid, key, value) {
 }
 
 const PRICE_KEYS = new Set(['latest_close','latest_price','year_high','year_low','ma_5','ma_20','ma_60']);
-const MULTIPLE_KEYS = new Set(['pe_ttm','pe_snapshot','pb','ps_ttm','industry_median_pe','industry_median_pb']);
+const MULTIPLE_KEYS = new Set(['pe_ttm','pe_snapshot','pb','ps_ttm','industry_median_pe','industry_median_pb','target_pe','target_pb']);
 const RATIO_KEYS = new Set(['roe','gross_margin','revenue_growth_yoy','profit_growth_yoy','industry_median_gross_margin']);
-const PERCENT_KEYS = new Set(['change_pct','pe_percentile','pb_percentile','target_pe_premium','dividend_yield','shibor_3m','cpi_yoy','shibor_percentile','pmi_percentile']);
+const PERCENT_KEYS = new Set(['change_pct','pe_percentile','pb_percentile','target_pe_premium','dividend_yield','shibor_3m','cpi_yoy','shibor_percentile','pmi_percentile','target_pe_percentile','target_pb_percentile']);
 const AMOUNT_KEYS = new Set(['revenue','net_profit','deducted_net_profit','total_assets','total_equity','common_equity','operating_cash_flow','market_cap']);
 const ONE_DIGIT_KEYS = new Set(['score','base_score','final_score','risk_deduction']);
 const TWO_DIGIT_KEYS = new Set(['volume_ratio','operating_cash_flow_per_share','basic_eps','pmi','usd_cny']);
@@ -373,7 +378,7 @@ function investmentSummary(report) {
   const quality = record(report.data_quality);
   if (report.market === "hk") {
     return quality.has_analysis_data
-      ? "依据可用港股指标进行观察；A 股综合评分、申万同行比较与交易信号不适用。"
+      ? "依据可用港股指标进行观察；A 股综合评分与交易信号不适用；行业对比使用恒生 HSICS 二级口径。"
       : "主要分析数据不可用，暂无分析结论；港股不适用 A 股综合评分或交易信号。";
   }
   if (quality.signal_allowed === false) {
@@ -447,7 +452,7 @@ function summarySection(report, sectionIdPrefix) {
 function scoreSection(report, sectionIdPrefix) {
   const card = section("report-score", "综合评分", "panel", sectionIdPrefix);
   if (report.market === "hk") {
-    card.appendChild(el("div", "report-empty", "不适用：港股不套用 A 股综合评分、申万同行比较或交易信号。"));
+    card.appendChild(el("div", "report-empty", "不适用：港股不套用 A 股综合评分或交易信号；行业对比使用恒生 HSICS 口径。"));
     return card;
   }
   const score = record(report.score);

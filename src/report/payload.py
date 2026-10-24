@@ -4,7 +4,7 @@ from typing import Any
 
 from data.schemas import AnalysisContext, AnalysisResult
 from report.builder import build_disclaimer
-from report.quality import build_data_quality
+from report.quality import build_data_quality, hk_industry_label
 from report.scoring import (
     LLM_UNAVAILABLE_PREFIXES,
     compute_price_info,
@@ -45,6 +45,11 @@ def build_stock_payload(
         action = signal_cfg.actions[level]
         signal = {"level": level, "label": SIGNAL_LABELS[level],
                   "action": action.action, "position": action.position}
+    if ctx.market == "hk":
+        industry = hk_industry_label(ctx, results)
+    else:
+        industry = ctx.sw_industry or (
+            ctx.industry_data.industry if ctx.industry_data else "未知")
     return {
         "symbol": symbol, "code": symbol, "name": name, "market": ctx.market,
         "overview": {
@@ -52,7 +57,7 @@ def build_stock_payload(
             "year_low": price["year_low"], "price_position": price["price_position"],
             "change_pct": price["change_pct"],
             "price_start": price["price_start"], "price_end": price["price_end"],
-            "industry": "不适用（港股不使用申万行业分类）" if ctx.market == "hk" else ctx.sw_industry or (ctx.industry_data.industry if ctx.industry_data else "未知"),
+            "industry": industry,
         },
         "score": {"base": summary.base_score if ctx.market != "hk" and quality["has_scored_data"] else None,
                   "final": summary.final_score if ctx.market != "hk" and quality["has_scored_data"] else None,

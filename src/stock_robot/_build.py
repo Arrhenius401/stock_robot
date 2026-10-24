@@ -13,6 +13,8 @@ class BuildPy(build_py):
         resources = [*sorted((root / "config").rglob("*.yaml"))]
         resources.extend(root / "data" / name for name in (
             "industry_mapping.csv", "eastmoney_sw_mapping.csv", "index_mapping.csv", "etf_index_mapping.csv",
+            "hk_stock_connect.snapshot.json", "hk_hsics_industry.csv",
+            "hk_hsics_industry.snapshot.json",
         ))
         resources.append(root / "scripts/run-radar-collector.py")
         for source in resources:

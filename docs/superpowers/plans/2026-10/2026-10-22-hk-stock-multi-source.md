@@ -1732,3 +1732,82 @@ git commit -m "docs(港股): 记录多源框架实施与真实验收"
 - 合并前运行 `scripts/verify.ps1 -Scope Full -VenvPath D:/code/stock_robot/.venv`，全量Ruff及Pyright通过，pytest为2369 passed / 1 failed / 4 skipped（193.82秒）。完整异常与警告保留于 `tmp/acceptance/hk-news-merge-full.log`，失败临时目录未清理。唯一失败为test_report_quality_static仍断言数据覆盖最后，与新确认的免责声明末尾顺序冲突，并非既有随机失败。
 - 只更新该测试的末三卡顺序和按ID定位数据覆盖，不删字段顺序、数据不足不发信号、AI重试等既有检查，不改生产代码。复核 `tests/api/test_report_quality_static.py`、报告库、静态UI、ETF路由及全部tests/report，249 passed in 21.95s；单文件Ruff及Pyright通过。其余范围复用同一生产代码的全量结果，不将失败的Full轮次表述为全绿，也不因只改测试断言重复全量。暂存diffcheck通过，预览/日志/缓存均不提交。
 - 按一个完整事项提交功能分支，以no-ff保留分支合并记录到dev；不推送、部署或删除分支。合并后核对提交树与功能分支一致，并再次核对主工作区独立改动及摘要。
+
+### 港股行业分类及同行字段复核（2026-10-24，仅调查）
+
+- 新闻合并后用户同意下一项先核实行业数据，用腾讯、阿里、汇丰给出样例；按design-before-implementation只调查既有免费能力，不改生产逻辑，不确定中位数、负值比较或行业评分。继续优先申万，不将东财分类自动当替代方案。
+- CodeGraph先行但未返回指定行业源码，随后直接核对IndustryClassifier、industry_mapping_builder、IndustryEnricher及_fetch_industry。现行映射5534条、港股0条；构建器匹配六位代码，A股同行采集按市值过滤并选五家，充实器从头部有效正值计算中位数。可以复用模型、缓存和展示，但不能把现有A股采集/评分接线原样放开到港股，现有行为不代表用户已接受后续行业统计方案。
+- 读取已安装AkShare的官方申万分类下载、成分及东财港股估值对比接口源码，未升级依赖。SDK成分函数含verify=False，因此探针不直接调用它，改用公开相同URL和系统默认证书校验。每个申万入口各一次，均HTTP508；下载页、StockClassifyUse_stock.xls、默认801001成分接口均未取得分类，不能由此断言不存在港股数据。官方网页/PDF浏览工具亦超时，不以搜索摘要冒充分类数据；未改证书、代理或网络出口，不追加云端探测。
+- 忽略脚本 `tmp/acceptance/hk_industry_probe_20261024.py` 共六次有界请求、最多两并发、无重试，不写业务缓存、无模型。东财RPT_PCF10_INDUSTRY_HKCVALUE仅过滤各目标，pageSize=200，每家一请求均HTTP200、success=true、pages=1，count/返回数/唯一关联代码数相等：腾讯167、阿里84、汇丰40（均含目标自身1家）。全部日期2026-10-23；分类软件服务/专业零售/银行，TYPE_ID为403010002/403012007/403008001，不称申万分类。原响应和摘要 `tmp/acceptance/hk-industry-1792812267781206900/`。
+- 目标PE(TTM)/PB(MRQ)：腾讯13.150968343991/2.683800485771，阿里22.906633269078/1.599962740062，汇丰12.949679231586/1.800151517502。三池PE/PB字段无null，但腾讯PE非正93/PB非正6，阿里45/10，汇丰0/0（含目标），不能把字段有值称为全部有效估值。该响应不含市值，返回顺序不当市值排名；阿里样本包括珠宝零售公司，行业标签相同不等于业务高度可比。无中位数/正式溢价/评分计算。
+- 离线样例生成器 `tmp/acceptance/build_hk_industry_example_20261024.py` 校验数量、唯一性、目标身份及单日期，排除目标后展示上游顺序五条示例，注明不是头部排名。样例 `tmp/acceptance/hk-industry-1792812267781206900/examples.md`；不追加网络。结论：现阶段真正缺口是可核验、可更新的申万港股分类映射，而不是所有免费同行估值都无法获取；尚不能承诺正式行业对比接入完成，也不擅自改用东财口径。下一步接入方式须基于分类证据另行确认。
+- 用户同意继续查分类入口后，查官方公开索引及补充文件线索，不重复前轮的下载页/分类明细/成分三请求。官方2021版说明可被检索引擎提取，明确覆盖A股、港股通及重要中概股；这不是当前公司归属名单或更新凭据。来源 `https://wxweb.swsresearch.com/swsreport/2021_08/328340.pdf`，正文直接打开仍403，不能声称下载成功。非官方代码中的旧归档/字典地址只作定位线索，不采信其“旧港股名单停止更新”的陈述为本轮事实，也不取第三方镜像代替官方名单。
+- 补充隔离脚本 `tmp/acceptance/sw_classification_files_probe_20261024.py` 仅请求官方SwClass2021目录下SwClass.rar和SwClassCode_2021.xls各一次，系统TLS验证开启、12秒超时、最多两并发、无重试。两者均HTTP508，未取得二进制文件、修改日期或记录。摘要 `tmp/acceptance/sw-classification-files-1792812550535211800/summary.json`；脚本退出0只代表记录完成，不代表数据获取成功。浏览工具亦无法打开归档。
+- 当前无可验证的最新免费申万港股名单，不能推断名单不存在或永久不可用。按设计阶段边界暂停接线，建议由用户普通浏览器访问官方分类下载页并提供可合法使用的文件，再离线核对版本、日期、港股覆盖及目标归属；不以手工猜分类或东财池替代。只更新同主题计划与忽略的探针，执行git diff --check；未改生产、配置、版本、依赖或服务器，不跑业务pytest/Full、不提交/合并/发布。
+- 用户随后提供从官方页面下载的 `C:/Users/25618/Downloads/StockClassifyUse_stock.xls`。上一轮用表格技能及内置xlrd只读检查：Sheet1共12930行（含表头）、4列（股票代码/计入日期/行业代码/更新日期），12929条记录、5934个唯一代码，全部六位数字；00700/09988/00005及.HK写法均未命中。按Excel日期系统转换，更新日期范围2015-10-26至2026-10-20，不能将不含目标港股归因于文件过期。原文件未修改，未导入业务映射。
+- 用户要求继续后，优先尝试读取其已打开的官方分类页以检查“2021新版分类”等下载项：浏览控制无法接管现有标签页，独立只读标签页超时并重置运行时；未取得DOM或下载链接，不把工具失败表述为用户浏览器也无法访问。停止重复导航，未改用户页面/浏览器设置，未关闭用户标签页。官方公开索引仍只确认“2021新版分类/全部行业分类下载”两个名称，没有取得当前港股名单。
+- 当前下一项最小协作是请用户下载并提供官方候选SwClass.rar（或页面“2021新版分类”实际下载文件）以只读核验，URL为 `https://www.swsresearch.com/swindex/pdf/SwClass2021/SwClass.rar`；该地址仅为候选，前轮508结果复用，不重复请求，既不保证可下载，也不宣称归档包含当前有效港股分类。按design-before-implementation继续停在调查阶段，不切生产来源；未新增业务源码/依赖/版本或测试变更。
+
+### 其他免费申万港股分类来源筛查（2026-10-24，仅调查）
+
+- 用户提供另一份官方归档内的 `最新个股申万行业分类(完整版-截至7月末).xlsx` 并指出仅截至2021年。本轮未独立解析该文件，不将用户提供的截止日期表述为程序核验结果；旧名单不导入当前业务映射。用户同意继续查找其他免费、可持续更新且保持申万口径的来源，按design-before-implementation停留在调查阶段。
+- 米筐官方港股文档明确支持 `get_instrument_industry(..., source='sws_2021', level=1/2/3, date=..., market='hk')`，以及按行业获取港股成员和纳入剔除日期。功能口径符合候选方向，但使用说明的许可证仅列TRIAL（试用）/FULL（付费），同时提供剩余期限字段；商城提供购买与申请试用入口。未找到该港股申万数据可持续免费调用及随插件分发使用的依据，不申请试用、不安装SDK、不作为已验证免费源。依据：<https://www.ricequant.com/doc/rqdata/python/stock-hk>、<https://www.ricequant.com/doc/rqdata/python/manual>、<https://www.ricequant.com/welcome/store/>。
+- 通联线索中出现 `getHKIndustrySW`（陆港通标的申万21分类），但目前仅在高校数据目录检索摘要中取得该接口名，不当作厂商接口契约或真实响应。通联官方旧商城说明的是“免费试用”，试用范围和有效期可调整；新商城需JS，未取得具体API权限和使用条款。未核实其当前免费权限、更新日期或三个目标归属，不把普通港股恒生行业接口当申万接口，也不据此断言通联没有免费方案。官方说明：<https://m.datayes.com/>；新商城：<https://mall.datayes.com/dashboard?lang=zh>；线索：<https://syzx.sufe.edu.cn/syzx/findb/hermesdit/zbsj/zgxg.htm>。
+- 理杏仁官方香港行业基础信息API只列恒生hsi；申万sw/sw_2021出现在大陆行业API，不能跨市场套用。必盈官方分类表同样区分A股申万和香港恒生，未列港股申万。两者不符合本轮分类口径，未调用鉴权数据端点。依据：<https://www.lixinger.com/api/open-api/html-doc/hk/industry>、<https://www.lixinger.com/api/open-api/html-doc/cn/industry>、<https://www.biyingapi.com/doc_jj>。
+- QuantSonar公开文档将申万证券归属标为FREE，但文档为A股接口、证券代码约定列SH/SZ/BJ，未取得港股申万覆盖说明；仍需API Key，不为验证自行注册账号。Tushare申万成分文档亦未建立港股覆盖及本项目免费权限的证据，不把“存在申万接口”当作港股可用。依据：<https://quantsonar.com/docs>、<https://tushare.pro/document/2?doc_id=335>、<https://tushare.pro/document/1?doc_id=108>。
+- 结论为“本轮未找到同时满足当前港股归属、申万口径、持续免费及可核验使用条件的来源”，不是断言此类来源不存在。没有候选达到匿名数据探针前提，本轮只检索/读取公开页面，未取得新的港股归属响应，也没有小样本数据验收通过。保留现有A股行为及港股行业缺失状态，不用旧名单、AI判断或其他分类悄悄补齐。继续接线须先解决分类数据与使用条件，不重启已搁置的行业评分讨论。
+- 仅追加本主题实施计划；没有修改生产代码、依赖、版本、配置、服务或用户原文件，不运行业务pytest/Full。工作区另一份用户队列计划保持不动，其SHA256仍为 `1B5A032B963D2BDDB4A3B62D579AE2EC8AA7FE15AB2F507744D3AB9C2319BE6F`。本轮不提交、推送、合并或发布。
+
+### 使用用户提供的官方文件更新现有静态映射（2026-10-24）
+
+- 用户要求先更新本地行业静态表。本轮仅数据刷新，不增加港股分类或行业评分、不改采集/分类器/Web逻辑，不扩展股票集合。沿用 `data/industry_mapping.csv` 五列及现有风格YAML；更新在主工作区进行，没有合并或部署。按表格技能只读解析源Excel，技术资源CSV通过确定性脚本机械生成；没有修改、重导出原始工作簿。
+- 实际归属来源为用户下载的 `C:/Users/25618/Downloads/StockClassifyUse_stock.xls`，SHA256 `ea8debcb6345c2c7fb43b0561437d78965ab30b249fe58873768ca35e155d7bc`，12929条历史、5934个唯一代码，文件内最新更新日期2026-10-20 18:44（不代表每只股票均在该日调整）。配套行业字典为 `C:/Users/25618/Downloads/SwClass/SwClassCode_2021.xls`，SHA256 `65a2a9da1303d9d17d8fd8e5fa2708d126b86683087d9185dab4507e24f062e5`，511个唯一行业代码；字典描述分类体系，不用旧版个股名单填归属。归档目录内另一份同名成员文件仅11803条历史，与最新单独下载文件不同，未误用。
+- 每个现有代码选截至2026-10-24最新已生效的“计入日期”；同一最新计入日期不同归属直接中止，同归属重复才按更新日期确定记录。数据中没有未来记录或最新同日冲突。行业代码精确关联官方字典并校验一/二/三级完整，再用既有一级→风格YAML关联；不按代码前缀或公司名称猜归属。现有5534个代码全部成功，无未匹配；来源额外400个代码混有历史/退市标的，不作为当前上市名单直接追加，也没有删除现有代码。
+- 原表5534行：317 verified、5217 missing；新表5534行全部verified，代码集合及顺序不变。共5237行改变：5217条补齐，20家银行补上二级分类，其余297行完全不变，原verified记录的一级行业均未改变。CSV更新前SHA256 `08d0120cb5ea13ca66544c9f8483003d27acc64fe02bcb0370c5b1b9c09cacad`，更新后 `5b5f2f8aa13dc9dc3a33050e76bf1470f79017748c0e78b89a8b4b8ca3858965`。旧表及逐行溯源审计位于忽略目录 `tmp/acceptance/sw-static-update-20261024/industry_mapping.before.csv` 和 `audit.json`；临时脚本 `tmp/acceptance/update_sw_static_mapping_20261024.py` 未纳入生产/发布，写入使用Windows首字节锁及同目录临时文件原子替换。
+- 测试先行：新增样例、整表唯一性/完整性/风格一致性和港股仍显式缺失的断言，旧表稳定复现7 failed / 7 passed。首轮另有临时目录父路径未建立导致1项fixture错误，补建唯一父路径后该环境错误消失。更新脚本首次因内置运行时缺filelock在任何写入前退出，改用与项目锁兼容的Windows标准库锁，不安装依赖、不更改项目运行时。
+- 更新后运行 `.venv/Scripts/python -m pytest tests/data/test_industry_classifier.py tests/data/test_industry_mapping_builder.py tests/analysis/test_industry.py tests/analysis/test_industry_hk.py -q`（每次单独PID+GUID的basetemp/cache目录），结果 **40 passed in 1.08s**。测试文件Ruff通过、单文件Pyright **0 errors / 0 warnings**。另用独立排序方式对源历史与CSV全量核对 **5534/5534**，并验证默认IndustryClassifier（不手传CSV路径）读入5534条、新补分类可查、00700.HK仍缺失。日志保留于 `tmp/acceptance/sw-static-update-20261024/pytest.log`；尝试清理成功轮目录的命令被环境策略拒绝，未重复删除，目录 `tmp/pytest/sw-map-green-23740-666f1bb2048d4144a50e13ee71411a76/` 与红测产物均保留，不影响测试通过结论。
+- 本次仅本地数据及回归测试验证，不运行Full、模型、外网或云端，不重启用户服务；已有进程若缓存了分类器，需要下次重启/重建实例后读入新表。没有验证当前上市名单完整性、全市场最新变动或港股行业可用性，不能将5534条关联成功表述为覆盖全部上市股票。另一份用户队列计划摘要保持不变，完成后执行指定文件git diff --check；未提交、推送、合并、发布或改版本。
+
+### 港股通候选范围确认与名单采集（2026-10-24，尚未取得名单）
+
+- 用户提出先用 `ak.stock_hk_ggt_components_em()` 补港股通标的，申万分类另补；经确认，目标和同行池均限定港股通。按design-before-implementation将范围及异常规则收敛到原规格，不另建主题文档；不改变已搁置的行业统计/评分决策，不将成员名单当行业证据。本轮预期仅准备名单与missing静态记录，不启用港股行业比较。
+- 先经CodeGraph核对IndustryClassifier、资源路径和构建白名单，确认静态表能承载显式missing，但当前行业分析仍对港股整体拒绝；并读取已安装AkShare函数与分页辅助函数。接口取数地址为 `https://33.push2.eastmoney.com/api/qt/clist/get`，港股通过滤 `b:DLMK0146,b:DLMK0144`，分页100条，返回代码/名称/行情，未返回行业分类；辅助函数默认有重试，不将无界等待作为验收。
+- 有界探针 `tmp/acceptance/probe_hk_connect_20261024.py` 保留AkShare接口及其解析/分页流程，仅在隔离子进程替换网络重试函数：每页一次、超时10秒、最多20页、采集预算35秒、父进程总限时45秒；成功才校验上游total、返回条数、唯一五位代码和名称，并写忽略目录研究快照。不是生产安装包修改，不关闭TLS校验。
+- 首次使用现有网络环境，第一页以requests.ProxyError失败，底层RemoteDisconnected，没有HTTP响应或有效记录；第二次仅在隔离进程用Session.trust_env=False做直连对比，同一第一页以ConnectionError/RemoteDisconnected失败。两次均没有进入后续分页，未取得完整名单。直连没有修改机器代理、证书或持久配置；不据此判断IP被封、接口永久失效或港股通名单为空，不继续重试、换不明域名或扩大到云端。
+- 下一步顺序保持：①取得并校验完整成员快照；②独立保存名单来源/采集时间及成员集合，为缺失标的增加 `.HK` + missing 行，并保持现有A股记录；③更新回归断言，分别验证A股完整、港股待补齐和名单资格；④来源明确后再补申万归属并讨论真正行业分析接线。目前停在①，②至④尚未实施；没有新增成员资源或生产代码，也不能宣称已把港股通加入静态表。
+- 当前 `data/industry_mapping.csv` 仍为上一轮5534条完整A股映射，SHA256应保持 `5b5f2f8aa13dc9dc3a33050e76bf1470f79017748c0e78b89a8b4b8ca3858965`；不覆盖失败/空名单、不改A股回归测试。正式改动仅同主题规格及计划，运行指定文件git diff --check，不重复业务pytest/Full；未提交、推送、合并、发版、重启或部署。
+
+### 港股通名单更新器实施步骤（2026-10-24）
+
+- 用户再次确认来源固定为 `ak.stock_hk_ggt_components_em()`。复用干净的 `tmp/worktrees/hk-multi-source`，该分支HEAD=b23268c与dev=fdaae8f的提交树一致；仅复制本会话已有静态表、分类器测试及同主题规格/计划作为工作基线，不携带用户独立队列计划。按设计技能执行已确认范围，不再重复询问来源。续接会话按用户要求改在 dev 主工作区完成，两个新文件从该工作树迁入；临时工作树未删除。
+- [x] 先写离线回归：空/缺字段/重复/非法代码、分页总数/顺序/内容不一致应拒绝；合法名单只增加missing行，A股及已核验分类不变；调出成员的旧分类保留但不延续资格；抓取失败不落盘，写入失败保留既有成功快照。
+- [x] 新增独立名单模块及手动模块入口。实际调用指定AkShare函数，在隔离子进程观察其分页响应，不额外请求、不修改第三方安装文件、不在分析请求中改全局变量。校验上游total、连续分页、逐页成员与最终DataFrame一致、唯一规范代码后生成带时区采集时间的快照。子进程总预算45秒沿用有界验收参数；不增加运行时自动刷新或配置项。
+- [x] 合格快照独立存储为映射旁的 `hk_stock_connect.snapshot.json`，资格仅由该快照成员集合表达；映射仍沿用五列，新成员写空分类+missing。不删除历史分类、不推断申万归属。读改写复用映射文件锁，单文件原子替换，名单最后发布；正常异常尝试恢复映射，进程崩溃最多留下不代表成员资格的missing占位，不提前开放行业分析。
+- [x] 本地定向Ruff/Pyright/pytest，实际取数最多一轮；外网失败与代码测试分开报告，不把Mock数据写入正式表。完成前独立合并规格/质量审查，修复发现后复核受影响用例，不运行Full或云端，不推送/合并/部署。
+- 实施与离线验收（2026-10-24）：新增 `src/data/hk_stock_connect.py`、`tests/data/test_hk_stock_connect.py`；入口为 `.venv/Scripts/python -m data.hk_stock_connect`。子进程固定UTF-8、最多20页、总预算45秒；逐页记录并与SDK最终表交叉校验，失败不落盘。发布在映射锁内先原子写映射、最后原子写快照；快照写失败回滚映射并保留旧快照。测试修正上一轮未运行的 mock 写法与 basetemp 父目录问题，覆盖空/缺列/重复/非法代码/空名称/截断/页码错/乱序/总数变化/成员不一致/无分页/naive时间/多页/失败回滚/重复表/超时/子进程复验，并验证发布后分类器仍不把港股占位当已核验。
+- 独立合并规格/质量审查无阻塞；3条建议已逐条核对并处理。关键修复：`industry_mapping_builder` 原以全表行数作为A股覆盖率分母，发布候选时只写A股行；港股占位进入正式表后会误拒发布并丢失港股行。现覆盖率分母和发布分母只统计6位A股代码，发布时保留非A股行；新增“覆盖率忽略港股占位”“发布保留港股占位”用例。静态表断言改为分别校验A股块和港股missing行，不再耦合全表顺序。
+- 验证：`.venv/Scripts/python -m pytest tests/data/test_hk_stock_connect.py tests/data/test_industry_classifier.py tests/data/test_industry_mapping_builder.py tests/analysis/test_industry.py tests/analysis/test_industry_hk.py -q` → **64 passed**；上述源码/测试文件 Ruff 通过、Pyright **0 errors / 0 warnings**。
+- 真实取数按上限执行一轮（`.venv/Scripts/python -m data.hk_stock_connect`）：子进程首屏请求即 `requests.ProxyError`（Unable to connect to proxy / RemoteDisconnected），退出1；未取得成员、未生成快照，`data/industry_mapping.csv` SHA256 保持 `5b5f2f8aa13dc9dc3a33050e76bf1470f79017748c0e78b89a8b4b8ca3858965`，未写入空名单或Mock。外网失败不代表接口永久失效或名单为空；不重试、不绕代理、不改TLS。
+- 当时的停留状态（已被下一节真实发布取代）：代码与离线测试完成，但正式映射尚未加入港股通占位行，港股行业对比仍未启用。待在可访问 `33.push2.eastmoney.com` 的网络环境重跑同一入口；成功后核对快照来源、采集时间、成员数、映射新增missing行及现有A股行不变。未提交、推送、合并、发布、重启或部署。
+
+### 来源切换与真实发布（2026-10-24）
+
+- 网络复核：本机直连出口为移动网络 `39.144.54.57`，系统代理 `127.0.0.1:7897`（com.vortex.helper）出口为 `61.228.90.64`；东财 `33.push2`、`82.push2`、`pushguest`、`pushlogin` 的 `clist/get` 在多次请求后均被服务端直接断开（TLS 层表现为 `schannel ... missing close_notify`），东财主站与 quote 页面正常。10 分钟冷却后单次 `pz=5` 请求恢复 HTTP 200/total=666，但随后的 `pz=1000` 及连续分页再次被重置；未继续重试、未绕代理或改TLS。结论：当前出口无法稳定完成 7 页东财采集。
+- 用户批准改用上交所官方港股通标的名单作为本次成员资格来源。接口 `POST https://query.sse.com.cn/commonQuery.do?jsonCallBack=cb`，`sqlId=COMMON_SSE_JYFW_HGT_XXPL_BDZQQD_L`；页面 `https://www.sse.com.cn/services/hkexsc/disclo/eligible/`。只读取数 HTTP 200，返回697行（666只股票+31只ETF），股票数与东财 `total=666` 一致，含腾讯/阿里/汇丰，更新日期2026-10-23；ETF不进入股票同行池。原始响应与候选清单保存在忽略目录 `tmp/acceptance/hk-connect-network/`，不提交。
+- 实现：快照模型新增 `sse.hkexsc.eligible` 来源、来源页面和 `data_date`；SSE采集为单次直连POST（`trust_env=False`，连接/读取超时10/30秒），校验JSONP、`pageHelp.total==len(data)`、`pageCount==1`、股票/ETF拆分、五位代码、唯一性、名称非空及单一更新日期。`--source sse|eastmoney`，默认 `sse`；东财路径与 `--collect` 保留用于交叉校验。发布仍复用映射锁、原子写和失败回滚。
+- 测试：新增 `tests/resources/hk_stock_connect/sse-hk-connect-eligible-sample.jsonp` 与SSE解析/拒绝/网络失败/发布用例；修正真实响应暴露的“中文简称仅含全角空格时未回退英文简称”缺陷。`pytest tests/data/test_hk_stock_connect.py tests/data/test_industry_classifier.py tests/data/test_industry_mapping_builder.py tests/analysis/test_industry.py tests/analysis/test_industry_hk.py -q` → **86 passed**；相关源码/测试 Ruff 通过、Pyright **0 errors / 0 warnings**。`scripts/verify.ps1` 已将该测试资源映射到 `tests/data/test_hk_stock_connect.py`，PlanOnly 显示 `UnmappedFiles` 为空。
+- 真实发布：`.venv/Scripts/python -m data.hk_stock_connect --source sse` 退出0，输出 `members=666, source=sse.hkexsc.eligible, data_date=2026-10-23, fetched_at=2026-10-24T13:10:05+08:00`。`data/industry_mapping.csv` 由5534行增至6200行（5534 A股 + 666港股），SHA256 `5b5f2f8aa13dc9dc3a33050e76bf1470f79017748c0e78b89a8b4b8ca3858965` → `15693e6afe02f12d5439bb0a5dd284560e5f5c9d46df27e959a23726883d6137`；A股5534行逐行一致且仍在前部；港股666行全部为空分类+missing且唯一。`data/hk_stock_connect.snapshot.json` 47,825字节，成员集合与港股行、SSE候选清单完全一致，`pages` 为单页 total/count=666。
+- 未完成/风险：尚未用东财完整666条做逐条交叉校验（接口仍限流），目前仅核对数量及4个样本代码（09999/09995/09993/09992）；申万港股分类来源、同行池、负值/中位数/评分口径、行业分析接线与报告展示仍未解决，港股行业对比尚未启用。本次未提交、推送、合并、部署或重启服务。
+
+### 港股 HSICS 行业快照与同业对比实施（2026-10-24）
+
+- 方案切换：用户选择港股本地标准，不再等待申万官方港股映射。东财 F10 `BELONG_INDUSTRY` 经抽样确认是恒生二级业务类别（31 类）；`INDUSTRY_TYPE` 为 GICS 四层，不用于本方案；恒生综合指数每日成分 PDF 提供 12 个一级行业。东财 F10 是转载源，报告与快照保留来源/校验标注。
+- 只读验证（`tmp/acceptance/hk-hsics-probe/`，忽略目录）：666 只港股通全部取得 F10 二级；HSCI 每日 PDF（2026-10-23）解析 580 只、12 个一级行业；559 只重叠；31→12 交叉表 0 冲突、0 父级不一致；666/666 可映射，107 只非 HSCI 港股通也通过交叉表覆盖。腾讯 `软件服务→Information Technology`、阿里 `专业零售→Consumer Discretionary`、汇丰 `银行→Financials`。
+- 静态数据与入口：`data/hk_hsics_industry.csv`（666 行，`symbol,hsics_sector,hsics_industry,mapping_status,in_hsci`）与 `data/hk_hsics_industry.snapshot.json`（来源、`data_date=2026-10-23`、CSV SHA256、31→12 crosswalk、`baseline_total=580`、`parent_mismatches=0`、`unmapped_sectors=0`、`missing_rows=0`、`non_hsci_covered=107`）。手动刷新入口 `python -m data.hk_hsics_industry`；`hk_stock_connect.snapshot.json`、`hk_hsics_industry.csv/.snapshot.json` 已加入 wheel 资源白名单。
+- 代码：`src/data/hk_hsics_industry.py`（F10/PDF/crosswalk/CSV+JSON 原子发布/读取/CLI）、`src/data/hk_hsics_peers.py`（31 行业同行池 + `HKIndustryAdapter`）、`src/data/enrichers/hk_industry_enricher.py`、`IndustryAnalyzer` 港股五态、`report` 标签/数据质量/模板/前端文案、`scripts/verify.ps1` 资源映射。港股行业数据不落通用 SQLite 缓存（PrivateAttr 同行估值无法序列化）。
+- 测试：新增/更新 `tests/data/test_hk_hsics_industry.py`、`tests/data/test_hk_hsics_peers.py`、`tests/data/enrichers/test_hk_industry_enricher.py`、`tests/analysis/test_industry_hk.py`、`tests/core/test_pipeline_hk_industry_cache.py`；相关批次 **304 passed**，Ruff 通过、Pyright 0 errors/0 warnings；前端资源版本统一为 `20261024-hk-industry`。
+- 真实管线（`build_agent_core(llm_enabled=False)`，仅 industry）：00700 = 45 家同行、PE 中位数 28.36、PB 中位数 3.10、相对 PE -53.60%、PE/PB 分位 26.10%/42.20%；09988 = 10 家、13.42/1.37、+70.70%；00005 = 21 家、6.35/0.52、+104.00%；00011（非港股通）返回“非港股通标的，不参与港股行业对比”。报告“所属行业”为 `恒生HSICS：软件服务`，数据质量显示来源 `东财F10+恒生HSICS`、截止 2026-10-23。
+- 风险与未做：F10 为恒生标签转载源，对外分发前需确认许可/署名；31→12 交叉表来自 HSCI 559 只重叠样本；部分二级同行少于 3 家；报告会列出全部同行（00700 为 45 家），后续可考虑限制展示数量；港股不计算行业评分；不混 A 股申万池；不自动刷新。未提交、推送、合并、部署或重启服务。
+- 独立规格/质量审查发现并修复：F10 过滤补 `.HK`（原实现会取空 profile 并以 666 行 missing 覆盖旧快照），增加 success/sector 与 31/12、missing_rows 严格校验；`MANIFEST.in` 补 3 个 hk 文件；安装包路径改为按具体文件/CSV+JSON 成对回退；同行 `<3` 统一判不足，目标必须仍在港股通快照，行业池按最新报告日过滤，前端目标 PE/PB/分位补格式化。新增 F10 `.HK` 过滤、缺失拒绝、发布回滚、安装路径回退、同行 2/3/8 边界、最新报告日测试；真实 CLI 刷新以修复后的代码成功发布 666/31/12。
+- 真实浏览器验收（Edge headless + CDP，真实 `stock-robot run --port 8765`）：打开报告库 19:33 的 00700 报告，研报视图显示 `恒生HSICS：软件服务`、45 家同行、目标 PE/PB、中位数、分位和溢价，前端资源版本为 `20261024-hk-industry`；截图 `tmp/acceptance/hk-browser/report-library-fixed.png`。验收同时发现 CLI `_get_registry` 未注册 `HKIndustryAdapter`，导致 CLI 生成的报告行业为空；已修复并新增 `test_cli_registry_registers_hk_industry_adapter`。
+- 最终全量：`.\scripts\verify.ps1 -Scope Full -VenvPath D:/code/stock_robot/.venv` → **2470 passed / 4 skipped**（217.42 秒），Ruff/Pyright 通过，前端资源版本链测试通过。未提交、推送、合并、部署或重启用户服务。

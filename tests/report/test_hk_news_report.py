@@ -79,7 +79,7 @@ def test_hk_quality_reference_and_payload_markdown():
     ctx = context(2)
     result = SentimentAnalyzer().analyze(ctx)
     quality = build_data_quality(ctx, [result])
-    assert quality["applicable_dimensions"] == 3
+    assert quality["applicable_dimensions"] == 4
     assert quality["coverage"] == 0
     news = next(row for row in quality["dimensions"] if row["key"] == "sentiment")
     assert news["status"] != "not_applicable"

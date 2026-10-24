@@ -136,7 +136,7 @@ def with_commentary_fallback(
     if bulk and not bulk.startswith(LLM_UNAVAILABLE_PREFIXES):
         return commentary
     if unscored:
-        return {**commentary, "bulk": "AI 解读当前不可用，可用分析指标已保留；港股综合评分、申万同行比较与交易信号不适用。"}
+        return {**commentary, "bulk": "AI 解读当前不可用，可用分析指标已保留；港股综合评分与交易信号不适用，行业对比使用恒生 HSICS 口径。"}
     return {**commentary, "bulk": _fallback_neutral_commentary(summary)}
 
 
@@ -146,7 +146,7 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
                  signal_cfg: SignalConfig | None = None) -> str:
     """组装完整报告文本（ReportBuilder 渲染）"""
     from report.builder import ReportBuilder
-    from report.quality import build_data_quality
+    from report.quality import build_data_quality, hk_industry_label
 
     quality = build_data_quality(ctx, results)
     summary = compute_score_summary(results)
@@ -161,7 +161,7 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
         summary.final_score = None
     price_info = compute_price_info(ctx)
     if ctx.market == "hk":
-        industry = "不适用（港股不使用申万行业分类）"
+        industry = hk_industry_label(ctx, results)
     elif ctx.sw_industry:
         industry = ctx.sw_industry
     elif (ctx.industry_data and ctx.industry_data.industry

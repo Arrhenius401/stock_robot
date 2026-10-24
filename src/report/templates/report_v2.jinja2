@@ -42,11 +42,12 @@
 {% else %}
 > 新闻暂时获取失败。
 {% endif %}
-{% elif market == "港股" and dim == "industry" %}
-> 不适用：本期港股分析不支持此维度，不计入覆盖率。
 {% elif r and r.metrics %}
 {% if r.status != "ok" %}
 > {{ valuation_display.summary if dim == "valuation" and valuation_display else r.summary }}（保留可用指标快照）
+{% endif %}
+{% if dim == "industry" and r.industry_note %}
+> {{ r.industry_note }}
 {% endif %}
 {% if dim == "valuation" and valuation_display %}
 > {{ valuation_display.cutoff }}
@@ -95,7 +96,7 @@
 ## 三、五大维度标准化打分
 
 {% if market == "港股" %}
-> 不适用：港股不套用 A 股综合评分、申万同行比较或交易信号。
+> 不适用：港股不套用 A 股综合评分或交易信号；行业对比使用恒生 HSICS 口径。
 {% else %}
 {{ score_rows | md_table({"维度": "label", "得分": "score", "权重": "weight", "充足状态": "sufficiency"}) }}
 

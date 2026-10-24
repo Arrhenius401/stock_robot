@@ -19,12 +19,26 @@ _HK_METRICS = {
     "financial": FINANCIAL_ANALYSIS_FIELDS,
     "technical": {"latest_close", "ma_5", "ma_20", "ma_60", "volume_ratio", "macd_dif", "macd_dea", "macd_bar"},
     "valuation": {"pe_ttm", "pb", "ps_ttm"},
+    "industry": {"peer_count", "industry_median_pe", "industry_median_pb"},
 }
 
 
 def _has_hk_facts(result: AnalysisResult) -> bool:
     return result.status in ("ok", "partial") and has_finite_facts(
         result.metrics, _HK_METRICS.get(result.dimension, set()))
+
+
+def hk_industry_label(ctx: AnalysisContext, results: list[AnalysisResult]) -> str:
+    """港股概览行业标签；区分可比较、非港股通、待补齐和数据不可用。"""
+    if ctx.industry_data is not None and ctx.industry_data.industry:
+        return f"恒生HSICS：{ctx.industry_data.industry}"
+    industry = next((result for result in results if result.dimension == "industry"), None)
+    summary = industry.summary if industry is not None else ""
+    if "非港股通" in summary:
+        return "非港股通（不支持行业对比）"
+    if "待补齐" in summary:
+        return "恒生HSICS行业待补齐"
+    return "恒生HSICS行业数据不可用"
 
 
 def has_analysis_data(results: list[AnalysisResult], ctx: AnalysisContext | None = None) -> bool:
@@ -63,6 +77,12 @@ def _sample_dates(ctx: AnalysisContext, key: str) -> tuple[str, str]:
         count = ctx.enriched_industry.peer_count if ctx.enriched_industry else len(ctx.industry_data.peers) if ctx.industry_data else 0
         if count:
             sample = f"{count}家可比公司"
+        data_date = getattr(ctx.industry_data, "_data_date", "") if ctx.industry_data else ""
+        if data_date:
+            try:
+                dates.append(date.fromisoformat(data_date))
+            except ValueError:
+                pass
     elif key == "news":
         if ctx.raw_sentiment:
             dates = [p.publish_date for p in ctx.raw_sentiment.items]

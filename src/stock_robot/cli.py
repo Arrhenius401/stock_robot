@@ -67,9 +67,11 @@ def _get_registry():
     from analysis.valuation import ValuationAnalyzer
     from core.registry import Registry
     from data.akshare import AkShareAdapter
+    from data.hk_hsics_peers import HKIndustryAdapter
 
     reg = Registry()
     reg.register_data_source(AkShareAdapter())
+    reg.register_data_source(HKIndustryAdapter())
     reg.register_analysis_module(FinancialAnalyzer())
     reg.register_analysis_module(TechnicalAnalyzer())
     reg.register_analysis_module(ValuationAnalyzer())

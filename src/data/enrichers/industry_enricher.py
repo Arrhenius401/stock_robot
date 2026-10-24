@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 
 class IndustryEnricher(DataEnricher):
     def enrich(self, ctx: AnalysisContext) -> AnalysisContext:
+        if ctx.market == "hk":
+            return ctx
         ind_data = ctx.industry_data
 
         if ind_data is None or (not ind_data.industry or ind_data.industry == "未知"):

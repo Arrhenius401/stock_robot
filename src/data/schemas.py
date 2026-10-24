@@ -95,6 +95,10 @@ class EnrichedIndustry(BaseModel):
     industry_median_net_margin: float | None = None
     target_pe_premium: float | None = None      # 正数=溢价，负数=折价
     target_market_cap_rank: int | None = None
+    target_pe_percentile: float | None = None
+    target_pb_percentile: float | None = None
+    peer_pe_sample: int = 0
+    peer_pb_sample: int = 0
 
 
 class RawSentimentItem(BaseModel):
@@ -253,6 +257,10 @@ class IndustryData(BaseModel):
     # 采集层扩展字段（不参与序列化）
     _target_mcap: float | None = PrivateAttr(default=None)
     _target_rank: int | None = PrivateAttr(default=None)
+    _peer_valuations: dict[str, PeerBasicInfo] = PrivateAttr(default_factory=dict)
+    _target_pe: float | None = PrivateAttr(default=None)
+    _target_pb: float | None = PrivateAttr(default=None)
+    _data_date: str = PrivateAttr(default="")
 
 
 class HKNewsLink(BaseModel):

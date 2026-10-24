@@ -115,6 +115,16 @@ METRIC_DISPLAY_NAMES = {
     "industry_median_pb": "行业 PB 中位数",
     "target_pe_premium": "相对行业 PE 溢价",
     "target_market_cap_rank": "行业市值排名",
+    "classification_scheme": "分类体系",
+    "industry_source": "行业数据来源",
+    "industry_data_date": "行业数据日期",
+    "industry_scheme_note": "分类口径说明",
+    "target_pe": "目标 PE（行业池口径）",
+    "target_pb": "目标 PB（行业池口径）",
+    "target_pe_percentile": "相对行业 PE 分位",
+    "target_pb_percentile": "相对行业 PB 分位",
+    "peer_pe_sample": "有效 PE 样本数",
+    "peer_pb_sample": "有效 PB 样本数",
     "headline_count": "新闻数量",
     "date": "数据日期",
     "north_bound": "北向资金净流入",
@@ -148,10 +158,12 @@ def metric_display_name(key: object) -> str:
 
 
 _PRICE_KEYS = {"latest_close", "latest_price", "year_high", "year_low", "ma_5", "ma_20", "ma_60"}
-_MULTIPLE_KEYS = {"pe_ttm", "pe_snapshot", "pb", "ps_ttm", "industry_median_pe", "industry_median_pb"}
+_MULTIPLE_KEYS = {"pe_ttm", "pe_snapshot", "pb", "ps_ttm", "industry_median_pe", "industry_median_pb",
+                  "target_pe", "target_pb"}
 _RATIO_KEYS = {"roe", "gross_margin", "revenue_growth_yoy", "profit_growth_yoy", "industry_median_gross_margin"}
 _PERCENT_KEYS = {"change_pct", "pe_percentile", "pb_percentile", "target_pe_premium", "dividend_yield",
-                 "shibor_3m", "cpi_yoy", "shibor_percentile", "pmi_percentile"}
+                 "shibor_3m", "cpi_yoy", "shibor_percentile", "pmi_percentile",
+                 "target_pe_percentile", "target_pb_percentile"}
 # 这些字段在适配层按基本货币单位记录；币种由各报告上下文披露，不由上市地推断。
 _AMOUNT_KEYS = {"revenue", "net_profit", "deducted_net_profit", "total_assets", "total_equity", "common_equity",
                 "operating_cash_flow", "market_cap"}

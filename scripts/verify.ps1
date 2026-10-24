@@ -133,7 +133,11 @@ foreach ($file in $changedFiles) {
         # 静态资源变化必须验证所属业务模块，不能按非 Python 文件跳过。
         $resourceParts = $path.Split("\")
         $resourceTests = if ($resourceParts.Count -ge 4) { Join-Path "tests" $resourceParts[2] } else { "" }
-        if ($resourceParts.Count -ge 4 -and $resourceParts[2] -eq "hk") {
+        if ($resourceParts.Count -ge 4 -and $resourceParts[2] -eq "hk_stock_connect") {
+            Add-UniqueTarget $testTargets "tests\data\test_hk_stock_connect.py"
+        } elseif ($resourceParts.Count -ge 4 -and $resourceParts[2] -eq "hk_hsics") {
+            Add-UniqueTarget $testTargets "tests\data\test_hk_hsics_industry.py"
+        } elseif ($resourceParts.Count -ge 4 -and $resourceParts[2] -eq "hk") {
             Add-UniqueTarget $testTargets "tests\data\test_hk_bank_currency.py"
         } elseif ($resourceParts.Count -ge 4 -and $resourceParts[2] -eq "report") {
             Add-UniqueTarget $testTargets "tests/report"

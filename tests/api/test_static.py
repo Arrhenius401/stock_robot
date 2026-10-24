@@ -188,7 +188,7 @@ def _module_url(path: str) -> str:
     url = Path(path).resolve().as_uri()
     # 与聊天模块的正式导入保持同一 URL，避免产生两份抽屉状态单例。
     if path.endswith("/report-drawer.js"):
-        url += "?v=20261023-disclaimer-copy"
+        url += "?v=20261024-hk-industry"
     return url
 
 
@@ -387,7 +387,7 @@ if (calls.length !== beforeA) throw new Error("不改变A股缓存语义");
         app_js = (await client.get("/js/app.js")).text
         api_js = (await client.get("/js/api.js")).text
 
-        assert 'import { initReportLibrary } from "./report-library.js?v=20261023-disclaimer-copy";' in app_js
+        assert 'import { initReportLibrary } from "./report-library.js?v=20261024-hk-industry";' in app_js
         assert "initReportLibrary();" in app_js
         assert "listReports(" in api_js
         assert "getReport(" in api_js
@@ -424,7 +424,7 @@ if (calls.length !== beforeA) throw new Error("不改变A股缓存语义");
     async def test_app_initializes_report_drawer(self, client):
         resp = await client.get("/js/app.js")
 
-        assert 'import { initReportDrawer } from "./report-drawer.js?v=20261023-disclaimer-copy";' in resp.text
+        assert 'import { initReportDrawer } from "./report-drawer.js?v=20261024-hk-industry";' in resp.text
         assert "initReportDrawer();" in resp.text
 
     def test_markdown_renderer_escapes_untrusted_input_and_formats_safe_blocks(self):

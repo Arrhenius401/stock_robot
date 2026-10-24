@@ -7,9 +7,10 @@ from data.schemas import (
     AnalysisContext,
     AnalysisResult,
     DimensionSufficiency,
+    IndustryData,
     SufficiencyLevel,
 )
-from report.quality import build_data_quality
+from report.quality import build_data_quality, hk_industry_label
 from report.scoring import build_report
 
 
@@ -29,18 +30,18 @@ def test_coverage_counts_only_applicable_available_dimensions(count):
                               metrics={key: 1 if index < count else None})
                for index, (dimension, key) in enumerate(facts)]
     quality = build_data_quality(ctx, results)
-    assert quality["coverage"] == round(count / 3 * 100, 1)
+    assert quality["coverage"] == round(count / 4 * 100, 1)
     assert quality["available_dimensions"] == count
-    assert quality["applicable_dimensions"] == 3
+    assert quality["applicable_dimensions"] == 4
     assert quality["status"] == ("partial" if count else "unavailable")
     assert not quality["signal_allowed"]
     assert not quality["has_scored_data"]
     industry = next(item for item in quality["dimensions"] if item["key"] == "industry")
-    assert industry["status"] == "not_applicable"
+    assert industry["status"] == "unavailable"
     news = next(item for item in quality["dimensions"] if item["key"] == "sentiment")
     assert news["status"] == "unavailable"
     assert news["title"] == "相关新闻检索（参考信息）"
-    assert not any(item.startswith(("行业：", "舆情：")) for item in quality["pending_verifications"])
+    assert not any(item.startswith("舆情：") for item in quality["pending_verifications"])
 
 
 @pytest.mark.parametrize("value", [None, True, float("nan"), float("inf"), "12"])
@@ -57,12 +58,24 @@ def test_unavailable_residual_values_are_not_counted():
     assert quality["coverage"] == 0
 
 
+def test_hk_industry_label_distinguishes_non_connect_and_mapped():
+    ctx = context()
+    non_connect = AnalysisResult(
+        dimension="industry", status="unavailable",
+        summary="非港股通标的，不参与港股行业对比", metrics={})
+    assert hk_industry_label(ctx, [non_connect]) == "非港股通（不支持行业对比）"
+
+    ctx.industry_data = IndustryData(
+        symbol="00700.HK", industry="软件服务", sector="Information Technology")
+    assert hk_industry_label(ctx, [non_connect]) == "恒生HSICS：软件服务"
+
+
 def test_markdown_shows_dimension_count_and_not_applicable():
     ctx = context()
     results = [AnalysisResult(dimension="financial", status="partial", summary="利润为负",
                               metrics={"net_profit": -10})]
     text = build_report(ctx.symbol, ctx.name, results, {}, ctx, no_llm=True)
-    assert "可用维度覆盖：1/3（33.3%）" in text
-    assert "行业 · 不适用" in text
+    assert "可用维度覆盖：1/4（25.0%）" in text
+    assert "行业 · 数据不可用" in text
     assert "相关新闻检索（参考信息） · 数据不可用" in text
     assert "新闻暂时获取失败" in text

@@ -53,6 +53,11 @@ DIMENSION_LLM_LABELS = {
 
 # 分析维度到所需数据类型的映射
 DATA_TYPES = ["financial", "price", "valuation", "industry", "news"]
+
+
+def _cacheable(market: str, data_type: str) -> bool:
+    """港股行业数据含同行估值 PrivateAttr，序列化会丢失，故不落通用缓存。"""
+    return not (market == "hk" and data_type == "industry")
 DIMENSION_DATA_MAP = {
     "financial": ["financial"],
     "technical": ["price"],
@@ -134,6 +139,7 @@ class Pipeline:
             if market == "hk" and data_type == "news":
                 result, record = self._collect_hk_news(symbol, name, refresh_cache)
                 return data_type, result, record
+            cacheable = _cacheable(market, data_type)
             record = DataCollectionRecord()
             raw_record = self._cache.get_metadata(data_type, symbol, "latest")
             if raw_record:
@@ -151,7 +157,7 @@ class Pipeline:
             if data_type == "news" and not refresh_cache:
                 stale_cached = self._get_stale_cached(symbol, data_type)
             # 本地缓存读取不触达上游，优先于断路器——断路器打开期间缓存健康数据仍可用
-            if not refresh_cache:
+            if not refresh_cache and cacheable:
                 cached = self._get_cached(symbol, data_type)
                 if cached is not None:
                     self._breaker.record_success(symbol, data_type)
@@ -197,11 +203,13 @@ class Pipeline:
                                     error_kind="invalid_data", error_message="行情日期或价格格式无效")
                                 continue
                             if self._is_healthy(data_type, result, symbol):
-                                self._set_cache(symbol, data_type, result, record)
+                                if cacheable:
+                                    self._set_cache(symbol, data_type, result, record)
                                 self._breaker.record_success(symbol, data_type)
                             else:
                                 # 退化结果：不落库（_set_cache 门控双保险），计失败促断路器
-                                self._set_cache(symbol, data_type, result, record)
+                                if cacheable:
+                                    self._set_cache(symbol, data_type, result, record)
                                 self._breaker.record_failure(symbol, data_type)
                                 if data_type == "news" and stale_cached is not None:
                                     logger.warning(f"{symbol}/{data_type} 实时数据退化，使用过期缓存兜底")
@@ -316,6 +324,7 @@ class Pipeline:
         from data.enricher import ContextEnricher
         from data.enrichers import (
             FinancialEnricher,
+            HKIndustryEnricher,
             IndustryEnricher,
             PriceEnricher,
             SentimentEnricher,
@@ -327,6 +336,7 @@ class Pipeline:
         enricher.register(FinancialEnricher())
         enricher.register(ValuationEnricher())
         enricher.register(IndustryEnricher())
+        enricher.register(HKIndustryEnricher())
 
         # 主要维度完成确定性充实后再决定是否允许舆情模型调用。
         ctx = enricher.enrich(ctx)
