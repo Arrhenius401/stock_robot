@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import closing
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from radar.stocks import admission, style
+from radar.stocks.financial_source import load_financial_source
 from radar.stocks.research_store import (
     StockResearchError,
     StockResearchStore,
@@ -148,6 +149,12 @@ class StockEvaluationStore:
             if type(revision) is not int or not 0 <= revision <= 2**63 - 1:
                 raise StockResearchError('公司来源revision无效')
             self.research._date(company.get('data_as_of'))
+            if 'financial_source' in entry or 'financial_as_of' in entry:
+                financial = entry.get('financial_source')
+                financial_as_of = self.research._date(entry.get('financial_as_of'))
+                if (not isinstance(financial, dict) or financial.get('symbol') != symbol
+                        or financial.get('evaluation_as_of') != financial_as_of):
+                    raise StockResearchError('公司财务来源的身份或评估截点无效')
             evidence_ids: set[str] = set()
             for row in entry['evidence']:
                 if not isinstance(row, dict) or row.get('symbol') != symbol or not isinstance(row.get('payload'), dict):
@@ -175,6 +182,11 @@ class StockEvaluationStore:
             live = current.get(symbol)
             if live is None or live['revision'] != expected['revision']:
                 raise StockRevisionConflict(f'公司来源版本已变化：{symbol}')
+            if 'financial_source' in entry:
+                cutoff = date.fromisoformat(entry['financial_as_of'])
+                live_financial = load_financial_source(self.research.db_path, symbol, cutoff)
+                if _json(live_financial) != _json(entry['financial_source']):
+                    raise StockRevisionConflict(f'公司财务来源已变化：{symbol}')
             if full:
                 live['admission_status'] = 'pending_verification'
                 if _json(live) != _json(expected):
@@ -210,6 +222,10 @@ class StockEvaluationStore:
             seen.add(symbol)
             if item.get('as_of') != as_of or item.get('rule_version') != admission.RULE_VERSION or item.get('style_rule_version') != style.STYLE_RULE_VERSION:
                 raise StockResearchError('公司截点或规则版本不匹配')
+            source = next(entry for entry in inputs['companies'] if entry['company']['symbol'] == symbol)
+            if ('financial_source' in source or 'financial_source' in item) and (
+                    source.get('financial_as_of') != as_of or _json(source.get('financial_source')) != _json(item.get('financial_source'))):
+                raise StockResearchError('报告财务来源与归档输入不匹配')
             if item.get('formal_screening_enabled') is not False:
                 raise StockResearchError('公司结果须关闭正式筛选')
             if not isinstance(item.get('pools'), dict) or set(item['pools']) != {'dividend_value', 'growth_trend'}:

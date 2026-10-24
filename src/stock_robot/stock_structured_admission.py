@@ -12,33 +12,13 @@ from typing import Any
 import click
 
 from radar.stocks.admission import _BJ, _day, evaluate_common_admission
+from radar.stocks.financial_admission import merge_profitability
 from radar.stocks.index_scope import POOL_INDEX_CODES
 from radar.stocks.research_store import StockResearchStore
 from radar.stocks.structured_collect import _safe_path
 from stock_robot.dividend_research import _write_json
 from stock_robot.stock_research import _protect_database
 from stock_robot.stock_structured_financial import _companies, screen_saved_batch
-
-
-def merge_profitability(manual: list[dict[str, Any]], financial: dict[str, Any], codes: set[str]) -> list[dict[str, Any]]:
-    """只替换指定盈利条件；确定失败优先，缺失不能回退人工通过。"""
-    numeric = {row['code']: row for row in financial.get('financial_numeric_checks', [])}
-    checks = deepcopy(manual)
-    for check in checks:
-        code = check['code']
-        if code not in codes:
-            continue
-        old = deepcopy(check)
-        structured = deepcopy(numeric.get(code, {'code': code, 'outcome': 'pending_verification', 'reason': '采集产物缺失、损坏或尚未处理'}))
-        # 两渠道确定冲突也保留已知失败，不能利用另一渠道通过将失败抹去。
-        outcomes = {old['outcome'], structured['outcome']}
-        outcome = ('pending_verification' if outcomes == {'passed', 'failed'}
-                   else ('failed' if 'failed' in outcomes else structured['outcome']))
-        check.clear()
-        check.update(code=code, outcome=outcome, channel='structured_financial',
-                     reason='两方正负冲突待核验；其他确定失败优先，缺失不回退人工通过',
-                     manual_check=old, structured_check=structured)
-    return checks
 
 
 def _counts(items: list[dict[str, Any]]) -> dict[str, int]:

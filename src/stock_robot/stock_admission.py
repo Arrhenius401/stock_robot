@@ -9,6 +9,7 @@ from typing import Any
 import click
 
 from radar.stocks.admission import RULE_VERSION, evaluate_common_admission
+from radar.stocks.financial_admission import merge_common_financial
 from radar.stocks.research_store import StockResearchStore
 from stock_robot.dividend_documents import _cutoff
 from stock_robot.dividend_materials import _read
@@ -51,7 +52,8 @@ def _unavailable_pools(reason: str) -> dict[str, Any]:
 
 
 def evaluate_store(store: StockResearchStore, as_of: date, *, symbol: str | None = None,
-                   market_window: list[date] | None = None, include_styles: bool = False) -> dict[str, Any]:
+                   market_window: list[date] | None = None, include_styles: bool = False,
+                   financial_sources: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     """读前后revision校验，不能把资料更新中的混合结果当稳定结论。"""
     style_engine = None
     if include_styles:
@@ -74,8 +76,13 @@ def evaluate_store(store: StockResearchStore, as_of: date, *, symbol: str | None
         try:
             before = store.get_company(code)
             evidence = store.list_evidence(code)
-            result = (style_engine.evaluate_stock_styles(code, evidence, as_of, market_window=market_window)
-                      if style_engine else evaluate_common_admission(code, evidence, as_of, market_window=market_window))
+            common = evaluate_common_admission(code, evidence, as_of, market_window=market_window)
+            if financial_sources is not None:
+                if code not in financial_sources:
+                    raise ValueError('缺少服务器绑定的公司财务来源')
+                common = merge_common_financial(common, financial_sources[code], as_of)
+            result = (style_engine.evaluate_stock_styles(code, evidence, as_of, market_window=market_window, common_result=common)
+                      if style_engine else common)
             result["evaluation_valid"] = True
             after = store.get_company(code)
             if before is None or after is None or before["revision"] != after["revision"]:

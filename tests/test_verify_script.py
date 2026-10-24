@@ -22,6 +22,8 @@ def _run(*arguments: str):
 
 
 @pytest.mark.parametrize("path,expected", [
+    ("src/radar/stocks/financial_source.py", "tests/radar/test_stock_financial_source.py"),
+    ("src/radar/stocks/financial_admission.py", "tests/radar/test_stock_financial_admission.py"),
     ("tests/resources/radar/eastmoney-structured-financial-samples.json", "tests/radar/test_stock_structured_financial.py"),
     ("src/radar/stocks/structured_collect.py", "tests/radar/test_stock_structured_collect.py"),
     ("src/stock_robot/stock_structured_admission.py", "tests/radar/test_stock_structured_admission.py"),
@@ -222,7 +224,7 @@ def test_stock_archive_has_bounded_mapping(source_file):
     assert result.returncode == 0, result.stderr
     plan = json.loads(result.stdout)
     assert plan["UnmappedFiles"] == []
-    assert set(plan["TestTargets"]) == {"tests/radar/test_stock_evaluation_store.py", "tests/radar/test_stock_membership_drafts.py",
+    assert set(plan["TestTargets"]) == {"tests/radar/test_stock_financial_source.py", "tests/radar/test_stock_evaluation_store.py", "tests/radar/test_stock_membership_drafts.py",
         "tests/radar/test_stock_membership_store.py", "tests/radar/test_stock_archive_cli.py", "tests/radar/test_stock_research_store.py",
         "tests/radar/test_stock_style_cli.py", "tests/radar/test_stock_admission_cli.py"}
 

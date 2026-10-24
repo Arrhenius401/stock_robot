@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from radar.stocks.admission import RULE_VERSION
 from radar.stocks.evaluation_store import StockEvaluationStore
+from radar.stocks.financial_source import load_financial_source
 from radar.stocks.financial_task import financial_results
 from radar.stocks.membership_drafts import StockMembershipDraftStore
 from radar.stocks.membership_store import StockMembershipStore
@@ -204,12 +205,17 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
     def detail(symbol: str):
         store = research()
         row = company(store, symbol)
-        window, trace = load_market_window(state, datetime.now().astimezone().date())
-        report = evaluate_store(store, datetime.now().astimezone().date(), symbol=symbol, market_window=window, include_styles=True)
+        cutoff = datetime.now().astimezone().date()
+        window, trace = load_market_window(state, cutoff)
+        financial = load_financial_source(db, symbol, cutoff)
+        report = evaluate_store(store, cutoff, symbol=symbol, market_window=window, include_styles=True,
+                                financial_sources={symbol: financial})
         report['market_window_source'] = trace
         evidence, reviews = store.list_evidence(symbol), store.review_history(symbol)
         if company(store, symbol)['revision'] != row['revision']:
             raise StockRevisionConflict('读取详情期间公司资料变化，请重新读取')
+        if load_financial_source(db, symbol, cutoff) != financial:
+            raise StockRevisionConflict('读取详情期间财务来源变化，请重新读取')
         return {'company': row, 'evidence': evidence, 'reviews': reviews, 'evaluation': report, 'publication_enabled': False}
 
     @router.post('/companies/{symbol}/reviews')
@@ -255,7 +261,10 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
             raise StockRevisionConflict('公司版本已变化，请重新读取')
         cutoff = datetime.now().astimezone().date()
         window, trace = load_market_window(state, cutoff)
-        report = evaluate_store(store, cutoff, symbol=symbol, market_window=window, include_styles=True)
+        financial = load_financial_source(db, symbol, cutoff)
+        inputs['companies'][0].update(financial_source=financial, financial_as_of=cutoff.isoformat())
+        report = evaluate_store(store, cutoff, symbol=symbol, market_window=window, include_styles=True,
+                                financial_sources={symbol: financial})
         report['market_window_source'] = trace
         saved = evaluations.save_evaluation(report, inputs, market_window=window)
         drafts = StockMembershipDraftStore(evaluations, pools)

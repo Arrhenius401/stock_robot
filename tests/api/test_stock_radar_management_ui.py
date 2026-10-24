@@ -111,6 +111,41 @@ assert.ok(detailFold); assert.ok(!detailFold.open); dispose();
 """))
 
 
+def test_detail_financial_source_dates_and_conflicts_remain_visible(tmp_path):
+    _run_node(tmp_path, _script(r"""
+detail.evaluation.items[0].as_of = '2026-10-24';
+detail.evaluation.items[0].financial_source = {as_of:'2026-10-18', scope_as_of:'2026-10-16', status:'historical', reason:'历史财务结果仅供参考，不能提升本次截点的盈利核验'};
+detail.evaluation.items[0].checks = [{code:'ttm_parent_profit', outcome:'pending_verification', reason:'两方正负冲突待核验', channel:'structured_financial', manual_check:{outcome:'failed'}, structured_check:{outcome:'passed'}}];
+const request = async url => url.includes('/updates/latest') ? null : url.includes('/companies/') ? detail : list();
+const dispose = renderRadarStockPool(root, header, pool, empty, {request}); await tick();
+await click(root, '候选与成员管理'); await click(root, '测试公司 · 600001');
+assert.ok(root.textContent.includes('本次评估截点 2026-10-24'));
+assert.ok(root.textContent.includes('财务研究截点 2026-10-18'));
+assert.ok(root.textContent.includes('范围日期 2026-10-16'));
+assert.ok(root.textContent.includes('历史财务结果仅供参考'));
+assert.ok(root.textContent.includes('结构化来源：通过，人工事实：未通过'));
+assert.ok(!descendants(root).find(el => el.tagName === 'DETAILS' && el.textContent.includes('查看核验明细')).open);
+dispose();
+"""))
+
+
+def test_historical_per_check_reference_keeps_current_pending(tmp_path):
+    _run_node(tmp_path, _script(r"""
+detail.evaluation.items[0].checks = [
+ {code:'ttm_parent_profit', outcome:'pending_verification', channel:'structured_financial', reason:'历史财务参考（2026-10-18）：通过，仅供参考，不作本次资格依据', reference_as_of:'2026-10-18', reference_check:{outcome:'passed'}, structured_check:{outcome:'pending_verification'}, manual_check:{outcome:'pending_verification'}},
+ {code:'ttm_deducted_profit', outcome:'pending_verification', channel:'structured_financial', reason:'历史财务参考（2026-10-18）：不满足，仅供参考，不作本次资格依据', reference_as_of:'2026-10-18', reference_check:{outcome:'failed'}, structured_check:{outcome:'pending_verification'}, manual_check:{outcome:'pending_verification'}}
+];
+const request = async url => url.includes('/updates/latest') ? null : url.includes('/companies/') ? detail : list();
+const dispose = renderRadarStockPool(root, header, pool, empty, {request}); await tick();
+await click(root, '候选与成员管理'); await click(root, '测试公司 · 600001');
+const rows = byClass(root, 'stock-check');
+assert.ok(rows.some(row => row.textContent.includes('最近十二个月归母净利润 · 待核验') && row.textContent.includes('2026-10-18') && row.textContent.includes('通过，仅供参考')));
+assert.ok(rows.some(row => row.textContent.includes('最近十二个月扣非净利润 · 待核验') && row.textContent.includes('2026-10-18') && row.textContent.includes('不满足，仅供参考')));
+assert.ok(root.textContent.includes('本次结构化来源：待核验'));
+dispose();
+"""))
+
+
 def test_hidden_stock_view_stops_poll_without_hash_change(tmp_path):
     _run_node(tmp_path, _script(r"""
 const view = document.createElement('div'); view.className = 'view active'; root.closest = () => view;

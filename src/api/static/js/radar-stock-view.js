@@ -159,8 +159,12 @@ export function renderRadarStockPool(root, header, pool, payload, options = {}) 
   function checks(title, value) {
     const section = append(node('section', 'stock-checks'), node('h3', '', title));
     append(section, node('p', 'radar-meta', label(value?.common_status || value?.admission_status || value?.style_status)));
+    if (value?.financial_source) {
+      const source = value.financial_source;
+      append(section, node('p', 'radar-meta stock-financial-source', '盈利来源：结构化财务 · 本次评估截点 ' + (value.as_of || '未知') + ' · 财务研究截点 ' + (source.as_of || '暂无') + ' · 范围日期 ' + (source.scope_as_of || '暂无') + '。' + (source.reason || '资料待补')));
+    }
     const details = node('div');
-    (value?.checks || []).forEach(check => append(details, node('p', 'stock-check', checkLabel(check.name || check.code) + ' · ' + label(check.outcome) + '：' + (check.reason || '待核验'))));
+    (value?.checks || []).forEach(check => append(details, node('p', 'stock-check', checkLabel(check.name || check.code) + ' · ' + label(check.outcome) + '：' + (check.reason || '待核验') + (check.channel === 'structured_financial' ? (check.reference_check ? '；本次结构化来源：' : '；结构化来源：') + label(check.structured_check?.outcome) + '，人工事实：' + label(check.manual_check?.outcome) : ''))));
     if (value?.checks?.length) append(section, fold('查看核验明细（' + value.checks.length + '项）', details));
     if (value?.unconfigured_rules?.length) append(section, node('p', 'radar-note', '待配置规则：' + value.unconfigured_rules.map(checkLabel).join('、')));
     Object.entries(value?.branches || {}).forEach(([key, branch]) => append(section, fold(key === 'dividend' ? '红利分支' : key === 'value' ? '价值分支' : key, checks('分支条件', branch))));

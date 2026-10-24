@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import date, datetime, time
 from decimal import Decimal, localcontext
 from typing import Any
@@ -174,9 +175,9 @@ def _liquidity(groups: dict[str, Any], cutoff: date, market_window: Any) -> tupl
 
 
 def evaluate_stock_styles(symbol: str, evidence: list[dict[str, Any]], as_of: date, *,
-                          market_window: list[date] | None = None) -> dict[str, Any]:
+                          market_window: list[date] | None = None, common_result: dict[str, Any] | None = None) -> dict[str, Any]:
     """返回共同条件及独立风格研究状态，所有正式发布能力保持关闭。"""
-    result = evaluate_common_admission(symbol, evidence, as_of, market_window=market_window)
+    result = deepcopy(common_result) if common_result is not None else evaluate_common_admission(symbol, evidence, as_of, market_window=market_window)
     result.update(style_rule_version=STYLE_RULE_VERSION, members_published=0)
     cutoff = _day(as_of)
     if cutoff is None or cutoff.year < 4:

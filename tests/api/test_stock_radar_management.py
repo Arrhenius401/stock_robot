@@ -30,6 +30,82 @@ def test_empty_gets_create_nothing(tmp_path):
     assert not state.exists()
 
 
+def test_detail_and_draft_share_historical_financial_source(tmp_path):
+    from tests.radar.test_stock_financial_source import (
+        SYMBOL,
+        complete,
+        enqueue,
+        environment,
+    )
+
+    research, archive, tasks, _ = environment(tmp_path)
+    enqueue(tasks)
+    complete(tasks, tmp_path)
+    company = research.get_company(SYMBOL)
+    assert company is not None
+    revision = company['revision']
+    before = research.db_path.read_bytes()
+    with client(tmp_path) as web:
+        base = '/api/v1/radar/stocks/companies/' + SYMBOL
+        detail = web.get(base).json()['evaluation']['items'][0]
+        assert research.db_path.read_bytes() == before
+        source = detail['financial_source']
+        assert source['as_of'] == '2026-10-18' and source['scope_as_of'] == '2026-10-18'
+        assert source['status'] == 'historical' and detail['evaluation_valid']
+        historical = [check for check in detail['checks'] if check.get('channel') == 'structured_financial']
+        assert len(historical) == 8 and all(check['outcome'] == 'pending_verification' for check in historical)
+        assert all(check['reference_as_of'] == '2026-10-18' and check['reference_check']['outcome'] == 'passed' for check in historical)
+        body = {'expected_revision': revision, 'request_id': 'financial-source', 'actor': '合成测试',
+                'reason': '保留历史财务参考', 'pool_id': 'growth_trend'}
+        response = web.post(base + '/draft', json=body)
+        assert response.status_code == 200, response.text
+        assert response.json()['status'] == 'blocked'
+        evaluation = archive.list_evaluations(symbol=SYMBOL)['items'][0]
+        saved = archive.get(evaluation['evaluation_id'])
+        assert saved is not None
+        assert saved['inputs']['companies'][0]['financial_source'] == source
+        assert saved['report']['items'][0]['checks'] == detail['checks']
+        assert saved['report']['items'][0]['financial_source'] == source
+        # 来源更新后原请求仍重放原草案，不重算也不发布成员。
+        enqueue(tasks, pool='growth_trend')
+        replay = web.post(base + '/draft', json=body)
+        assert replay.status_code == 200 and replay.json()['draft_id'] == response.json()['draft_id']
+        stale = archive.get(evaluation['evaluation_id'])
+        assert stale is not None and not stale['freshness']['current']
+        assert not web.get('/api/v1/radar/stocks/growth_trend/members').json()['items']
+
+
+def test_current_detail_uses_recomputed_eight_conditions(tmp_path, monkeypatch):
+    from datetime import UTC, datetime
+
+    import api.stock_radar as module
+    from tests.radar.test_stock_financial_source import (
+        SYMBOL,
+        complete,
+        enqueue,
+        environment,
+    )
+
+    _, _, tasks, _ = environment(tmp_path)
+    enqueue(tasks)
+    complete(tasks, tmp_path)
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 10, 18, 8, tzinfo=UTC).astimezone(tz)
+
+    monkeypatch.setattr(module, 'datetime', FixedDatetime)
+    with client(tmp_path) as web:
+        response = web.get('/api/v1/radar/stocks/companies/' + SYMBOL)
+        assert response.status_code == 200, response.text
+        item = response.json()['evaluation']['items'][0]
+        assert item['financial_source']['status'] == 'current'
+        numeric = [check for check in item['checks'] if check.get('channel') == 'structured_financial']
+        assert len(numeric) == 8 and all(check['outcome'] == 'passed' for check in numeric)
+        assert item['common_status'] == 'pending_verification' and item['formal_screening_enabled'] is False
+
+
 def test_candidates_details_and_review_conflict(tmp_path):
     state = tmp_path / 'state'
     store = seed(state)
