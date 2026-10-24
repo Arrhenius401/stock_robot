@@ -38,10 +38,10 @@ class TestComputeScoreSummary:
             _result("industry", 9.0),
         ]
         summary = compute_score_summary(results)
-        # 8.0*0.30 + 6.0*0.20 + 4.0*0.25 + 9.0*0.25 = 6.85 → round(…, 1) = 6.8
-        assert summary.base_score == 6.8
+        # 移除行业后，三维保持原30:20:25比例，按未舍入权重计算。
+        assert summary.base_score == 6.1
         assert summary.risk_deduction == 0
-        assert summary.final_score == 6.8
+        assert summary.final_score == 6.1
 
     def test_risk_flags_deduct_capped_at_10(self):
         flags = [f"风险{i}" for i in range(12)]
@@ -60,7 +60,7 @@ class TestComputeScoreSummary:
         assert summary.base_score == 7.0  # 仅财务维度：7.0*0.30/0.30
         assert summary.score_rows[0]["label"] == "财务健康"
         assert summary.score_rows[0]["score"] == "7.0"
-        assert summary.score_rows[0]["weight"] == "30%"
+        assert summary.score_rows[0]["weight"] == "40%"
 
     def test_none_score_shown_as_na(self):
         results = [_result("financial", None)]
@@ -161,3 +161,16 @@ class TestBuildReport:
                      no_llm=True)
 
         assert mock_builder.build.call_args.kwargs["commentary"] == {}
+
+
+def test_legacy_industry_score_and_risks_do_not_affect_summary():
+    results = [_result("financial", 8), _result("technical", 6), _result("valuation", 4),
+               _result("industry", 10, risk_flags=["industry_weak_margin"]), _result("sentiment", 10)]
+    summary = compute_score_summary(results)
+    assert summary.base_score == 6.1
+    assert summary.final_score == 6.1
+    assert summary.risk_deduction == 0
+    assert "industry_weak_margin" not in summary.risk_flags
+    industry = next(row for row in summary.score_rows if row["label"] == "行业对比")
+    assert industry["weight"] == "不计分"
+    assert industry["score"] == "N/A"

@@ -46,7 +46,7 @@ def context(pe: float | None = 20.0, pb: float | None = 2.0, ps: float | None = 
 def test_invalid_current_pe_cannot_score_stale_percentile_or_premium(value, scorer_type):
     ctx = context(pe=value, pb=None, ps=None)
     score, detail, risks = scorer_type(CONFIG, {}).score_valuation(ctx)
-    assert score == 0
+    assert score is None
     assert "-151%" not in detail
     assert not risks
 
@@ -55,7 +55,7 @@ def test_invalid_current_pe_cannot_score_stale_percentile_or_premium(value, scor
 @pytest.mark.parametrize("scorer_type", [GeneralScorer, BankScorer, CyclicalScorer])
 def test_invalid_current_pb_cannot_score_stale_percentile(value, scorer_type):
     score, detail, _ = scorer_type(CONFIG, {}).score_valuation(context(pe=None, pb=value, ps=None))
-    assert score == 0
+    assert score is None
     if value == 0:
         assert "PB 为负" not in detail
 
@@ -76,7 +76,7 @@ def test_loss_pe_preserved_but_valid_pb_keeps_its_own_score():
     assert result.metrics["pe_ttm"] == -32.03
     assert result.metrics["pe_percentile"] is None
     assert result.metrics["pb_percentile"] == 10
-    assert result.score == 2
+    assert result.score == 10
     assert "不适用" in result.summary
 
 
@@ -86,7 +86,7 @@ def test_invalid_percentiles_do_not_score(pct, scorer_type):
     ctx = context()
     ctx.enriched_valuation = EnrichedValuation(pe_percentile=pct, pb_percentile=pct)
     ctx.enriched_industry = None
-    assert scorer_type(CONFIG, {}).score_valuation(ctx)[0] == 0
+    assert scorer_type(CONFIG, {}).score_valuation(ctx)[0] is None
 
 
 @pytest.mark.parametrize("pe", INVALID)

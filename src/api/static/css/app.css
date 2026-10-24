@@ -1543,6 +1543,44 @@ body.subs-modal-open { overflow: hidden; }
 .stock-report .report-commentary-error { color: var(--warn); font-size: 13px; margin-top: 8px; }
 .stock-report .report-retry-commentary, .stock-report .report-configure-commentary { margin-top: 10px; }
 .stock-report .mtr > div { min-width: 0; overflow-wrap: anywhere; }
+/* 同行证据沿用报告主题；窄卡片的摘要逐指标排列，明细单独滚动。 */
+.stock-report .peer-comparison { min-width: 0; container-type: inline-size; }
+.stock-report .peer-comparison .dim-score { font-size: 13px; color: var(--text-4); }
+.stock-report .peer-caption { color: var(--text-4); font-size: 13px; margin: 6px 0 10px; overflow-wrap: anywhere; }
+.stock-report .peer-subtitle { color: var(--text); font-size: 15px; font-weight: 600; margin: 16px 0 0; }
+.stock-report .peer-business-heading { display: flex; gap: 12px; justify-content: space-between; align-items: center; flex-wrap: wrap; margin-top: 20px; }
+.stock-report .peer-business-heading .peer-subtitle { margin: 0; }
+.stock-report .peer-period-tabs { display: flex; gap: 4px; }
+.stock-report .peer-period-button { font: inherit; font-size: 13px; color: var(--text-2); background: var(--panel); border: 1px solid var(--border-soft); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+.stock-report .peer-period-button[aria-selected="true"] { color: var(--accent); border-color: var(--accent); }
+.stock-report .peer-period-button:focus-visible, .stock-report .peer-comparison summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.stock-report .peer-summary, .stock-report .peer-detail-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.stock-report .peer-summary th, .stock-report .peer-summary td,
+.stock-report .peer-detail-table th, .stock-report .peer-detail-table td { padding: 10px 8px; text-align: right; vertical-align: top; border-bottom: 1px solid var(--border-soft); }
+.stock-report .peer-summary th, .stock-report .peer-detail-table th { font-size: 13px; color: var(--text-4); font-weight: 500; }
+.stock-report .peer-summary td, .stock-report .peer-detail-table td { font-size: 15px; }
+.stock-report .peer-summary th:first-child, .stock-report .peer-summary td:first-child,
+.stock-report .peer-detail-table th:first-child, .stock-report .peer-detail-table td:first-child { text-align: left; padding-left: 0; }
+.stock-report .peer-table-wrap { max-width: 100%; overflow-x: auto; }
+.stock-report .peer-detail-table { min-width: 640px; }
+.stock-report .peer-detail-table td:last-child { text-align: left; min-width: 160px; max-width: 280px; overflow-wrap: anywhere; }
+.stock-report .peer-all, .stock-report .peer-methods { border-top: 1px solid var(--border-soft); padding-top: 12px; margin-top: 16px; }
+.stock-report .peer-comparison summary { font-size: 13px; color: var(--accent); cursor: pointer; width: fit-content; max-width: 100%; }
+.stock-report .peer-methods ul { color: var(--text-4); font-size: 13px; padding-left: 20px; }
+.stock-report .peer-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+@container(max-width:440px) {
+  .stock-report .peer-summary { display: block; }
+  .stock-report .peer-summary thead { display: none; }
+  .stock-report .peer-summary tbody { display: grid; gap: 12px; }
+  .stock-report .peer-summary tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 12px; padding: 8px 0 12px; border-bottom: 1px solid var(--border-soft); }
+  .stock-report .peer-summary td { border: 0; padding: 2px 0; text-align: left; overflow-wrap: anywhere; }
+  .stock-report .peer-summary td:first-child { grid-column: 1 / -1; font-weight: 600; }
+  .stock-report .peer-summary td:not(:first-child) { display: flex; flex-direction: column; }
+  .stock-report .peer-summary td:not(:first-child)::before { content: attr(data-label); font-size: 13px; color: var(--text-4); }
+}
+@media(pointer:coarse) {
+  .stock-report .peer-period-button, .stock-report .peer-comparison summary { min-height: 44px; }
+}
 @media(max-width:760px) {
   .stock-report .report-summary-facts, .stock-report .report-quality-fields { grid-template-columns: minmax(0, 1fr); }
   .stock-report .report-quality-source, .stock-report .report-quality-date, .stock-report .report-quality-wide { grid-column: auto; grid-row: auto; }

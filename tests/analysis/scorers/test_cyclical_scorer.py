@@ -49,6 +49,7 @@ class TestCyclicalScorer:
         scorer = CyclicalScorer(config, {})
         score_low, _, _ = scorer.score_valuation(ctx_low_pe)
         score_high, _, _ = scorer.score_valuation(ctx_high_pe)
+        assert score_high is not None and score_low is not None
         assert score_high > score_low, (
             f"周期反转下高PE分位应得分更高，实际 low={score_low}, high={score_high}"
         )
@@ -61,6 +62,7 @@ class TestCyclicalScorer:
     def test_score_valuation_returns_valid_score(self, config, ctx_high_pe):
         scorer = CyclicalScorer(config, {})
         score, detail, risks = scorer.score_valuation(ctx_high_pe)
+        assert score is not None
         assert 0 <= score <= 10
         assert isinstance(detail, str)
         assert isinstance(risks, list)

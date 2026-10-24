@@ -11,6 +11,7 @@ from report.formatter import (
     format_metrics,
     metric_display_name,
 )
+from report.peer_comparison import format_peer_comparison_markdown
 
 
 def build_disclaimer(*, hk: bool = False) -> list[str]:
@@ -122,6 +123,7 @@ class ReportBuilder:
         )
         self._env.filters["md_table"] = _md_table
         self._env.filters["hk_news_markdown"] = format_hk_news_markdown
+        self._env.filters["peer_comparison_markdown"] = format_peer_comparison_markdown
         self._env.filters["metric_value"] = lambda value, key: format_metric_value(key, value)
         from report.formatter import risk_display_name
         self._env.filters["risk_display_name"] = risk_display_name

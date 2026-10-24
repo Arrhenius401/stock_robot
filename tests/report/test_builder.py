@@ -32,7 +32,7 @@ class TestReportBuilder:
         assert "# 平安银行（000001）分析报告" in report
         assert "## 一、标的基础概况" in report
         assert "## 二、五大维度量化数据" in report
-        assert "## 三、五大维度标准化打分" in report
+        assert "## 三、综合评分" in report
         assert "## 四、AI 中性解读 + 风险汇总" in report
         assert "## 五、多风格观察视角" in report
         assert "## 六、待验证事项" in report

@@ -1,6 +1,5 @@
 """银行专用计分器 — PB 为主要估值指标，自定义风控指标"""
 from analysis.scorers.general import GeneralScorer
-from analysis.valuation_rules import valuation_evidence
 from data.schemas import AnalysisContext
 
 
@@ -8,7 +7,7 @@ class BankScorer(GeneralScorer):
     """继承 GeneralScorer，覆写财务和估值维度的计分逻辑。"""
 
     def _industry_note(self) -> str:
-        return ("银行业采用 PB 估值为主（权重 35%），PE 不适用。"
+        return ("银行业采用 PB 估值为主，PE 分位不适用。"
                 "财务维度重点关注不良贷款率、拨备覆盖率、资本充足率，"
                 "不采用通用毛利率和资产负债率判定。")
 
@@ -62,37 +61,5 @@ class BankScorer(GeneralScorer):
 
         return round(total, 1), "；".join(details), risks
 
-    def score_valuation(self, ctx: AnalysisContext) -> tuple[float, str, list[str]]:
-        cfg = self.config.get("valuation", {})
-
-        total = 0.0
-        details = []
-        risks = []
-
-        # PE — 银行已 disabled
-        pe_cfg = cfg.get("pe_percentile", {})
-        if pe_cfg.get("enabled", True):
-            details.append("PE 不适用于银行业，已跳过")
-
-        # PB — 核心估值指标，权重提升至 6 分
-        pb_cfg = cfg.get("pb_percentile", {})
-        if pb_cfg.get("enabled", True):
-            _, pb_pct, _ = valuation_evidence(ctx)
-            if pb_pct is None:
-                details.append("PB 分位不适用或历史样本不足，不计分")
-            else:
-                s, _ = self._tier_score(pb_pct, pb_cfg.get("tiers", []))
-                max_s = pb_cfg.get("max_score", 6)
-                total += s
-                details.append(f"PB 分位 {pb_pct:.2f}%，得 {s}/{max_s} 分")
-
-        # 行业溢价
-        prem_cfg = cfg.get("industry_premium", {})
-        _, _, premium = valuation_evidence(ctx)
-        if prem_cfg.get("enabled", True) and premium is not None:
-            s, _ = self._tier_score(premium, prem_cfg.get("tiers", []))
-            max_s = prem_cfg.get("max_score", 4)
-            total += s
-            details.append(f"行业溢价 {premium:.2f}%，得 {s}/{max_s} 分")
-
-        return round(total, 1), "；".join(details), risks
+    def score_valuation(self, ctx: AnalysisContext) -> tuple[float | None, str, list[str]]:
+        return self._score_valuation(ctx, pe_applicable=False)

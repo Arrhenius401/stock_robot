@@ -99,6 +99,7 @@ class EnrichedIndustry(BaseModel):
     target_pb_percentile: float | None = None
     peer_pe_sample: int = 0
     peer_pb_sample: int = 0
+    comparison: dict[str, Any] = Field(default_factory=dict)
 
 
 class RawSentimentItem(BaseModel):
@@ -254,6 +255,8 @@ class IndustryData(BaseModel):
     resolved_sw_level2: str = ""
     # 新增：头部同行详细数据
     top_peers: list[PeerBasicInfo] = Field(default_factory=list)
+    comparison_ready: bool = False
+    comparison_snapshot: dict[str, Any] = Field(default_factory=dict)
     # 采集层扩展字段（不参与序列化）
     _target_mcap: float | None = PrivateAttr(default=None)
     _target_rank: int | None = PrivateAttr(default=None)
@@ -261,6 +264,7 @@ class IndustryData(BaseModel):
     _target_pe: float | None = PrivateAttr(default=None)
     _target_pb: float | None = PrivateAttr(default=None)
     _data_date: str = PrivateAttr(default="")
+    _comparison_deadline: float | None = PrivateAttr(default=None)
 
 
 class HKNewsLink(BaseModel):

@@ -4,12 +4,13 @@ from typing import Any
 
 from data.schemas import AnalysisContext, AnalysisResult
 from data.validation import FINANCIAL_ANALYSIS_FIELDS, has_finite_facts
+from report.scoring import DIM_WEIGHTS
 
 _DIMENSIONS = (
-    ("financial", "财务", "financial", "financial", 0.30),
-    ("technical", "技术", "price", "price", 0.20),
-    ("valuation", "估值", "valuation", "valuation", 0.25),
-    ("industry", "行业", "industry", "industry", 0.25),
+    ("financial", "财务", "financial", "financial", DIM_WEIGHTS["financial"]),
+    ("technical", "技术", "price", "price", DIM_WEIGHTS["technical"]),
+    ("valuation", "估值", "valuation", "valuation", DIM_WEIGHTS["valuation"]),
+    ("industry", "行业", "industry", "industry", 0.0),
     ("sentiment", "舆情", "sentiment", "news", 0.0),
 )
 _LEVEL = {"sufficient": 2, "partial": 1, "insufficient": 0}
@@ -44,7 +45,7 @@ def hk_industry_label(ctx: AnalysisContext, results: list[AnalysisResult]) -> st
 def has_analysis_data(results: list[AnalysisResult], ctx: AnalysisContext | None = None) -> bool:
     """港股使用有效实测指标，A 股维持既有可评分门槛。"""
     if ctx is None or ctx.market != "hk":
-        return any(r.dimension in ("financial", "technical", "valuation", "industry")
+        return any(r.dimension in DIM_WEIGHTS
                    and r.score is not None and r.status != "unavailable" for r in results)
     return any(_has_hk_facts(result) for result in results)
 
@@ -132,8 +133,9 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult]) -> d
             level = min(level, 1)
         if weight:
             coverage += weight * (level / 2)
-            all_complete = all_complete and level == 2
             has_scored = has_scored or bool(level and result and result.score is not None)
+        if weight or (hk and key in _HK_METRICS):
+            all_complete = all_complete and level == 2
         record = records.get(source_key)
         sample, cutoff = _sample_dates(ctx, source_key)
         if cutoff == "未记录":

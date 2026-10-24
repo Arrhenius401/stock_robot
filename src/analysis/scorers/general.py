@@ -3,6 +3,7 @@ from analysis.scorers.base import BaseScorer
 from analysis.technical_indicators import calculate_macd, moving_average, volume_ratio
 from analysis.valuation_rules import valuation_evidence
 from data.schemas import AnalysisContext
+from utils.numbers import is_positive_finite
 
 
 class GeneralScorer(BaseScorer):
@@ -27,7 +28,7 @@ class GeneralScorer(BaseScorer):
 
     def score_dimension(
         self, dim: str, context: AnalysisContext
-    ) -> tuple[float, str, list[str]]:
+    ) -> tuple[float | None, str, list[str]]:
         method = self._method_map.get(dim)
         if method is None:
             return 0.0, f"未知维度: {dim}", []
@@ -115,94 +116,58 @@ class GeneralScorer(BaseScorer):
         return round(total, 1), "；".join(details), risks
 
     # —— 估值维度 ——
-    def score_valuation(self, ctx: AnalysisContext) -> tuple[float, str, list[str]]:
+    def score_valuation(self, ctx: AnalysisContext) -> tuple[float | None, str, list[str]]:
+        return self._score_valuation(ctx)
+
+    def _score_valuation(
+        self, ctx: AnalysisContext, *, pe_applicable: bool = True, cyclical: bool = False,
+    ) -> tuple[float | None, str, list[str]]:
+        """只对有效且启用的估值子项按原配置相对权重折算。"""
         cfg = self.config.get("valuation", {})
-        if not cfg.get("enabled", True):
-            return 0.0, "估值维度已禁用", []
-
+        if not cfg.get("enabled", True) or ctx.market == "hk":
+            return None, "估值维度不计分", []
+        pe_pct, pb_pct, premium = valuation_evidence(ctx)
         total = 0.0
-        details = []
-        risks = []
-
-        # PE 历史分位
-        pe_cfg = cfg.get("pe_percentile", {})
-        if pe_cfg.get("enabled", True):
-            pe_pct, _, _ = valuation_evidence(ctx)
-            reverse = pe_cfg.get("percentile_reverse", False)
-            s, _ = self._tier_score(pe_pct, pe_cfg.get("tiers", []), reverse=reverse)
-            max_s = pe_cfg.get("max_score", 4)
-            total += s
-            pct_label = f"{pe_pct:.2f}%" if pe_pct is not None else "不适用或历史样本不足"
-            details.append(f"PE 分位 {pct_label}，得 {s}/{max_s} 分")
-            if pe_pct is not None and pe_pct > 90:
+        available_max = 0.0
+        details: list[str] = []
+        risks: list[str] = []
+        items = (
+            ("pe_percentile", "PE 分位", pe_pct, 4),
+            ("pb_percentile", "PB 分位", pb_pct, 2),
+            ("industry_premium", "同行 PE 溢价", premium, 4),
+        )
+        for key, label, value, default_max in items:
+            item = cfg.get(key, {})
+            if not item.get("enabled", True):
+                continue
+            if key == "pe_percentile" and not pe_applicable:
+                details.append("PE 不适用于银行业，已跳过")
+                continue
+            maximum = item.get("max_score", default_max)
+            if not is_positive_finite(maximum):
+                details.append(f"{label}权重无效，不计分")
+                continue
+            if value is None:
+                details.append(f"{label}不适用或数据不足，不计分")
+                continue
+            reverse = key == "pe_percentile" and item.get("percentile_reverse", False)
+            score, _ = self._tier_score(value, item.get("tiers", []), reverse=reverse)
+            total += score
+            available_max += maximum
+            suffix = "（周期反转解读）" if key == "pe_percentile" and cyclical else ""
+            details.append(f"{label} {value:.2f}%{suffix}，得 {score}/{maximum} 分")
+            if key == "pe_percentile" and value > 90 and not cyclical:
                 risks.append("high_pe_premium")
-
-        # PB 历史分位
-        pb_cfg = cfg.get("pb_percentile", {})
-        if pb_cfg.get("enabled", True):
-            _, pb_pct, _ = valuation_evidence(ctx)
-            if pb_pct is None:
-                details.append("PB 分位不适用或历史样本不足，不计分")
-            else:
-                s, _ = self._tier_score(pb_pct, pb_cfg.get("tiers", []))
-                max_s = pb_cfg.get("max_score", 2)
-                total += s
-                details.append(f"PB 分位 {pb_pct:.2f}%，得 {s}/{max_s} 分")
-
-        # 行业溢价
-        prem_cfg = cfg.get("industry_premium", {})
-        if prem_cfg.get("enabled", True):
-            _, _, premium = valuation_evidence(ctx)
-            s, _ = self._tier_score(premium, prem_cfg.get("tiers", []))
-            max_s = prem_cfg.get("max_score", 4)
-            total += s
-            label = f"{premium:.2f}%" if premium is not None else "不适用或数据不足"
-            details.append(f"行业溢价 {label}，得 {s}/{max_s} 分")
-
-        return round(total, 1), "；".join(details), risks
+        if not available_max:
+            details.append("没有可用估值计分子项，不计分")
+            return None, "；".join(details), []
+        normalized = round(total / available_max * 10, 1)
+        details.append(f"有效子项 {total:.2f}/{available_max:.2f} 分，按原相对权重折算为 {normalized:.1f}/10")
+        return normalized, "；".join(details), risks
 
     # —— 行业维度 ——
-    def score_industry(self, ctx: AnalysisContext) -> tuple[float, str, list[str]]:
-        cfg = self.config.get("industry", {})
-        if not cfg.get("enabled", True):
-            return 0.0, "行业维度已禁用", []
-        ei = ctx.enriched_industry
-
-        score = float(cfg.get("base_score", 5))
-        details = [f"基础分 {score}"]
-        risks: list[str] = []
-
-        if ei:
-            peer_bonus = cfg.get("peer_count_bonus", {})
-            if ei.peer_count >= 8:
-                score += peer_bonus.get("sufficient", 2)
-                details.append(f"同行 {ei.peer_count} 家（充足），+{peer_bonus.get('sufficient', 2)} 分")
-            elif ei.peer_count >= 3:
-                score += peer_bonus.get("partial", 1)
-                details.append(f"同行 {ei.peer_count} 家（偏少），+{peer_bonus.get('partial', 1)} 分")
-
-            rank_bonus = cfg.get("market_cap_rank_bonus", {})
-            if ei.target_market_cap_rank is not None and ei.target_market_cap_rank <= 5:
-                score += rank_bonus.get("top", 2)
-                details.append(f"市值第 {ei.target_market_cap_rank} 位（头部），+{rank_bonus.get('top', 2)} 分")
-            elif ei.target_market_cap_rank is not None:
-                score += rank_bonus.get("ranked", 1)
-                details.append(f"市值第 {ei.target_market_cap_rank} 位，+{rank_bonus.get('ranked', 1)} 分")
-
-            # 毛利率对比
-            if ei.industry_median_gross_margin is not None and ctx.financial_data:
-                latest_gm = ctx.financial_data[0].gross_margin if ctx.financial_data else None
-                if latest_gm is not None:
-                    diff = (latest_gm - ei.industry_median_gross_margin) * 100
-                    if diff > 5:
-                        score += 1
-                        details.append(f"毛利率高于行业 {diff:.0f}pp，+1 分")
-                    elif diff < -5:
-                        details.append(f"毛利率低于行业 {abs(diff):.0f}pp")
-                        risks.append("industry_weak_margin")
-
-        score = round(min(score, 10.0), 1)
-        return score, "；".join(details), risks
+    def score_industry(self, ctx: AnalysisContext) -> tuple[float | None, str, list[str]]:
+        return None, "同行对比提供横向证据，不独立计分", []
 
     # —— 技术维度 ——
     def score_technical(self, ctx: AnalysisContext) -> tuple[float, str, list[str]]:

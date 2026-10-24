@@ -5,13 +5,13 @@ from data.schemas import AnalysisContext, AnalysisResult
 from report.formatter import format_metric_value
 from report.signal import SIGNAL_LABELS, SignalConfig, derive_signal
 
-DIM_WEIGHTS = {"financial": 0.30, "technical": 0.20,
-               "valuation": 0.25, "industry": 0.25}
+DIM_WEIGHTS = {"financial": 0.30 / 0.75, "technical": 0.20 / 0.75,
+               "valuation": 0.25 / 0.75}
 DIM_LABELS = {"financial": "财务健康", "technical": "技术趋势",
               "valuation": "估值合理", "industry": "行业对比",
               "sentiment": "舆情风险"}
-DIM_WEIGHT_LABELS = {"financial": "30%", "technical": "20%",
-                     "valuation": "25%", "industry": "25%",
+DIM_WEIGHT_LABELS = {"financial": "40%", "technical": "26.67%",
+                     "valuation": "33.33%", "industry": "不计分",
                      "sentiment": "不计分"}
 SUFFICIENCY_LABEL = {"ok": "充足", "partial": "部分可用", "unavailable": "数据不足"}
 LLM_UNAVAILABLE_PREFIXES = ("（LLM 分析暂时不可用", "LLM 分析暂时不可用", "AI 解读不可用")
@@ -44,7 +44,8 @@ def compute_score_summary(results: list[AnalysisResult]) -> ScoreSummary:
 
     risk_deduction = 0
     for r in results:
-        risk_deduction += len(r.risk_flags)
+        if r.dimension != "industry":
+            risk_deduction += len(r.risk_flags)
     risk_deduction = min(risk_deduction, 10)
     final_score = max(0, base_score - risk_deduction) if total_weight else None
     if not total_weight:
@@ -55,12 +56,12 @@ def compute_score_summary(results: list[AnalysisResult]) -> ScoreSummary:
         if r:
             score_rows.append({
                 "label": label,
-                "score": f"{r.score:.1f}" if r.status != "unavailable" and r.score is not None else "N/A",
+                "score": f"{r.score:.1f}" if dim in DIM_WEIGHTS and r.status != "unavailable" and r.score is not None else "N/A",
                 "weight": DIM_WEIGHT_LABELS[dim],
                 "sufficiency": SUFFICIENCY_LABEL.get(r.status, r.status),
-                "detail": r.score_detail or "",
+                "detail": "同行对比提供横向证据，不独立计分" if dim == "industry" else r.score_detail or "",
             })
-        all_risk_flags.extend(r.risk_flags if r else [])
+        all_risk_flags.extend(r.risk_flags if r and dim != "industry" else [])
 
     return ScoreSummary(score_rows=score_rows, base_score=base_score,
                         risk_deduction=risk_deduction, final_score=final_score,

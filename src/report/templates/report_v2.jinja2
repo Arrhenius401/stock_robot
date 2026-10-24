@@ -42,7 +42,12 @@
 {% else %}
 > 新闻暂时获取失败。
 {% endif %}
+{% elif dim == "industry" and r and r.metrics.get("comparison") %}
+{{ r.metrics["comparison"] | peer_comparison_markdown }}
 {% elif r and r.metrics %}
+{% if dim == "industry" %}
+> 行业对比不计分。
+{% endif %}
 {% if r.status != "ok" %}
 > {{ valuation_display.summary if dim == "valuation" and valuation_display else r.summary }}（保留可用指标快照）
 {% endif %}
@@ -97,7 +102,7 @@
 
 ---
 
-## 三、五大维度标准化打分
+## 三、综合评分
 
 {% if market == "港股" %}
 > 不适用：港股不套用 A 股综合评分或交易信号；行业对比使用恒生 HSICS 口径。

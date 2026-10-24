@@ -791,8 +791,8 @@ def create_app(
         name = await asyncio.to_thread(resolve_name, symbol) or symbol
 
         try:
-            # 港股显式刷新跳过新闻缓存；普通请求及其他市场维持原契约。
-            if market == "hk" and body.get("refresh_cache") is True:
+            # 两市场显式刷新都跳过数据缓存，同行专用快照同步刷新。
+            if body.get("refresh_cache") is True:
                 results, commentary, ctx = await asyncio.to_thread(
                     agent_core.pipeline.run, symbol, name, market=market, refresh_cache=True)
             else:

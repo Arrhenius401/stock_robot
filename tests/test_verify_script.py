@@ -33,6 +33,7 @@ def _run(*arguments: str):
     ("tests/resources/index/cni-980092-valuation-factsheet-layout.txt", "tests/index"),
     ("tests/resources/data/eastmoney-00700-income-report.json", "tests/data"),
     ("tests/resources/report/qq-00700-unavailable-report.md", "tests/report"),
+    ("tests/resources/industry/eastmoney-hk-main-indicators.json", "tests/analysis/test_industry_comparison.py"),
 ])
 def test_changed_scope_never_expands_to_full(path, expected):
     result = _run("-PlanOnly", "-Files", path)

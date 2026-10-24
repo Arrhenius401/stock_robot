@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 from pathlib import Path
 from threading import Lock
+from typing import Any
 
 from core.circuit_breaker import CircuitBreaker
 from core.registry import Registry
@@ -56,8 +57,8 @@ DATA_TYPES = ["financial", "price", "valuation", "industry", "news"]
 
 
 def _cacheable(market: str, data_type: str) -> bool:
-    """港股行业数据含同行估值 PrivateAttr，序列化会丢失，故不落通用缓存。"""
-    return not (market == "hk" and data_type == "industry")
+    """同行证据使用专用版本化缓存，避免复用旧池或丢失私有估值字段。"""
+    return data_type != "industry"
 DIMENSION_DATA_MAP = {
     "financial": ["financial"],
     "technical": ["price"],
@@ -162,7 +163,8 @@ class Pipeline:
                 if cached is not None:
                     self._breaker.record_success(symbol, data_type)
                     return data_type, cached, record.model_copy(update={"cache_status": "cache"})
-            if self._breaker.is_open(symbol, data_type):
+            breaker_open = self._breaker.is_open(symbol, data_type)
+            if breaker_open and data_type != "industry":
                 logger.warning(f"断路器打开: {symbol}/{data_type}，跳过源头请求")
                 if stale_cached is not None:
                     logger.warning(f"{symbol}/{data_type} 断路器打开，使用过期缓存兜底")
@@ -171,13 +173,16 @@ class Pipeline:
 
             sources = self._registry.get_data_sources(market, data_type)
             for source in sources:
-                for attempt in range(2):
+                for attempt in range(1 if data_type == "industry" else 2):
                     try:
-                        fetch_kwargs = {"data_type": data_type, "market": market}
+                        fetch_kwargs: dict[str, Any] = {"data_type": data_type, "market": market}
                         if data_type == "industry":
                             fetch_kwargs.update(
                                 sw_level1=ctx.sw_industry,
                                 sw_level2=ctx.sw_industry_level2,
+                                comparison_cache=self._cache,
+                                refresh_cache=refresh_cache,
+                                comparison_cache_only=breaker_open,
                             )
                         result = source.fetch(symbol, **fetch_kwargs)
                         diagnostic = None
@@ -202,6 +207,15 @@ class Pipeline:
                                 failure_record = DataCollectionRecord(source=record.source,
                                     error_kind="invalid_data", error_message="行情日期或价格格式无效")
                                 continue
+                            if data_type == "industry":
+                                # 资格池可用于经营比较，但仅读缓存或报价失败不代表上游恢复。
+                                if not breaker_open:
+                                    if (self._is_healthy(data_type, result, symbol)
+                                            and not result[0].comparison_snapshot.get("errors")):
+                                        self._breaker.record_success(symbol, data_type)
+                                    else:
+                                        self._breaker.record_failure(symbol, data_type)
+                                return data_type, result, record
                             if self._is_healthy(data_type, result, symbol):
                                 if cacheable:
                                     self._set_cache(symbol, data_type, result, record)
@@ -221,9 +235,10 @@ class Pipeline:
                         kind = "timeout" if isinstance(e, TimeoutError) or "Timeout" in type(e).__name__ else "fetch_failed"
                         failure_record = DataCollectionRecord(source=source.__class__.__name__,
                             error_kind=kind, error_message="数据请求超时" if kind == "timeout" else "数据请求失败")
-                    if attempt == 0:
+                    if attempt == 0 and data_type != "industry":
                         time.sleep(1)  # 重试前等待 1 秒
-            self._breaker.record_failure(symbol, data_type)
+            if not (data_type == "industry" and breaker_open):
+                self._breaker.record_failure(symbol, data_type)
             if stale_cached is not None:
                 logger.warning(f"{symbol}/{data_type} 实时采集失败，使用过期缓存兜底")
                 self._breaker.record_success(symbol, data_type)
@@ -340,6 +355,21 @@ class Pipeline:
 
         # 主要维度完成确定性充实后再决定是否允许舆情模型调用。
         ctx = enricher.enrich(ctx)
+        from data.peer_comparison import PeerComparisonService
+
+        if on_progress and ctx.industry_data is not None and getattr(ctx.industry_data, "comparison_ready", False):
+            on_progress("collect", 1, 1, "采集同行估值与同期经营指标")
+        try:
+            ctx = PeerComparisonService(self._cache).enrich(ctx, refresh=refresh_cache)
+        except Exception as error:  # noqa: BLE001 — 同行采集隔离，不能阻断其他报告维度
+            from data.schemas import DimensionSufficiency
+
+            logger.warning("同行比较失败 %s: %s", symbol, type(error).__name__)
+            ctx.enriched_industry = None
+            ctx.sufficiency.industry = DimensionSufficiency(
+                level=SufficiencyLevel.INSUFFICIENT, reason="同行比较数据获取失败",
+                sample_count=0, score_weight=0.0,
+            )
         sentiment_enricher = SentimentEnricher()
         has_main_data = any(
             getattr(ctx.sufficiency, key).level != SufficiencyLevel.INSUFFICIENT
@@ -410,7 +440,7 @@ class Pipeline:
             "valuation": "估值合理", "industry": "行业对比",
             "sentiment": "舆情风险",
         }
-        sufficiency_label = {"sufficient": "充足", "partial": "部分可用", "insufficient": "数据不足"}
+        sufficiency_label = {"ok": "充足", "partial": "部分可用", "unavailable": "数据不足"}
 
         scores = []
         covered = []
@@ -423,27 +453,22 @@ class Pipeline:
                 if result.dimension == dim:
                     r = result
                     break
-            if r and r.score is not None:
-                scores.append({
-                    "label": label, "score": r.score,
-                    "sufficiency": sufficiency_label.get(r.status, r.status),
-                    "score_detail": r.score_detail,
-                })
+            available = r is not None and r.status in {"ok", "partial"}
+            scoring_applicable = dim not in {"industry", "sentiment"}
+            scores.append({
+                "label": label,
+                "score": r.score if available and r and scoring_applicable else None,
+                "sufficiency": sufficiency_label.get(r.status, r.status) if r else "数据不足",
+                "score_detail": r.score_detail if r else "",
+                "summary": r.summary if r else "",
+                "available": available,
+                "scoring_applicable": scoring_applicable,
+            })
+            if available:
                 covered.append(label)
-                all_risk_flags.extend(r.risk_flags)
-            elif r and r.status == "partial":
-                scores.append({
-                    "label": label, "score": r.score,
-                    "sufficiency": "部分可用",
-                    "score_detail": r.score_detail or "",
-                })
-                covered.append(label)
+                if r and dim != "industry":
+                    all_risk_flags.extend(r.risk_flags)
             else:
-                scores.append({
-                    "label": label, "score": None,
-                    "sufficiency": "数据不足",
-                    "score_detail": "",
-                })
                 missing.append(label)
 
         # 收集行业说明

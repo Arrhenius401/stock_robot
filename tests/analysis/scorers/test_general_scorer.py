@@ -91,12 +91,12 @@ class TestGeneralScorerIndustry:
     def config(self):
         return ConfigLoader(CONFIG_DIR).load("家用电器")
 
-    def test_no_enriched_industry_returns_base_score(self, config):
+    def test_industry_does_not_have_independent_score(self, config):
         ctx = AnalysisContext(symbol="000333", name="测试")
         scorer = GeneralScorer(config, {})
         score, detail, _ = scorer.score_industry(ctx)
-        assert score >= 5.0
-        assert "基础分" in detail
+        assert score is None
+        assert "不独立计分" in detail
 
 
 class TestGeneralScorerSentiment:

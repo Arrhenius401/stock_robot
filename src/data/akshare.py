@@ -904,79 +904,13 @@ class AkShareAdapter(DataSource):
         return [item]
 
     def _fetch_industry(self, symbol: str, **kwargs) -> list[IndustryData]:
-        from data.schemas import PeerBasicInfo
+        from data.peer_comparison import fetch_a_industry
 
-        # 申万二级优先构建同业池；东财行业仅在申万缺失时作展示级降级，绝不参与评分。
-        sw_level1 = str(kwargs.get("sw_level1", "")).strip()
-        sw_level2 = str(kwargs.get("sw_level2", "")).strip()
-        eastmoney_industry = "" if (sw_level1 or sw_level2) else _get_industry_name(symbol)
-        resolved = _resolve_eastmoney_to_sw(eastmoney_industry) if eastmoney_industry else None
-        if resolved:
-            sw_level1, sw_level2 = resolved
-            try:
-                from data.industry_mapping_builder import backfill_verified_symbol
-                backfill_verified_symbol(symbol, sw_level1, sw_level2)
-            except Exception as e:
-                logger.warning("东财申万映射回填失败 %s: %s", symbol, e)
-        industry = sw_level2 or sw_level1 or eastmoney_industry
-        sector = sw_level1
-        top_peers = []
-        all_peer_symbols: list[str] = []
-        all_peer_names: dict[str, str] = {}
-        target_mcap: float | None = None
-        target_rank: int | None = None
-        peer_scope = ""
-        peer_industry = ""
-
-        if sw_level1 or sw_level2:
-            sw_peers, peer_scope = _fetch_sw_peers(sw_level2, sw_level1)
-            if sw_peers:
-                if peer_scope == "申万二级":
-                    try:
-                        from data.industry_mapping_builder import backfill_peer_pool
-                        backfill_peer_pool([peer["symbol"] for peer in sw_peers], sw_level1, sw_level2)
-                    except Exception as e:
-                        logger.warning("申万同行池回填失败 %s/%s: %s", sw_level1, sw_level2, e)
-                # 过滤无效市值，按市值排序
-                valid_peers = [p for p in sw_peers if p.get("market_cap")]
-                valid_peers.sort(key=lambda x: x.get("market_cap", 0), reverse=True)
-
-                # 目标排名使用完整行业池；同行池排除目标自身，避免自比较污染中位数。
-                for i, p in enumerate(valid_peers):
-                    if p["symbol"] == symbol:
-                        target_mcap = p.get("market_cap")
-                        target_rank = i + 1
-                        break
-
-                comparable_peers = [p for p in valid_peers if p["symbol"] != symbol]
-                all_peer_symbols = [p["symbol"] for p in comparable_peers]
-                all_peer_names = {
-                    p["symbol"]: p["name"]
-                    for p in comparable_peers
-                    if p.get("name")
-                }
-                peer_industry = sw_level2 if peer_scope == "申万二级" else sw_level1
-
-                for p in comparable_peers[:5]:
-                    top_peers.append(PeerBasicInfo(
-                        symbol=p["symbol"], name=p["name"],
-                        market_cap=p.get("market_cap"),
-                        pe_ttm=p.get("pe_ttm"),
-                        pb=p.get("pb"),
-                    ))
-
-        result = IndustryData(
-            symbol=symbol, industry=industry or "未知", sector=sector or "",
-            peers=all_peer_symbols, peer_names=all_peer_names,
-            peer_scope=peer_scope, peer_industry=peer_industry,
-            resolved_sw_level1=sw_level1, resolved_sw_level2=sw_level2,
-            top_peers=top_peers,
+        return fetch_a_industry(
+            symbol, cache=kwargs.get("comparison_cache"),
+            refresh=bool(kwargs.get("refresh_cache", False)),
+            comparison_cache_only=bool(kwargs.get("comparison_cache_only", False)),
         )
-        if target_mcap is not None:
-            result._target_mcap = target_mcap
-        if target_rank is not None:
-            result._target_rank = target_rank
-        return [result]
 
     def _fetch_news(self, symbol: str, **kwargs) -> list[NewsData]:
         """拉取近 30 天新闻和公告，附带 RawSentimentData"""

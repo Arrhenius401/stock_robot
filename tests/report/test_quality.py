@@ -32,7 +32,7 @@ def test_coverage_conservative_fixed_weights_and_unknown_source():
     results = [AnalysisResult(dimension="financial", status="ok", summary="财务", score=8),
                AnalysisResult(dimension="technical", status="partial", summary="技术", score=6)]
     quality = build_data_quality(ctx, results)
-    assert quality["coverage"] == 40
+    assert quality["coverage"] == 53.3
     assert not quality["signal_allowed"]
     assert quality["has_scored_data"]
     financial = quality["dimensions"][0]
@@ -132,3 +132,18 @@ def test_news_fetch_day_is_not_publish_day_and_industry_unknown_is_pending():
     fields = {f["label"]: f["value"] for f in q["dimensions"][4]["fields"]}
     assert fields["数据截止"] == "未记录"
     assert any("行业：数据截止未记录" in item for item in q["pending_verifications"])
+
+
+def test_industry_missing_does_not_limit_scoring_coverage_or_signal():
+    from report.quality import build_data_quality
+
+    ctx = AnalysisContext(symbol="000001", name="测试")
+    for name in ("financial", "price", "valuation"):
+        setattr(ctx.sufficiency, name, DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT))
+    results = [AnalysisResult(dimension=dim, status="ok", summary="充分", score=8)
+               for dim in ("financial", "technical", "valuation")]
+    quality = build_data_quality(ctx, results)
+    assert quality["coverage"] == 100
+    assert quality["signal_allowed"]
+    assert quality["status"] == "ok"
+    assert quality["dimensions"][3]["status"] == "unavailable"

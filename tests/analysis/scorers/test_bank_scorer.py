@@ -46,6 +46,7 @@ class TestBankScorer:
     def test_pb_is_primary_metric(self, config, ctx):
         scorer = BankScorer(config, {})
         score, detail, _ = scorer.score_valuation(ctx)
+        assert score is not None
         assert score > 0
         assert "PB" in detail
 

@@ -214,11 +214,50 @@ def format_metric_value(key: object, value: Any) -> Any:
     return value
 
 
+def _format_comparison_facts(comparison: dict[str, Any]) -> dict[str, Any]:
+    """比较快照使用显式单位；百分数与财务小数比例不能共用转换。"""
+    from report.peer_comparison import comparison_value
+
+    def block_facts(block: dict[str, Any]) -> dict[str, Any]:
+        formatted = dict(block)
+        units = {"pe_ttm": "multiple", "pb": "multiple", "revenue_growth_yoy": "percent",
+                 "net_margin": "percent", "roe": "percent"}
+        metrics = []
+        for metric in block.get("metrics", []):
+            item = dict(metric)
+            unit = metric.get("unit", "")
+            units[metric.get("key", "")] = unit
+            for key in ("target", "median"):
+                if key in metric and unit in {"percent", "multiple"}:
+                    item[key] = comparison_value(metric[key], unit)
+            if "percentile" in metric:
+                item["percentile"] = comparison_value(metric["percentile"], "percent")
+            metrics.append(item)
+        if "metrics" in block:
+            formatted["metrics"] = metrics
+        if "peers" in block:
+            formatted["peers"] = [
+                {key: comparison_value(value, units[key])
+                 if key in units and units[key] in {"percent", "multiple"} else value
+                 for key, value in peer.items()}
+                for peer in block["peers"]
+            ]
+        return formatted
+
+    formatted = dict(comparison)
+    if isinstance(comparison.get("valuation"), dict):
+        formatted["valuation"] = block_facts(comparison["valuation"])
+    if isinstance(comparison.get("periods"), dict):
+        formatted["periods"] = {key: block_facts(value) if isinstance(value, dict) else value
+                                for key, value in comparison["periods"].items()}
+    return formatted
+
+
 def format_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
     """模型事实及嵌套表格使用字段语义，保留代码、日期与未知字段。"""
     def display(key: str, value: Any) -> Any:
         if isinstance(value, dict):
-            return format_metrics(value)
+            return _format_comparison_facts(value) if key == "comparison" else format_metrics(value)
         if isinstance(value, list):
             return [display(key, item) for item in value]
         return format_metric_value(key, value)
