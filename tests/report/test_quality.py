@@ -21,7 +21,7 @@ def test_all_missing_has_no_score_signal_or_model_conclusion():
     assert "不应输出模型结论" not in text
     assert "1.2" in text
     assert "待验证事项" in text
-    assert text.index("数据覆盖与时效") > text.index("免责声明")
+    assert text.index("## 七、数据覆盖与时效") < text.index("## 八、免责声明")
 
 
 def test_coverage_conservative_fixed_weights_and_unknown_source():

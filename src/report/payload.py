@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any
 
 from data.schemas import AnalysisContext, AnalysisResult
+from report.builder import build_disclaimer
 from report.quality import build_data_quality
 from report.scoring import (
     LLM_UNAVAILABLE_PREFIXES,
@@ -63,5 +64,6 @@ def build_stock_payload(
         "commentary": bulk, "comments": [bulk] if bulk else [],
         "commentary_status": status, "signal": signal, "data_quality": quality,
         "pending_verifications": quality["pending_verifications"],
+        "disclaimer": build_disclaimer(hk=ctx.market == "hk"),
         "generated_at": datetime.now().astimezone().isoformat(),
     }

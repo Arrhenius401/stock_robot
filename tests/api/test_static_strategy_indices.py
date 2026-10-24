@@ -78,6 +78,8 @@ let analyzed=[]; let indexed=[];
 api.indices=async()=>({indices:[],etfs:[{symbol:"515300",name:"嘉实红利低波ETF",index_symbol:"930740"}]});
 api.analyze=async(symbol)=>{analyzed.push(symbol); return {symbol,name:"普通股票"};};
 api.index=async(symbols)=>{indexed.push(symbols); return {reports:[]};};
+const {api: reportApi}=await import(__REPORT_API__);
+reportApi.analyze=api.analyze;
 const {openReport}=await import(__REPORT__);
 await openReport("515300");
 if(analyzed.length || indexed[0]?.[0] !== "515300" || document.getElementById("indexInput").value !== "515300") throw new Error("ETF没有从个股入口转指数");
@@ -93,7 +95,8 @@ if(analyzed.at(-1)!=="159998") throw new Error("目录失败阻断原入口");
 """
     script = script.replace("__API__", json.dumps(_module_url("src/api/static/js/api.js")))
     script = script.replace("__REPORT__", json.dumps(_module_url("src/api/static/js/report.js")))
-    script = script.replace("__INDEX__", json.dumps(_module_url("src/api/static/js/indexview.js") + "?v=20261002-strategy-valuation-2"))
+    script = script.replace("__REPORT_API__", json.dumps(_module_url("src/api/static/js/api.js") + "?v=20261023-disclaimer-copy"))
+    script = script.replace("__INDEX__", json.dumps(_module_url("src/api/static/js/indexview.js") + "?v=20261023-disclaimer-copy"))
     _run_node(tmp_path, script)
 
 

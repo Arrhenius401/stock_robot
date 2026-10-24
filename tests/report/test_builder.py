@@ -35,7 +35,11 @@ class TestReportBuilder:
         assert "## 三、五大维度标准化打分" in report
         assert "## 四、AI 中性解读 + 风险汇总" in report
         assert "## 五、多风格观察视角" in report
-        assert "## 六、工具局限性 + 免责声明" in report
+        assert "## 六、待验证事项" in report
+        assert "## 七、数据覆盖与时效" in report
+        assert "## 八、免责声明" in report
+        assert [line for line in report.splitlines() if line.startswith("## ")][-1] == "## 八、免责声明"
+        assert "工具局限性 + 免责声明" not in report
         assert "1. 财务量化数据" in report
         assert "2. 技术面量化数据" in report
         assert "3. 估值量化数据" in report
@@ -55,7 +59,26 @@ class TestReportBuilder:
     def test_report_includes_disclaimer(self):
         builder = ReportBuilder()
         report = builder.build("000001", "测试", [], {})
-        assert "不构成任何形式的投资建议" in report
+        assert "不构成投资建议或收益保证" in report
+        assert "部分内容由 AI 生成" not in report
+        assert "所有分析方法均为量化指标客观计算" not in report
+        assert "投资决策的唯一依据" in report
+
+    @pytest.mark.parametrize("market", ["A 股", "港股"])
+    def test_disclaimer_is_last_and_preserves_existing_content(self, market):
+        from data.schemas import AnalysisContext
+        from report.payload import build_stock_payload
+
+        report = ReportBuilder().build("00700.HK", "测试", [], {}, market=market)
+        assert report.rfind("\n## ") == report.index("\n## 八、免责声明")
+        assert report.index("## 七、数据覆盖与时效") < report.index("## 八、免责声明")
+        payload = build_stock_payload("00700.HK", "测试", [], {}, AnalysisContext(
+            symbol="00700.HK", name="测试", market="hk" if market == "港股" else "a-shares"))
+        assert payload["disclaimer"]
+        assert "部分内容由 AI 生成" not in "".join(payload["disclaimer"])
+        for paragraph in payload["disclaimer"]:
+            assert paragraph in report
+        assert ("目录列报币种" in "".join(payload["disclaimer"])) == (market == "港股")
 
     def test_report_includes_timestamp(self):
         builder = ReportBuilder()

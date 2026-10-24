@@ -35,9 +35,11 @@ def test_coverage_counts_only_applicable_available_dimensions(count):
     assert quality["status"] == ("partial" if count else "unavailable")
     assert not quality["signal_allowed"]
     assert not quality["has_scored_data"]
-    for key in ("industry", "sentiment"):
-        dimension = next(item for item in quality["dimensions"] if item["key"] == key)
-        assert dimension["status"] == "not_applicable"
+    industry = next(item for item in quality["dimensions"] if item["key"] == "industry")
+    assert industry["status"] == "not_applicable"
+    news = next(item for item in quality["dimensions"] if item["key"] == "sentiment")
+    assert news["status"] == "unavailable"
+    assert news["title"] == "相关新闻检索（参考信息）"
     assert not any(item.startswith(("行业：", "舆情：")) for item in quality["pending_verifications"])
 
 
@@ -62,4 +64,5 @@ def test_markdown_shows_dimension_count_and_not_applicable():
     text = build_report(ctx.symbol, ctx.name, results, {}, ctx, no_llm=True)
     assert "可用维度覆盖：1/3（33.3%）" in text
     assert "行业 · 不适用" in text
-    assert "舆情 · 不适用" in text
+    assert "相关新闻检索（参考信息） · 数据不可用" in text
+    assert "新闻暂时获取失败" in text

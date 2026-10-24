@@ -1,5 +1,6 @@
 """报告格式化器 — 文件保存和终端渲染"""
 import hashlib
+import html
 import json
 import logging
 import math
@@ -17,6 +18,25 @@ from rich.table import Table
 from utils.numbers import is_finite_number
 
 logger = logging.getLogger(__name__)
+
+
+def format_hk_news_markdown(metrics: dict[str, Any]) -> str:
+    """沿用普通新闻项目列表，只展示标题、时间和媒体，不输出链接。"""
+    def text(value: Any) -> str:
+        clean = html.escape(str(value), quote=False).replace("\n", " ").replace("\r", " ")
+        return re.sub(r"([\\`*_{}\[\]()#+.!|>~-])", r"\\\1", clean)
+
+    def stamp(value: Any) -> str:
+        try:
+            return datetime.fromisoformat(str(value)).strftime("%Y-%m-%d %H:%M")
+        except ValueError:
+            return str(value)
+
+    lines = [f"> {text(metrics.get('news_disclaimer', ''))}"]
+    for item in metrics.get("news_items", [])[:20]:
+        media = "、".join(dict.fromkeys(str(link.get("media") or "来源未标注") for link in item.get("links", []))) or "来源未标注"
+        lines.append(f"\n- {text(item.get('title', ''))}（{text(stamp(item.get('published_at', '')))} · {text(media)}）")
+    return "\n".join(lines)
 
 _STOCK_SYMBOL_PATTERN = r"(?:\d{6}|\d{5}\.HK)"
 

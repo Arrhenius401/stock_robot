@@ -30,10 +30,19 @@
 
 {% for dim in ["financial", "technical", "valuation", "industry", "sentiment"] %}
 
-### {{ {"financial": "1. 财务量化数据", "technical": "2. 技术面量化数据", "valuation": "3. 估值量化数据", "industry": "4. 行业对比量化数据", "sentiment": "5. 舆情量化数据"}[dim] }}
+### {{ "5. 相关新闻检索" if market == "港股" and dim == "sentiment" else {"financial": "1. 财务量化数据", "technical": "2. 技术面量化数据", "valuation": "3. 估值量化数据", "industry": "4. 行业对比量化数据", "sentiment": "5. 舆情量化数据"}[dim] }}
 
 {% set r = results_map.get(dim) %}
-{% if market == "港股" and dim in ["industry", "sentiment"] %}
+{% if market == "港股" and dim == "sentiment" %}
+{% if r %}
+{{ r.metrics | hk_news_markdown }}
+{% if not r.metrics.get("news_items") %}
+> {{ r.summary }}
+{% endif %}
+{% else %}
+> 新闻暂时获取失败。
+{% endif %}
+{% elif market == "港股" and dim == "industry" %}
 > 不适用：本期港股分析不支持此维度，不计入覆盖率。
 {% elif r and r.metrics %}
 {% if r.status != "ok" %}
@@ -136,20 +145,7 @@
 
 ---
 
-## 六、工具局限性 + 免责声明
-
-> 本报告使用公开市场数据，实际采集来源见「数据覆盖与时效」；数据时效性和准确性可能受网络、接口限流等因素影响。
-{% if market == "港股" %}
-> 财务金额按数据源返回值展示；目录列报币种不等同于金额币种，金额币种未核实时不作金额趋势比较，不推断上游是否换汇。港币行情与财报金额不混算。财报按报告期展示，不将半年度或年度报告视作季度数据。
-{% endif %}
-> 所有分析方法均为量化指标客观计算，不包含人工主观判断。
-> 报告中的分数和多风格视角仅用于客观描述不同投资风格下的关注点差异，不构成任何形式的投资建议。
-> 市场有风险，投资需谨慎。使用者需自行承担全部投资决策风险。
-> （部分内容由 AI 生成）
-
----
-
-## 七、待验证事项
+## 六、待验证事项
 
 {% if data_quality and data_quality.pending_verifications %}
 {% for item in data_quality.pending_verifications %}
@@ -161,7 +157,7 @@
 
 ---
 
-## 八、数据覆盖与时效
+## 七、数据覆盖与时效
 
 {% if valuation_display and valuation_display.details %}
 ### 估值数据说明
@@ -183,3 +179,11 @@
 {% else %}
 > 数据来源、样本范围与截止日未记录。
 {% endif %}
+
+---
+
+## 八、免责声明
+
+{% for paragraph in disclaimer %}
+> {{ paragraph }}
+{% endfor %}
