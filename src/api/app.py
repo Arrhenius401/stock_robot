@@ -135,7 +135,7 @@ def _extract_stock_reports(
             "commentary": commentary,
             "generated_at": report.get("generated_at"),
         }
-        for key in ("data_quality", "pending_verifications", "signal", "commentary_status",
+        for key in ("data_quality", "pending_verifications", "disclaimer", "signal", "commentary_status",
                     "commentary_retry_id"):
             if key in report:
                 payload[key] = report[key]
@@ -791,9 +791,13 @@ def create_app(
         name = await asyncio.to_thread(resolve_name, symbol) or symbol
 
         try:
-            results, commentary, ctx = await asyncio.to_thread(
-                agent_core.pipeline.run, symbol, name, market=market
-            )
+            # 港股显式刷新跳过新闻缓存；普通请求及其他市场维持原契约。
+            if market == "hk" and body.get("refresh_cache") is True:
+                results, commentary, ctx = await asyncio.to_thread(
+                    agent_core.pipeline.run, symbol, name, market=market, refresh_cache=True)
+            else:
+                results, commentary, ctx = await asyncio.to_thread(
+                    agent_core.pipeline.run, symbol, name, market=market)
             from report.commentary import CommentaryContext, commentary_store
             from report.payload import build_stock_payload
             from report.signal import load_signal_config

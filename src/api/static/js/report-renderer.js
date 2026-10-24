@@ -525,6 +525,29 @@ function dimensionSection(name, label, data, sectionIdPrefix, unscored = false, 
   return card;
 }
 
+function hkNewsSection(data, sectionIdPrefix) {
+  const card = section("report-sentiment", "相关新闻检索", "panel", sectionIdPrefix);
+  const dimension = record(data);
+  const metrics = record(dimension.metrics);
+  card.appendChild(el("p", "dim-sum", metrics.news_disclaimer ||
+    "关键词检索结果，可能包含间接相关报道；不作AI筛选或情绪评分，不保证完整覆盖。"));
+  const items = Array.isArray(metrics.news_items) ? metrics.news_items.slice(0, 20) : [];
+  if (!items.length) {
+    card.appendChild(el("p", "report-empty", dimension.summary || "新闻暂时获取失败"));
+    return card;
+  }
+  const rows = items.map(item => {
+    const stamp = String(item.published_at || "").replace("T", " ").slice(0, 16);
+    const media = [...new Set((Array.isArray(item.links) ? item.links : [])
+      .map(link => String(link.media || "来源未标注")))].join("、") || "来源未标注";
+    return `${item.title || ""}（${stamp} · ${media}）`;
+  });
+  const grid = el("div", "mtr");
+  appendListMetric(grid, "headlines", rows);
+  card.appendChild(grid);
+  return card;
+}
+
 function riskFlags(report) {
   const unique = new Set();
   const dimensions = record(report.dimensions);
@@ -684,6 +707,12 @@ function qualitySection(report, sectionIdPrefix) {
   return card;
 }
 
+function cleanDisclaimer(value) {
+  // 只清理已撤下的独立尾注，不改写存档正文或其他章节。
+  return String(value).split("\n").filter(line =>
+    !/^\s*(?:>\s*)?[（(]部分内容由\s*AI\s*生成[）)]\s*$/.test(line)).join("\n");
+}
+
 export function renderStockReport(report, options = {}) {
   const data = record(report);
   const sectionIdPrefix = options.sectionIdPrefix || "";
@@ -695,17 +724,28 @@ export function renderStockReport(report, options = {}) {
   const dimensions = record(data.dimensions);
   const applicability = Array.isArray(data.data_quality?.dimensions) ? data.data_quality.dimensions : [];
   for (const [name, label] of DIMENSIONS) {
+    if (data.market === "hk" && name === "sentiment") {
+      article.appendChild(hkNewsSection(dimensions[name], sectionIdPrefix));
+      continue;
+    }
     const applicable = applicability.find(item => item.key === name)?.applicable !== false;
     article.appendChild(dimensionSection(name, label, dimensions[name], sectionIdPrefix, data.market === "hk", applicable));
   }
   article.appendChild(risksSection(data, sectionIdPrefix));
   article.appendChild(commentarySection(data, sectionIdPrefix, options));
+  const disclaimer = section("report-disclaimer", "免责声明", "panel", sectionIdPrefix);
+  let archivedDisclaimer = false;
   if (options.archiveMarkdown) {
     // 原文补充章沿用安全 Markdown 渲染，未知章节仍保留在原文入口。
     const parts = String(options.archiveMarkdown).split(/\n(?=##\s+)/);
     for (const [index, part] of parts.entries()) {
       const match = part.match(/^##\s+(.+)$/m);
-      if (!match || !/多风格观察|工具局限性/.test(match[1])) continue;
+      if (!match || !/多风格观察|工具局限性|免责声明/.test(match[1])) continue;
+      if (/工具局限性|免责声明/.test(match[1])) {
+        disclaimer.appendChild(markdownBlock(localizeReportMarkdown(cleanDisclaimer(part.replace(/^##\s+.+\n?/, ""))), "md report-archive-body"));
+        archivedDisclaimer = true;
+        continue;
+      }
       const title = match[1].replace(/^[一二三四五六七八九十]+[、.．]\s*/, "");
       const card = section(`report-archive-${index}`, title, "panel", sectionIdPrefix);
       card.appendChild(markdownBlock(localizeReportMarkdown(part.replace(/^##\s+.+\n?/, "")), "md report-archive-body"));
@@ -714,6 +754,15 @@ export function renderStockReport(report, options = {}) {
   }
   article.appendChild(pendingSection(data, sectionIdPrefix));
   article.appendChild(qualitySection(data, sectionIdPrefix));
+  if (!archivedDisclaimer) {
+    const paragraphs = Array.isArray(data.disclaimer) && data.disclaimer.length ? data.disclaimer
+      : ["本报告不构成任何形式的投资建议。市场有风险，投资需谨慎。"];
+    for (const paragraph of paragraphs) {
+      const text = cleanDisclaimer(paragraph).trim();
+      if (text) disclaimer.appendChild(el("p", "dim-sum", text));
+    }
+  }
+  article.appendChild(disclaimer);
   return article;
 }
 
@@ -732,14 +781,18 @@ export function renderStockMarkdownReport(markdown, options = {}) {
   heading.appendChild(markdownBlock(parts.shift() || "暂无报告摘要", "report-investment-summary md"));
   article.appendChild(heading);
 
+  const disclaimers = [];
   parts.forEach((part, index) => {
     const match = part.match(/^##\s+(.+)$/m);
-    const label = match?.[1] || `报告章节 ${index + 1}`;
+    const isDisclaimer = /工具局限性|免责声明/.test(match?.[1] || "");
+    const label = isDisclaimer ? "免责声明" : match?.[1] || `报告章节 ${index + 1}`;
     const card = section(`report-library-${index}`, label, "panel", sectionIdPrefix);
-    card.appendChild(markdownBlock(localizeReportMarkdown(
-      part.replace(/^##\s+.+\n?/, "")), "md"));
-    article.appendChild(card);
+    const body = part.replace(/^##\s+.+\n?/, "");
+    card.appendChild(markdownBlock(localizeReportMarkdown(isDisclaimer ? cleanDisclaimer(body) : body), "md"));
+    if (isDisclaimer) disclaimers.push(card);
+    else article.appendChild(card);
   });
+  for (const card of disclaimers) article.appendChild(card);
   return article;
 }
 

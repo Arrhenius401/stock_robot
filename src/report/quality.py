@@ -85,6 +85,20 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult]) -> d
     hk = ctx.market == "hk"
     available = len({result.dimension for result in results if _has_hk_facts(result)}) if hk else 0
     for key, title, suff_key, source_key, weight in _DIMENSIONS:
+        if hk and key == "sentiment":
+            from analysis.sentiment import _hk_news_result
+
+            news_result = _hk_news_result(ctx)
+            metrics = news_result.metrics
+            dimensions.append({"key": key, "title": "相关新闻检索（参考信息）",
+                "status": news_result.status, "applicable": True,
+                "fields": [{"label": "样本范围", "value": f"展示最新{len(metrics['news_items'])}条，最近30天"},
+                           {"label": "数据来源", "value": metrics.get("news_source", "未记录")},
+                           {"label": "数据截止", "value": (metrics["news_items"][0]["published_at"]
+                               if metrics["news_items"] else "无有效新闻发布日期")},
+                           {"label": "分析限制", "value": metrics["news_disclaimer"]},
+                           {"label": "检索状态", "value": news_result.summary}]})
+            continue
         if hk and key not in _HK_METRICS:
             dimensions.append({"key": key, "title": title, "status": "not_applicable", "applicable": False,
                                "fields": [{"label": "适用范围", "value": "本期港股分析不支持此维度，不计入覆盖率"}]})

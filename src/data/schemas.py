@@ -255,12 +255,36 @@ class IndustryData(BaseModel):
     _target_rank: int | None = PrivateAttr(default=None)
 
 
+class HKNewsLink(BaseModel):
+    """关键词候选新闻的可追溯来源。"""
+    media: str
+    url: str
+
+
+class HKNewsItem(BaseModel):
+    """不附带情绪标签的港股新闻候选。"""
+    title: str
+    published_at: datetime
+    links: list[HKNewsLink] = Field(default_factory=list)
+
+
+class HKNewsSnapshot(BaseModel):
+    """持久化关键词检索快照，空结果与查询失败分别表达。"""
+    fetched_at: datetime
+    queries: list[str] = Field(default_factory=list)
+    query_errors: list[str] = Field(default_factory=list)
+    candidate_count: int = 0
+    limit_reached: bool = False
+    items: list[HKNewsItem] = Field(default_factory=list)
+
+
 class NewsData(BaseModel):
     """新闻舆情数据"""
     _data_source: str = PrivateAttr(default="")
     symbol: str
     date: date
     headlines: list[str] = Field(default_factory=list)
+    hk_news: HKNewsSnapshot | None = None
     _raw_sentiment: RawSentimentData | None = PrivateAttr(default=None)
     _from_stale_cache: bool = PrivateAttr(default=False)
 

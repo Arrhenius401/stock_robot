@@ -329,7 +329,7 @@ class AkShareAdapter(DataSource):
             "price", "financial", "valuation", "industry", "news"
         ):
             return True
-        if market == "hk" and data_type in ("price", "financial", "valuation"):
+        if market == "hk" and data_type in ("price", "financial", "valuation", "news"):
             return True
         elif data_type in ("index_price", "index_valuation", "index_capital_flow",
                            "index_macro", "index_sentiment"):
@@ -343,7 +343,7 @@ class AkShareAdapter(DataSource):
                   "industry": "AkShare 行业与同行池", "news": "东方财富新闻与公告"}
         if kwargs.get("market") == "hk":
             labels.update(price="东方财富港股行情（不复权）", financial="东方财富港股财报",
-                          valuation="东方财富港股估值快照")
+                          valuation="东方财富港股估值快照", news="东方财富关键词新闻检索")
         # 指数数据分发（需显式传入 index_style 默认值，故单独处理）
         if data_type == "index_price":
             return self._fetch_index_price(symbol, kwargs.get("index_style", "broad"))
@@ -980,6 +980,12 @@ class AkShareAdapter(DataSource):
 
     def _fetch_news(self, symbol: str, **kwargs) -> list[NewsData]:
         """拉取近 30 天新闻和公告，附带 RawSentimentData"""
+        if kwargs.get("market") == "hk":
+            from data.hk_news import fetch_news
+
+            snapshot = fetch_news(symbol, kwargs.get("name", ""))
+            return [NewsData(symbol=symbol, date=snapshot.fetched_at.date(), hk_news=snapshot,
+                             headlines=[item.title for item in snapshot.items])]
         from data.schemas import RawSentimentData, RawSentimentItem
 
         today = datetime.now().astimezone().date()

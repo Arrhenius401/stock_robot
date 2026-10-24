@@ -25,8 +25,8 @@ const report = {
 };
 const article = renderStockReport(report, {onRetryCommentary: () => { retries += 1; }});
 const ids = article.children.map(node => node.id);
-if (ids.at(-1) !== "report-quality" || ids.at(-2) !== "report-pending") throw new Error("补充卡片顺序错误");
-const quality = article.children.at(-1);
+if (ids.at(-1) !== "report-disclaimer" || ids.at(-2) !== "report-quality" || ids.at(-3) !== "report-pending") throw new Error("免责声明应置于数据覆盖与时效之后");
+const quality = article.children.find(node => node.id === "report-quality");
 const labels = byClass(quality, "report-quality-field").map(node => node.children[0].textContent);
 if (labels.join("|") !== "样本范围|数据来源|数据截止|缺失原因") throw new Error("固定字段顺序错误");
 if (descendants(quality).some(node => node.tagName === "BUTTON")) throw new Error("不得添加采集重试");

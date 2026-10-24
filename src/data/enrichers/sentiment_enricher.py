@@ -45,6 +45,14 @@ class SentimentEnricher(DataEnricher):
         self._llm = llm
 
     def enrich(self, ctx: AnalysisContext) -> AnalysisContext:
+        if ctx.market == "hk":
+            # 新闻数量不代表语义相关性；港股检索不调用额外模型或情绪打分。
+            ctx.enriched_sentiment = None
+            ctx.sufficiency.sentiment = DimensionSufficiency(
+                level=SufficiencyLevel.INSUFFICIENT, reason="关键词新闻仅作参考，不参与评分或覆盖率",
+                sample_count=0, score_weight=0.0,
+            )
+            return ctx
         raw = ctx.raw_sentiment
         if raw is None:
             ctx.sufficiency.sentiment = DimensionSufficiency(
