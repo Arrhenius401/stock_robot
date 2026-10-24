@@ -1817,3 +1817,4 @@ git commit -m "docs(港股): 记录多源框架实施与真实验收"
 - 移除 `industry_mapping.csv` 中 666 条 `.HK` missing 占位，保留原有五列、5,534 条 A 股及其原始顺序和逐行内容；港股通成员资格从此仅由 `hk_stock_connect.snapshot.json` 表达，HSICS 分类仅由独立 CSV/JSON 表达。成员发布改为快照专用文件锁与原子写，不再读取、校验或回滚申万映射。
 - 港股行业分析仅将同行代码和名称的展示列表截为前 10 家，新增完整同行数量及范围说明；完整 `EnrichedIndustry` 仍提供同行数、PE/PB 中位数、分位和溢价。Markdown 与 Web 标签同步更新，静态资源版本链更新为 `20261024-hk-industry-final`。
 - 新增 `stock-robot hk-industry-refresh`：先执行上交所成员抓取/发布，再读取成员快照刷新 HSICS；成员成功后 HSICS 失败不回滚前者，命令明确输出该独立失败状态。模块级成员与 HSICS 刷新入口仍保留。
+- 收尾后全量：`.\scripts\verify.ps1 -Scope Full -VenvPath D:/code/stock_robot/.venv` → **2475 passed / 4 skipped**（358.77 秒），Ruff/Pyright 通过。Codex worktree 内 `tests/test_cli.py` 曾因 PATH 环境在 30 项后挂起，使用主 venv + PYTHONPATH 复跑为 **53 passed**；主工作区全量已覆盖该文件。收尾提交 `e50a1d3`，合并提交 `4121bcf`；未推送、未部署，工作区仅保留用户自己的队列计划未提交改动。
