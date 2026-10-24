@@ -95,7 +95,33 @@ def test_hk_industry_compares_mapped_connect(monkeypatch):
     assert result.metrics["industry_median_pe"] == 30.0
     assert result.metrics["target_pe"] == 13.15
     assert result.metrics["target_pb"] == 2.68
+    assert "peer_display_note" not in result.metrics
     assert "东财F10" in result.industry_note
+
+
+def test_hk_industry_displays_only_first_ten_peers_but_keeps_full_pool_metrics(monkeypatch):
+    monkeypatch.setattr(industry_module, "load_connect_symbols", lambda: {"00700"})
+    monkeypatch.setattr(industry_module, "load_hsics_members", lambda: MAPPED)
+    context = mapped_context()
+    peers = [f"{index:05d}.HK" for index in range(1, 13)]
+    industry_data = context.industry_data
+    assert industry_data is not None
+    industry_data.peers = peers
+    industry_data.peer_names = {symbol: f"同行{index}" for index, symbol in enumerate(peers, 1)}
+    context.enriched_industry = EnrichedIndustry(
+        peer_count=12, industry_median_pe=30.0, industry_median_pb=3.0,
+        target_pe_premium=-56.2, target_pe_percentile=20.0, target_pb_percentile=40.0,
+        peer_pe_sample=12, peer_pb_sample=12,
+    )
+
+    result = IndustryAnalyzer().analyze(context)
+
+    assert result.metrics["peers"] == peers[:10]
+    assert result.metrics["peer_names"] == {symbol: f"同行{index}" for index, symbol in enumerate(peers[:10], 1)}
+    assert result.metrics["peer_total"] == 12
+    assert result.metrics["peer_display_note"] == "仅展示前10家，统计基于全部12家港股通同行"
+    assert result.metrics["peer_count"] == 12
+    assert result.metrics["industry_median_pe"] == 30.0
 
 
 def test_hk_industry_partial_when_peers_insufficient(monkeypatch):

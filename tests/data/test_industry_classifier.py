@@ -63,8 +63,8 @@ class TestIndustryClassifier:
         assert (result.sw_level1, result.sw_level2, result.style_category) == (level1, level2, style)
         assert result.is_verified
 
-    def test_snapshot_has_unique_complete_classifications(self):
-        """A股保持完整核验；港股只能是港股通待补齐占位，不得伪造申万分类。"""
+    def test_snapshot_has_only_a_share_complete_classifications(self):
+        """申万表只保留完整核验的 A 股；港股通资格由独立快照表达。"""
         root = Path(__file__).resolve().parents[2]
         with (root / "data/industry_mapping.csv").open(encoding="utf-8", newline="") as stream:
             reader = csv.DictReader(stream)
@@ -76,31 +76,23 @@ class TestIndustryClassifier:
             style_map = yaml.safe_load(stream)
         symbols = [row["symbol"] for row in rows]
         a_share = [row for row in rows if re.fullmatch(r"\d{6}", row["symbol"])]
-        hk = [row for row in rows if re.fullmatch(r"\d{5}\.HK", row["symbol"])]
         assert len(symbols) == len(set(symbols))
-        assert len(a_share) >= 5534
+        assert len(a_share) == 5534
+        assert len(rows) == 5534
         assert [row["symbol"] for row in a_share] == sorted(row["symbol"] for row in a_share)
         assert all(row["sw_level1"] and row["sw_level2"] for row in a_share)
         assert all(row["mapping_status"] == "verified" for row in a_share)
         assert all(row["style_category"] == style_map[row["sw_level1"]] for row in a_share)
-        assert all(
-            not row["sw_level1"] and not row["sw_level2"] and not row["style_category"]
-            and row["mapping_status"] == "missing"
-            for row in hk
-        )
-        assert len(a_share) + len(hk) == len(rows)
+        assert not any(row["symbol"].endswith(".HK") for row in rows)
         snapshot_path = root / "data/hk_stock_connect.snapshot.json"
-        if snapshot_path.exists():
-            snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
-            assert snapshot["source"] in {
-                "ak.stock_hk_ggt_components_em", "sse.hkexsc.eligible",
-            }
-            if snapshot["source"] == "sse.hkexsc.eligible":
-                assert snapshot["data_date"]
-            assert snapshot["total"] == len(snapshot["members"])
-            assert {member["symbol"] for member in snapshot["members"]} <= {
-                row["symbol"] for row in hk
-            }
+        assert snapshot_path.exists()
+        snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        assert snapshot["source"] in {
+            "ak.stock_hk_ggt_components_em", "sse.hkexsc.eligible",
+        }
+        if snapshot["source"] == "sse.hkexsc.eligible":
+            assert snapshot["data_date"]
+        assert snapshot["total"] == len(snapshot["members"]) == 666
 
     @pytest.mark.parametrize("symbol", ["00700.HK", "09988.HK", "00005.HK"])
     def test_snapshot_does_not_invent_hk_classifications(self, classifier, symbol):

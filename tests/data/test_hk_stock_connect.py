@@ -1,6 +1,4 @@
 """港股通名单与申万归属分离，失败不得发布不完整名单。"""
-import csv
-import io
 import json
 import subprocess
 from datetime import UTC, date, datetime
@@ -12,7 +10,6 @@ import pytest
 import requests
 
 from data import hk_stock_connect as connect
-from data.industry_classifier import IndustryClassifier
 
 
 def sample():
@@ -230,51 +227,44 @@ def test_sdk_worker_calls_selected_function_and_restores_observer(mocker, fails)
 def files(tmp_path):
     mapping = tmp_path / "industry_mapping.csv"
     mapping.write_text("symbol,sw_level1,sw_level2,style_category,mapping_status\n"
-                       "000001,银行,股份制银行Ⅱ,大金融,verified\n"
-                       "00005.HK,银行,银行,大金融,verified\n", encoding="utf-8")
+                       "000001,银行,股份制银行Ⅱ,大金融,verified\n", encoding="utf-8")
     saved = tmp_path / "hk_stock_connect.snapshot.json"
     return mapping, saved
 
 
-def test_publish_preserves_existing_classifications_and_adds_only_missing(files):
+def test_publish_only_writes_snapshot_and_leaves_mapping_sentinel_unchanged(files):
     mapping, saved = files
-    connect.publish_snapshot(snapshot(), mapping, saved)
-    rows = list(csv.DictReader(io.StringIO(mapping.read_text(encoding="utf-8"))))
-    assert rows[0] == {"symbol": "000001", "sw_level1": "银行", "sw_level2": "股份制银行Ⅱ",
-                       "style_category": "大金融", "mapping_status": "verified"}
-    assert rows[1]["symbol"] == "00005.HK" and rows[1]["mapping_status"] == "verified"
-    assert rows[2] == {"symbol": "00700.HK", "sw_level1": "", "sw_level2": "",
-                       "style_category": "", "mapping_status": "missing"}
-    assert rows[3]["symbol"] == "09988.HK" and rows[3]["mapping_status"] == "missing"
-    stored = connect.HKStockConnectSnapshot.model_validate_json(saved.read_text(encoding="utf-8"))
-    assert not stored.contains("00005.HK")  # 旧分类存在不代表仍有港股通资格
-    assert stored.contains("00700.HK")
-    classifier = IndustryClassifier(mapping)
-    assert classifier.lookup("000001").is_verified
-    assert not classifier.lookup("00700.HK").is_verified
     before = mapping.read_bytes()
-    connect.publish_snapshot(snapshot(), mapping, saved)
+    connect.publish_snapshot(snapshot(), saved)
+    stored = connect.HKStockConnectSnapshot.model_validate_json(saved.read_text(encoding="utf-8"))
+    assert stored.contains("00700.HK")
     assert mapping.read_bytes() == before
+
+
+def test_publish_rejects_non_json_snapshot_path(files):
+    _, saved = files
+
+    with pytest.raises(ValueError, match="JSON"):
+        connect.publish_snapshot(snapshot(), saved.with_suffix(".csv"))
 
 
 def test_publish_accepts_official_sse_snapshot(files):
     mapping, saved = files
-    connect.publish_snapshot(sse_snapshot(), mapping, saved)
+    before = mapping.read_bytes()
+    connect.publish_snapshot(sse_snapshot(), saved)
     stored = connect.HKStockConnectSnapshot.model_validate_json(saved.read_text(encoding="utf-8"))
     assert stored.source == connect.SSE_SOURCE
     assert stored.data_date == date(2026, 10, 23)
-    rows = list(csv.DictReader(io.StringIO(mapping.read_text(encoding="utf-8"))))
-    assert [row["symbol"] for row in rows] == ["000001", "00005.HK", "00700.HK", "09988.HK"]
-    assert rows[1]["mapping_status"] == "verified"
-    assert all(row["mapping_status"] == "missing" for row in rows[2:])
+    assert mapping.read_bytes() == before
 
 
 def test_refresh_local_mapping_defaults_to_official_source(files, mocker):
     mapping, saved = files
     fetch = mocker.patch.object(connect, "fetch_sse_snapshot", return_value=sse_snapshot())
-    connect.refresh_local_mapping(mapping, saved)
+    connect.refresh_local_mapping(saved)
     fetch.assert_called_once()
     assert saved.exists()
+    assert mapping.exists()
 
 
 def test_fetch_failure_leaves_both_files_untouched(files, mocker):
@@ -283,34 +273,18 @@ def test_fetch_failure_leaves_both_files_untouched(files, mocker):
     before = mapping.read_bytes(), saved.read_bytes()
     mocker.patch.object(connect, "fetch_snapshot", side_effect=connect.HKStockConnectError("网络断开"))
     with pytest.raises(connect.HKStockConnectError):
-        connect.refresh_local_mapping(mapping, saved, source="eastmoney")
+        connect.refresh_local_mapping(saved, source="eastmoney")
     assert (mapping.read_bytes(), saved.read_bytes()) == before
 
 
-def test_snapshot_write_failure_rolls_back_mapping(files, mocker):
+def test_snapshot_write_failure_preserves_old_snapshot(files, mocker):
     mapping, saved = files
     saved.write_text("old successful snapshot", encoding="utf-8")
     before = mapping.read_bytes(), saved.read_bytes()
-    atomic = connect._atomic_write
-
-    def fail_snapshot(path, data):
-        if path == saved:
-            raise PermissionError("测试模拟名单发布失败")
-        atomic(path, data)
-
-    mocker.patch.object(connect, "_atomic_write", side_effect=fail_snapshot)
+    mocker.patch.object(connect, "_atomic_write", side_effect=PermissionError("测试模拟名单发布失败"))
     with pytest.raises(OSError):
-        connect.publish_snapshot(snapshot(), mapping, saved)
+        connect.publish_snapshot(snapshot(), saved)
     assert (mapping.read_bytes(), saved.read_bytes()) == before
-
-
-def test_duplicate_existing_mapping_is_not_silently_overwritten(files):
-    mapping, saved = files
-    mapping.write_text(mapping.read_text(encoding="utf-8") + "000001,,,,missing\n", encoding="utf-8")
-    before = mapping.read_bytes()
-    with pytest.raises(ValueError):
-        connect.publish_snapshot(snapshot(), mapping, saved)
-    assert mapping.read_bytes() == before and not saved.exists()
 
 
 def test_worker_timeout_is_bounded_and_reported(mocker):

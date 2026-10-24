@@ -79,3 +79,25 @@ def test_markdown_shows_dimension_count_and_not_applicable():
     assert "行业 · 数据不可用" in text
     assert "相关新闻检索（参考信息） · 数据不可用" in text
     assert "新闻暂时获取失败" in text
+
+
+def test_markdown_limits_hk_peer_list_and_shows_full_pool_scope():
+    ctx = context()
+    peers = [f"{index:05d}.HK" for index in range(1, 13)]
+    result = AnalysisResult(
+        dimension="industry", status="ok", summary="行业可比",
+        metrics={
+            "peers": peers[:10],
+            "peer_names": {symbol: f"同行{index}" for index, symbol in enumerate(peers[:10], 1)},
+            "peer_total": 12,
+            "peer_display_note": "仅展示前10家，统计基于全部12家港股通同行",
+            "peer_count": 12,
+        },
+    )
+
+    text = build_report(ctx.symbol, ctx.name, [result], {}, ctx, no_llm=True)
+
+    assert "仅展示前10家，统计基于全部12家港股通同行" in text
+    assert "同行10（00010.HK）" in text
+    assert "00011.HK" not in text
+    assert "00012.HK" not in text

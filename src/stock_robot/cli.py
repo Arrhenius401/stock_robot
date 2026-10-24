@@ -610,6 +610,49 @@ def industry_mapping(action_or_symbol, resume, delay, verbose):
         sys.exit(1)
 
 
+@main.command("hk-industry-refresh")
+def hk_industry_refresh() -> None:
+    """依次刷新港股通成员资格和恒生 HSICS 行业快照。"""
+    from filelock import Timeout
+
+    from data.hk_hsics_industry import HsicsIndustryError, load_connect_symbols, refresh
+    from data.hk_stock_connect import (
+        HKStockConnectError,
+        fetch_sse_snapshot,
+        publish_snapshot,
+    )
+    from utils.paths import (
+        hk_hsics_industry_path,
+        hk_hsics_snapshot_path,
+        hk_stock_connect_path,
+    )
+
+    connect_path = hk_stock_connect_path(writable=True)
+    try:
+        connect_snapshot = fetch_sse_snapshot()
+        publish_snapshot(connect_snapshot, connect_path)
+    except (HKStockConnectError, OSError, ValueError, Timeout) as exc:
+        raise click.ClickException(f"港股通成员快照刷新失败：{exc}") from exc
+
+    try:
+        symbols = load_connect_symbols()
+        hsics_snapshot = refresh(
+            hk_hsics_industry_path(writable=True),
+            hk_hsics_snapshot_path(writable=True),
+            connect_symbols=symbols,
+        )
+    except (HsicsIndustryError, OSError, ValueError, Timeout) as exc:
+        raise click.ClickException(
+            f"港股通成员快照已更新（{connect_snapshot.total} 只）；HSICS 行业快照刷新失败：{exc}"
+        ) from exc
+
+    click.echo(
+        f"港股通成员 {connect_snapshot.total} 只；HSICS 总数 {hsics_snapshot.total}，"
+        f"二级 {hsics_snapshot.sector_count}，一级 {hsics_snapshot.industry_count}，"
+        f"数据日期 {hsics_snapshot.data_date.isoformat()}"
+    )
+
+
 @main.group()
 def config():
     """管理配置"""
