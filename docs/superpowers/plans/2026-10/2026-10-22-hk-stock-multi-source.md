@@ -1811,3 +1811,9 @@ git commit -m "docs(港股): 记录多源框架实施与真实验收"
 - 独立规格/质量审查发现并修复：F10 过滤补 `.HK`（原实现会取空 profile 并以 666 行 missing 覆盖旧快照），增加 success/sector 与 31/12、missing_rows 严格校验；`MANIFEST.in` 补 3 个 hk 文件；安装包路径改为按具体文件/CSV+JSON 成对回退；同行 `<3` 统一判不足，目标必须仍在港股通快照，行业池按最新报告日过滤，前端目标 PE/PB/分位补格式化。新增 F10 `.HK` 过滤、缺失拒绝、发布回滚、安装路径回退、同行 2/3/8 边界、最新报告日测试；真实 CLI 刷新以修复后的代码成功发布 666/31/12。
 - 真实浏览器验收（Edge headless + CDP，真实 `stock-robot run --port 8765`）：打开报告库 19:33 的 00700 报告，研报视图显示 `恒生HSICS：软件服务`、45 家同行、目标 PE/PB、中位数、分位和溢价，前端资源版本为 `20261024-hk-industry`；截图 `tmp/acceptance/hk-browser/report-library-fixed.png`。验收同时发现 CLI `_get_registry` 未注册 `HKIndustryAdapter`，导致 CLI 生成的报告行业为空；已修复并新增 `test_cli_registry_registers_hk_industry_adapter`。
 - 最终全量：`.\scripts\verify.ps1 -Scope Full -VenvPath D:/code/stock_robot/.venv` → **2470 passed / 4 skipped**（217.42 秒），Ruff/Pyright 通过，前端资源版本链测试通过。未提交、推送、合并、部署或重启用户服务。
+
+### HSICS 收尾实施（2026-10-24）
+
+- 移除 `industry_mapping.csv` 中 666 条 `.HK` missing 占位，保留原有五列、5,534 条 A 股及其原始顺序和逐行内容；港股通成员资格从此仅由 `hk_stock_connect.snapshot.json` 表达，HSICS 分类仅由独立 CSV/JSON 表达。成员发布改为快照专用文件锁与原子写，不再读取、校验或回滚申万映射。
+- 港股行业分析仅将同行代码和名称的展示列表截为前 10 家，新增完整同行数量及范围说明；完整 `EnrichedIndustry` 仍提供同行数、PE/PB 中位数、分位和溢价。Markdown 与 Web 标签同步更新，静态资源版本链更新为 `20261024-hk-industry-final`。
+- 新增 `stock-robot hk-industry-refresh`：先执行上交所成员抓取/发布，再读取成员快照刷新 HSICS；成员成功后 HSICS 失败不回滚前者，命令明确输出该独立失败状态。模块级成员与 HSICS 刷新入口仍保留。

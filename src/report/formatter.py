@@ -105,6 +105,8 @@ METRIC_DISPLAY_NAMES = {
     "peer_scope": "同业口径",
     "peer_industry": "可比行业",
     "peers": "同行业公司",
+    "peer_total": "全部同行数（不含本公司）",
+    "peer_display_note": "同行展示范围",
     "top_peers": "头部同行公司",
     "roe_trend": "净资产收益率走势",
     "quarter": "报告期",

@@ -1,7 +1,5 @@
 """手动采集完整港股通名单（上交所官方优先，东财可选）；成员资格不等同于申万行业归属。"""
 import argparse
-import csv
-import io
 import json
 import logging
 import os
@@ -25,8 +23,7 @@ from pydantic import (
     model_validator,
 )
 
-from data.industry_mapping_builder import MAPPING_COLUMNS
-from utils.paths import industry_mapping_path
+from utils.paths import hk_stock_connect_path
 
 logger = logging.getLogger(__name__)
 SOURCE = "ak.stock_hk_ggt_components_em"
@@ -295,72 +292,44 @@ def _atomic_write(path: Path, data: bytes) -> None:
             logger.warning("名单更新临时文件未能清理: %s", name, exc_info=True)
 
 
-def publish_snapshot(snapshot: HKStockConnectSnapshot, mapping_path: Path, snapshot_path: Path) -> None:
-    """先补待分类占位，最后发布资格快照；正常失败恢复原映射。"""
+def publish_snapshot(snapshot: HKStockConnectSnapshot, snapshot_path: Path) -> None:
+    """原子发布港股通成员资格快照，不读取或修改申万映射。"""
+    if snapshot_path.suffix.lower() != ".json":
+        raise ValueError("港股通成员快照必须是 JSON 文件")
     snapshot = HKStockConnectSnapshot.model_validate_json(snapshot.model_dump_json())
-    if mapping_path.resolve() == snapshot_path.resolve():
-        raise ValueError("成员快照不能覆盖行业映射表")
-    with FileLock(str(mapping_path.with_suffix(".lock")), timeout=10):
-        original = mapping_path.read_bytes()
-        reader = csv.DictReader(io.StringIO(original.decode("utf-8")))
-        if reader.fieldnames != MAPPING_COLUMNS:
-            raise ValueError("行业映射表列结构不符合预期，停止更新")
-        rows = list(reader)
-        symbols = {row["symbol"] for row in rows}
-        if len(symbols) != len(rows):
-            raise ValueError("已有行业映射含重复代码，停止更新")
-        for member in snapshot.members:
-            if member.symbol not in symbols:
-                rows.append({"symbol": member.symbol, "sw_level1": "", "sw_level2": "",
-                             "style_category": "", "mapping_status": "missing"})
-        buffer = io.StringIO(newline="")
-        writer = csv.DictWriter(buffer, fieldnames=MAPPING_COLUMNS, lineterminator="\n")
-        writer.writeheader()
-        writer.writerows(rows)
-        _atomic_write(mapping_path, buffer.getvalue().encode("utf-8"))
-        try:
-            _atomic_write(snapshot_path, snapshot.model_dump_json(indent=2).encode("utf-8"))
-        except OSError as exc:
-            try:
-                _atomic_write(mapping_path, original)
-            except OSError as rollback:
-                logger.exception("名单发布及行业映射恢复均失败")
-                raise HKStockConnectError("名单发布失败且映射恢复失败，请核查文件") from ExceptionGroup(
-                    "名单发布与恢复异常", [exc, rollback])
-            raise
+    with FileLock(str(snapshot_path.with_suffix(snapshot_path.suffix + ".lock")), timeout=10):
+        _atomic_write(snapshot_path, snapshot.model_dump_json(indent=2).encode("utf-8"))
 
 
 def _fetch_snapshot_for(source: SnapshotSource) -> HKStockConnectSnapshot:
     return fetch_sse_snapshot() if source == "sse" else fetch_snapshot()
 
 
-def refresh_local_mapping(mapping_path: Path, snapshot_path: Path,
-                          source: SnapshotSource = "sse") -> HKStockConnectSnapshot:
+def refresh_local_mapping(snapshot_path: Path, source: SnapshotSource = "sse") -> HKStockConnectSnapshot:
+    """兼容旧调用名：只刷新成员资格快照。"""
     snapshot = _fetch_snapshot_for(source)
-    publish_snapshot(snapshot, mapping_path, snapshot_path)
+    publish_snapshot(snapshot, snapshot_path)
     return snapshot
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="手动更新港股通名单及待补齐行业占位，不推断申万分类")
+    parser = argparse.ArgumentParser(description="手动更新港股通成员资格快照，不涉及申万分类")
     parser.add_argument("--collect", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--source", choices=("sse", "eastmoney"), default="sse",
                         help="名单来源：sse=上交所官方；eastmoney=AkShare东财")
-    parser.add_argument("--mapping", type=Path, help="已有行业映射CSV路径")
-    parser.add_argument("--snapshot", type=Path, help="成员资格JSON路径，默认与映射同目录")
+    parser.add_argument("--snapshot", type=Path, help="成员资格 JSON 路径")
     args = parser.parse_args()
     try:
         if args.collect:
             print(_collect_in_worker().model_dump_json())
         else:
             snapshot = _fetch_snapshot_for(cast(SnapshotSource, args.source))
-            mapping = args.mapping or industry_mapping_path(writable=True)
-            target = args.snapshot or mapping.with_name("hk_stock_connect.snapshot.json")
-            publish_snapshot(snapshot, mapping, target)
+            target = args.snapshot or hk_stock_connect_path(writable=True)
+            publish_snapshot(snapshot, target)
             print(json.dumps({"members": snapshot.total, "source": snapshot.source,
                               "data_date": snapshot.data_date.isoformat() if snapshot.data_date else None,
                               "fetched_at": snapshot.fetched_at.isoformat(),
-                              "mapping": str(mapping), "snapshot": str(target)}, ensure_ascii=False))
+                              "snapshot": str(target)}, ensure_ascii=False))
     except (HKStockConnectError, OSError, ValueError, Timeout, ValidationError):
         logger.exception("港股通名单更新未完成，不能当作空名单或全部调出")
         return 1

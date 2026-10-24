@@ -13,6 +13,51 @@ from backtest.models import (
 from stock_robot.cli import main
 
 
+def test_hk_industry_refresh_runs_connect_before_hsics(mocker, tmp_path):
+    from types import SimpleNamespace
+
+    calls = []
+    connect_snapshot = SimpleNamespace(total=666)
+    hsics_snapshot = SimpleNamespace(total=666, sector_count=31, industry_count=12,
+                                     data_date=date(2026, 10, 23))
+    mocker.patch("data.hk_stock_connect.fetch_sse_snapshot", side_effect=lambda: calls.append("fetch") or connect_snapshot)
+    mocker.patch("data.hk_stock_connect.publish_snapshot", side_effect=lambda *_: calls.append("publish"))
+    mocker.patch("data.hk_hsics_industry.load_connect_symbols", side_effect=lambda: calls.append("load") or {"00700"})
+    refresh = mocker.patch("data.hk_hsics_industry.refresh", side_effect=lambda *_, **__: calls.append("refresh") or hsics_snapshot)
+    mocker.patch("utils.paths.hk_stock_connect_path", return_value=tmp_path / "connect.json")
+    mocker.patch("utils.paths.hk_hsics_industry_path", return_value=tmp_path / "industry.csv")
+    mocker.patch("utils.paths.hk_hsics_snapshot_path", return_value=tmp_path / "industry.json")
+
+    result = CliRunner().invoke(main, ["hk-industry-refresh"])
+
+    assert result.exit_code == 0, result.output
+    assert calls == ["fetch", "publish", "load", "refresh"]
+    assert refresh.call_args.kwargs["connect_symbols"] == {"00700"}
+    assert "港股通成员 666 只" in result.output
+    assert "HSICS 总数 666，二级 31，一级 12，数据日期 2026-10-23" in result.output
+
+
+def test_hk_industry_refresh_reports_hsics_failure_without_rolling_back_connect(mocker, tmp_path):
+    from types import SimpleNamespace
+
+    from data.hk_hsics_industry import HsicsIndustryError
+
+    published = []
+    mocker.patch("data.hk_stock_connect.fetch_sse_snapshot", return_value=SimpleNamespace(total=666))
+    mocker.patch("data.hk_stock_connect.publish_snapshot", side_effect=lambda *_: published.append(True))
+    mocker.patch("data.hk_hsics_industry.load_connect_symbols", return_value={"00700"})
+    mocker.patch("data.hk_hsics_industry.refresh", side_effect=HsicsIndustryError("上游失败"))
+    mocker.patch("utils.paths.hk_stock_connect_path", return_value=tmp_path / "connect.json")
+    mocker.patch("utils.paths.hk_hsics_industry_path", return_value=tmp_path / "industry.csv")
+    mocker.patch("utils.paths.hk_hsics_snapshot_path", return_value=tmp_path / "industry.json")
+
+    result = CliRunner().invoke(main, ["hk-industry-refresh"])
+
+    assert result.exit_code == 1
+    assert published == [True]
+    assert "港股通成员快照已更新（666 只）" in result.output
+
+
 @pytest.mark.parametrize("path", [[], ["index"], ["radar"], ["config", "set"]])
 def test_help_command_matches_native_help(path):
     runner = CliRunner()

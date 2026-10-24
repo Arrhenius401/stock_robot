@@ -146,6 +146,12 @@ def test_publish_and_load_roundtrip(tmp_path):
         hsics.load_members(csv_path, json_path)
 
 
+def test_csv_digest_is_stable_across_line_endings():
+    payload = b"symbol,hsics_sector\n00700.HK,\xe8\xbd\xaf\xe4\xbb\xb6\xe6\x9c\x8d\xe5\x8a\xa1\n"
+
+    assert hsics._csv_digest(payload) == hsics._csv_digest(payload.replace(b"\n", b"\r\n"))
+
+
 def test_latest_daily_pdf_picks_newest_con_pdf():
     payload = [{
         "seriesCode": "hsci",

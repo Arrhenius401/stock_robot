@@ -39,11 +39,17 @@ class IndustryAnalyzer(AnalysisModule):
         if ind_data is None or not ind_data.industry:
             return self._hk_unavailable("恒生行业数据不可用")
 
+        display_peers = ind_data.peers[:10]
+        peer_total = len(ind_data.peers)
         metrics: dict[str, Any] = {
             "industry": ind_data.industry,
             "sector": ind_data.sector,
-            "peers": ind_data.peers,
-            "peer_names": ind_data.peer_names,
+            "peers": display_peers,
+            "peer_names": {
+                symbol: name for symbol, name in ind_data.peer_names.items()
+                if symbol in display_peers
+            },
+            "peer_total": peer_total,
             "peer_scope": ind_data.peer_scope,
             "peer_industry": ind_data.peer_industry,
             "classification_scheme": "恒生HSICS",
@@ -53,6 +59,8 @@ class IndustryAnalyzer(AnalysisModule):
             "target_pe": getattr(ind_data, "_target_pe", None),
             "target_pb": getattr(ind_data, "_target_pb", None),
         }
+        if peer_total > 10:
+            metrics["peer_display_note"] = f"仅展示前10家，统计基于全部{peer_total}家港股通同行"
         enriched = context.enriched_industry
         if enriched is not None:
             metrics.update({

@@ -190,6 +190,12 @@ def _atomic_write(path: Path, data: bytes) -> None:
         Path(name).unlink(missing_ok=True)
 
 
+def _csv_digest(data: bytes) -> str:
+    """按 LF 规范化计算摘要，避免 Git 的 Windows 换行转换误报快照损坏。"""
+    canonical = data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    return hashlib.sha256(canonical).hexdigest()
+
+
 def publish_snapshot(snapshot: HsicsSnapshot, rows: list[HsicsMember],
                      csv_path: Path, json_path: Path) -> HsicsSnapshot:
     rows = sorted(rows, key=lambda row: row.symbol)
@@ -205,7 +211,7 @@ def publish_snapshot(snapshot: HsicsSnapshot, rows: list[HsicsMember],
             "in_hsci": "true" if row.in_hsci else "false",
         })
     csv_bytes = buffer.getvalue().encode("utf-8")
-    digest = hashlib.sha256(csv_bytes).hexdigest()
+    digest = _csv_digest(csv_bytes)
     published = snapshot.model_copy(update={"csv_sha256": digest})
     json_bytes = published.model_dump_json(indent=2).encode("utf-8")
 
@@ -233,7 +239,7 @@ def load_members(csv_path: Path, json_path: Path) -> dict[str, HsicsMember]:
         payload = json.loads(json_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise HsicsIndustryError("恒生行业快照元数据不可读") from exc
-    actual = hashlib.sha256(csv_path.read_bytes()).hexdigest()
+    actual = _csv_digest(csv_path.read_bytes())
     if payload.get("csv_sha256") != actual:
         raise HsicsIndustryError("恒生行业 CSV 哈希与元数据不一致")
     members: dict[str, HsicsMember] = {}

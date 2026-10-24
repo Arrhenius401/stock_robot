@@ -194,3 +194,9 @@ A 股 `a_financial_policy.py`、`a_financial_sources.py` 和 `_fetch_financial` 
 - 数据源：东财 `RPT_PCF10_INDUSTRY_HKCVALUE` 行业池，按目标请求，按港股通与恒生二级过滤；行业池每次分析重新取数。港股行业数据不落通用 SQLite 缓存，因为同行估值保存在 PrivateAttr，序列化会丢失。
 - 分析与展示：区分非港股通、港股通但行业待补齐、行业数据不可用、同行不足、可比较五类；报告统一标注“恒生 HSICS 二级（东财 F10 转载；HSCI PDF 校验）”，不与 A 股申万池混用；旧报告不改写。
 - 刷新：手动入口 `python -m data.hk_hsics_industry`；666 只 F10 限速抓取、恒生每日 PDF 与官方行业计数校验、原子发布；失败保留旧快照，不自动刷新，不新增定时任务。
+
+### HSICS 收尾约定（2026-10-24）
+
+- 申万映射 `data/industry_mapping.csv` 只保留 5,534 条 A 股记录；历史 666 条港股 `.HK` missing 占位已移除。港股通资格只读取 `data/hk_stock_connect.snapshot.json`，港股行业只读取 `data/hk_hsics_industry.csv`，两类事实不再互相写入。
+- 港股报告的同行公司列表最多展示前 10 家，同时显示完整同行数与“仅展示前10家，统计基于全部 N 家港股通同行”的范围说明。同行数、PE/PB 中位数、分位和溢价继续按完整同行池计算。
+- 新增单一手动入口 `stock-robot hk-industry-refresh`，固定先刷新并发布成员快照，再读取该快照刷新 HSICS CSV/元数据。两步发布独立：成员成功、HSICS 失败时保留新成员快照并明确报错；不增加自动刷新或定时任务。既有两个模块入口保留用于单项维护。
