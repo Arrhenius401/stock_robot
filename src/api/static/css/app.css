@@ -1584,3 +1584,10 @@ body.subs-modal-open { overflow: hidden; }
   .stock-report .score-big { align-items: flex-start; flex-wrap: wrap; }
   .stock-report .score-rows { min-width: 100%; }
 }
+
+/* 五维评分沿用原卡片，只补充风险方向与可追溯来源。 */
+.stock-report .score-row .lb { width: 72px; }
+.stock-report .score-row-missing .v { color: var(--text-4); }
+.stock-report .sentiment-risk-value { margin-left: auto; color: var(--warn); font-size: 13px; }
+.stock-report .sentiment-source-list { padding-left: 20px; overflow-wrap: anywhere; }
+.stock-report .sentiment-source-link { margin-left: 8px; color: var(--accent); }

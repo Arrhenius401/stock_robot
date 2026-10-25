@@ -646,6 +646,14 @@ class TestStructuredToolResults:
 
 
 class TestStockReportExtraction:
+    def test_keeps_hk_market_and_scoring_version_for_reopened_artifact(self):
+        extracted = _extract_stock_reports([{
+            "tool": "analyze_stock", "status": "done",
+            "content": {"symbol": "00700.HK", "market": "hk", "scoring_method": "five-dimension-v1"},
+        }])
+        assert extracted[0][1]["market"] == "hk"
+        assert extracted[0][1]["scoring_method"] == "five-dimension-v1"
+
     def test_keeps_disclaimer_for_conversation_report(self):
         extracted = _extract_stock_reports([{
             "tool": "analyze_stock", "status": "done",

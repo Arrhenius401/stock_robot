@@ -914,67 +914,79 @@ class AkShareAdapter(DataSource):
 
     def _fetch_news(self, symbol: str, **kwargs) -> list[NewsData]:
         """拉取近 30 天新闻和公告，附带 RawSentimentData"""
+        from pandas import isna
+        from pandas.api.types import is_scalar
+
         if kwargs.get("market") == "hk":
             from data.hk_news import fetch_news
 
             snapshot = fetch_news(symbol, kwargs.get("name", ""))
             return [NewsData(symbol=symbol, date=snapshot.fetched_at.date(), hk_news=snapshot,
                              headlines=[item.title for item in snapshot.items])]
+        from data.hk_news import HK_TZ
         from data.schemas import RawSentimentData, RawSentimentItem
 
-        today = datetime.now().astimezone().date()
-        start_date = today - timedelta(days=30)
+        now = datetime.now(HK_TZ)
+        today = now.date()
+        start_date = today - timedelta(days=29)
         items = []
-        seen_titles = set()
+        seen_titles: set[tuple] = set()
+        seen_urls: set[str] = set()
 
-        # 拉取新闻
+        def text_value(row: Any, *keys: str) -> str:
+            # NaN/NA/NaT 先判缺失，不能转成文本或挡住真实后备字段。
+            for key in keys:
+                value = row.get(key)
+                if not is_scalar(value) or isna(value):
+                    continue
+                text = str(value).strip()
+                if text:
+                    return text
+            return ""
+
+        def add_item(row: Any, source: str) -> None:
+            title = text_value(row, "公告标题", "标题", "title", "新闻标题")
+            raw_date = (text_value(row, "公告日期", "日期") if source == "announcement"
+                        else text_value(row, "发布时间", "时间"))
+            try:
+                stamp = datetime.fromisoformat(str(raw_date))
+                stamp = stamp.replace(tzinfo=HK_TZ) if stamp.tzinfo is None else stamp.astimezone(HK_TZ)
+            except (ValueError, TypeError):
+                logger.debug("跳过未知或无效日期的舆情条目：%s", title)
+                return
+            if not title or not start_date <= stamp.date() <= today or stamp > now:
+                return
+            url = text_value(row, "新闻链接", "公告链接", "网址", "链接", "url")
+            key = (stamp.date(), title)
+            if key in seen_titles or (url and url in seen_urls):
+                return
+            seen_titles.add(key)
+            if url:
+                seen_urls.add(url)
+            # 公告接口仅有标题时保持空正文，禁止按标题补造内容。
+            content = (text_value(row, "新闻内容", "内容", "content")[:500]
+                       if source == "news" else "")
+            media = text_value(row, "文章来源", "新闻来源", "来源")
+            items.append(RawSentimentItem(title=title, source=source, publish_date=stamp.date(),
+                                          content=content, url=url, media=media))
+
         try:
             df: Any = _ak_news(symbol)
-            for _, row in df.head(20).iterrows():
-                title = str(row.get("标题", "") or row.get("title", "") or row.get("新闻标题", ""))
-                if not title or title in seen_titles:
-                    continue
-                seen_titles.add(title)
-                content = str(row.get("内容", "") or row.get("content", ""))[:500]
-                pub_date = today
-                try:
-                    raw_date = row.get("发布时间", "") or row.get("时间", "")
-                    if raw_date:
-                        pub_date = datetime.strptime(str(raw_date)[:10], "%Y-%m-%d").astimezone().date()
-                except (ValueError, TypeError):
-                    logger.debug("新闻发布时间解析失败，使用今天日期")
-                if pub_date >= start_date:
-                    items.append(RawSentimentItem(
-                        title=title, source="news", publish_date=pub_date, content=content,
-                    ))
-        except Exception as e:
-            logger.warning(f"新闻数据获取失败: {e}")
-            self._record_collection_error("东方财富新闻", e)
+            if df is not None and not df.empty:
+                for _, row in df.head(20).iterrows():
+                    add_item(row, "news")
+        except Exception as error:
+            logger.warning("新闻数据获取失败：%s", error)
+            self._record_collection_error("东方财富新闻", error)
 
-        # 拉取公告（个股接口，直接按代码过滤，替代全市场拉取再过滤）
         try:
             notice_df: Any = ak.stock_individual_notice_report(security=symbol)
             if notice_df is not None and not notice_df.empty:
                 for _, row in notice_df.head(20).iterrows():
-                    title = str(row.get("公告标题", "") or row.get("标题", ""))
-                    if not title or title in seen_titles:
-                        continue
-                    seen_titles.add(title)
-                    pub_date = today
-                    raw_date = row.get("公告日期", "") or row.get("日期", "")
-                    if raw_date:
-                        try:
-                            pub_date = datetime.strptime(str(raw_date)[:10], "%Y-%m-%d").astimezone().date()
-                        except (ValueError, TypeError):
-                            logger.debug("公告日期解析失败，使用今天日期")
-                    if pub_date >= start_date:
-                        items.append(RawSentimentItem(
-                            title=title, source="announcement",
-                            publish_date=pub_date, content="",
-                        ))
-        except Exception as e:
-            logger.warning(f"公告数据获取失败: {e}")
-            self._record_collection_error("东方财富公告", e)
+                    add_item(row, "announcement")
+        except Exception as error:
+            logger.warning("公告数据获取失败：%s", error)
+            self._record_collection_error("东方财富公告", error)
 
         # 去重并按日期排序，最多保留 30 条
         items.sort(key=lambda x: x.publish_date, reverse=True)

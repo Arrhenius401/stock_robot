@@ -14,10 +14,18 @@ class FinancialAnalyzer(AnalysisModule):
 
     def analyze(self, context: AnalysisContext,
                 config: dict[str, Any] | None = None) -> AnalysisResult:
+        meta = config.get("meta", {}) if config else {}
+        template_note = ""
+        template_metrics: dict[str, Any] = {}
+        if context.market == "hk" and meta.get("scoring_template_source"):
+            fallback = "是，使用通用规则" if meta.get("scoring_template_fallback") else "否，按真实 HSICS 匹配投资风格"
+            template_note = (f"评分模板：{meta['scoring_template_source']}；投资风格：{meta.get('style_category', '未记录')}；"
+                             f"通用规则回退：{fallback}；真实 HSICS 分类不变")
+            template_metrics = {"评分模板": template_note}
         financials = context.financial_data or []
         if not financials:
             return AnalysisResult(dimension=self.dimension, status="unavailable",
-                                  summary="财务数据不可用", metrics={})
+                                  summary="财务数据不可用", metrics=template_metrics, score_detail=template_note)
 
         sorted_data = sorted(financials, key=lambda x: x.fiscal_quarter, reverse=True)
         latest = sorted_data[0]
@@ -41,6 +49,8 @@ class FinancialAnalyzer(AnalysisModule):
             "roe": latest.roe,
             "gross_margin": latest.gross_margin,
             "amount_basis": amount_basis,
+            "annual_roe": context.financial_scoring_facts.get("annual_roe", {}),
+            **template_metrics,
         }
         if latest.revenue_basis:
             metrics["revenue_basis"] = latest.revenue_basis
@@ -71,15 +81,22 @@ class FinancialAnalyzer(AnalysisModule):
         summary = self._build_summary(metrics, status)
 
         # 数据充足性检查
-        if context.sufficiency and context.sufficiency.financial.level == SufficiencyLevel.INSUFFICIENT:
+        if (context.sufficiency and context.sufficiency.financial.level == SufficiencyLevel.INSUFFICIENT
+                and not context.financial_scoring_facts):
             return AnalysisResult(dimension=self.dimension, status="unavailable",
                                   summary="财务数据不足", metrics=metrics,
-                                  score=None, score_detail="财务维度数据不足，跳过打分")
+                                  score=None, score_detail="财务维度数据不足，跳过打分" + ("；" + template_note if template_note else ""))
 
         # 配置驱动打分
         if config:
             scorer = self._get_scorer(config)
             score, score_detail, risk_flags = scorer.score_financial(context)
+            if template_note:
+                score_detail = template_note + "；" + score_detail
+            basis = getattr(scorer, "financial_score_basis", {})
+            metrics["scoring_basis"] = basis
+            if context.financial_scoring_facts and score is not None:
+                status = "ok" if basis.get("available_max", 0) >= basis.get("eligible_max", 0) > 0 else "partial"
             industry_note = scorer._industry_note() if hasattr(scorer, '_industry_note') else ""
             return AnalysisResult(dimension=self.dimension, status=status,
                                   summary=summary, metrics=metrics,

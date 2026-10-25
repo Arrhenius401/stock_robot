@@ -38,6 +38,83 @@ def format_hk_news_markdown(metrics: dict[str, Any]) -> str:
         lines.append(f"\n- {text(item.get('title', ''))}（{text(stamp(item.get('published_at', '')))} · {text(media)}）")
     return "\n".join(lines)
 
+
+def _news_text(value: Any) -> str:
+    """外部资讯作为纯文本转义，避免 Markdown 注入。"""
+    clean = html.escape(str(value), quote=False).replace("\n", " ").replace("\r", " ")
+    return re.sub(r"([\\`*_{}\[\]()#+.!|>~-])", r"\\\1", clean)
+
+
+def _news_url(value: Any) -> str | None:
+    """仅允许完整 HTTP 链接，并转义 Markdown 目标中的控制字符。"""
+    from urllib.parse import quote, urlsplit
+
+    try:
+        raw = str(value or "").strip()
+        parsed = urlsplit(raw)
+        if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+            return None
+    except ValueError:
+        return None
+    return quote(raw, safe=":/?&=#%+;,@!$*'~-._")
+
+
+def sentiment_display_items(metrics: dict[str, Any]) -> list[dict[str, Any]]:
+    """保留原新闻的全部来源，并合并标注依据，不能用标注子集隐藏成功列表。"""
+    assessed = [item for item in metrics.get("all_items", []) if isinstance(item, dict)]
+    news = [item for item in metrics.get("news_items", []) if isinstance(item, dict)]
+    if not news:
+        return assessed
+
+    def identity(item: dict[str, Any]) -> tuple[str, str]:
+        return str(item.get("title") or ""), str(item.get("publish_date") or item.get("published_at") or "")[:10]
+
+    by_id = {item["item_id"]: item for item in assessed if item.get("item_id")}
+    by_date_title = {identity(item): item for item in assessed}
+    combined = [{**(by_id.get(item.get("item_id")) or by_date_title.get(identity(item), {})), **item} for item in news]
+    identities = {identity(item) for item in news}
+    combined.extend(item for item in assessed if identity(item) not in identities)
+    return combined
+
+
+def format_sentiment_risk_markdown(metrics: dict[str, Any]) -> str:
+    """新舆情口径同时披露原风险、反向参与值和可追溯样本。"""
+    risk, participation = metrics.get("risk_score"), metrics.get("participation_score")
+    lines = ["**舆情原风险分：** " + (f"{risk:.1f}/10" if is_finite_number(risk) else "无法评估") + "（越高风险越大）",
+             "", "**综合参与分：** " + (f"{participation:.1f}/10" if is_finite_number(participation) else "暂无，暂不参与综合评分") + " · 权重5%",
+             "", f"评估窗口：{_news_text(metrics.get('window_start') or '未记录')} 至 {_news_text(metrics.get('window_end') or '未记录')}；已评估{_news_text(metrics.get('evaluated_count', 0))}条。"]
+    reason = metrics.get("assessment_reason")
+    if reason:
+        lines += ["", _news_text(reason)]
+    if risk == 0:
+        lines += ["", "本次有效样本未识别到负面，不代表全市场无风险。"]
+    disclaimer = metrics.get("news_disclaimer") or "本次限量样本，不保证完整覆盖；风险依据仅来自已取得内容。"
+    if "不作AI筛选或情绪评分" in disclaimer or "不进行模型或评分" in disclaimer:
+        disclaimer = "本次限量样本，不保证完整覆盖；风险依据仅来自已取得内容。"
+    lines += ["", _news_text(disclaimer)]
+    items = sentiment_display_items(metrics)
+    if items:
+        lines += ["", "#### 采集样本与来源"]
+    for item in items[:30]:
+        if not isinstance(item, dict):
+            continue
+        state = ("与目标无直接关联" if item.get("related") is False else "不可评估" if item.get("assessable") is False
+                 else "有效相关样本" if item.get("related") is True and item.get("assessable") is True else "标注状态未记录")
+        stamp = item.get("publish_date") or item.get("published_at") or "日期未记录"
+        links = item.get("links") or [{"url": item.get("url"), "media": item.get("media") or item.get("source")}]
+        sources = []
+        for link in links:
+            if not isinstance(link, dict):
+                continue
+            label = _news_text(link.get("media") or "来源未标注")
+            url = _news_url(link.get("url"))
+            sources.append(f"[{label}](<{url}>)" if url else label)
+        lines += ["", f"- {_news_text(item.get('title', ''))}（{_news_text(stamp)} · {'、'.join(dict.fromkeys(sources)) or '来源未标注'} · {state}）"]
+        if item.get("evidence"):
+            lines.append(f"  依据：{_news_text(item['evidence'])}")
+    return "\n".join(lines)
+
+
 _STOCK_SYMBOL_PATTERN = r"(?:\d{6}|\d{5}\.HK)"
 
 _SEP_RE = re.compile(r'^\|[-\s:|]+\|$')
@@ -257,7 +334,13 @@ def format_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
     """模型事实及嵌套表格使用字段语义，保留代码、日期与未知字段。"""
     def display(key: str, value: Any) -> Any:
         if isinstance(value, dict):
-            return _format_comparison_facts(value) if key == "comparison" else format_metrics(value)
+            if key == "comparison":
+                return _format_comparison_facts(value)
+            formatted = format_metrics(value)
+            if key == "annual_roe" and "value" in value:
+                # 年度 ROE 独立事实的 value 为小数比例，不能被模型当作已格式化百分数。
+                formatted["value"] = format_metric_value("roe", value["value"])
+            return formatted
         if isinstance(value, list):
             return [display(key, item) for item in value]
         return format_metric_value(key, value)

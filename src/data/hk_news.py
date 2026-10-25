@@ -83,9 +83,13 @@ def normalize_news(rows: list[dict[str, Any]], now: datetime) -> list[HKNewsItem
             code = str(row.get("code") or "")
             if not title or not re.fullmatch(r"[0-9]+", code):
                 continue
-            items.append(HKNewsItem(title=title, published_at=stamp, links=[HKNewsLink(
+            link = HKNewsLink(
                 media=_clean(str(row.get("mediaName") or "来源未标注")),
-                url=f"https://finance.eastmoney.com/a/{code}.html")]))
+                url=str(row.get("url") or f"https://finance.eastmoney.com/a/{code}.html"))
+            if not _safe_link(link):
+                continue
+            items.append(HKNewsItem(title=title, content=_clean(str(row.get("content") or "")),
+                                    published_at=stamp, links=[link]))
         except (ValueError, TypeError) as error:
             logger.debug("跳过日期或字段无效的港股新闻：%s", error)
     snapshot = current_news(HKNewsSnapshot(fetched_at=now, items=items), now)
@@ -112,6 +116,8 @@ def normalize_news(rows: list[dict[str, Any]], now: datetime) -> list[HKNewsItem
             groups[key] = item.model_copy(deep=True)
         else:
             target = groups[key]
+            if not target.content and item.content:
+                target.content = item.content
             for link in item.links:
                 if link not in target.links:
                     target.links.append(link)

@@ -16,15 +16,21 @@ class ValuationAnalyzer(AnalysisModule):
     def analyze(self, context: AnalysisContext,
                 config: dict[str, Any] | None = None) -> AnalysisResult:
         val_data = context.valuation_data
-        if val_data is None:
+        scoring_context = context
+        if context.market != "hk" and context.sufficiency.valuation.level == SufficiencyLevel.INSUFFICIENT:
+            # A 股历史充实失败时，旧分位不能复用；本次独立同行估值仍可单项参与。
+            scoring_context = context.model_copy(update={"enriched_valuation": None})
+        pe_pct, pb_pct, premium = valuation_evidence(scoring_context)
+        scoring_evidence = any(value is not None for value in (pe_pct, pb_pct, premium))
+        if val_data is None and not scoring_evidence:
             return AnalysisResult(dimension=self.dimension, status="unavailable",
                                   summary="估值数据不可用", metrics={})
 
         latest = val_data
         metrics: dict[str, Any] = {
-            "pe_ttm": latest.pe_ttm,
-            "pb": latest.pb,
-            "ps_ttm": latest.ps_ttm,
+            "pe_ttm": latest.pe_ttm if latest else None,
+            "pb": latest.pb if latest else None,
+            "ps_ttm": latest.ps_ttm if latest else None,
         }
 
         applicability = {}
@@ -38,7 +44,7 @@ class ValuationAnalyzer(AnalysisModule):
             if value is not None and not is_finite_number(value):
                 metrics[key] = None
         metrics["valuation_applicability"] = applicability
-        metrics["pe_percentile"], metrics["pb_percentile"], metrics["target_pe_premium"] = valuation_evidence(context)
+        metrics["pe_percentile"], metrics["pb_percentile"], metrics["target_pe_premium"] = pe_pct, pb_pct, premium
         metrics["valuation_notes"] = [
             f"{ {'pe_ttm': 'PE(TTM)', 'pb': 'PB', 'ps_ttm': 'PS(TTM)'}[key]}：{info['reason']}"
             for key, info in applicability.items() if not info["applicable"]
@@ -51,9 +57,12 @@ class ValuationAnalyzer(AnalysisModule):
             notes = metrics["valuation_notes"]
             details: list[str] = []
             metrics["valuation_details"] = details
-            notes.extend(latest.valuation_notes)
-            details.append(f"PE/PB 当前快照日期：{latest.date}；历史分位使用下述曲线参照值，不用其他来源快照排名")
-            if latest.ps_ttm is not None:
+            if latest is not None:
+                notes.extend(latest.valuation_notes)
+                details.append(f"PE/PB 当前快照日期：{latest.date}；历史分位使用下述曲线参照值，不用其他来源快照排名")
+            else:
+                details.append("当前 PE/PB 快照未取得；独立同行比较采用本次同源目标值，不回填其他来源快照")
+            if latest is not None and latest.ps_ttm is not None:
                 details.append(f"PS(TTM)：{latest.ps_source or '来源未记录'}，日期 {latest.ps_as_of or '未记录'}；仅披露，不计入评分")
             if context.enriched_valuation:
                 for metric in ("pe", "pb"):
@@ -66,7 +75,7 @@ class ValuationAnalyzer(AnalysisModule):
                     if summary.reason:
                         notes.append(f"{metric.upper()} 历史分位：{summary.reason}")
             notes.append("历史低分位不等于低风险或值得买；PS 不代表各行业均适用，银行等需另行判断")
-        if not any(info["applicable"] for info in applicability.values()):
+        if not any(info["applicable"] for info in applicability.values()) and not scoring_evidence:
             return AnalysisResult(dimension=self.dimension, status="unavailable",
                                   summary="没有适用于高低估判断的估值指标；原始非正值仅作披露",
                                   metrics=metrics, score=None, score_detail="估值不适用，不计分")
@@ -80,14 +89,17 @@ class ValuationAnalyzer(AnalysisModule):
             status = "partial"
         summary = self._build_summary(metrics, historical_reference=context.market == "hk")
 
-        if context.sufficiency and context.sufficiency.valuation.level == SufficiencyLevel.INSUFFICIENT:
+        if (context.sufficiency and context.sufficiency.valuation.level == SufficiencyLevel.INSUFFICIENT
+                and not scoring_evidence):
             return AnalysisResult(dimension=self.dimension, status="unavailable",
                                   summary="估值数据不足", metrics=metrics,
                                   score=None, score_detail="估值维度数据不足，跳过打分")
 
         if config:
             scorer = FinancialAnalyzer._get_scorer(config)
-            score, score_detail, risk_flags = scorer.score_valuation(context)
+            score, score_detail, risk_flags = scorer.score_valuation(scoring_context)
+            if score is not None and (pe_pct is None or pb_pct is None):
+                score_detail += "；PE/PB 历史分位未齐，仅按已验证的有效子项计分；原历史数据覆盖限制保留"
             industry_note = scorer._industry_note() if hasattr(scorer, '_industry_note') else ""
             partial_status = "partial" if (context.sufficiency and context.sufficiency.valuation.level == SufficiencyLevel.PARTIAL) else status
             return AnalysisResult(dimension=self.dimension, status=partial_status, summary=summary,
@@ -110,4 +122,7 @@ class ValuationAnalyzer(AnalysisModule):
         if pct is not None:
             subject = "PE曲线参照值" if historical_reference else "PE"
             parts.append(f"{subject}处于历史{pct:.2f}%分位")
+        premium = metrics.get("target_pe_premium")
+        if premium is not None:
+            parts.append(f"同源同行 PE 溢价 {premium:.2f}%")
         return "；".join(parts) if parts else "估值数据不足"

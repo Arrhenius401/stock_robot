@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import MagicMock
 
 from core.pipeline import Pipeline
@@ -365,7 +365,9 @@ class TestCacheHealth:
             sufficiency=DataSufficiency(),
         ))
         assert enriched.sufficiency is not None
-        assert "过期缓存兜底" in enriched.sufficiency.sentiment.reason
+        assert "缓存仅作参考" in enriched.sufficiency.sentiment.reason
+        assert enriched.enriched_sentiment is not None
+        assert enriched.enriched_sentiment.risk_score is None
 
     def test_cache_served_when_breaker_open(self, tmp_path, mocker):
         """断路器打开时，collect 仍从本地缓存返回健康数据"""
@@ -434,9 +436,9 @@ class TestPipelineIndustryIntegration:
                 return financials
             if data_type == "price":
                 return [PriceData(
-                    symbol=symbol, trade_date=date(2026, 8, 27), open=10,
-                    high=11, low=9.5, close=10.5, volume=1_000_000,
-                )]
+                    symbol=symbol, trade_date=date(2026, 7, 1) + timedelta(days=i), open=10 + i / 10,
+                    high=11 + i / 10, low=9.5 + i / 10, close=10.5 + i / 10, volume=1_000_000,
+                ) for i in range(60)]
             if data_type == "valuation":
                 return [ValuationData(
                     symbol=symbol, date=date(2026, 8, 27), pe_ttm=7.5, pb=0.85,

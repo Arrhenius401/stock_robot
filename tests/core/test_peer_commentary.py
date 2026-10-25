@@ -41,7 +41,7 @@ def test_actual_prompt_keeps_comparison_units_and_industry_availability(tmp_path
     comparison = _comparison()
     original = deepcopy(comparison)
     industry = AnalysisResult(dimension="industry", status=status, score=None,
-        summary="2025全年ROE12.50%，营收同比-3.00%", score_detail="同行对比不独立计分",
+        summary="2025全年ROE12.50%，营收同比-3.00%", score_detail="有效指标不足，暂无行业分",
         metrics={"peer_count": 5, "comparison": comparison})
     financial = AnalysisResult(dimension="financial", status="ok", score=8 if market == "a-shares" else None,
         summary="财务快照", metrics={"roe": 0.125, "revenue": 3000000})
@@ -68,7 +68,7 @@ def test_actual_prompt_keeps_comparison_units_and_industry_availability(tmp_path
     assert "1250" not in prompt and "-300" not in prompt
     assert facts[1]["summary"] == industry.summary
     assert comparison == original
-    assert "行业对比不单独计分" in prompt
+    assert "行业分只采用已提供的同期经营比较计算结果" in prompt
     if market == "a-shares":
         covered = prompt.split("已覆盖维度：", 1)[1].splitlines()[0]
         missing = prompt.split("缺失维度：", 1)[1].splitlines()[0]
@@ -77,5 +77,5 @@ def test_actual_prompt_keeps_comparison_units_and_industry_availability(tmp_path
         section = prompt.split("### 行业对比", 1)[1].split("### 舆情风险", 1)[0]
         if status != "unavailable":
             assert "数据不足，跳过此维度" not in section
-            assert "不计分" in section
+            assert "暂无评分" in section
             assert industry.summary in section

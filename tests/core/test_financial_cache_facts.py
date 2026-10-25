@@ -183,7 +183,9 @@ def test_sufficient_backup_history_keeps_primary_failure_in_report_and_cache(tmp
         assert ctx.collection_records["price"].cache_status == expected_cache_status
         quality = build_data_quality(ctx, [result])
         dimension = next(item for item in quality["dimensions"] if item["key"] == "technical")
-        assert any(field["label"] == "采集限制" and "腾讯港股行情（不复权）：数据请求超时" in field["value"]
+        assert dimension["status"] == "partial"
+        assert any(field["label"] == "数据来源" and "东方财富港股行情" in field["value"] for field in dimension["fields"])
+        assert any(field["label"] == "分析限制" and "腾讯港股行情（不复权）：数据请求超时" in field["value"]
                    for field in dimension["fields"])
         assert "不能进入报告的原始地址" not in str(quality)
     assert calls == ["primary", "backup"]

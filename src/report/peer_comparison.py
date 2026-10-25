@@ -61,9 +61,11 @@ def _block(block: dict[str, Any], *, operating: bool = False) -> list[str]:
     return lines
 
 
-def format_peer_comparison_markdown(comparison: dict[str, Any]) -> str:
+def format_peer_comparison_markdown(comparison: dict[str, Any], scoring_method: str | None = None) -> str:
     """下载与推送展示估值、两期经营汇总和来源，不展开同行明细。"""
-    lines = ["> 行业对比不计分。", "", f"同行范围：{_text(comparison.get('scope'))}；同行总数：{comparison.get('peer_count', 0)} 家。",
+    lines = (["> 行业评分仅采用同期经营指标；估值对比在估值维度使用。"]
+             if scoring_method == "five-dimension-v1" else ["> 行业对比不计分。"])
+    lines += ["", f"同行范围：{_text(comparison.get('scope'))}；同行总数：{comparison.get('peer_count', 0)} 家。",
              "", "#### 估值对比", ""]
     lines += _block(comparison.get("valuation") or {})
     periods = comparison.get("periods") or {}

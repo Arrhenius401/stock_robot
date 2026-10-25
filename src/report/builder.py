@@ -9,6 +9,7 @@ from report.formatter import (
     format_hk_news_markdown,
     format_metric_value,
     format_metrics,
+    format_sentiment_risk_markdown,
     metric_display_name,
 )
 from report.peer_comparison import format_peer_comparison_markdown
@@ -123,6 +124,7 @@ class ReportBuilder:
         )
         self._env.filters["md_table"] = _md_table
         self._env.filters["hk_news_markdown"] = format_hk_news_markdown
+        self._env.filters["sentiment_risk_markdown"] = format_sentiment_risk_markdown
         self._env.filters["peer_comparison_markdown"] = format_peer_comparison_markdown
         self._env.filters["metric_value"] = lambda value, key: format_metric_value(key, value)
         from report.formatter import risk_display_name
@@ -139,7 +141,8 @@ class ReportBuilder:
               signal: dict | None = None,
               data_quality: dict | None = None,
               price_start: str | None = None, price_end: str | None = None,
-              market: str = "A 股", valuation_display: dict | None = None) -> str:
+              market: str = "A 股", valuation_display: dict | None = None,
+              scoring_method: str | None = None) -> str:
         results_map = {r.dimension: r for r in results}
         if market == "港股" and "financial" in results_map:
             financial = results_map["financial"]
@@ -152,6 +155,7 @@ class ReportBuilder:
             symbol=symbol,
             name=name,
             market=market,
+            scoring_method=scoring_method,
             generated_at=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
             no_llm=no_llm,
             industry=industry,

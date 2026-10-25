@@ -18,9 +18,9 @@ def valuation_evidence(ctx: AnalysisContext) -> tuple[float | None, float | None
         pb_pct = (ev.pb_percentile if ev and pb_summary and pb_summary.source
                   and pb_summary.sample_count >= 120 and is_positive_finite(pb_summary.reference)
                   and is_valid_percentile(ev.pb_percentile) else None)
-        return pe_pct, pb_pct, None
-    pe_pct = ev.pe_percentile if pe_ok and ev and is_valid_percentile(ev.pe_percentile) else None
-    pb_pct = ev.pb_percentile if pb_ok and ev and is_valid_percentile(ev.pb_percentile) else None
+    else:
+        pe_pct = ev.pe_percentile if pe_ok and ev and is_valid_percentile(ev.pe_percentile) else None
+        pb_pct = ev.pb_percentile if pb_ok and ev and is_valid_percentile(ev.pb_percentile) else None
     comparison = getattr(ei, "comparison", {}) if ei else {}
     if comparison:
         premium = None
@@ -31,10 +31,8 @@ def valuation_evidence(ctx: AnalysisContext) -> tuple[float | None, float | None
             count = metric.get("sample_count")
             if (metric.get("status") == "ok" and is_finite_number(count) and count >= 5
                     and is_positive_finite(target) and is_positive_finite(median)):
-                calculated = (target / median - 1) * 100
+                calculated = (target - median) / median * 100
                 premium = calculated if is_finite_number(calculated) else None
             break
         return pe_pct, pb_pct, premium
-    premium = (ei.target_pe_premium if pe_ok and ei and is_positive_finite(ei.industry_median_pe)
-               and is_finite_number(ei.target_pe_premium) else None)
-    return pe_pct, pb_pct, premium
+    return pe_pct, pb_pct, None

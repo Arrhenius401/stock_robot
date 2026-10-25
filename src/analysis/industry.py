@@ -2,6 +2,7 @@
 from typing import Any, Literal
 
 from analysis.base import AnalysisModule
+from analysis.industry_scoring import score_industry_comparison
 from data.hk_hsics_industry import (
     HsicsIndustryError,
     load_connect_symbols,
@@ -76,6 +77,14 @@ class IndustryAnalyzer(AnalysisModule):
         comparison = getattr(enriched, "comparison", {}) if enriched is not None else {}
         if comparison:
             metrics["comparison"] = comparison
+            score, score_detail, score_basis = score_industry_comparison(comparison)
+            metrics["industry_scoring"] = score_basis
+            return AnalysisResult(
+                dimension=self.dimension, status=self._comparison_status(comparison),
+                summary=f"恒生二级：{ind_data.industry}（{ind_data.sector}）", metrics=metrics,
+                score=score, score_detail=score_detail,
+                industry_note="分类口径：恒生HSICS二级（东财F10转载；HSCI PDF校验）",
+            )
         enough = (
             enriched is not None and enriched.peer_count >= 5
             and (enriched.industry_median_pe is not None
@@ -139,9 +148,11 @@ class IndustryAnalyzer(AnalysisModule):
             })
         if comparison:
             metrics["comparison"] = comparison
+            score, score_detail, score_basis = score_industry_comparison(comparison)
+            metrics["industry_scoring"] = score_basis
             return AnalysisResult(
                 dimension=self.dimension, status=self._comparison_status(comparison),
-                summary=summary, metrics=metrics, score=None, score_detail="行业对比不计分",
+                summary=summary, metrics=metrics, score=score, score_detail=score_detail,
             )
 
         if context.sufficiency and context.sufficiency.industry.level == SufficiencyLevel.INSUFFICIENT:

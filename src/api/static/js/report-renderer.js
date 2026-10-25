@@ -373,14 +373,27 @@ function reportHeader(report) {
   return header;
 }
 
+function fiveDimension(report) {
+  return report.scoring_method === "five-dimension-v1";
+}
+
+function legacyHk(report) {
+  return report.market === "hk" && !fiveDimension(report);
+}
+
 function investmentSummary(report) {
   const overview = record(report.overview);
   const signal = record(report.signal);
   const quality = record(report.data_quality);
-  if (report.market === "hk") {
+  if (legacyHk(report)) {
     return quality.has_analysis_data
       ? "依据可用港股指标进行观察；A 股综合评分与交易信号不适用；行业对比使用恒生 HSICS 二级口径。"
       : "主要分析数据不可用，暂无分析结论；港股不适用 A 股综合评分或交易信号。";
+  }
+  if (report.market === "hk" && fiveDimension(report)) {
+    return quality.has_analysis_data === false
+      ? "主要分析数据不可用，暂无分析结论。本期港股不提供交易信号或仓位建议。"
+      : "依据可用港股指标进行五维评分；行业对比使用恒生 HSICS 口径。本期港股不提供交易信号或仓位建议。";
   }
   if (quality.signal_allowed === false) {
     return quality.status === "unavailable"
@@ -410,9 +423,9 @@ function summarySection(report, sectionIdPrefix) {
   const quality = record(report.data_quality);
   if (quality.status) {
     const badge = statusBadge(quality.status);
-    badge.textContent = (report.market === "hk"
+    badge.textContent = (legacyHk(report)
       ? {ok: "分析数据可用 · 评分不适用", partial: "部分分析数据可用 · 评分不适用", unavailable: "数据不可用 · 暂无结论"}
-      : {ok: "数据完整", partial: "数据不完整 · 暂无操作信号", unavailable: "数据不可用 · 暂无结论"})[quality.status] || "数据状态未记录";
+      : {ok: "数据完整", partial: "数据不完整", unavailable: "数据不可用 · 暂无结论"})[quality.status] || "数据状态未记录";
     card.appendChild(badge);
   }
   card.appendChild(markdownBlock(investmentSummary(report), "report-investment-summary md"));
@@ -440,11 +453,12 @@ function summarySection(report, sectionIdPrefix) {
   const meta = el("div", "report-summary-meta");
   if (report.generated_at) meta.appendChild(el("span", "", `生成时间：${readable(report.generated_at)}`));
   if (Number.isFinite(quality.coverage)) {
-    const coverage = report.market === "hk" && Number.isInteger(quality.available_dimensions)
+    const coverage = legacyHk(report) && Number.isInteger(quality.available_dimensions)
       ? `可用维度覆盖：${quality.available_dimensions}/${quality.applicable_dimensions}（${quality.coverage}%），不代表字段完整`
-      : `${report.market === "hk" ? "分析数据覆盖" : "计分数据覆盖"}：${quality.coverage}%`;
+      : `${legacyHk(report) ? "分析数据覆盖" : "计分数据覆盖"}：${quality.coverage}%`;
     meta.appendChild(el("span", "", coverage));
   }
+  if (fiveDimension(report) && quality.coverage_basis) meta.appendChild(el("span", "", quality.coverage_basis));
   if (meta.children.length) card.appendChild(meta);
   if (report.market === "hk") card.appendChild(el("div", "report-empty", "财务金额按各表原币展示，未换汇；不与港币行情混算历史估值。"));
   return card;
@@ -452,7 +466,7 @@ function summarySection(report, sectionIdPrefix) {
 
 function scoreSection(report, sectionIdPrefix) {
   const card = section("report-score", "综合评分", "panel", sectionIdPrefix);
-  if (report.market === "hk") {
+  if (legacyHk(report)) {
     card.appendChild(el("div", "report-empty", "不适用：港股不套用 A 股综合评分或交易信号；行业对比使用恒生 HSICS 口径。"));
     return card;
   }
@@ -472,17 +486,28 @@ function scoreSection(report, sectionIdPrefix) {
     const row = el("div", "score-row");
     row.appendChild(el("span", "lb", readable(rowData.label)));
     row.appendChild(el("span", "v", scoreText(rowData.score)));
-    row.appendChild(priceBar(Number(rowData.score) * 10));
+    const valid = scoreText(rowData.score, "") !== "";
+    row.appendChild(priceBar(valid ? Number(rowData.score) * 10 : 0));
+    if (fiveDimension(report) && !valid) row.classList.add("score-row-missing");
     row.appendChild(el("span", "wt", readable(rowData.weight, "")));
     rows.appendChild(row);
   }
-  if (score.risk_deduction) {
+  if (!fiveDimension(report) && score.risk_deduction) {
     rows.appendChild(el("div", "score-note",
       `风险扣分: -${scoreText(score.risk_deduction)}`));
   }
   if (!rows.children.length) rows.appendChild(el("div", "report-empty", "暂无评分明细"));
   big.appendChild(rows);
   card.appendChild(big);
+  if (fiveDimension(report)) {
+    card.appendChild(el("p", "report-score-detail", "五维计分 · 舆情列为综合参与分（10−原风险分）。风险标签仅作提示，不额外扣分。"));
+    const available = (report.score_rows || []).filter(row => scoreText(row.score, "") !== "");
+    if (available.length < 5) card.appendChild(el("p", "report-score-detail",
+      score.final == null ? "主要分析数据不足；仅有舆情数据时不输出综合分。缺失项目不记零分。" : "缺失项目不记零分，其余项目按原比例折算。"));
+    for (const row of report.score_rows || []) {
+      if (row.detail) card.appendChild(el("p", "report-score-detail", `${readable(row.label)}：${row.detail}`));
+    }
+  }
   return card;
 }
 
@@ -547,7 +572,7 @@ function comparisonBlock(block, operating = false) {
   return result;
 }
 
-function industryComparisonSection(dimension, sectionIdPrefix) {
+function industryComparisonSection(dimension, sectionIdPrefix, newScoring = false) {
   const comparison = record(record(dimension.metrics).comparison);
   const card = section("report-industry", "行业对比", "panel peer-comparison", sectionIdPrefix);
   const header = el("div", "dim-head report-dimension-heading");
@@ -555,8 +580,14 @@ function industryComparisonSection(dimension, sectionIdPrefix) {
   title.remove();
   header.appendChild(title);
   header.appendChild(statusBadge(dimension.status));
-  header.appendChild(el("span", "dim-score", "不计分"));
+  const value = el("span", "dim-score", newScoring ? scoreText(dimension.score, "暂无评分") : "不计分");
+  if (newScoring) value.setAttribute("aria-label", "行业得分");
+  header.appendChild(value);
   card.appendChild(header);
+  if (newScoring) {
+    card.appendChild(el("p", "report-score-detail", `评分依据：${dimension.score_detail || dimension.summary || "同期经营数据不足，暂无行业评分"}`));
+    card.appendChild(el("p", "peer-caption", "行业评分仅采用同期经营指标；估值对比在估值维度使用。"));
+  }
   card.appendChild(el("p", "peer-caption", `同行范围：${readable(comparison.scope, "未记录")} · 同行总数：${comparison.peer_count ?? 0} 家`));
   for (const note of [...(Array.isArray(comparison.errors) ? comparison.errors : []), ...(Array.isArray(comparison.notes) ? comparison.notes : [])]) {
     card.appendChild(el("p", "peer-caption", note));
@@ -620,9 +651,9 @@ function industryComparisonSection(dimension, sectionIdPrefix) {
   return card;
 }
 
-function dimensionSection(name, label, data, sectionIdPrefix, unscored = false, applicable = true) {
+function dimensionSection(name, label, data, sectionIdPrefix, unscored = false, applicable = true, newScoring = false) {
   if (name === "industry" && Object.keys(record(record(record(data).metrics).comparison)).length) {
-    return industryComparisonSection(record(data), sectionIdPrefix);
+    return industryComparisonSection(record(data), sectionIdPrefix, newScoring);
   }
   const card = section(`report-${name}`, label, "panel", sectionIdPrefix);
   if (!applicable) {
@@ -640,10 +671,10 @@ function dimensionSection(name, label, data, sectionIdPrefix, unscored = false, 
   title.remove();
   header.appendChild(title);
   header.appendChild(statusBadge(dimension.status));
-  header.appendChild(el("span", "dim-score", name === "industry" ? "不计分" : unscored ? "评分不适用" : scoreText(dimension.score, "暂无评分")));
+  header.appendChild(el("span", "dim-score", name === "industry" && !newScoring ? "不计分" : unscored ? "评分不适用" : scoreText(dimension.score, "暂无评分")));
   card.appendChild(header);
   card.appendChild(markdownBlock(naturalText(dimension.display?.summary ?? dimension.summary), "dim-sum md"));
-  if (!unscored && name !== "industry" && naturalText(dimension.score_detail)) {
+  if (!unscored && (name !== "industry" || newScoring) && naturalText(dimension.score_detail)) {
     card.appendChild(el("div", "report-score-detail", `评分依据：${naturalText(dimension.score_detail)}`));
   }
 
@@ -689,6 +720,68 @@ function hkNewsSection(data, sectionIdPrefix) {
   const grid = el("div", "mtr");
   appendListMetric(grid, "headlines", rows);
   card.appendChild(grid);
+  return card;
+}
+
+function safeNewsUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return ["http:", "https:"].includes(url.protocol) ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function sentimentRiskSection(data, sectionIdPrefix) {
+  const card = section("report-sentiment", "舆情风险", "panel sentiment-risk", sectionIdPrefix);
+  const dimension = record(data), metrics = record(dimension.metrics);
+  const risk = scoreText(metrics.risk_score, "无法评估");
+  const heading = el("div", "dim-head report-dimension-heading");
+  const title = card.children[0];
+  title.remove();
+  heading.appendChild(title);
+  heading.appendChild(el("span", "sentiment-risk-value", `${risk}${risk === "无法评估" ? "" : " /10"} · 越高风险越大`));
+  card.appendChild(heading);
+  card.appendChild(el("p", "peer-caption", `评估窗口：${readable(metrics.window_start, "未记录")} 至 ${readable(metrics.window_end, "未记录")} · 已评估${metrics.evaluated_count ?? 0}条`));
+  if (metrics.assessment_reason || dimension.summary) card.appendChild(el("p", "dim-sum", metrics.assessment_reason || dimension.summary));
+  if (metrics.risk_score === 0) card.appendChild(el("p", "dim-sum", "本次有效样本未识别到负面，不代表全市场无风险。"));
+  const participation = scoreText(metrics.participation_score, "");
+  card.appendChild(el("p", "report-score-detail", participation ? `综合参与分 ${participation} /10 · 权重5%` : "舆情暂不参与综合评分"));
+  const disclaimer = metrics.news_disclaimer && !/不作AI筛选或情绪评分|不进行模型或评分/.test(metrics.news_disclaimer)
+    ? metrics.news_disclaimer : "本次限量样本，不保证完整覆盖；风险依据仅来自已取得内容。";
+  card.appendChild(el("p", "peer-caption", disclaimer));
+  const assessed = Array.isArray(metrics.all_items) ? metrics.all_items.map(record) : [];
+  const news = Array.isArray(metrics.news_items) ? metrics.news_items.map(record) : [];
+  const identity = item => JSON.stringify([item.title || "", String(item.publish_date || item.published_at || "").slice(0, 10)]);
+  const byId = new Map(assessed.filter(item => item.item_id).map(item => [item.item_id, item]));
+  const byDateTitle = new Map(assessed.map(item => [identity(item), item]));
+  const identities = new Set(news.map(identity));
+  const items = news.length ? [...news.map(item => ({...(byId.get(item.item_id) || byDateTitle.get(identity(item))), ...item})),
+    ...assessed.filter(item => !identities.has(identity(item)))] : assessed;
+  if (items.length) card.appendChild(el("h3", "peer-subtitle", "采集样本与来源"));
+  const list = el("ul", "report-metric-list sentiment-source-list");
+  for (const item of items.slice(0, 30)) {
+    const row = el("li");
+    const state = item.related === false ? "与目标无直接关联" : item.assessable === false ? "不可评估"
+      : item.related === true && item.assessable === true ? "有效相关样本" : "标注状态未记录";
+    row.appendChild(el("span", "", `${readable(item.title, "未记录标题")}（${readable(item.publish_date || item.published_at, "日期未记录")}）`));
+    const links = Array.isArray(item.links) && item.links.length ? item.links : [{url: item.url, media: item.media || item.source}];
+    for (const link of links) {
+      const url = safeNewsUrl(link.url);
+      const label = readable(link.media, "来源未标注");
+      if (url) {
+        const source = el("a", "sentiment-source-link", label);
+        source.setAttribute("href", url);
+        source.setAttribute("target", "_blank");
+        source.setAttribute("rel", "noopener noreferrer");
+        row.appendChild(source);
+      } else row.appendChild(el("span", "peer-caption", ` · ${label}`));
+    }
+    row.appendChild(el("span", "peer-caption", ` · ${state}`));
+    if (item.evidence) row.appendChild(el("div", "peer-caption", `依据：${item.evidence}`));
+    list.appendChild(row);
+  }
+  if (list.children.length) card.appendChild(list);
   return card;
 }
 
@@ -868,12 +961,16 @@ export function renderStockReport(report, options = {}) {
   const dimensions = record(data.dimensions);
   const applicability = Array.isArray(data.data_quality?.dimensions) ? data.data_quality.dimensions : [];
   for (const [name, label] of DIMENSIONS) {
+    if (fiveDimension(data) && name === "sentiment") {
+      article.appendChild(sentimentRiskSection(dimensions[name], sectionIdPrefix));
+      continue;
+    }
     if (data.market === "hk" && name === "sentiment") {
       article.appendChild(hkNewsSection(dimensions[name], sectionIdPrefix));
       continue;
     }
     const applicable = applicability.find(item => item.key === name)?.applicable !== false;
-    article.appendChild(dimensionSection(name, label, dimensions[name], sectionIdPrefix, data.market === "hk", applicable));
+    article.appendChild(dimensionSection(name, label, dimensions[name], sectionIdPrefix, legacyHk(data), applicable, fiveDimension(data)));
   }
   article.appendChild(risksSection(data, sectionIdPrefix));
   article.appendChild(commentarySection(data, sectionIdPrefix, options));

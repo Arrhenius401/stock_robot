@@ -16,14 +16,36 @@ from data.schemas import (
 from report.commentary import CommentaryContext, CommentaryStore, commentary_store
 
 
-def test_payload_does_not_trust_score_when_no_quality():
+def test_payload_keeps_valid_score_independent_of_original_quality_but_blocks_signal():
     from report.payload import build_stock_payload
     ctx = AnalysisContext(symbol="000001", name="样本")
     results = [AnalysisResult(dimension="financial", status="ok", summary="财务", score=8)]
     payload = build_stock_payload(ctx.symbol, ctx.name, results, {"bulk": "AI"}, ctx)
-    assert payload["score"]["base"] is None
-    assert payload["score"]["final"] is None
+    assert payload["score"]["base"] == 8
+    assert payload["score"]["final"] == 8
+    assert payload["commentary_status"] == "ok"
+    quality = payload["data_quality"]
+    assert quality["has_scored_data"] and quality["has_analysis_data"]
+    assert quality["status"] == "partial" and quality["coverage"] == 0
+    assert not quality["signal_allowed"] and payload["signal"] is None
+    assert any("财务：数据截止未记录" in item for item in quality["pending_verifications"])
+
+
+@pytest.mark.parametrize("residual_score", [None, 8])
+def test_actual_empty_financial_analysis_and_unavailable_residual_never_get_score(residual_score):
+    from analysis.financial import FinancialAnalyzer
+    from report.payload import build_stock_payload
+
+    ctx = AnalysisContext(symbol="000001", name="样本")
+    result = FinancialAnalyzer().analyze(ctx)
+    assert result.status == "unavailable" and result.score is None
+    if residual_score is not None:
+        result = result.model_copy(update={"score": residual_score})
+    payload = build_stock_payload(ctx.symbol, ctx.name, [result], {"bulk": "AI"}, ctx)
+    assert payload["score"]["base"] is None and payload["score"]["final"] is None
     assert payload["commentary_status"] == "insufficient"
+    assert not payload["data_quality"]["has_scored_data"]
+    assert payload["signal"] is None
 
 
 @pytest.mark.parametrize("bulk", ["", "（LLM 分析暂时不可用：超时）", "AI 解读不可用"])

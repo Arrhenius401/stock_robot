@@ -32,14 +32,14 @@ def _ctx(pe: float | None = 20, pb: float | None = 2,
 
 
 @pytest.mark.parametrize(("scorer_type", "industry", "pe_pct", "pb_pct", "expected"), [
-    (GeneralScorer, "家用电器", 50, 50, 6.7),
-    (BankScorer, "银行", 30, 30, 6.7),
-    (CyclicalScorer, "煤炭", 85, 50, 8.3),
+    (GeneralScorer, "家用电器", 50, 50, 20 / 3),
+    (BankScorer, "银行", 30, 30, 20 / 3),
+    (CyclicalScorer, "煤炭", 85, 50, 25 / 3),
 ])
 def test_missing_peer_premium_redistributes_only_available_items(scorer_type, industry, pe_pct, pb_pct, expected):
     config = ConfigLoader(CONFIG_DIR).load(industry)
     score, detail, _ = scorer_type(config, {}).score_valuation(_ctx(pe_pct=pe_pct, pb_pct=pb_pct))
-    assert score == expected
+    assert score == pytest.approx(expected)
     assert "折算" in detail
     assert "不计分" in detail
 
@@ -53,7 +53,7 @@ def test_only_pb_full_score_scales_to_ten(scorer_type, industry):
 def test_valid_zero_score_remains_in_denominator():
     config = ConfigLoader(CONFIG_DIR).load("家用电器")
     score, _, _ = GeneralScorer(config, {}).score_valuation(_ctx(pe_pct=99, pb_pct=10))
-    assert score == 3.3
+    assert score == pytest.approx(10 / 3)
 
 
 def test_disabled_subitem_is_not_in_denominator():

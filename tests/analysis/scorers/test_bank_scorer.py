@@ -28,6 +28,8 @@ class TestBankScorer:
     def ctx(self):
         return AnalysisContext(
             symbol="000001", name="平安银行", sw_industry="银行", style_category="大金融",
+            financial_scoring_facts={"annual_roe": {"value": .12, "period_start": "2025-01-01",
+                "period_end": "2025-12-31", "source": "同源财报", "basis": "加权ROE", "reason": ""}},
             financial_data=[
                 FinancialData(symbol="000001", fiscal_quarter=date(2025, 12, 31),
                               revenue=45e9, net_profit=8.5e9, total_assets=500e9,
@@ -47,7 +49,7 @@ class TestBankScorer:
         scorer = BankScorer(config, {})
         score, detail, _ = scorer.score_valuation(ctx)
         assert score is not None
-        assert score > 0
+        assert score is not None and score > 0
         assert "PB" in detail
 
     def test_industry_note_not_empty(self, config):
@@ -59,7 +61,7 @@ class TestBankScorer:
     def test_bank_roe_12pct_gets_score(self, config, ctx):
         scorer = BankScorer(config, {})
         score, detail, _ = scorer.score_financial(ctx)
-        assert score > 0
+        assert score is not None and score > 0
         assert "ROE 12.00%" in detail
 
     def test_bank_gross_margin_skipped(self, config, ctx):

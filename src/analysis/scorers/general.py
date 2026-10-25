@@ -1,9 +1,16 @@
 """通用计分器 — 纯 YAML 驱动，无硬编码阈值"""
+from analysis.financial_scoring import (
+    cashflow_compatible,
+    debt_ratio,
+    gross_margin_periods,
+    trusted_rows,
+)
 from analysis.scorers.base import BaseScorer
 from analysis.technical_indicators import calculate_macd, moving_average, volume_ratio
 from analysis.valuation_rules import valuation_evidence
+from data.financial_scoring_facts import annual_roe_fact
 from data.schemas import AnalysisContext
-from utils.numbers import is_positive_finite
+from utils.numbers import is_finite_number, is_positive_finite
 
 
 class GeneralScorer(BaseScorer):
@@ -35,85 +42,104 @@ class GeneralScorer(BaseScorer):
         return method(context)
 
     # —— 财务维度 ——
-    def score_financial(self, ctx: AnalysisContext) -> tuple[float, str, list[str]]:
+    def score_financial(self, ctx: AnalysisContext) -> tuple[float | None, str, list[str]]:
         cfg = self.config.get("financial", {})
+        self.financial_score_basis = {"available_max": 0.0, "eligible_max": 0.0, "reasons": []}
         if not cfg.get("enabled", True):
-            return 0.0, "财务维度已禁用", []
-        financials = ctx.financial_data or []
-        if not financials:
-            return 0.0, "财务数据不可用", []
-        sorted_data = sorted(financials, key=lambda x: x.fiscal_quarter, reverse=True)
-        latest = sorted_data[0]
-
-        total = 0.0
-        details = []
-        risks = []
-
-        # ROE
-        roe_cfg = cfg.get("roe", {})
-        if roe_cfg.get("enabled", True) and not roe_cfg.get("use_custom_calc"):
-            s, _ = self._tier_score(latest.roe, roe_cfg.get("tiers", []))
-            max_s = roe_cfg.get("max_score", 3)
-            total += s
-            label = f"{latest.roe*100:.2f}%" if latest.roe is not None else "缺失"
-            details.append(f"ROE {label}，得 {s}/{max_s} 分")
-            if (latest.roe is not None and latest.roe < 0
-                    and roe_cfg.get("extra_config", {}).get("negative_to_zero")):
-                risks.append("roe_low")
-
-        # 资产负债率
-        debt_cfg = cfg.get("debt_ratio", {})
-        if debt_cfg.get("enabled", True) and not debt_cfg.get("use_custom_calc"):
-            asset_liability = None
-            if latest.total_assets and latest.total_equity and latest.total_equity > 0:
-                asset_liability = (1 - latest.total_equity / latest.total_assets) * 100
-            s, _ = self._range_score(asset_liability, debt_cfg.get("tiers", []))
-            max_s = debt_cfg.get("max_score", 2)
-            total += s
-            label = f"{asset_liability:.2f}%" if asset_liability is not None else "缺失"
-            details.append(f"资产负债率 {label}，得 {s}/{max_s} 分")
-            extreme = debt_cfg.get("extra_config", {}).get("extreme_threshold", 90)
-            if asset_liability is not None and asset_liability > extreme:
-                risks.append("high_debt")
-
-        # 经营现金流匹配
-        cf_cfg = cfg.get("cashflow_match", {})
-        if cf_cfg.get("enabled", True):
-            np_val = latest.net_profit
-            ocf = latest.operating_cash_flow
-            neg_zero = cf_cfg.get("extra_config", {}).get("negative_profit_zero")
-            if np_val is not None and np_val <= 0 and neg_zero:
-                details.append("净利润为负，现金流匹配 0 分")
-                risks.append("cash_flow_mismatch")
-            elif ocf is not None and np_val is not None and np_val > 0:
-                ratio = ocf / np_val
-                s, _ = self._tier_score(ratio, cf_cfg.get("tiers", []))
-                max_s = cf_cfg.get("max_score", 3)
-                total += s
-                details.append(f"经营现金流/净利润 {ratio:.2f}，得 {s}/{max_s} 分")
-                if ratio < 0.5:
-                    risks.append("cash_flow_mismatch")
-
-        # 毛利率稳定性
-        gm_cfg = cfg.get("gross_margin_stability", {})
-        if gm_cfg.get("enabled", True):
-            gms = [d.gross_margin for d in sorted_data[:4] if d.gross_margin is not None]
-            if gms:
-                if any(g < 0 for g in gms) and gm_cfg.get("extra_config", {}).get("negative_gm_zero"):
-                    details.append("存在负毛利率，得 0 分")
+            return None, "财务维度已禁用", []
+        rows = trusted_rows(ctx)
+        if not rows:
+            return None, "财务数据不可用或期间冲突", []
+        latest = rows[0]
+        total, available, eligible = 0.0, 0.0, 0.0
+        details: list[str] = []
+        risks: list[str] = []
+        reasons: list[str] = []
+        fact = annual_roe_fact(ctx)
+        gms = gross_margin_periods(rows)
+        financial_sector = self.config.get("meta", {}).get("strategy_key") in ("BankScorer", "NonBankFinancialScorer")
+        for key, label, default_max in (("roe", "年度 ROE", 3), ("debt_ratio", "资产负债率", 2),
+                                        ("cashflow_match", "经营现金流/净利润", 3),
+                                        ("gross_margin_stability", "毛利率稳定性", 2)):
+            item = cfg.get(key, {})
+            if not item.get("enabled", True):
+                continue
+            if financial_sector and key in ("debt_ratio", "gross_margin_stability"):
+                details.append(f"{label}通用口径不适用于银行/保险等金融业，已跳过；专项数据待接入")
+                continue
+            maximum = item.get("max_score", default_max)
+            if not is_positive_finite(maximum):
+                reasons.append(f"{label}最大分无效，已跳过")
+                continue
+            eligible += maximum
+            value, reason, score = None, "", 0.0
+            if item.get("use_custom_calc"):
+                reason = "专项指标接口未接入"
+            elif key == "roe":
+                value = fact["value"]
+                reason = fact.get("reason", "")
+                if value is not None:
+                    score, _ = self._tier_score(value, item.get("tiers", []))
+                    label += (f" {value*100:.2f}%（{fact['period_start']} 至 {fact['period_end']}；"
+                              f"{fact['source']}；{fact['basis']}）")
+                    if value < 0 and item.get("extra_config", {}).get("negative_to_zero"):
+                        risks.append("roe_low")
+            elif key == "debt_ratio":
+                value = debt_ratio(latest)
+                if value is not None:
+                    score, _ = self._range_score(value, item.get("tiers", []))
+                    label += f" {value:.2f}%（{latest.fiscal_quarter}）"
+                    if value > item.get("extra_config", {}).get("extreme_threshold", 90):
+                        risks.append("high_debt")
                 else:
-                    gm_range = max(gms) - min(gms) if len(gms) >= 2 else 0
-                    s = 0
-                    for tier in gm_cfg.get("tiers", []):
-                        max_vol = tier.get("max_vol_pp", float("inf"))
-                        if gm_range * 100 <= max_vol:
-                            s = tier["score"]
-                            break
-                    max_s = gm_cfg.get("max_score", 2)
-                    total += s
-                    details.append(f"近4期毛利率波动 {gm_range*100:.2f}pp，得 {s}/{max_s} 分")
-
-        return round(total, 1), "；".join(details), risks
+                    reason = "最新资产/权益来源或同口径证据不足"
+            elif key == "cashflow_match":
+                if cashflow_compatible(latest):
+                    profit, cash = latest.net_profit, latest.operating_cash_flow
+                    if profit is not None and cash is not None and profit > 0:
+                        value = cash / profit
+                        if not is_finite_number(value):
+                            value = None
+                        else:
+                            score, _ = self._tier_score(value, item.get("tiers", []))
+                            label += f" {value:.2f}（{latest.period_start} 至 {latest.fiscal_quarter}，{latest.report_currency}，{latest.cash_flow_basis}）"
+                            if value < 0.5:
+                                risks.append("cash_flow_mismatch")
+                    elif item.get("extra_config", {}).get("negative_profit_zero"):
+                        value = 0.0
+                        label += " 净利润非正"
+                        risks.append("cash_flow_mismatch")
+                    else:
+                        reason = "净利润非正，比例不适用"
+                else:
+                    reason = "现金流与利润缺少同起止期、同币种或来源证据"
+            elif len(gms) >= 2:
+                value = (max(gms) - min(gms)) * 100
+                if not is_finite_number(value):
+                    value = None
+                else:
+                    if not (any(g < 0 for g in gms) and item.get("extra_config", {}).get("negative_gm_zero")):
+                        for tier in item.get("tiers", []):
+                            if value <= tier.get("max_vol_pp", float("inf")):
+                                score = tier["score"]
+                                break
+                    label += f" 最近{len(gms)}期同类型同口径波动 {value:.2f}pp"
+            else:
+                reason = "同类型同口径毛利率不足两期"
+            if value is None:
+                missing = f"{label}：{reason or '数据无效'}，不计分"
+                details.append(missing)
+                reasons.append(missing)
+                continue
+            total += score
+            available += maximum
+            details.append(f"{label}，得 {score}/{maximum} 分")
+        self.financial_score_basis = {"available_max": available, "eligible_max": eligible, "reasons": reasons}
+        if not available:
+            return None, "；".join([*details, "没有可用财务计分子项，不计分"]), risks
+        normalized = total / available * 10
+        details.append(f"有效子项 {total:.2f}/{available:.2f} 分，按原相对权重折算为 {normalized:.1f}/10")
+        return normalized, "；".join(details), risks
 
     # —— 估值维度 ——
     def score_valuation(self, ctx: AnalysisContext) -> tuple[float | None, str, list[str]]:
@@ -124,7 +150,7 @@ class GeneralScorer(BaseScorer):
     ) -> tuple[float | None, str, list[str]]:
         """只对有效且启用的估值子项按原配置相对权重折算。"""
         cfg = self.config.get("valuation", {})
-        if not cfg.get("enabled", True) or ctx.market == "hk":
+        if not cfg.get("enabled", True):
             return None, "估值维度不计分", []
         pe_pct, pb_pct, premium = valuation_evidence(ctx)
         total = 0.0
@@ -140,8 +166,8 @@ class GeneralScorer(BaseScorer):
             item = cfg.get(key, {})
             if not item.get("enabled", True):
                 continue
-            if key == "pe_percentile" and not pe_applicable:
-                details.append("PE 不适用于银行业，已跳过")
+            if key in ("pe_percentile", "industry_premium") and not pe_applicable:
+                details.append("PE 不适用于银行业，已跳过，不计分")
                 continue
             maximum = item.get("max_score", default_max)
             if not is_positive_finite(maximum):
@@ -161,121 +187,84 @@ class GeneralScorer(BaseScorer):
         if not available_max:
             details.append("没有可用估值计分子项，不计分")
             return None, "；".join(details), []
-        normalized = round(total / available_max * 10, 1)
+        normalized = total / available_max * 10
         details.append(f"有效子项 {total:.2f}/{available_max:.2f} 分，按原相对权重折算为 {normalized:.1f}/10")
         return normalized, "；".join(details), risks
 
     # —— 行业维度 ——
     def score_industry(self, ctx: AnalysisContext) -> tuple[float | None, str, list[str]]:
-        return None, "同行对比提供横向证据，不独立计分", []
+        from analysis.industry_scoring import score_industry_comparison
+
+        comparison = ctx.enriched_industry.comparison if ctx.enriched_industry else {}
+        score, detail, _ = score_industry_comparison(comparison)
+        return score, detail, []
 
     # —— 技术维度 ——
-    def score_technical(self, ctx: AnalysisContext) -> tuple[float, str, list[str]]:
-        prices = ctx.price_data or []
-        if not prices:
-            return 0.0, "行情数据不可用", []
-
-        sorted_prices = sorted(prices, key=lambda x: x.trade_date)
-        closes = [p.close for p in sorted_prices]
-
+    def score_technical(self, ctx: AnalysisContext) -> tuple[float | None, str, list[str]]:
         cfg = self.config.get("technical", {})
-        total = 0.0
-        details = []
-        risks = []
-
-        # 均线结构
-        ma_cfg = cfg.get("ma_structure", {})
-        if ma_cfg.get("enabled", True):
-            ma5 = moving_average(closes, 5)
-            ma20 = moving_average(closes, 20)
-            ma60 = moving_average(closes, 60)
-            max_s = ma_cfg.get("max_score", 4)
-            if ma5 and ma20 and ma60:
-                if ma5 > ma20 > ma60:
-                    s = 4; total += s; details.append(f"多头排列，得 {s}/{max_s} 分")
-                elif ma5 > ma20 and ma20 < ma60:
-                    s = 2; total += s; details.append(f"均线交叉震荡，得 {s}/{max_s} 分")
-                else:
-                    s = 1; total += s; details.append(f"空头排列，得 {s}/{max_s} 分")
-                    risks.append("bearish_ma")
-            elif ma5 and ma20:
-                s = 2; total += s; details.append(f"缺 MA60，得 {s}/{max_s} 分")
-
-        # 量价配合
-        vp_cfg = cfg.get("volume_price", {})
-        if vp_cfg.get("enabled", True) and len(closes) >= 20:
-            latest_close = closes[-1]
-            ma20_v = moving_average(closes, 20)
-            price_vs_ma20 = (latest_close - ma20_v) / ma20_v * 100 if ma20_v and ma20_v > 0 else 0
-            ratio = volume_ratio([p.volume for p in sorted_prices], require_complete_window=False)
-            # 保留旧评分的零分母缺省行为，不作为公开完整指标披露。
-            vol_ratio = ratio if ratio is not None else 1.0
-            max_s = vp_cfg.get("max_score", 3)
-            if price_vs_ma20 > 0 and vol_ratio > 1.2:
-                s = 3; total += s; details.append(f"放量上涨（量比 {vol_ratio:.2f}），得 {s}/{max_s} 分")
-            elif abs(price_vs_ma20) < 2 and 0.8 <= vol_ratio <= 1.2:
-                s = 2; total += s; details.append(f"横盘缩量（量比 {vol_ratio:.2f}），得 {s}/{max_s} 分")
-            elif price_vs_ma20 < 0 and vol_ratio > 1.2:
-                s = 1; total += s; details.append(f"放量下跌（量比 {vol_ratio:.2f}），得 {s}/{max_s} 分")
-                risks.append("volume_bearish")
-            else:
-                s = 2; total += s; details.append(f"量价一般（量比 {vol_ratio:.2f}），得 {s}/{max_s} 分")
-
-        # MACD
-        macd_cfg = cfg.get("macd", {})
-        if macd_cfg.get("enabled", True) and len(closes) >= 26:
-            macd = calculate_macd(closes)
-            dif = macd.dif
-            dea = macd.dea
-            macd_bar = macd.bar
-            max_s = macd_cfg.get("max_score", 3)
-            if dif > dea and macd_bar > 0:
-                s = 3; total += s; details.append(f"MACD 多头，得 {s}/{max_s} 分")
-            elif (dif > dea) != (macd_bar > 0):
-                s = 2; total += s; details.append(f"MACD 临界，得 {s}/{max_s} 分")
-            else:
-                s = 1; total += s; details.append(f"MACD 空头，得 {s}/{max_s} 分")
-
-        return round(total, 1), "；".join(details), risks
-
-    # —— 舆情维度 ——
-    def score_sentiment(self, ctx: AnalysisContext) -> tuple[float, str, list[str]]:
-        cfg = self.config.get("sentiment", {})
         if not cfg.get("enabled", True):
-            return 0.0, "舆情维度已禁用", []
-        es = ctx.enriched_sentiment
-        score = float(cfg.get("base_score", 5))
-        details = [f"基础分 {score}"]
+            return None, "技术维度已禁用", []
+        prices = sorted(ctx.price_data or [], key=lambda x: x.trade_date)
+        if not prices:
+            return None, "行情数据不可用", []
+        closes = [p.close for p in prices]
+        total, available = 0.0, 0.0
+        details: list[str] = []
         risks: list[str] = []
 
-        if es and es.total_count > 0:
-            msg_bonus = cfg.get("msg_count_bonus", {})
-            if es.total_count >= 10:
-                score += msg_bonus.get("sufficient", 2)
-                details.append(f"消息 {es.total_count} 条（充足），+{msg_bonus.get('sufficient', 2)} 分")
-            else:
-                score += msg_bonus.get("partial", 1)
-                details.append(f"消息 {es.total_count} 条（偏少），+{msg_bonus.get('partial', 1)} 分")
+        def add(key: str, label: str, condition: str | None, fallback: float, default_max: float):
+            nonlocal total, available
+            item = cfg.get(key, {})
+            if not item.get("enabled", True):
+                return
+            maximum = item.get("max_score", default_max)
+            if condition is None or not is_positive_finite(maximum):
+                details.append(f"{label}数据不足或权重无效，不计分")
+                return
+            score = next((t["score"] for t in item.get("tiers", []) if t.get("condition") == condition), fallback)
+            total += score
+            available += maximum
+            details.append(f"{label}，得 {score}/{maximum} 分")
 
-            pos_bonus = cfg.get("positive_ratio_bonus", {})
-            pos_ratio = es.positive_count / es.total_count if es.total_count > 0 else 0
-            if pos_ratio > 0.5:
-                score += pos_bonus.get("high", 2)
-                details.append(f"利好占比 {pos_ratio:.0%}，+{pos_bonus.get('high', 2)} 分")
-            elif pos_ratio > 0.3:
-                score += pos_bonus.get("medium", 1)
-                details.append(f"利好占比 {pos_ratio:.0%}，+{pos_bonus.get('medium', 1)} 分")
+        ma5, ma20, ma60 = (moving_average(closes, n) for n in (5, 20, 60))
+        if ma5 and ma20 and ma60:
+            condition = "bullish" if ma5 > ma20 > ma60 else "cross" if ma5 > ma20 and ma20 < ma60 else "bearish"
+            label, fallback = {"bullish": ("多头排列", 4), "cross": ("均线交叉震荡", 2), "bearish": ("空头排列", 1)}[condition]
+            if condition == "bearish" and cfg.get("ma_structure", {}).get("enabled", True):
+                risks.append("bearish_ma")
+            add("ma_structure", label, condition, fallback, 4)
+        elif ma5 and ma20:
+            add("ma_structure", "缺 MA60", "cross", 2, 4)
+        else:
+            add("ma_structure", "均线结构", None, 0, 4)
+        ratio = volume_ratio([p.volume for p in prices], require_complete_window=False)
+        if len(closes) >= 20 and ma20 and ma20 > 0 and ratio is not None:
+            distance = (closes[-1] - ma20) / ma20 * 100
+            condition = ("up_with_volume" if distance > 0 and ratio > 1.2 else
+                         "sideways_shrink" if abs(distance) < 2 and .8 <= ratio <= 1.2 else
+                         "down_with_volume" if distance < 0 and ratio > 1.2 else "normal")
+            label, fallback = {"up_with_volume": ("放量上涨", 3), "sideways_shrink": ("横盘缩量", 2),
+                               "down_with_volume": ("放量下跌", 1), "normal": ("量价一般", 2)}[condition]
+            add("volume_price", f"{label}（量比 {ratio:.2f}）", condition, fallback, 3)
+            if condition == "down_with_volume" and cfg.get("volume_price", {}).get("enabled", True):
+                risks.append("volume_bearish")
+        else:
+            add("volume_price", "量价配合", None, 0, 3)
+        if len(closes) >= 34:
+            macd = calculate_macd(closes)
+            condition = "bullish" if macd.dif > macd.dea and macd.bar > 0 else "critical" if (macd.dif > macd.dea) != (macd.bar > 0) else "bearish"
+            label, fallback = {"bullish": ("MACD 多头", 3), "critical": ("MACD 临界", 2), "bearish": ("MACD 空头", 1)}[condition]
+            add("macd", label, condition, fallback, 3)
+        else:
+            add("macd", "MACD", None, 0, 3)
+        if not available:
+            return None, "；".join([*details, "没有可用技术计分子项，不计分"]), risks
+        normalized = total / available * 10
+        details.append(f"有效子项 {total:.2f}/{available:.2f} 分，按原相对权重折算为 {normalized:.1f}/10")
+        return normalized, "；".join(details), risks
 
-            if es.negative_count > 0 and any(e.severity == "major" for e in es.all_items):
-                pen = cfg.get("major_negative_penalty", -1)
-                score += pen
-                details.append(f"存在重大利空事件，{pen} 分")
-                risks.append("major_negative_news")
+    # —— 舆情维度 ——
+    def score_sentiment(self, ctx: AnalysisContext) -> tuple[float | None, str, list[str]]:
+        from analysis.sentiment_rules import score_sentiment
 
-            ann_bonus = cfg.get("announcement_bonus", 0)
-            if ann_bonus and any(getattr(e, 'source', '') == "announcement" for e in es.all_items):
-                score += ann_bonus
-                details.append(f"包含官方公告，+{ann_bonus} 分")
-
-        score = round(max(0.0, min(10.0, score)), 1)
-        return score, "；".join(details), risks
+        return score_sentiment(ctx)

@@ -1,7 +1,13 @@
 """配置加载器 — 深度合并 base + override YAML，校验权重，带内存缓存"""
+import logging
+from copy import deepcopy
 from pathlib import Path
 
 import yaml
+
+from data.schemas import AnalysisContext
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigError(Exception):
@@ -15,6 +21,35 @@ class ConfigLoader:
         self.config_dir = Path(config_dir)
         self.global_const = self._load_yaml(self.config_dir / "global_const.yaml")
         self._cache: dict[str, dict] = {}
+
+    def load_for_context(self, ctx: AnalysisContext) -> dict:
+        """计分层选择投资风格，不改写真实市场分类或同行资格。"""
+        if ctx.market != "hk":
+            return self.load(ctx.sw_industry)
+        data = ctx.industry_data
+        sector, industry = (data.industry, data.sector) if data else ("", "")
+        if not sector or not industry:
+            # 本地已校验 HSICS 快照覆盖非港股通；不为评分扩大同行池或联网。
+            from data.hk_hsics_industry import HsicsIndustryError, load_hsics_members
+
+            try:
+                member = load_hsics_members().get(ctx.symbol)
+            except (HsicsIndustryError, OSError, ValueError) as error:
+                logger.warning("港股评分 HSICS 快照无效 %s：%s", ctx.symbol, type(error).__name__)
+                member = None
+            if member is not None and member.status == "mapped":
+                sector, industry = member.sector, member.industry
+        mapping = self._load_yaml(self.config_dir / "港股_计分模板_映射.yaml")
+        representative = mapping.get("sectors", {}).get(sector) or mapping.get("industries", {}).get(industry)
+        fallback = representative is None
+        config = deepcopy(self.load(representative or "综合"))
+        config["meta"].update(cache_key=f"hk::{industry}::{sector}",
+            scoring_template_source="HSICS 投资风格映射" if not fallback else "通用规则（HSICS 未映射或综合企业）",
+            scoring_template_fallback=fallback, hsics_sector=sector, hsics_industry=industry)
+        if sector == "保险":
+            config["financial"]["debt_ratio"]["enabled"] = False
+            config["financial"]["gross_margin_stability"]["enabled"] = False
+        return config
 
     def load(self, sw_industry: str) -> dict:
         """根据申万一级行业名返回合并后的完整打分配置。"""

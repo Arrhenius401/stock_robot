@@ -1,3 +1,4 @@
+{% set five_dimension = scoring_method == "five-dimension-v1" %}
 # {{ name }}（{{ symbol }}）分析报告
 
 > 生成时间：{{ generated_at }} | 市场：{{ market }}
@@ -30,10 +31,12 @@
 
 {% for dim in ["financial", "technical", "valuation", "industry", "sentiment"] %}
 
-### {{ "5. 相关新闻检索" if market == "港股" and dim == "sentiment" else {"financial": "1. 财务量化数据", "technical": "2. 技术面量化数据", "valuation": "3. 估值量化数据", "industry": "4. 行业对比量化数据", "sentiment": "5. 舆情量化数据"}[dim] }}
+### {{ "5. 相关新闻检索" if market == "港股" and dim == "sentiment" and not five_dimension else {"financial": "1. 财务量化数据", "technical": "2. 技术面量化数据", "valuation": "3. 估值量化数据", "industry": "4. 行业对比量化数据", "sentiment": "5. 舆情量化数据"}[dim] }}
 
 {% set r = results_map.get(dim) %}
-{% if market == "港股" and dim == "sentiment" %}
+{% if five_dimension and dim == "sentiment" and r %}
+{{ r.metrics | sentiment_risk_markdown }}
+{% elif market == "港股" and dim == "sentiment" %}
 {% if r %}
 {{ r.metrics | hk_news_markdown }}
 {% if not r.metrics.get("news_items") %}
@@ -43,9 +46,14 @@
 > 新闻暂时获取失败。
 {% endif %}
 {% elif dim == "industry" and r and r.metrics.get("comparison") %}
-{{ r.metrics["comparison"] | peer_comparison_markdown }}
+{% if five_dimension %}
+**行业得分：** {{ (r.score | metric_value("score")) ~ "/10" if r.score is not none else "暂无" }}
+
+评分依据：{{ r.score_detail or r.summary }}
+{% endif %}
+{{ r.metrics["comparison"] | peer_comparison_markdown(scoring_method) }}
 {% elif r and r.metrics %}
-{% if dim == "industry" %}
+{% if dim == "industry" and not five_dimension %}
 > 行业对比不计分。
 {% endif %}
 {% if r.status != "ok" %}
@@ -88,14 +96,22 @@
 
 ## 三、综合评分
 
-{% if market == "港股" %}
+{% if market == "港股" and not five_dimension %}
 > 不适用：港股不套用 A 股综合评分或交易信号；行业对比使用恒生 HSICS 口径。
 {% else %}
-{{ score_rows | md_table({"维度": "label", "得分": "score", "权重": "weight", "充足状态": "sufficiency"}) }}
+{% if five_dimension %}
+> 计分口径：{{ scoring_method }}。财务/技术/估值/行业/舆情权重为30%/20%/25%/20%/5%。舆情列为综合参与分（10−原风险分）。缺失项目不记零分，其余项目按原比例折算；仅有舆情数据时不输出综合分。风险标签仅作提示，不额外扣分。
 
+{{ score_rows | md_table({"维度": "label", "综合参与分": "score", "权重": "weight", "充足状态": "sufficiency"}) }}
+{% else %}
+{{ score_rows | md_table({"维度": "label", "得分": "score", "权重": "weight", "充足状态": "sufficiency"}) }}
+{% endif %}
+
+{% if not five_dimension %}
 **综合得分（扣风险前）：** {{ (base_score | metric_value("base_score")) ~ "/10" if base_score is not none else "暂无" }}
 {% if risk_deduction > 0 %}
 **风险扣分：** -{{ risk_deduction | metric_value("risk_deduction") }}
+{% endif %}
 {% endif %}
 **最终综合得分：** {{ (final_score | metric_value("final_score")) ~ "/10" if final_score is not none else "暂无" }}
 
@@ -162,7 +178,7 @@
 {% endif %}
 
 {% if data_quality %}
-{% if market == "港股" %}可用维度覆盖：{{ data_quality.available_dimensions }}/{{ data_quality.applicable_dimensions }}（{{ data_quality.coverage }}%）。仅表示适用维度中可分析的比例，不代表字段完整。港股评分与操作信号不适用。{% else %}计分维度覆盖：{{ data_quality.coverage }}%。{% if not data_quality.signal_allowed %}数据依据不完整，暂无操作信号和仓位建议。{% endif %}{% endif %}
+{% if market == "港股" and not five_dimension %}可用维度覆盖：{{ data_quality.available_dimensions }}/{{ data_quality.applicable_dimensions }}（{{ data_quality.coverage }}%）。仅表示适用维度中可分析的比例，不代表字段完整。港股评分与操作信号不适用。{% else %}计分维度覆盖：{{ data_quality.coverage }}%。{% if five_dimension %}{{ data_quality.coverage_basis or "五维原权重数据覆盖，不表示评分置信度。" }}{% endif %}{% if not data_quality.signal_allowed %}{% if market == "港股" %}本期港股不提供交易信号或仓位建议。{% else %}数据依据不完整，暂无操作信号和仓位建议。{% endif %}{% endif %}{% endif %}
 
 {% for dimension in data_quality.dimensions %}
 ### {{ dimension.title }} · {{ {"ok": "正常", "partial": "部分数据", "unavailable": "数据不可用", "not_applicable": "不适用"}[dimension.status] }}

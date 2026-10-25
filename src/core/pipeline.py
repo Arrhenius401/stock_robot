@@ -370,12 +370,20 @@ class Pipeline:
                 level=SufficiencyLevel.INSUFFICIENT, reason="同行比较数据获取失败",
                 sample_count=0, score_weight=0.0,
             )
+        if dimension in (None, "financial"):
+            from data.financial_scoring_facts import FinancialScoringFactsService
+
+            try:
+                ctx = FinancialScoringFactsService(self._cache).enrich(ctx, refresh=refresh_cache)
+            except Exception as error:  # noqa: BLE001 — 年度补取边界失败只跳过缺失子项
+                logger.warning("年度财务评分依据获取失败 %s: %s", symbol, type(error).__name__)
+                ctx.financial_scoring_facts = {"annual_roe": {"value": None, "reason": "年度依据获取失败"}}
         sentiment_enricher = SentimentEnricher()
         has_main_data = any(
             getattr(ctx.sufficiency, key).level != SufficiencyLevel.INSUFFICIENT
             for key in ("price", "financial", "valuation", "industry")
         )
-        if market != "hk" and self._llm_enabled and (has_main_data or dimension == "sentiment"):
+        if self._llm_enabled and (has_main_data or dimension == "sentiment"):
             provider = self._config.get("llm.provider", "openai")
             sentiment_enricher.set_llm(self._registry.get_llm_backend(provider))
         sentiment_stage = ContextEnricher()
@@ -383,7 +391,7 @@ class Pipeline:
         ctx = sentiment_stage.enrich(ctx)
 
         # 新增：加载行业配置
-        industry_config = self._config_loader.load(ctx.sw_industry) if market == "a-shares" else None
+        industry_config = self._config_loader.load_for_context(ctx)
 
         results = []
         total = len(analysis_modules)
@@ -425,6 +433,7 @@ class Pipeline:
         """单次批量 LLM 调用，生成四段结构化解读"""
         commentary = {}
         from report.quality import build_data_quality, has_analysis_data
+        from report.scoring import compute_score_summary, participation_score
 
         if not has_analysis_data(results, context):
             return commentary
@@ -454,10 +463,12 @@ class Pipeline:
                     r = result
                     break
             available = r is not None and r.status in {"ok", "partial"}
-            scoring_applicable = dim not in {"industry", "sentiment"}
+            scoring_applicable = True
+            scored = participation_score(r) is not None
             scores.append({
                 "label": label,
-                "score": r.score if available and r and scoring_applicable else None,
+                "score": r.score if available and r and scored else None,
+                "direction": "risk" if dim == "sentiment" else "higher_better",
                 "sufficiency": sufficiency_label.get(r.status, r.status) if r else "数据不足",
                 "score_detail": r.score_detail if r else "",
                 "summary": r.summary if r else "",
@@ -466,7 +477,7 @@ class Pipeline:
             })
             if available:
                 covered.append(label)
-                if r and dim != "industry":
+                if r:
                     all_risk_flags.extend(r.risk_flags)
             else:
                 missing.append(label)
@@ -491,13 +502,14 @@ class Pipeline:
                 industry_note=industry_note,
                 name=name, symbol=symbol, scores=scores,
                 risk_flags=all_risk_flags,
+                score_summary=compute_score_summary(results),
                 covered_dims="、".join(covered) if covered else "无",
                 missing_dims="、".join(missing) if missing else "无",
                 analysis_facts=json.dumps([
-                    {"dimension": r.dimension, "status": r.status, "metrics": format_metrics(r.metrics),
+                    {"dimension": r.dimension, "status": r.status, "score": r.score,
+                     "score_detail": r.score_detail, "metrics": format_metrics(r.metrics),
                      "summary": r.summary, "risk_flags": r.risk_flags}
-                    for r in results if not (context is not None and context.market == "hk"
-                                             and r.dimension == "sentiment")
+                    for r in results
                 ], ensure_ascii=False, default=str),
                 data_quality=json.dumps(build_data_quality(context, results), ensure_ascii=False)
                 if context is not None else "",
