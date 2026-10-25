@@ -1,6 +1,7 @@
-"""真实 QQ 失败报告与港股无评分解读回归。"""
+"""真实 QQ 失败报告、港股有效事实及评分信号边界回归。"""
 from datetime import date
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
@@ -14,6 +15,7 @@ from data.schemas import (
 from report.payload import build_stock_payload
 from report.quality import build_data_quality
 from report.scoring import build_report
+from report.signal import SignalConfig
 
 
 def hk_context():
@@ -39,7 +41,8 @@ def test_real_qq_failure_sample_and_corrected_market_report():
     assert "市场：港股" in text
     assert "基于营业收入的解读" in text
     assert "金额币种未核实" in text
-    assert "不适用" in text
+    assert "five-dimension-v1" in text
+    assert "不提供交易信号或仓位建议" in text
     assert "申万行业待补全" not in text
     assert "最新财报季度" not in text
 
@@ -52,12 +55,15 @@ def test_hk_empty_or_failed_facts_do_not_enable_model(metrics, status):
     assert build_stock_payload(ctx.symbol, ctx.name, [result], {"bulk": "禁止出现"}, ctx)["commentary_status"] == "insufficient"
 
 
-def test_a_share_unscored_metrics_keep_existing_model_gate():
+def test_a_share_unscored_metrics_allow_fact_based_commentary_without_signal():
     ctx = AnalysisContext(symbol="000001", name="测试")
     ctx.sufficiency.financial = DimensionSufficiency(level=SufficiencyLevel.PARTIAL, sample_count=5)
     result = AnalysisResult(dimension="financial", status="partial", summary="", metrics={"revenue": 396431000000})
-    assert not build_data_quality(ctx, [result])["has_analysis_data"]
-    assert build_stock_payload(ctx.symbol, ctx.name, [result], {"bulk": "禁止出现"}, ctx)["commentary_status"] == "insufficient"
+    assert build_data_quality(ctx, [result])["has_analysis_data"]
+    payload = build_stock_payload(ctx.symbol, ctx.name, [result], {"bulk": "依据有限事实解读"}, ctx)
+    assert payload["commentary_status"] == "ok"
+    assert payload["score"]["final"] is None
+    assert payload["signal"] is None
 
 
 @pytest.mark.parametrize("provider", ["openai", "claude"])
@@ -122,3 +128,24 @@ def test_hk_financial_source_and_selection_note_are_visible():
     fields = {field["label"]: field["value"] for field in financial["fields"]}
     assert fields["数据来源"] == "东方财富港股财报"
     assert fields["财务包说明"] == "完整来源包"
+
+
+def test_hk_valid_scores_enable_total_without_trade_signal_or_position():
+    ctx = hk_context()
+    for key in ("financial", "price", "valuation"):
+        setattr(ctx.sufficiency, key, DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT))
+    facts: list[tuple[Literal["financial", "technical", "valuation"], str]] = [
+        ("financial", "revenue"), ("technical", "latest_close"), ("valuation", "pb")]
+    results = [AnalysisResult(dimension=key, status="ok", summary="有效评分", score=8,
+                             metrics={metric: 1}) for key, metric in facts]
+    quality = build_data_quality(ctx, results)
+    assert quality["has_scored_data"]
+    assert quality["coverage"] == 75.0
+    assert quality["available_dimensions"] == 3
+    assert quality["applicable_dimensions"] == 5
+    assert not quality["signal_allowed"]
+    payload = build_stock_payload(ctx.symbol, ctx.name, results, {"bulk": "有效港股数据解读"}, ctx,
+                                  signal_cfg=SignalConfig())
+    assert payload["score"]["final"] == 8.0
+    assert payload["signal"] is None
+    assert payload["commentary_status"] == "ok"

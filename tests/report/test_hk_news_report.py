@@ -1,4 +1,4 @@
-"""港股关键词资讯只展示参考信息，不进行模型或评分调用。"""
+"""港股旧检索参考兼容及新五维质量边界。"""
 from datetime import datetime, timedelta, timezone
 
 from analysis.sentiment import SentimentAnalyzer
@@ -25,7 +25,7 @@ def context(count=22, *, errors=None):
         symbol="00700.HK", date=NOW.date(), hk_news=snapshot))
 
 
-def test_hk_news_twenty_items_no_scoring():
+def test_hk_legacy_news_twenty_items_remain_unscored_without_new_assessment():
     result = SentimentAnalyzer().analyze(context(), config={"enabled": True})
     assert result.score is None
     assert result.status == "ok"
@@ -65,13 +65,15 @@ def test_missing_legacy_snapshot_never_displays_headlines_as_verified_news():
     assert result.metrics["news_items"] == []
 
 
-def test_hk_enricher_never_calls_model():
+def test_hk_enricher_model_failure_retains_reference_without_scoring():
     class Model:
         def generate(self, prompt):
-            raise AssertionError("港股新闻不得调用模型")
+            raise TimeoutError("舆情标注超时")
     ctx = context()
     SentimentEnricher(llm=Model()).enrich(ctx)
-    assert ctx.enriched_sentiment is None
+    assert ctx.enriched_sentiment is not None
+    assert ctx.enriched_sentiment.assessment_status == "failed"
+    assert ctx.enriched_sentiment.risk_score is None
     assert ctx.sufficiency.sentiment.score_weight == 0
 
 
@@ -79,11 +81,12 @@ def test_hk_quality_reference_and_payload_markdown():
     ctx = context(2)
     result = SentimentAnalyzer().analyze(ctx)
     quality = build_data_quality(ctx, [result])
-    assert quality["applicable_dimensions"] == 4
+    assert quality["applicable_dimensions"] == 5
     assert quality["coverage"] == 0
     news = next(row for row in quality["dimensions"] if row["key"] == "sentiment")
     assert news["status"] != "not_applicable"
-    assert "参考" in news["title"]
+    assert news["title"] == "舆情"
+    assert not quality["has_scored_data"]
     payload = build_stock_payload(ctx.symbol, "腾讯", [result], {}, ctx, no_llm=True)
     assert payload["dimensions"]["sentiment"]["metrics"]["news_items"] == result.metrics["news_items"]
     markdown = ReportBuilder().build(ctx.symbol, "腾讯", [result], {}, market="港股", no_llm=True,

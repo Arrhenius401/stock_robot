@@ -7,6 +7,7 @@ from report.builder import build_disclaimer
 from report.quality import build_data_quality, hk_industry_label
 from report.scoring import (
     LLM_UNAVAILABLE_PREFIXES,
+    SCORING_METHOD,
     compute_price_info,
     compute_score_summary,
     with_commentary_fallback,
@@ -38,7 +39,7 @@ def build_stock_payload(
         status = "ok"
     else:
         status = "failed"
-        bulk = with_commentary_fallback(commentary, summary, no_llm=False, unscored=ctx.market == "hk").get("bulk", "")
+        bulk = with_commentary_fallback(commentary, summary, no_llm=False).get("bulk", "")
     signal = None
     if quality["signal_allowed"] and signal_cfg is not None and summary.final_score is not None:
         level = derive_signal(summary.final_score, signal_cfg.thresholds)
@@ -51,6 +52,7 @@ def build_stock_payload(
         industry = ctx.sw_industry or (
             ctx.industry_data.industry if ctx.industry_data else "未知")
     return {
+        "scoring_method": SCORING_METHOD,
         "symbol": symbol, "code": symbol, "name": name, "market": ctx.market,
         "overview": {
             "latest_close": price["latest_price"], "year_high": price["year_high"],
@@ -59,8 +61,8 @@ def build_stock_payload(
             "price_start": price["price_start"], "price_end": price["price_end"],
             "industry": industry,
         },
-        "score": {"base": summary.base_score if ctx.market != "hk" and quality["has_scored_data"] else None,
-                  "final": summary.final_score if ctx.market != "hk" and quality["has_scored_data"] else None,
+        "score": {"base": summary.base_score if quality["has_scored_data"] else None,
+                  "final": summary.final_score if quality["has_scored_data"] else None,
                   "risk_deduction": summary.risk_deduction},
         "score_rows": summary.score_rows,
         "dimensions": {r.dimension: {**r.model_dump(mode="json", exclude={"dimension", "charts"}),

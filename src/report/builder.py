@@ -1,4 +1,5 @@
 """报告构建器 — 将分析结果组装为 Markdown 报告"""
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -9,8 +10,10 @@ from report.formatter import (
     format_hk_news_markdown,
     format_metric_value,
     format_metrics,
+    format_sentiment_risk_markdown,
     metric_display_name,
 )
+from report.peer_comparison import format_peer_comparison_markdown
 
 
 def build_disclaimer(*, hk: bool = False) -> list[str]:
@@ -56,7 +59,7 @@ def _md_table(data, headers=None):
         filtered = {
             k: v
             for k, v in data.items()
-            if not isinstance(v, (list, dict)) and k not in {"peer_names", "tag"}
+            if not isinstance(v, (list, dict)) and k not in {"peer_names", "peer_display_note", "tag"}
         }
         if not filtered:
             return ""
@@ -122,7 +125,12 @@ class ReportBuilder:
         )
         self._env.filters["md_table"] = _md_table
         self._env.filters["hk_news_markdown"] = format_hk_news_markdown
+        self._env.filters["sentiment_risk_markdown"] = format_sentiment_risk_markdown
+        self._env.filters["peer_comparison_markdown"] = format_peer_comparison_markdown
         self._env.filters["metric_value"] = lambda value, key: format_metric_value(key, value)
+        # 模型仍按原提示词输出编号段落，报告内统一降为第四节的子标题。
+        self._env.filters["commentary_section"] = lambda text: re.sub(
+            r"^#{1,2}\s+(?=\d+[.、．])", "### ", text, flags=re.MULTILINE)
         from report.formatter import risk_display_name
         self._env.filters["risk_display_name"] = risk_display_name
 
@@ -137,7 +145,8 @@ class ReportBuilder:
               signal: dict | None = None,
               data_quality: dict | None = None,
               price_start: str | None = None, price_end: str | None = None,
-              market: str = "A 股", valuation_display: dict | None = None) -> str:
+              market: str = "A 股", valuation_display: dict | None = None,
+              scoring_method: str | None = None) -> str:
         results_map = {r.dimension: r for r in results}
         if market == "港股" and "financial" in results_map:
             financial = results_map["financial"]
@@ -150,6 +159,7 @@ class ReportBuilder:
             symbol=symbol,
             name=name,
             market=market,
+            scoring_method=scoring_method,
             generated_at=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
             no_llm=no_llm,
             industry=industry,

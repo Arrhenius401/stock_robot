@@ -8,6 +8,7 @@ from data.schemas import AnalysisResult
 from llm.base import LLMBackend
 from report.builder import ReportBuilder, _md_table
 from tests.analysis.test_valuation_validity import CONFIG, context
+from tests.report.test_peer_comparison import comparison_sample
 from utils.config import Config
 
 
@@ -29,19 +30,30 @@ def test_actual_prompt_contains_formatted_facts_and_invalid_pe_reason(tmp_path, 
     ctx.market = market
     result = ValuationAnalyzer().analyze(ctx, CONFIG if market == "a-shares" else None)
     financial = AnalysisResult(dimension="financial", status="partial", summary="财报快照", score=2 if market == "a-shares" else None,
-                               metrics={"revenue": 3000000, "roe": -0.0956})
+                               metrics={"revenue": 3000000, "roe": -0.0956,
+                                   "annual_roe": {"value": 0.15, "period_start": "2025-01-01",
+                                       "period_end": "2025-12-31", "source": "年度ROE来源", "basis": "完整年度加权"}})
+    industry = AnalysisResult(dimension="industry", status="partial", summary="同期经营比较",
+                              metrics={"comparison": comparison_sample()})
     config = Config(config_dir=tmp_path)
     config.data["llm"]["provider"] = provider
     registry = Registry()
     backend = CapturingBackend()
     registry.register_llm_backend(backend, provider=provider)
-    output = Pipeline(registry, config)._generate_commentary(ctx.symbol, ctx.name, [result, financial], context=ctx)
+    output = Pipeline(registry, config)._generate_commentary(ctx.symbol, ctx.name, [result, financial, industry], context=ctx)
     assert output == {"bulk": "测试解读"}
     assert "-150.6" not in backend.prompt
     assert "-32.03" in backend.prompt
     assert "不适用于高低估判断" in backend.prompt
     assert "300.00 万" in backend.prompt
     assert "-9.56%" in backend.prompt
+    assert '"annual_roe": {"value": "15.00%"' in backend.prompt
+    assert "年度ROE来源" in backend.prompt
+    assert "12.50%" in backend.prompt
+    assert "1250.00%" not in backend.prompt
+    assert financial.metrics["annual_roe"]["value"] == 0.15
+    assert financial.metrics["roe"] == -0.0956
+    assert industry.metrics["comparison"]["periods"]["annual"]["metrics"][0]["target"] == 12.5
     assert ("金额币种未核实" if market == "hk" else "币种未记录") in backend.prompt
 
 

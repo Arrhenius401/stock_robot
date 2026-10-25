@@ -646,6 +646,14 @@ class TestStructuredToolResults:
 
 
 class TestStockReportExtraction:
+    def test_keeps_hk_market_and_scoring_version_for_reopened_artifact(self):
+        extracted = _extract_stock_reports([{
+            "tool": "analyze_stock", "status": "done",
+            "content": {"symbol": "00700.HK", "market": "hk", "scoring_method": "five-dimension-v1"},
+        }])
+        assert extracted[0][1]["market"] == "hk"
+        assert extracted[0][1]["scoring_method"] == "five-dimension-v1"
+
     def test_keeps_disclaimer_for_conversation_report(self):
         extracted = _extract_stock_reports([{
             "tool": "analyze_stock", "status": "done",
@@ -1229,9 +1237,10 @@ class TestAnalyzeEndpoint:
     @pytest.mark.parametrize(("symbol", "refresh", "expected"), [
         ("00700.HK", True, {"refresh_cache": True}),
         ("00700.HK", False, {}),
-        ("000001", True, {}),
+        ("000001", True, {"refresh_cache": True}),
+        ("000001", False, {}),
     ])
-    async def test_hk_explicit_refresh_reaches_pipeline(self, client, mocker, symbol, refresh, expected):
+    async def test_explicit_refresh_reaches_pipeline(self, client, mocker, symbol, refresh, expected):
         mocker.patch("utils.symbols.resolve_name", return_value="测试公司")
         original = FakePipeline.run
         call = mocker.patch.object(FakePipeline, "run", side_effect=lambda code, name, market, **_kwargs:

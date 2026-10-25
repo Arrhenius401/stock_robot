@@ -137,6 +137,9 @@ foreach ($file in $changedFiles) {
             Add-UniqueTarget $testTargets "tests\data\test_hk_stock_connect.py"
         } elseif ($resourceParts.Count -ge 4 -and $resourceParts[2] -eq "hk_hsics") {
             Add-UniqueTarget $testTargets "tests\data\test_hk_hsics_industry.py"
+        } elseif ($resourceParts.Count -ge 4 -and $resourceParts[2] -eq "industry") {
+            Add-UniqueTarget $testTargets "tests\data\test_peer_comparison.py"
+            Add-UniqueTarget $testTargets "tests\analysis\test_industry_comparison.py"
         } elseif ($resourceParts.Count -ge 4 -and $resourceParts[2] -eq "hk") {
             Add-UniqueTarget $testTargets "tests\data\test_hk_bank_currency.py"
         } elseif ($resourceParts.Count -ge 4 -and $resourceParts[2] -eq "report") {

@@ -4,13 +4,14 @@ from typing import Any
 
 from data.schemas import AnalysisContext, AnalysisResult
 from data.validation import FINANCIAL_ANALYSIS_FIELDS, has_finite_facts
+from report.scoring import DIM_WEIGHTS, participation_score
 
 _DIMENSIONS = (
-    ("financial", "财务", "financial", "financial", 0.30),
-    ("technical", "技术", "price", "price", 0.20),
-    ("valuation", "估值", "valuation", "valuation", 0.25),
-    ("industry", "行业", "industry", "industry", 0.25),
-    ("sentiment", "舆情", "sentiment", "news", 0.0),
+    ("financial", "财务", "financial", "financial", DIM_WEIGHTS["financial"]),
+    ("technical", "技术", "price", "price", DIM_WEIGHTS["technical"]),
+    ("valuation", "估值", "valuation", "valuation", DIM_WEIGHTS["valuation"]),
+    ("industry", "行业", "industry", "industry", DIM_WEIGHTS["industry"]),
+    ("sentiment", "舆情", "sentiment", "news", DIM_WEIGHTS["sentiment"]),
 )
 _LEVEL = {"sufficient": 2, "partial": 1, "insufficient": 0}
 _STATUS = {2: "ok", 1: "partial", 0: "unavailable"}
@@ -42,11 +43,11 @@ def hk_industry_label(ctx: AnalysisContext, results: list[AnalysisResult]) -> st
 
 
 def has_analysis_data(results: list[AnalysisResult], ctx: AnalysisContext | None = None) -> bool:
-    """港股使用有效实测指标，A 股维持既有可评分门槛。"""
-    if ctx is None or ctx.market != "hk":
-        return any(r.dimension in ("financial", "technical", "valuation", "industry")
-                   and r.score is not None and r.status != "unavailable" for r in results)
-    return any(_has_hk_facts(result) for result in results)
+    """有效核心分或实测事实可用于解读，交易信号另行检查充分度。"""
+    core = [result for result in results if result.dimension in DIM_WEIGHTS and result.dimension != "sentiment"]
+    if any(participation_score(result) is not None for result in core):
+        return True
+    return any(_has_hk_facts(result) for result in core)
 
 
 def _sample_dates(ctx: AnalysisContext, key: str) -> tuple[str, str]:
@@ -77,7 +78,9 @@ def _sample_dates(ctx: AnalysisContext, key: str) -> tuple[str, str]:
         count = ctx.enriched_industry.peer_count if ctx.enriched_industry else len(ctx.industry_data.peers) if ctx.industry_data else 0
         if count:
             sample = f"{count}家可比公司"
-        data_date = getattr(ctx.industry_data, "_data_date", "") if ctx.industry_data else ""
+        comparison = ctx.enriched_industry.comparison if ctx.enriched_industry else {}
+        data_date = comparison.get("valuation", {}).get("as_of") or (
+            getattr(ctx.industry_data, "_data_date", "") if ctx.industry_data else "")
         if data_date:
             try:
                 dates.append(date.fromisoformat(data_date))
@@ -87,6 +90,9 @@ def _sample_dates(ctx: AnalysisContext, key: str) -> tuple[str, str]:
         if ctx.raw_sentiment:
             dates = [p.publish_date for p in ctx.raw_sentiment.items]
             sample = f"{len(ctx.raw_sentiment.items)}条新闻与公告"
+        elif ctx.news_data and ctx.news_data.hk_news:
+            dates = [item.published_at.date() for item in ctx.news_data.hk_news.items]
+            sample = f"{len(dates)}条候选新闻"
         elif ctx.news_data:
             sample = f"{len(ctx.news_data.headlines)}条新闻"
             # NewsData.date 是抓取日期，不能代替消息发布日期。
@@ -94,7 +100,7 @@ def _sample_dates(ctx: AnalysisContext, key: str) -> tuple[str, str]:
 
 
 def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult]) -> dict[str, Any]:
-    """A 股计分覆盖与港股适用维度覆盖分离，字段完整性独立表达。"""
+    """五维按原权重表达数据覆盖，A 股交易信号保持原三核心门槛。"""
     result_map = {r.dimension: r for r in results}
     records = getattr(ctx, "collection_records", {})
     dimensions: list[dict[str, Any]] = []
@@ -102,38 +108,31 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult]) -> d
     coverage = 0.0
     has_scored = False
     all_complete = True
+    signal_complete = True
+    signal_blocked: list[str] = []
     hk = ctx.market == "hk"
-    available = len({result.dimension for result in results if _has_hk_facts(result)}) if hk else 0
+    available = sum(participation_score(result_map.get(key)) is not None for key in DIM_WEIGHTS)
     for key, title, suff_key, source_key, weight in _DIMENSIONS:
-        if hk and key == "sentiment":
-            from analysis.sentiment import _hk_news_result
-
-            news_result = _hk_news_result(ctx)
-            metrics = news_result.metrics
-            dimensions.append({"key": key, "title": "相关新闻检索（参考信息）",
-                "status": news_result.status, "applicable": True,
-                "fields": [{"label": "样本范围", "value": f"展示最新{len(metrics['news_items'])}条，最近30天"},
-                           {"label": "数据来源", "value": metrics.get("news_source", "未记录")},
-                           {"label": "数据截止", "value": (metrics["news_items"][0]["published_at"]
-                               if metrics["news_items"] else "无有效新闻发布日期")},
-                           {"label": "分析限制", "value": metrics["news_disclaimer"]},
-                           {"label": "检索状态", "value": news_result.summary}]})
-            continue
-        if hk and key not in _HK_METRICS:
-            dimensions.append({"key": key, "title": title, "status": "not_applicable", "applicable": False,
-                               "fields": [{"label": "适用范围", "value": "本期港股分析不支持此维度，不计入覆盖率"}]})
-            continue
         suff = getattr(ctx.sufficiency, suff_key)
         result = result_map.get(key)
         level = min(_LEVEL.get(suff.level, 0), _RESULT_LEVEL.get(result.status, 0) if result else 0)
-        if hk and (result is None or not _has_hk_facts(result)):
-            level = 0
-        if ctx.market != "hk" and weight and (result is None or result.score is None):
+        value = participation_score(result)
+        # 新财务依据已逐子项核验，不能被港股旧四季度计数规则永久降级。
+        if key == "financial" and result and result.metrics.get("scoring_basis") and value is not None:
+            level = _RESULT_LEVEL.get(result.status, 0)
+        if value is None:
             level = min(level, 1)
+            if hk and (result is None or not _has_hk_facts(result)):
+                level = 0
         if weight:
             coverage += weight * (level / 2)
-            all_complete = all_complete and level == 2
-            has_scored = has_scored or bool(level and result and result.score is not None)
+            all_complete = all_complete and level == 2 and value is not None
+        if key in {"financial", "technical", "valuation"}:
+            signal_ready = (suff.level == "sufficient" and result is not None
+                            and result.status == "ok" and value is not None)
+            signal_complete = signal_complete and signal_ready
+            if not signal_ready:
+                signal_blocked.append(title)
         record = records.get(source_key)
         sample, cutoff = _sample_dates(ctx, source_key)
         if cutoff == "未记录":
@@ -183,6 +182,16 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult]) -> d
         if key == "valuation" and ctx.enriched_valuation and ctx.enriched_valuation.daily_points and not hk:
             cache_text = f"实测估值快照：{cache_text}；行情与财务缓存状态见对应维度"
         fields.append({"label": "缓存状态", "value": cache_text})
+        if key == "financial" and result:
+            annual = result.metrics.get("annual_roe") or ctx.financial_scoring_facts.get("annual_roe", {})
+            if isinstance(annual, dict) and annual.get("period_end"):
+                fields.append({"label": "ROE计分期间", "value": f"{annual.get('period_start') or '未记录'} 至 {annual['period_end']}"})
+                fields.append({"label": "ROE计分来源", "value": annual.get("source") or "未记录"})
+        if key == "sentiment" and result:
+            fields.append({"label": "有效评估", "value": f"{result.metrics.get('evaluated_count', 0)}条相关消息"})
+            fields.append({"label": "评估窗口", "value": f"{result.metrics.get('window_start') or '未记录'} 至 {result.metrics.get('window_end') or '未记录'}"})
+            if result.metrics.get("assessment_reason"):
+                fields.append({"label": "评估说明", "value": str(result.metrics["assessment_reason"])})
         reasons = [suff.reason] if suff.reason and level < 2 else []
         if result and result.status != "ok" and result.summary:
             reasons.append(result.summary)
@@ -203,17 +212,21 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult]) -> d
             fields.append({"label": "分析限制", "value": "历史估值序列未经实测锚定校验"})
             pending.append("估值：核对历史估值序列的锚定口径")
         dimensions.append({"key": key, "title": title, "status": _STATUS[level], "fields": fields})
-    analysis_available = has_analysis_data(results, ctx) if hk else has_scored
+    has_scored = any(participation_score(result_map.get(key)) is not None
+                     for key in DIM_WEIGHTS if key != "sentiment")
+    analysis_available = has_analysis_data(results, ctx)
     quality = {
         "status": "ok" if all_complete else "partial" if analysis_available else "unavailable",
-        "coverage": round(available / len(_HK_METRICS) * 100, 1) if hk else round(coverage * 100, 1),
-        "signal_allowed": ctx.market != "hk" and all_complete and has_scored,
-        "has_scored_data": False if hk else has_scored,
+        "coverage": round(coverage * 100, 1),
+        "signal_allowed": not hk and signal_complete and has_scored,
+        "signal_unavailable_reason": ("本期港股不提供交易信号或仓位建议。" if hk else
+            f"{'、'.join(signal_blocked)}分析依据未满足信号生成条件。" if signal_blocked else ""),
+        "has_scored_data": has_scored,
         "has_analysis_data": analysis_available,
         "dimensions": dimensions,
         "pending_verifications": list(dict.fromkeys(pending)),
+        "coverage_basis": "五维原权重数据覆盖，不表示评分置信度",
     }
     if hk:
-        quality.update(available_dimensions=available, applicable_dimensions=len(_HK_METRICS),
-                       coverage_basis="可用维度覆盖，不表示字段完整率或投资评分")
+        quality.update(available_dimensions=available, applicable_dimensions=len(DIM_WEIGHTS))
     return quality

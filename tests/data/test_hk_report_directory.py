@@ -3,6 +3,7 @@ from datetime import date
 
 import pytest
 
+from analysis.config_loader import ConfigLoader
 from analysis.financial import FinancialAnalyzer
 from analysis.financial_trends import build_financial_trends
 from data import hk_eastmoney
@@ -158,7 +159,7 @@ def test_directory_timeout_preserves_three_statement_values_and_logs(source, cap
     assert "目录" in caplog.text and "超时" in caplog.text
 
 
-def test_metadata_enables_disclosure_without_changing_score_status_or_risks(source):
+def test_metadata_enables_verified_cashflow_score_without_changing_raw_values(source):
     frames, request = source
     for row in frames[0] + frames[2]:
         row["CURRENCY_CODE"] = "CNY"
@@ -169,10 +170,16 @@ def test_metadata_enables_disclosure_without_changing_score_status_or_risks(sour
     unknown.financial_data = [r.model_copy(update={"report_currency": "",
                              "reporting_basis": "东方财富港股财报-报告期"}) for r in rows]
     analyzer = FinancialAnalyzer()
-    before = analyzer.analyze(unknown, {"meta": {"strategy_key": "GeneralScorer"}})
-    after = analyzer.analyze(known, {"meta": {"strategy_key": "GeneralScorer"}})
-    assert (after.score, after.score_detail, after.risk_flags, after.status) == (
-        before.score, before.score_detail, before.risk_flags, before.status)
+    config = ConfigLoader().load("机械设备")
+    before = analyzer.analyze(unknown, config)
+    after = analyzer.analyze(known, config)
+    assert before.score is None and after.score == 10
+    assert "同起止期、同币种或来源证据" in before.score_detail
+    assert "经营现金流/净利润 1.00" in after.score_detail
+    assert after.risk_flags == before.risk_flags == []
+    assert after.status == before.status == "partial"
+    assert after.metrics["net_profit"] == before.metrics["net_profit"] == 120
+    assert after.metrics["operating_cash_flow"] == before.metrics["operating_cash_flow"] == 120
     assert after.metrics["operating_trends"] and not before.metrics["operating_trends"]
     assert "金额币种：CNY" in after.metrics["amount_basis"]
     assert "金额币种未核实" in before.metrics["amount_basis"]

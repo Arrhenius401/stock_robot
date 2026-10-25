@@ -80,3 +80,32 @@ for(const status of ["failed","config"]){
 }
 """.replace("__RENDERER__", renderer_url)
     _run_node(tmp_path, script)
+
+
+def test_perspectives_are_merged_into_ai_card_without_duplicate_archive_pointer(tmp_path):
+    script = _DOM_STUB + r'''
+const {renderStockReport,renderStockMarkdownReport}=await import(__RENDERER__);
+const bulk="## 1.维度分项解读\n\n财务原文\n\n## 3.多风格观察视角\n\n价值观察原文\n\n## 4.综合评级\n\n综合评价原文";
+const archived="# 报告\n\n## 四、AI 中性解读 + 风险汇总\n\n"+bulk+"\n\n---\n\n## 五、多风格观察视角\n\n> 多风格观察视角内容已包含在上方「AI 中性解读」的第 3 段中。\n\n## 六、待验证事项\n\n待核实";
+for(const status of ['ok','failed','disabled','insufficient']){
+ const article=renderStockReport({commentary:status==='ok'?bulk:'',commentary_status:status},
+  {archiveMarkdown:status==='ok'?archived:'# 报告\n\n## 五、多风格观察视角\n\n> 内容已包含在上方'});
+ const cards=article.children, ai=cards.find(c=>c.id==='report-commentary');
+ if(ai.children[0].textContent!=='AI 综合解读')throw new Error('AI标题未统一');
+ if(cards.some(c=>/多风格观察/.test(c.children[0]?.textContent||'')))throw new Error('仍有独立多风格卡片');
+ const html=descendants(article).map(n=>n.innerHTML).join('\n');
+ if(html.includes('已包含在上方'))throw new Error('仍有空指引');
+ if(status==='ok'&&(html.split('价值观察原文').length!==2||!html.includes('综合评价原文')))throw new Error('多风格重复或综合评价丢失');
+ if(status==='ok'&&(!html.includes('<h3>3.多风格观察视角</h3>')||html.includes('<h2>3.多风格观察视角</h2>')))throw new Error('网页内部标题未降级');
+}
+const legacy=renderStockMarkdownReport(archived), ai=legacy.children.find(c=>c.children[0]?.textContent==='AI 综合解读');
+if(!ai)throw new Error('旧Markdown没有合并AI章节');
+const html=descendants(ai).map(n=>n.innerHTML).join('\n');
+if(!html.includes('价值观察原文')||!html.includes('综合评价原文')||html.includes('已包含在上方'))throw new Error('旧Markdown内容未合并');
+if(legacy.children.some(c=>/多风格观察/.test(c.children[0]?.textContent||'')))throw new Error('旧Markdown仍有独立多风格卡片');
+const mixed=renderStockReport({commentary_status:'failed'}, {archiveMarkdown:'# 报告\n\n## 五、多风格观察视角\n\n独立历史观察原文\n\n> 其他内容已包含在上方'});
+const mixedAi=mixed.children.find(c=>c.id==='report-commentary');
+const mixedHtml=descendants(mixedAi).map(n=>n.innerHTML).join('\n');
+if(!mixedHtml.includes('独立历史观察原文')||mixedHtml.includes('已包含在上方'))throw new Error('清理空指引丢失同节历史正文');
+'''.replace("__RENDERER__", json.dumps(_module_url("src/api/static/js/report-renderer.js")))
+    _run_node(tmp_path, script)

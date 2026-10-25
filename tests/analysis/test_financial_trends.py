@@ -196,7 +196,9 @@ def test_existing_single_ai_call_consumes_fixed_facts(provider, market, tmp_path
     registry.register_llm_backend(backend, provider=provider)
     pipeline = Pipeline(registry, config)
     rows = [period(f"{y}-06-30", revenue=v, net_profit=10) for y, v in [(2024, 100), (2025, 120), (2026, 150)]]
-    ctx = make_ctx(symbol="688326", name="测试", market=market, financial_data=rows)
+    ctx = make_ctx(symbol="688326", name="测试", market=market, financial_data=rows,
+        financial_scoring_facts={"annual_roe": {"value": .15, "period_start": "2025-01-01",
+            "period_end": "2025-12-31", "source": "已验证年度指标", "basis": "累计·加权ROE", "reason": ""}})
     result = FinancialAnalyzer().analyze(ctx, {"financial": {}})
     pipeline._generate_commentary("688326", "测试", [result], context=ctx)
     assert len(backend.calls) == 1

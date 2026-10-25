@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import MagicMock
 
 from core.pipeline import Pipeline
@@ -365,30 +365,28 @@ class TestCacheHealth:
             sufficiency=DataSufficiency(),
         ))
         assert enriched.sufficiency is not None
-        assert "过期缓存兜底" in enriched.sufficiency.sentiment.reason
+        assert "缓存仅作参考" in enriched.sufficiency.sentiment.reason
+        assert enriched.enriched_sentiment is not None
+        assert enriched.enriched_sentiment.risk_score is None
 
     def test_cache_served_when_breaker_open(self, tmp_path, mocker):
         """断路器打开时，collect 仍从本地缓存返回健康数据"""
-        from data.schemas import IndustryData
+        from data.schemas import FinancialData
         pipe = self._make_pipeline(tmp_path, mocker)
         # 先写入健康缓存
-        ind = IndustryData(
-            symbol="000001", industry="银行", sector="金融", peers=["600000"],
-            peer_names={"600000": "浦发银行"},
-            peer_scope="申万二级", peer_industry="银行", top_peers=[],
-        )
-        pipe._set_cache("000001", "industry", [ind])
-        assert pipe._get_cached("000001", "industry") is not None
+        fin = FinancialData(symbol="000001", fiscal_quarter=date(2026, 6, 30),
+                            net_profit=10e8, basic_eps=0.5)
+        pipe._set_cache("000001", "financial", [fin])
+        assert pipe._get_cached("000001", "financial") is not None
         # 手动打开断路器
         for _ in range(3):
-            pipe._breaker.record_failure("000001", "industry")
-        assert pipe._breaker.is_open("000001", "industry")
+            pipe._breaker.record_failure("000001", "financial")
+        assert pipe._breaker.is_open("000001", "financial")
         # 断路器打开期间 collect：应命中缓存返回，而非被断路器屏蔽为 None
-        ctx = pipe.collect("000001", "平安银行", data_types=["industry"])
-        assert ctx.industry_data is not None
-        assert ctx.industry_data.industry == "银行"
+        ctx = pipe.collect("000001", "平安银行", data_types=["financial"])
+        assert ctx.financial_data == [fin]
         # 缓存命中走 record_success，断路器被重置
-        assert not pipe._breaker.is_open("000001", "industry")
+        assert not pipe._breaker.is_open("000001", "financial")
 
 
 class TestPipelineIndustryIntegration:
@@ -438,9 +436,9 @@ class TestPipelineIndustryIntegration:
                 return financials
             if data_type == "price":
                 return [PriceData(
-                    symbol=symbol, trade_date=date(2026, 8, 27), open=10,
-                    high=11, low=9.5, close=10.5, volume=1_000_000,
-                )]
+                    symbol=symbol, trade_date=date(2026, 7, 1) + timedelta(days=i), open=10 + i / 10,
+                    high=11 + i / 10, low=9.5 + i / 10, close=10.5 + i / 10, volume=1_000_000,
+                ) for i in range(60)]
             if data_type == "valuation":
                 return [ValuationData(
                     symbol=symbol, date=date(2026, 8, 27), pe_ttm=7.5, pb=0.85,

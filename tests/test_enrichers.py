@@ -240,21 +240,25 @@ def make_raw_sentiment(n: int) -> RawSentimentData:
 
 
 class TestSentimentEnricher:
-    def test_sufficient_10_plus(self):
+    def test_many_items_without_model_still_unavailable(self):
         ctx = AnalysisContext(symbol="000001", name="测试",
                               raw_sentiment=make_raw_sentiment(15))
         ctx = PriceEnricher().enrich(ctx)
         ctx = SentimentEnricher().enrich(ctx)
-        assert ctx.sufficiency.sentiment.level == SufficiencyLevel.SUFFICIENT
-        assert ctx.sufficiency.sentiment.score_weight == 1.0
+        assert ctx.sufficiency.sentiment.level == SufficiencyLevel.INSUFFICIENT
+        assert ctx.sufficiency.sentiment.score_weight == 0.0
+        assert ctx.enriched_sentiment is not None
+        assert ctx.enriched_sentiment.risk_score is None
 
-    def test_partial_3_to_9(self):
+    def test_few_items_without_model_still_unavailable(self):
         ctx = AnalysisContext(symbol="000001", name="测试",
                               raw_sentiment=make_raw_sentiment(5))
         ctx = PriceEnricher().enrich(ctx)
         ctx = SentimentEnricher().enrich(ctx)
-        assert ctx.sufficiency.sentiment.level == SufficiencyLevel.PARTIAL
-        assert ctx.sufficiency.sentiment.score_weight == 0.5
+        assert ctx.sufficiency.sentiment.level == SufficiencyLevel.INSUFFICIENT
+        assert ctx.sufficiency.sentiment.score_weight == 0.0
+        assert ctx.enriched_sentiment is not None
+        assert ctx.enriched_sentiment.risk_score is None
 
     def test_insufficient_below_3(self):
         ctx = AnalysisContext(symbol="000001", name="测试",

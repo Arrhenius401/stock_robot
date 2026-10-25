@@ -1,4 +1,4 @@
-"""跨市场技术事实及 A 股评分兼容性回归。"""
+"""跨市场技术事实与有效子项评分归一回归。"""
 
 from datetime import date, timedelta
 from statistics import mean
@@ -61,12 +61,14 @@ def test_public_metrics_require_complete_windows_and_match_across_markets(count)
     assert hk_result.metrics == expected
 
 
-def test_hk_does_not_use_a_share_scorer_even_if_given_config(mocker):
+def test_hk_uses_shared_scorer_when_given_its_selected_config(mocker):
     get_scorer = mocker.patch("analysis.financial.FinancialAnalyzer._get_scorer")
+    get_scorer.return_value.score_technical.return_value = (7.0, "有效子项评分", [])
+    get_scorer.return_value._industry_note.return_value = ""
     result = TechnicalAnalyzer().analyze(make_context(60, "hk"), {"technical": {}})
-    get_scorer.assert_not_called()
-    assert result.score is None
-    assert not result.score_detail
+    get_scorer.assert_called_once_with({"technical": {}})
+    assert result.score == 7
+    assert result.score_detail == "有效子项评分"
     assert result.metrics["ma_60"] is not None
 
 
@@ -76,23 +78,30 @@ def test_zero_volume_is_missing_ratio_not_invented_neutral_value():
         p.volume = 0
     result = TechnicalAnalyzer().analyze(ctx)
     assert result.metrics["volume_ratio"] is None
-    # 原评分兼容层仍保留零分母时量比 1.0 的历史行为。
-    assert "量比 1.00" in GeneralScorer({}, {}).score_technical(ctx)[1]
+    score, detail, _ = GeneralScorer({}, {}).score_technical(ctx)
+    assert score is not None
+    assert "量比 1.00" not in detail
+    assert "量价配合数据不足" in detail
 
 
 @pytest.mark.parametrize(("count", "score", "detail"), [
-    (0, 0.0, "行情数据不可用"),
-    (5, 0.0, ""),
-    (20, 5.0, "缺 MA60，得 2/4 分；放量上涨（量比 1.47），得 3/3 分"),
-    (24, 5.0, "缺 MA60，得 2/4 分；放量上涨（量比 1.52），得 3/3 分"),
-    (25, 5.0, "缺 MA60，得 2/4 分；放量上涨（量比 1.53），得 3/3 分"),
-    (26, 6.0, "缺 MA60，得 2/4 分；放量上涨（量比 1.50），得 3/3 分；MACD 空头，得 1/3 分"),
-    (33, 6.0, "缺 MA60，得 2/4 分；放量上涨（量比 1.39），得 3/3 分；MACD 空头，得 1/3 分"),
-    (34, 8.0, "缺 MA60，得 2/4 分；放量上涨（量比 1.38），得 3/3 分；MACD 多头，得 3/3 分"),
-    (60, 8.0, "多头排列，得 4/4 分；放量上涨（量比 1.21），得 3/3 分；MACD 空头，得 1/3 分"),
+    (0, None, "行情数据不可用"),
+    (5, None, "没有可用技术计分子项"),
+    (20, 50/7, "放量上涨（量比 1.47），得 3/3 分"),
+    (24, 50/7, "放量上涨（量比 1.52），得 3/3 分"),
+    (25, 50/7, "放量上涨（量比 1.53），得 3/3 分"),
+    (26, 50/7, "MACD数据不足或权重无效，不计分"),
+    (33, 50/7, "MACD数据不足或权重无效，不计分"),
+    (34, 8.0, "MACD 多头，得 3/3 分"),
+    (60, 8.0, "MACD 空头，得 1/3 分"),
 ])
-def test_a_share_scoring_snapshot_before_extraction(count, score, detail):
-    assert GeneralScorer({}, {}).score_technical(make_context(count)) == (score, detail, [])
+def test_technical_scoring_keeps_bands_and_normalizes_available_items(count, score, detail):
+    actual, explanation, risks = GeneralScorer({}, {}).score_technical(make_context(count))
+    assert actual == pytest.approx(score) if score is not None else actual is None
+    assert detail in explanation
+    assert risks == []
+    if score is not None:
+        assert "按原相对权重折算" in explanation
 
 
 @pytest.mark.parametrize("count", [0, 5, 20, 25, 26, 33])
@@ -117,9 +126,10 @@ def test_volume_score_keeps_inclusive_neutral_ratio_bounds(recent_volume, label)
     config = {"technical": {
         "ma_structure": {"enabled": False}, "macd": {"enabled": False},
     }}
-    assert GeneralScorer(config, {}).score_technical(ctx) == (
-        2.0, f"{label}（量比 {recent_volume / 100:.2f}），得 2/3 分", [],
-    )
+    score, detail, risks = GeneralScorer(config, {}).score_technical(ctx)
+    assert score == pytest.approx(20/3)
+    assert f"{label}（量比 {recent_volume / 100:.2f}），得 2/3 分" in detail
+    assert risks == []
 
 
 def test_bearish_ma_and_volume_risk_flags_are_unchanged():
@@ -128,10 +138,9 @@ def test_bearish_ma_and_volume_risk_flags_are_unchanged():
         p.close = 100 - i
         p.volume = 200 if i >= 55 else 100
     result = GeneralScorer({"technical": {"macd": {"enabled": False}}}, {}).score_technical(ctx)
-    assert result == (
-        2.0, "空头排列，得 1/4 分；放量下跌（量比 2.00），得 1/3 分",
-        ["bearish_ma", "volume_bearish"],
-    )
+    assert result[0] == pytest.approx(20/7)
+    assert "空头排列，得 1/4 分；放量下跌（量比 2.00），得 1/3 分" in result[1]
+    assert result[2] == ["bearish_ma", "volume_bearish"]
 
 
 def test_metrics_and_score_are_sorted_by_trade_date():

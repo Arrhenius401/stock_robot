@@ -1,5 +1,6 @@
 """P0 数值有效性与展示口径，保留计算原值。"""
 import math
+from copy import deepcopy
 
 import pytest
 
@@ -69,3 +70,21 @@ def test_nested_display_does_not_modify_raw_values():
     assert result["pe_ttm"] == "-32.03（不适用于高低估判断）"
     assert raw["roe_trend"][0]["roe"] == -0.0956
     assert raw["pe_ttm"] == -32.03
+
+
+@pytest.mark.parametrize("annual_value,expected", [(0.15, "15.00%"), (0, "0.00%"), (None, "暂无数据")])
+def test_annual_roe_nested_fact_formats_fraction_without_changing_raw_data(annual_value, expected):
+    from tests.report.test_peer_comparison import comparison_sample
+
+    raw = {"roe": 0.0956, "annual_roe": {"value": annual_value,
+        "period_start": "2025-01-01", "period_end": "2025-12-31",
+        "source": "同源年度", "basis": "完整年度加权", "reason": ""},
+        "comparison": comparison_sample()}
+    original = deepcopy(raw)
+    displayed = format_metrics(raw)
+    assert displayed["annual_roe"]["value"] == expected
+    assert displayed["annual_roe"]["period_end"] == "2025-12-31"
+    assert displayed["annual_roe"]["source"] == "同源年度"
+    assert displayed["roe"] == "9.56%"
+    assert displayed["comparison"]["periods"]["annual"]["metrics"][0]["target"] == "12.50%"
+    assert raw == original
