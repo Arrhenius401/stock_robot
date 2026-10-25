@@ -97,7 +97,7 @@ class TestPushExecutor:
         assert result["ok"] == 1
         content = backend.calls[0]["content"]
         assert "不应输出的AI结论" not in content
-        assert "操作信号：" not in content
+        assert "操作信号：暂未生成" in content
         assert "数据覆盖与时效" in content
 
     def test_backend_initialization_failure_is_recorded(self, mocker, tmp_path):

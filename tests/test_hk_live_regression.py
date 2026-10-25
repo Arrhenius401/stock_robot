@@ -73,7 +73,7 @@ def test_real_financial_rows_survive_price_outage_through_saved_report(tmp_path,
     assert latest.net_profit == 114115000000
     assert latest.gross_margin == pytest.approx(229698000000 / 401243000000)
     financial = next(result for result in results if result.dimension == "financial")
-    assert financial.score is None and not financial.risk_flags
+    assert financial.score is not None and not financial.risk_flags
     assert len(financial.metrics["operating_trends"]) <= 3
     assert latest.total_assets == 2159394000000
     assert latest.operating_cash_flow == (None if cash_flow_failure else 154061000000)
@@ -88,9 +88,9 @@ def test_real_financial_rows_survive_price_outage_through_saved_report(tmp_path,
     payload = build_stock_payload(symbol, name, results, commentary, context, no_llm=True)
     assert payload["market"] == "hk"
     assert payload["data_quality"]["has_analysis_data"] is True
-    assert payload["data_quality"]["has_scored_data"] is False
+    assert payload["data_quality"]["has_scored_data"] is True
     assert payload["commentary_status"] == "disabled"
-    assert payload["score"]["final"] is None
+    assert payload["score"]["final"] is not None
     assert payload["signal"] is None
     original = (RESOURCES / "report/qq-00700-unavailable-report.md").read_text(encoding="utf-8")
     assert "市场：A 股" in original and "2241期财报" in original
@@ -101,7 +101,7 @@ def test_real_financial_rows_survive_price_outage_through_saved_report(tmp_path,
     assert "同花顺财报" not in markdown
     assert "腾讯估值快照" not in markdown
     assert "14.23" in markdown and "2.9" in markdown
-    assert "操作信号：" not in markdown
+    assert "操作信号：不适用" in markdown
     assert "57.25%" in markdown and "毛利率计算口径" in markdown
     assert "计算值：同期间披露毛利÷营运收入" in markdown
     assert "其他营业收入" in markdown

@@ -80,6 +80,15 @@ def test_signal_uses_only_prices_available_on_same_day(technical_config):
     pd.testing.assert_frame_equal(baseline.iloc[:-1], changed.iloc[:-2])
 
 
+def test_insufficient_technical_evidence_uses_defend_without_inventing_score(technical_config):
+    weights = build_target_weights(_price_series(1), _strategy(), technical_config)
+
+    assert len(weights) == 1
+    assert weights["signal"].iloc[0] == "defend"
+    assert weights["technical_score"].iloc[0] is None
+    assert weights["target_weight"].iloc[0] == 0.0
+
+
 def test_target_weights_frame_shape(technical_config):
     weights = build_target_weights(_price_series(150), _strategy(), technical_config)
 

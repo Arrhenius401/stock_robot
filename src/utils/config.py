@@ -3,6 +3,7 @@ import hashlib
 import os
 import sqlite3
 import tempfile
+import time
 from contextlib import closing
 from pathlib import Path
 from typing import Any
@@ -192,7 +193,15 @@ class Config:
                 stream.write(source)
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(name, self._config_path)
+            for attempt in range(3):
+                try:
+                    os.replace(name, self._config_path)
+                    break
+                except PermissionError:
+                    # Windows 上病毒扫描或短暂句柄占用会让原子替换瞬时失败。
+                    if attempt == 2:
+                        raise
+                    time.sleep(0.05)
         finally:
             if os.path.exists(name):
                 os.unlink(name)

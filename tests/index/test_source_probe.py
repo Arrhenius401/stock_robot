@@ -158,7 +158,7 @@ def test_absolute_deadline_terminates_dripping_reader(tmp_path, monkeypatch):
                 while not stop.wait(0.05):
                     self.wfile.write(b"x")
                     self.wfile.flush()
-            except (BrokenPipeError, ConnectionResetError):
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 disconnected.set()
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), DripHandler)
