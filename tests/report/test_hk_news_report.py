@@ -1,4 +1,5 @@
 """港股旧检索参考兼容及新五维质量边界。"""
+import html
 from datetime import datetime, timedelta, timezone
 
 from analysis.sentiment import SentimentAnalyzer
@@ -93,7 +94,7 @@ def test_hk_quality_reference_and_payload_markdown():
         data_quality=quality)
     assert "https://example.com/0" not in markdown
     assert "测试媒体" in markdown
-    assert NOW.strftime("%Y-%m-%d %H:%M").replace("-", "\\-") in markdown
+    assert NOW.strftime("%Y-%m-%d %H:%M") in html.unescape(markdown)
     assert "关键词检索结果" in markdown
     assert "原采集时间" not in markdown
 
@@ -130,7 +131,7 @@ def test_news_markdown_uses_plain_list_without_source_links():
             {"media": "媒体甲", "url": "https://example.com/a"},
             {"media": "媒体乙", "url": "https://example.com/b"},
             {"media": "媒体甲", "url": "https://example.com/c"}]}]})
-    assert "- 公司回购股份（2026\\-10\\-23 18:21 · 媒体甲、媒体乙）" in text
+    assert "- 公司回购股份（2026-10-23 18:21 · 媒体甲、媒体乙）" in html.unescape(text)
     assert "https://" not in text
     assert "](" not in text
     assert "T18:21" not in text

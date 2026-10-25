@@ -1,5 +1,5 @@
 // 结构化股票报告共享渲染器：不读取业务状态，也不发起网络请求。
-import { renderMarkdown } from "./markdown.js";
+import { renderMarkdown } from "./markdown.js?v=20261025-news-escaping-1";
 import { el, kv, priceBar, statusBadge } from "./components.js";
 
 const DIMENSIONS = [

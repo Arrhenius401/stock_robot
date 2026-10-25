@@ -584,3 +584,13 @@ AI重试实现明确为服务端短期报告上下文，容量64、过期30分�
 - 同花顺现金流接口依赖第三方响应形态；失败、缺列或冲突时保留推算值且不评分，不伪造 reported。现金流量表接口未提供显式起始日/币种字段，只有标准累计报告期、CNY 且报告日一致时才标记 reported；否则直接金额仅展示、basis unknown、不可评分。
 - 银行无 PE 仍为 partial；若要按 BankScorer 只要求 PB，属于新的信号可得性决策，需单独确认。
 - 本轮只覆盖 Changed 范围，未验证全市场低毛利、非标报告期和所有行业的线上稳定性；未运行全量回归，未推送、合并或修改原仓。
+
+### 舆情文本转义兼容修复（2026-10-25）
+
+- 用户要求先处理联合插件舆情标题、日期中的多余反斜杠；港股估值补源问题留待后续。本次不改新闻采集、评分、模型调用或旧报告，不修改 README，不单独提交或发布。
+- 根因：报告将日期连字符、标题括号等转成 Markdown 反斜杠转义；AstrBot 本地 Pillow 渲染器的行内解析未解除这些转义，最终将反斜杠原样绘制。`src/report/formatter.py` 改用 HTML 数字字符实体保护外部纯文本，并让旧港股新闻格式共用 `_news_text`。真实反斜杠、星号、下划线和括号仍按原文字显示，来源链接保持既有安全校验。
+- 网页轻量 Markdown 渲染器原先再次转义实体，会显示编码文字；`src/api/static/js/markdown.js` 在语法解析后仅恢复有效数字实体及常用命名实体，跳过行内代码，围栏代码保持原样。已更新静态导入缓存版本；其他前端文件仅调整版本及 Markdown 导入地址。
+- 回归：新增 `tests/report/test_news_markdown_escaping.py`，覆盖截图中的新闻标题/日期、股票代码、真实反斜杠、伪 Markdown 链接/图片、HTML、原有实体、媒体、评估依据与输入不变性，以及网页代码块与实体安全边界。更新两条旧日期转义断言。首轮红灯证实原反斜杠和网页二次转义问题，修复后 `.venv/Scripts/python -m pytest tests/report tests/api/test_static.py tests/api/test_app.py -q` **390 通过，4 条既有依赖弃用警告**；唯一 basetemp/cache 位于 `tmp/pytest/news-escaping-final-43516-bc5454f8a52b4afaa59649977f1c2b8b/`。相关三份 Python 文件 Ruff、Pyright 零错误，`git diff --check` 通过，未运行全量回归。
+- 插件真实渲染链验证：调用未修改的插件 `_render_report`、`ReportRenderer` 与 AstrBot `LocalRenderStrategy/MarkdownRenderer` 生成修复前后图片；仅隔离框架配置、临时路径及渲染路由，未替换解析/排版/绘图逻辑。样本来自用户截图标题，并补充特殊字符和注入边界，非新生成的完整投资报告。原图可见 `2026\\-10\\-16`，修复后为 `2026-10-16`，真实路径 `C:\reports\a_b.md` 保留。产物在 `tmp/plugin-report-diagnosis/native-news-*`。
+- 网页真实验收：通过项目 `.venv/Scripts/stock-robot.exe run --host 127.0.0.1 --port 8765` 启动隔离 cwd/config，禁用推送及定时采集，不复制用户会话/订阅。Edge 实际报告库打开同一 Markdown 样本，1440/390 均无水平溢出、脚本错误；DOM 验证 HTML/伪链接均为普通文字、代码实体保持字面值，并真实发送一次问候获得回复。截图、脚本、结果保留于 `tmp/plugin-report-diagnosis/web-news-*`。
+- 部署限制：这是当前源码修复；插件仍固定后端 v0.2.2，部署实例需要后续统一发布/升级才会采用。已保存旧报告不会自动改写。未验证线上机器人完整发送链路，未推送、合并或发布。
