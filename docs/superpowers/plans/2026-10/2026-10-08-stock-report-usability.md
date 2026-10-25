@@ -494,3 +494,64 @@ AI重试实现明确为服务端短期报告上下文，容量64、过期30分�
 - 先补顶部原因、真实信号、港股、旧快照回归及调整旧隐藏断言，取得5失败/22通过红灯。实现后 `.venv/Scripts/python -m pytest tests/report tests/api/test_static.py tests/api/test_static_strategy_indices.py tests/api/test_report_usability.py tests/api/test_report_library_unification_static.py tests/api/test_app.py -q` **402通过/1失败**（33.55秒，4条既有弃用警告）；唯一失败为旧「不传规则就隐藏」断言，更新为占位且不伪造信号，并覆盖充分数据不误标为不足。最后 `.venv/Scripts/python -m pytest tests/report/test_signal.py tests/report/test_quality.py tests/report/test_five_dimension_display.py tests/llm tests/core/test_peer_commentary.py -q` **114通过**（16.31秒），复用其余相同代码结果；未跑全量。初次新增测试有Literal标注诊断及一次导入排版告警，修正后指定类型零错误，Ruff通过；Changed计划无未映射项。
 - 真实路径 `.venv/Scripts/stock-robot.exe run --host 127.0.0.1 --port 8765` 启动工作树隔离服务；Edge实际发送600519，15:31:47生成报告。API的signal保持null、signal_allowed保持false，原因是「财务、估值分析依据未满足信号生成条件。」；1440px/390px网页顶部占位和实际下载Markdown一致，报告库占位唯一。查看了实际窄屏截图，无水平溢出；旧腾讯15:09:55快照明确不适用，真实首条会话响应通过，零脚本错误。实际响应/下载/截图/脚本保留 `tmp/peer-acceptance/signal-*`，测试日志在唯一 `tmp/pytest/signal-placeholder-*`，正式文档沿用本主题两份原文件。
 - 本轮验收服务已停止，Ruff最终通过、指定类型零错误，暂存差异检查通过。所有测试结束后对本次成功运行目录核对路径并尝试清理，自动审批返回 `blocked by policy`，未执行或重试；产物保留。按完整事项一次本地提交，无运行配置/报告/日志入库，不推送、合并或全量回归。
+
+### Claude 接手记录：财务与估值为何阻止信号（2026-10-25）
+
+#### 接手位置与状态
+
+- 用户因 Codex 额度不足要求交给 Claude，当前停止在只读问题诊断，以下三个问题尚未修改源码或新增修复回归。不要把本节诊断当作已修复结果。
+- 必须继续使用工作树 `C:/Users/25618/.codex/worktrees/industry-comparison/stock_robot`，分支 `codex/industry-comparison`。原仓 `D:/code/stock_robot` 存在其他事项改动，不直接在原仓修改、不覆盖其文档、不自动合并或推送。交接记录写入前工作树干净。
+- 最近业务提交：`d16f15a` 五维评分、`2e9936d` 多风格观察并入第四节、`c647d7e` 缺失操作信号占位。后续交接提交仅补本文，不改变业务。未建立新设计/实施文档，同主题只维护原spec与本plan。
+- 当前工作树无 `.codegraph`，可直接使用rg/源码；原仓索引不能代表工作树的新源码。先遵守根AGENTS及 `C:/Users/25618/.codex/skills/design-before-implementation/SKILL.md`。已确认方案无需重复确认，但本节尚未确认的新修复路线或规则变更须先说明具体方案，不能直接放松信号条件。
+
+#### 用户已确认的关键边界
+
+- A股/港股均启用五维综合分，财务/技术/估值/行业/舆情权重30/20/25/20/5。舆情原风险0/2/5/10，以10减风险反向参与；全部风险标签只提示、不额外扣分。有效零分保留、缺项原权重归一、只有舆情不输出总分，原精度参与计算，最后综合分显示一位小数。
+- 行业只用同期同行经营比较：营收同比/ROE/净利率40/40/20，每项至少5家、每期至少2个有效指标；完整年度/最新40/60，同一期间只计一次。A股精确申万三级、港股通同HSICS二级，不跨市场、不展示同行名单。行业周期与前景研究已明确搁置。
+- 财务ROE采用最近完整实际财政年，不用半年度乘二；最新报表原值保留。现金流/利润须有同期间、币种和来源证据；毛利率至少两期同类型同口径。银行保险不套用未经验证的通用指标。不得为出信号补零、填造来源/期间/口径或恢复无效历史分位。
+- A股信号保持财务/技术/估值原三核心门槛，行业/舆情缺失不另设硬门槛；阈值与仓位未调整。港股不开启操作信号/仓位。有效分数与质量覆盖分开，能有综合分但无操作信号。
+- 报告第四节为AI综合解读，包含分项、风险、多风格及综合评价；独立第五节已删除，后续第五/六/七为待验证/覆盖/免责声明。AI失败不伪装三种风格分析，仍用原一次批量解读。新报告 `scoring_method=five-dimension-v1`；历史保存分数、Markdown与快照不批量重写。
+- 最新用户确认：没有信号也必须有顶部占位。Markdown及网页显示「操作信号：暂未生成」和原因，港股显示不适用。`data_quality.signal_unavailable_reason`来自原门槛实际未满足维度；旧快照无原因使用通用提示，有效信号正常显示。当前资源版本 `20261025-signal-placeholder-1`。
+
+#### 最新报告与已核实证据
+
+- 用户正在问的是 `reports/stock/600519/2026-10/600519_20261025_153147.md` 及同名 `.report.json`。快照最外层是 `schema_version/markdown_sha256/payload`，读取业务内容用 `json['payload']`，不要把外层当payload。
+- 这份真实茅台报告综合分7.4，`signal=null`，`data_quality.signal_allowed=false`，覆盖67.5%；原因「财务、估值分析依据未满足信号生成条件。」。技术ok，财务partial，估值partial；不是信号被第四/五节合并删除，也不是低分导致没有信号。
+- 可复核原始缓存 `.stock_robot/cache.db` 的 `cache` 表：`data_type='financial', symbol='600519', date_key='latest'`，value为12期财报JSON列表。只读SQLite模式可检查，不调用网络也能复现下面元信息缺口。报告快照只包含分析结果，检查原采集字段应读缓存，不能只看报告表格。
+
+#### 问题一：财务现金流证据缺口，尚未决定取数修复路线
+
+- `src/data/akshare.py` A股同花顺财报解析约565–586行，返回 `operating_cash_flow` 为推算值，`cash_flow_basis='estimated'`，没有填写 `cash_flow_period_start`。实际缓存最新2026中报的金额约707.74亿元，起始期间字段为null；利润表期间为2026-01-01至2026-06-30，币种CNY。
+- `src/analysis/financial_scoring.py:40` 的 `cashflow_compatible` 要求现金流起点等于利润期间起点，并校验已知期间、币种、来源。当前返回false；评分器因此跳过经营现金流/净利润（配置最大3分）。报告已标注现金流「推算值（非直接披露）」，经营趋势也未将其视为直接披露的连续趋势。
+- 这是实际证据缺口，不能直接补一个起始日或把estimated改reported就宣称完整。接手应先调查现有A股财务数据源/备用适配器是否能复用同报告期直接披露值及元信息，验证推算金额的股本、单位、期间是否可靠，再提出最小补取方案；不擅自新增收费源、全文爬虫、逐家同行整套三表或额外模型调用。无法核实时应保留缺项与无信号，不能为了让7.4分显示进攻而强制放行。
+
+#### 问题二：毛利率数值已有，但采集与评分的口径字段未衔接
+
+- 实际缓存已有同花顺同类型中报：2024-06-30毛利率91.76%、2025-06-30为91.30%、2026-06-30为89.56%。各期 `period_start`为各年01-01、`period_basis='cumulative'`、`reporting_basis='同花顺财务摘要-按报告期'`、`financial_source='同花顺财报'`，但 `gross_margin_basis=''`。
+- `src/analysis/financial_scoring.py:61` 的 `gross_margin_periods` 先要求 `gross_margin_basis`非空，再按同源、相同财政年位置/报表类型/期间口径筛选最多4期。A股适配器没有填写该字段，结果0个有效样本，评分器显示「同类型同口径毛利率不足两期」，跳过该子项（最大2分）。与此同时趋势模块可以显示三期下降，所以报告看起来前后矛盾。
+- 这属于元信息衔接缺口，不是没有历史数值。修复前先核验上游毛利率字段及计算/单位口径，随后由对应来源适配器提供真实basis；不要全局给未知源填通用basis或降低匹配条件。测试应走实际适配器→评分器，证明同口径三期被采用、不同口径/来源不混用、未知口径仍缺失。
+- 当前 `src/analysis/financial.py:99` 以 `available_max >= eligible_max > 0` 决定新财务状态ok，否则partial。本报告只有ROE和负债率可计分，available_max=5、eligible_max=10，实际得3/5折为6/10，故partial。即便补齐毛利率，若现金流证据仍缺，按现有门槛财务仍会partial；不要把「修完毛利率后必须出现信号」当验收目标。
+
+#### 问题三：估值被不参与评分的PS误挡
+
+- 实际报告PE(TTM)=20.49、PB=6.64，历史有效163点（≥120），PE/PB历史分位均63.80%，同源同行PE溢价约-23.91%；PE/PB历史和同行溢价三项均有效，估值评分有效最大分10/10，得7/10。只有 `ps_ttm=null`。
+- `src/analysis/valuation.py:88`：`if not all(info['applicable'] for info in applicability.values()): status='partial'`，其中applicability同时包括PE/PB/PS。PS缺失会使整个估值状态partial。
+- 但PS不参加当前估值评分，港股说明也明确PS仅披露。`src/report/quality.py:131` 要求原充分度sufficient、结果status=ok、有效score才允许该核心维度通过；因此仅缺PS就阻止信号，属于条件不合理。建议围绕「真正适用并参与评分的必要证据」收敛状态判定，保留银行无PE、亏损PE无效但PB可用、周期策略、独立同行溢价仅部分有效、历史不足/未锚定等边界，不能简单改成有分就允许信号。
+- 修复不是修改 `derive_signal` 或降低4/7阈值，也不是忽略所有partial。实际信号阈值/动作应从Config读取；不要因为7.4超过默认进攻阈值就推断应直接放行。
+
+#### 建议接手顺序与验证
+
+1. 先读本节及原spec末尾确认约束，复现三处边界；用最小探针核验既有数据源字段。向用户说明具体最小修复方案，尤其现金流采用什么来源/期间证据。用户刚才只要求解释后交接，尚未对新取数方案或放宽门槛表示确认。
+2. 已有测试入口：`tests/data/test_financial_scoring_facts.py`、`tests/analysis/scorers/test_five_dimension_facts.py`、`tests/analysis/test_scoring_review_regressions.py`、`tests/report/test_quality.py`、`tests/report/test_signal.py`、财务来源相关测试。先加实际缓存形态的红灯，再修来源与估值状态；未知/失败仍不得伪装完整。
+3. 注意旧财务缓存有7天TTL。代码修正不会自动改变旧缓存缺失basis；真实验收需要明确刷新目标财务数据/使用已核验的新缓存，不能把旧快照直接改字段当修复成功。旧报告和快照不改写。
+4. 不改已确认的五维权重、行业池、低负债档位、评分归一和原信号阈值。保持港股无信号、A股三核心门槛及占位原因准确。如果只修PS和毛利率后现金流仍无证据，继续显示财务未满足是正确结果。
+5. 先单文件Ruff/Pyright与相关pytest，代码稳定后按Changed范围门禁，复用相同源码已通过结果，不自动全量。涉及展示/会话时仍须真实服务与浏览器，数据规则修复至少真实A/HK报告冒烟并核对来源/期间及信号。回归必须覆盖全部必要证据完整可出信号、缺现金流不出信号、缺PS不误阻止、行业/舆情缺失不硬挡、历史占位不伪造信号。
+
+#### 运行环境与现有验收资产
+
+- 显式使用 `.venv/Scripts/python`；`python/pip`裸命令指向Anaconda。工作树`.venv`复用原仓环境，editable安装指原仓，运行前必须 `$env:PYTHONPATH = Join-Path $PWD 'src'`（测试时可再追加工作树根目录）。不要用全局stock-robot旧安装；启动用 `./.venv/Scripts/stock-robot.exe run --host 127.0.0.1 --port 8765`。验收服务目前已停止，启动前查端口，不杀他人进程。
+- 项目Python的base_prefix是Anaconda属正常虚拟环境，不应仅凭Windows子进程exe路径误判使用了裸Anaconda。隔离配置保留既有模型，push和定时采集禁用；不输出密钥、不复制订阅/用户会话数据库。CLI首次使用确认已从主项目已有true记录同步到工作树，用户没有被替代进行新的同意。
+- pytest须预建唯一 `tmp/pytest/<范围>-PID-GUID/basetemp`及`cache/v/cache`，明确传basetemp/cache_dir。早期清理多次被自动策略以 `blocked by policy`拒绝，未绕过或改ACL，产物保留；不要反复清理或把清理失败当业务测试失败。
+- 最新已通过范围见上节：402项通过后仅1条旧隐藏断言更新，114项最后复核通过；Ruff/Pyright通过，真实茅台顶部占位、下载、报告库、港股不适用、1440/390和会话响应均通过。更早五维和合并章节的完整范围记录在本plan前文。这些结果不覆盖尚未实施的三处修复。
+- 最新验收数据/脚本：`tmp/peer-acceptance/signal-placeholder-600519.json`、`signal-placeholder-result.json`、`verify-signal-placeholder.cjs`、`signal-placeholder-390.png`；两市合并章节样本为`merge-*`，原五维样本为`five-*`，均忽略且不提交。Playwright默认Chromium缺失，复用已安装Edge：`chromium.launch({channel:'msedge',headless:true})`；Node和Playwright可用路径见已有cjs脚本，不安装额外浏览器。
+- 交接后沿用本spec/plan继续记录，按完整事项本地中文提交，默认不推送、不合并、不发布。正式实施前先核对git状态与用户是否有新的Claude指令。
