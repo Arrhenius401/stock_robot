@@ -1,0 +1,667 @@
+symbol,hsics_sector,hsics_industry,mapping_status,in_hsci
+00001.HK,综合企业,Conglomerates,mapped,true
+00002.HK,公用事业,Utilities,mapped,true
+00003.HK,公用事业,Utilities,mapped,true
+00004.HK,地产,Properties and Construction,mapped,true
+00005.HK,银行,Financials,mapped,true
+00006.HK,公用事业,Utilities,mapped,true
+00008.HK,电讯,Telecommunications,mapped,true
+00010.HK,地产,Properties and Construction,mapped,true
+00012.HK,地产,Properties and Construction,mapped,true
+00013.HK,药品及生物科技,Healthcare,mapped,true
+00014.HK,地产,Properties and Construction,mapped,true
+00016.HK,地产,Properties and Construction,mapped,true
+00017.HK,地产,Properties and Construction,mapped,true
+00019.HK,综合企业,Conglomerates,mapped,true
+00020.HK,软件服务,Information Technology,mapped,true
+00023.HK,银行,Financials,mapped,true
+00027.HK,旅游及消闲设施,Consumer Discretionary,mapped,true
+00038.HK,工业工程,Industrials,mapped,false
+00041.HK,地产,Properties and Construction,mapped,true
+00066.HK,旅游及消闲设施,Consumer Discretionary,mapped,true
+00068.HK,软件服务,Information Technology,mapped,true
+00081.HK,地产,Properties and Construction,mapped,true
+00083.HK,地产,Properties and Construction,mapped,true
+00087.HK,综合企业,Conglomerates,mapped,true
+00100.HK,软件服务,Information Technology,mapped,true
+00101.HK,地产,Properties and Construction,mapped,true
+00107.HK,工用运输,Industrials,mapped,false
+00119.HK,地产,Properties and Construction,mapped,true
+00123.HK,地产,Properties and Construction,mapped,true
+00135.HK,公用事业,Utilities,mapped,true
+00136.HK,媒体及娱乐,Consumer Discretionary,mapped,true
+00142.HK,食物饮品,Consumer Staples,mapped,true
+00144.HK,工用运输,Industrials,mapped,true
+00148.HK,工业工程,Industrials,mapped,true
+00151.HK,食物饮品,Consumer Staples,mapped,true
+00152.HK,工用运输,Industrials,mapped,true
+00165.HK,其他金融,Financials,mapped,true
+00168.HK,食物饮品,Consumer Staples,mapped,true
+00173.HK,地产,Properties and Construction,mapped,true
+00175.HK,汽车,Consumer Discretionary,mapped,true
+00177.HK,工用运输,Industrials,mapped,true
+00179.HK,汽车,Consumer Discretionary,mapped,true
+00187.HK,工业工程,Industrials,mapped,false
+00189.HK,原材料,Materials,mapped,true
+00200.HK,旅游及消闲设施,Consumer Discretionary,mapped,true
+00220.HK,食物饮品,Consumer Staples,mapped,true
+00241.HK,药品及生物科技,Healthcare,mapped,true
+00257.HK,公用事业,Utilities,mapped,true
+00267.HK,综合企业,Conglomerates,mapped,true
+00268.HK,软件服务,Information Technology,mapped,true
+00270.HK,公用事业,Utilities,mapped,true
+00285.HK,资讯科技器材,Information Technology,mapped,true
+00288.HK,食物饮品,Consumer Staples,mapped,true
+00290.HK,其他金融,Financials,mapped,true
+00291.HK,食物饮品,Consumer Staples,mapped,true
+00293.HK,旅游及消闲设施,Consumer Discretionary,mapped,true
+00297.HK,原材料,Materials,mapped,true
+00300.HK,家庭电器及用品,Consumer Discretionary,mapped,true
+00303.HK,资讯科技器材,Information Technology,mapped,true
+00308.HK,旅游及消闲设施,Consumer Discretionary,mapped,true
+00316.HK,工用运输,Industrials,mapped,true
+00317.HK,工业工程,Industrials,mapped,true
+00322.HK,食物饮品,Consumer Staples,mapped,true
+00323.HK,一般金属及矿石,Materials,mapped,false
+00325.HK,家庭电器及用品,Consumer Discretionary,mapped,true
+00336.HK,食物饮品,Consumer Staples,mapped,true
+00338.HK,原材料,Materials,mapped,false
+00340.HK,黄金及贵金属,Materials,mapped,true
+00345.HK,食物饮品,Consumer Staples,mapped,true
+00347.HK,一般金属及矿石,Materials,mapped,false
+00354.HK,软件服务,Information Technology,mapped,true
+00358.HK,一般金属及矿石,Materials,mapped,true
+00363.HK,综合企业,Conglomerates,mapped,true
+00371.HK,公用事业,Utilities,mapped,true
+00376.HK,保险,Financials,mapped,true
+00384.HK,公用事业,Utilities,mapped,true
+00386.HK,石油及天然气,Energy,mapped,true
+00388.HK,其他金融,Financials,mapped,true
+00390.HK,建筑,Properties and Construction,mapped,true
+00392.HK,公用事业,Utilities,mapped,true
+00425.HK,汽车,Consumer Discretionary,mapped,true
+00440.HK,银行,Financials,mapped,true
+00460.HK,药品及生物科技,Healthcare,mapped,true
+00467.HK,石油及天然气,Energy,mapped,true
+00470.HK,工业工程,Industrials,mapped,false
+00501.HK,半导体,Information Technology,mapped,false
+00506.HK,食物饮品,Consumer Staples,mapped,true
+00512.HK,药品及生物科技,Healthcare,mapped,true
+00522.HK,半导体,Information Technology,mapped,true
+00525.HK,旅游及消闲设施,Consumer Discretionary,mapped,false
+00537.HK,工业工程,Industrials,mapped,false
+00546.HK,食物饮品,Consumer Staples,mapped,true
+00548.HK,工用运输,Industrials,mapped,false
+00551.HK,纺织及服饰,Consumer Discretionary,mapped,true
+00552.HK,资讯科技器材,Information Technology,mapped,true
+00553.HK,软件服务,Information Technology,mapped,false
+00564.HK,汽车,Consumer Discretionary,mapped,false
+00568.HK,石油及天然气,Energy,mapped,false
+00570.HK,药品及生物科技,Healthcare,mapped,true
+00576.HK,工用运输,Industrials,mapped,true
+00586.HK,工业工程,Industrials,mapped,true
+00588.HK,地产,Properties and Construction,mapped,false
+00590.HK,专业零售,Consumer Discretionary,mapped,true
+00598.HK,工用运输,Industrials,mapped,true
+00600.HK,半导体,Information Technology,mapped,true
+00604.HK,地产,Properties and Construction,mapped,true
+00631.HK,工业工程,Industrials,mapped,true
+00636.HK,工用运输,Industrials,mapped,true
+00638.HK,资讯科技器材,Information Technology,mapped,false
+00639.HK,煤炭,Energy,mapped,true
+00656.HK,综合企业,Conglomerates,mapped,true
+00659.HK,综合企业,Conglomerates,mapped,true
+00666.HK,工业工程,Industrials,mapped,true
+00667.HK,支援服务,Consumer Discretionary,mapped,true
+00668.HK,家庭电器及用品,Consumer Discretionary,mapped,false
+00669.HK,家庭电器及用品,Consumer Discretionary,mapped,true
+00670.HK,旅游及消闲设施,Consumer Discretionary,mapped,true
+00683.HK,地产,Properties and Construction,mapped,true
+00688.HK,地产,Properties and Construction,mapped,true
+00696.HK,软件服务,Information Technology,mapped,true
+00697.HK,其他金融,Financials,mapped,true
+00699.HK,汽车,Consumer Discretionary,mapped,false
+00700.HK,软件服务,Information Technology,mapped,true
+00719.HK,药品及生物科技,Healthcare,mapped,false
+00728.HK,电讯,Telecommunications,mapped,true
+00751.HK,家庭电器及用品,Consumer Discretionary,mapped,true
+00753.HK,旅游及消闲设施,Consumer Discretionary,mapped,true
+00762.HK,电讯,Telecommunications,mapped,true
+00763.HK,资讯科技器材,Information Technology,mapped,true
+00772.HK,媒体及娱乐,Consumer Discretionary,mapped,true
+00780.HK,旅游及消闲设施,Consumer Discretionary,mapped,true
+00788.HK,电讯,Telecommunications,mapped,true
+00800.HK,软件服务,Information Technology,mapped,true
+00811.HK,媒体及娱乐,Consumer Discretionary,mapped,false
+00817.HK,地产,Properties and Construction,mapped,true
+00819.HK,工业工程,Industrials,mapped,true
+00826.HK,一般金属及矿石,Materials,mapped,true
+00836.HK,公用事业,Utilities,mapped,true
+00839.HK,支援服务,Consumer Discretionary,mapped,true
+00853.HK,其他医疗保健,Healthcare,mapped,true
+00855.HK,公用事业,Utilities,mapped,true
+00856.HK,软件服务,Information Technology,mapped,true
+00857.HK,石油及天然气,Energy,mapped,true
+00867.HK,药品及生物科技,Healthcare,mapped,true
+00868.HK,工业工程,Industrials,mapped,true
+00874.HK,药品及生物科技,Healthcare,mapped,false
+00880.HK,旅游及消闲设施,Consumer Discretionary,mapped,true
+00881.HK,专业零售,Consumer Discretionary,mapped,true
+00883.HK,石油及天然气,Energy,mapped,true
+00895.HK,工业工程,Industrials,mapped,false
+00901.HK,资讯科技器材,Information Technology,mapped,true
+00902.HK,公用事业,Utilities,mapped,true
+00914.HK,建筑,Properties and Construction,mapped,true
+00916.HK,公用事业,Utilities,mapped,true
+00917.HK,媒体及娱乐,Consumer Discretionary,mapped,true
+00921.HK,家庭电器及用品,Consumer Discretionary,mapped,true
+00934.HK,石油及天然气,Energy,mapped,true
+00939.HK,银行,Financials,mapped,true
+00941.HK,电讯,Telecommunications,mapped,true
+00956.HK,公用事业,Utilities,mapped,true
+00960.HK,地产,Properties and Construction,mapped,true
+00966.HK,保险,Financials,mapped,true
+00968.HK,工业工程,Industrials,mapped,true
+00975.HK,煤炭,Energy,mapped,true
+00981.HK,半导体,Information Technology,mapped,true
+00990.HK,一般金属及矿石,Materials,mapped,true
+00991.HK,公用事业,Utilities,mapped,true
+00992.HK,资讯科技器材,Information Technology,mapped,true
+00995.HK,工用运输,Industrials,mapped,false
+00998.HK,银行,Financials,mapped,true
+00999.HK,旅游及消闲设施,Consumer Discretionary,mapped,true
+01021.HK,资讯科技器材,Information Technology,mapped,true
+01024.HK,媒体及娱乐,Consumer Discretionary,mapped,true
+01030.HK,地产,Properties and Construction,mapped,true
+01033.HK,石油及天然气,Energy,mapped,false
+01038.HK,公用事业,Utilities,mapped,true
+01044.HK,消费者主要零售商,Consumer Staples,mapped,true
+01052.HK,工用运输,Industrials,mapped,true
+01053.HK,一般金属及矿石,Materials,mapped,false
+01055.HK,旅游及消闲设施,Consumer Discretionary,mapped,true
+01057.HK,汽车,Consumer Discretionary,mapped,false
+01060.HK,媒体及娱乐,Consumer Discretionary,mapped,true
+01065.HK,公用事业,Utilities,mapped,false
+01066.HK,其他医疗保健,Healthcare,mapped,true
+01070.HK,家庭电器及用品,Consumer Discretionary,mapped,true
+01071.HK,公用事业,Utilities,mapped,true
+01072.HK,工业工程,Industrials,mapped,true
+01081.HK,工业工程,Industrials,mapped,false
+01083.HK,公用事业,Utilities,mapped,true
+01088.HK,煤炭,Energy,mapped,true
+01093.HK,药品及生物科技,Healthcare,mapped,true
+01099.HK,药品及生物科技,Healthcare,mapped,true
+01108.HK,工业工程,Industrials,mapped,false
+01109.HK,地产,Properties and Construction,mapped,true
+01112.HK,其他医疗保健,Healthcare,mapped,true
+01113.HK,地产,Properties and Construction,mapped,true
+01114.HK,汽车,Consumer Discretionary,mapped,true
+01117.HK,食物饮品,Consumer Staples,mapped,true
+01128.HK,旅游及消闲设施,Consumer Discretionary,mapped,true
+01133.HK,工业工程,Industrials,mapped,true
+01138.HK,工用运输,Industrials,mapped,true
+01157.HK,工业工程,Industrials,mapped,true
+01164.HK,一般金属及矿石,Materials,mapped,true
+01171.HK,煤炭,Energy,mapped,true
+01177.HK,药品及生物科技,Healthcare,mapped,true
+01186.HK,建筑,Properties and Construction,mapped,true
+01187.HK,其他医疗保健,Healthcare,mapped,false
+01191.HK,工业工程,Industrials,mapped,true
+01193.HK,公用事业,Utilities,mapped,true
+01196.HK,工业工程,Industrials,mapped,true
+01199.HK,工用运输,Industrials,mapped,true
+01208.HK,一般金属及矿石,Materials,mapped,true
+01209.HK,地产,Properties and Construction,mapped,true
+01211.HK,汽车,Consumer Discretionary,mapped,true
+01236.HK,资讯科技器材,Information Technology,mapped,true
+01258.HK,一般金属及矿石,Materials,mapped,true
+01276.HK,药品及生物科技,Healthcare,mapped,true
+01277.HK,煤炭,Energy,mapped,true
+01286.HK,工业工程,Industrials,mapped,true
+01288.HK,银行,Financials,mapped,true
+01299.HK,保险,Financials,mapped,true
+01302.HK,其他医疗保健,Healthcare,mapped,true
+01304.HK,半导体,Information Technology,mapped,false
+01308.HK,工用运输,Industrials,mapped,true
+01310.HK,电讯,Telecommunications,mapped,true
+01313.HK,建筑,Properties and Construction,mapped,true
+01316.HK,汽车,Consumer Discretionary,mapped,true
+01318.HK,其他医疗保健,Healthcare,mapped,true
+01330.HK,工业工程,Industrials,mapped,false
+01333.HK,工业工程,Industrials,mapped,true
+01336.HK,保险,Financials,mapped,true
+01339.HK,保险,Financials,mapped,true
+01347.HK,半导体,Information Technology,mapped,true
+01349.HK,药品及生物科技,Healthcare,mapped,false
+01357.HK,媒体及娱乐,Consumer Discretionary,mapped,true
+01359.HK,其他金融,Financials,mapped,true
+01361.HK,纺织及服饰,Consumer Discretionary,mapped,true
+01364.HK,食物饮品,Consumer Staples,mapped,true
+01368.HK,纺织及服饰,Consumer Discretionary,mapped,true
+01375.HK,其他金融,Financials,mapped,false
+01377.HK,工业工程,Industrials,mapped,false
+01378.HK,一般金属及矿石,Materials,mapped,true
+01384.HK,软件服务,Information Technology,mapped,true
+01385.HK,半导体,Information Technology,mapped,true
+01392.HK,软件服务,Information Technology,mapped,true
+01398.HK,银行,Financials,mapped,true
+01405.HK,旅游及消闲设施,Consumer Discretionary,mapped,true
+01415.HK,资讯科技器材,Information Technology,mapped,true
+01428.HK,其他金融,Financials,mapped,true
+01440.HK,纺织及服饰,Consumer Discretionary,mapped,true
+01456.HK,其他金融,Financials,mapped,false
+01478.HK,资讯科技器材,Information Technology,mapped,true
+01511.HK,软件服务,Information Technology,mapped,true
+01513.HK,药品及生物科技,Healthcare,mapped,true
+01519.HK,工用运输,Industrials,mapped,true
+01528.HK,地产,Properties and Construction,mapped,false
+01530.HK,药品及生物科技,Healthcare,mapped,true
+01548.HK,药品及生物科技,Healthcare,mapped,true
+01579.HK,食物饮品,Consumer Staples,mapped,true
+01585.HK,汽车,Consumer Discretionary,mapped,true
+01609.HK,其他医疗保健,Healthcare,mapped,true
+01610.HK,农业产品,Consumer Staples,mapped,true
+01618.HK,建筑,Properties and Construction,mapped,false
+01635.HK,公用事业,Utilities,mapped,false
+01651.HK,工业工程,Industrials,mapped,true
+01658.HK,银行,Financials,mapped,true
+01672.HK,药品及生物科技,Healthcare,mapped,true
+01675.HK,软件服务,Information Technology,mapped,true
+01681.HK,药品及生物科技,Healthcare,mapped,true
+01686.HK,软件服务,Information Technology,mapped,true
+01688.HK,工业工程,Industrials,mapped,false
+01729.HK,资讯科技器材,Information Technology,mapped,true
+01735.HK,工业工程,Industrials,mapped,true
+01766.HK,工业工程,Industrials,mapped,true
+01768.HK,食物饮品,Consumer Staples,mapped,true
+01772.HK,一般金属及矿石,Materials,mapped,true
+01776.HK,其他金融,Financials,mapped,true
+01779.HK,药品及生物科技,Healthcare,mapped,true
+01783.HK,建筑,Properties and Construction,mapped,true
+01787.HK,黄金及贵金属,Materials,mapped,true
+01788.HK,其他金融,Financials,mapped,true
+01789.HK,其他医疗保健,Healthcare,mapped,true
+01797.HK,媒体及娱乐,Consumer Discretionary,mapped,true
+01800.HK,建筑,Properties and Construction,mapped,true
+01801.HK,药品及生物科技,Healthcare,mapped,true
+01810.HK,资讯科技器材,Information Technology,mapped,true
+01811.HK,公用事业,Utilities,mapped,true
+01816.HK,公用事业,Utilities,mapped,true
+01818.HK,黄金及贵金属,Materials,mapped,true
+01828.HK,保险,Financials,mapped,true
+01833.HK,其他医疗保健,Healthcare,mapped,true
+01836.HK,纺织及服饰,Consumer Discretionary,mapped,true
+01858.HK,其他医疗保健,Healthcare,mapped,false
+01860.HK,媒体及娱乐,Consumer Discretionary,mapped,true
+01866.HK,原材料,Materials,mapped,true
+01876.HK,食物饮品,Consumer Staples,mapped,true
+01877.HK,药品及生物科技,Healthcare,mapped,false
+01879.HK,半导体,Information Technology,mapped,true
+01880.HK,旅游及消闲设施,Consumer Discretionary,mapped,true
+01882.HK,工业工程,Industrials,mapped,true
+01883.HK,电讯,Telecommunications,mapped,true
+01888.HK,工业工程,Industrials,mapped,true
+01896.HK,媒体及娱乐,Consumer Discretionary,mapped,true
+01898.HK,煤炭,Energy,mapped,true
+01907.HK,原材料,Materials,mapped,true
+01908.HK,地产,Properties and Construction,mapped,true
+01910.HK,纺织及服饰,Consumer Discretionary,mapped,true
+01918.HK,地产,Properties and Construction,mapped,true
+01919.HK,工用运输,Industrials,mapped,true
+01921.HK,石油及天然气,Energy,mapped,true
+01928.HK,旅游及消闲设施,Consumer Discretionary,mapped,true
+01929.HK,专业零售,Consumer Discretionary,mapped,true
+01951.HK,药品及生物科技,Healthcare,mapped,true
+01952.HK,药品及生物科技,Healthcare,mapped,true
+01956.HK,软件服务,Information Technology,mapped,true
+01963.HK,银行,Financials,mapped,true
+01972.HK,地产,Properties and Construction,mapped,true
+01988.HK,银行,Financials,mapped,true
+01989.HK,工业工程,Industrials,mapped,false
+01997.HK,地产,Properties and Construction,mapped,true
+01999.HK,家庭电器及用品,Consumer Discretionary,mapped,true
+02005.HK,药品及生物科技,Healthcare,mapped,true
+02007.HK,地产,Properties and Construction,mapped,true
+02009.HK,建筑,Properties and Construction,mapped,false
+02013.HK,软件服务,Information Technology,mapped,true
+02015.HK,汽车,Consumer Discretionary,mapped,true
+02016.HK,银行,Financials,mapped,true
+02018.HK,资讯科技器材,Information Technology,mapped,true
+02020.HK,纺织及服饰,Consumer Discretionary,mapped,true
+02026.HK,软件服务,Information Technology,mapped,true
+02038.HK,资讯科技器材,Information Technology,mapped,true
+02039.HK,工用运输,Industrials,mapped,true
+02050.HK,工业工程,Industrials,mapped,true
+02057.HK,工用运输,Industrials,mapped,true
+02068.HK,建筑,Properties and Construction,mapped,false
+02096.HK,药品及生物科技,Healthcare,mapped,true
+02097.HK,食物饮品,Consumer Staples,mapped,true
+02099.HK,一般金属及矿石,Materials,mapped,true
+02128.HK,建筑,Properties and Construction,mapped,true
+02142.HK,药品及生物科技,Healthcare,mapped,true
+02145.HK,其他医疗保健,Healthcare,mapped,true
+02155.HK,工业工程,Industrials,mapped,true
+02157.HK,药品及生物科技,Healthcare,mapped,true
+02162.HK,药品及生物科技,Healthcare,mapped,true
+02171.HK,药品及生物科技,Healthcare,mapped,true
+02172.HK,其他医疗保健,Healthcare,mapped,true
+02186.HK,药品及生物科技,Healthcare,mapped,true
+02192.HK,其他医疗保健,Healthcare,mapped,true
+02196.HK,药品及生物科技,Healthcare,mapped,true
+02202.HK,地产,Properties and Construction,mapped,true
+02208.HK,工业工程,Industrials,mapped,false
+02218.HK,食物饮品,Consumer Staples,mapped,false
+02225.HK,其他医疗保健,Healthcare,mapped,true
+02228.HK,药品及生物科技,Healthcare,mapped,true
+02232.HK,纺织及服饰,Consumer Discretionary,mapped,true
+02233.HK,建筑,Properties and Construction,mapped,true
+02238.HK,汽车,Consumer Discretionary,mapped,true
+02245.HK,一般金属及矿石,Materials,mapped,false
+02249.HK,半导体,Information Technology,mapped,false
+02252.HK,其他医疗保健,Healthcare,mapped,true
+02259.HK,黄金及贵金属,Materials,mapped,true
+02268.HK,药品及生物科技,Healthcare,mapped,true
+02269.HK,药品及生物科技,Healthcare,mapped,true
+02272.HK,软件服务,Information Technology,mapped,true
+02273.HK,其他医疗保健,Healthcare,mapped,true
+02276.HK,其他医疗保健,Healthcare,mapped,true
+02282.HK,旅游及消闲设施,Consumer Discretionary,mapped,true
+02285.HK,家庭电器及用品,Consumer Discretionary,mapped,true
+02313.HK,纺织及服饰,Consumer Discretionary,mapped,true
+02314.HK,原材料,Materials,mapped,true
+02315.HK,药品及生物科技,Healthcare,mapped,false
+02318.HK,保险,Financials,mapped,true
+02319.HK,食物饮品,Consumer Staples,mapped,true
+02328.HK,保险,Financials,mapped,true
+02331.HK,纺织及服饰,Consumer Discretionary,mapped,true
+02333.HK,汽车,Consumer Discretionary,mapped,true
+02335.HK,药品及生物科技,Healthcare,mapped,true
+02338.HK,工业工程,Industrials,mapped,true
+02343.HK,工用运输,Industrials,mapped,true
+02356.HK,银行,Financials,mapped,true
+02357.HK,工业工程,Industrials,mapped,true
+02359.HK,药品及生物科技,Healthcare,mapped,true
+02367.HK,其他医疗保健,Healthcare,mapped,true
+02378.HK,保险,Financials,mapped,true
+02380.HK,公用事业,Utilities,mapped,true
+02382.HK,资讯科技器材,Information Technology,mapped,true
+02386.HK,石油及天然气,Energy,mapped,true
+02388.HK,银行,Financials,mapped,true
+02400.HK,软件服务,Information Technology,mapped,true
+02402.HK,工业工程,Industrials,mapped,false
+02419.HK,农业产品,Consumer Staples,mapped,true
+02423.HK,地产,Properties and Construction,mapped,true
+02432.HK,资讯科技器材,Information Technology,mapped,true
+02460.HK,食物饮品,Consumer Staples,mapped,true
+02465.HK,工业工程,Industrials,mapped,false
+02473.HK,汽车,Consumer Discretionary,mapped,true
+02475.HK,资讯科技器材,Information Technology,mapped,false
+02476.HK,工业工程,Industrials,mapped,true
+02477.HK,电讯,Telecommunications,mapped,true
+02493.HK,药品及生物科技,Healthcare,mapped,false
+02498.HK,软件服务,Information Technology,mapped,true
+02506.HK,其他医疗保健,Healthcare,mapped,true
+02507.HK,工业工程,Industrials,mapped,true
+02510.HK,工用运输,Industrials,mapped,true
+02513.HK,软件服务,Information Technology,mapped,true
+02517.HK,食物饮品,Consumer Staples,mapped,true
+02525.HK,软件服务,Information Technology,mapped,true
+02526.HK,其他医疗保健,Healthcare,mapped,true
+02533.HK,软件服务,Information Technology,mapped,true
+02553.HK,原材料,Materials,mapped,true
+02556.HK,软件服务,Information Technology,mapped,true
+02565.HK,药品及生物科技,Healthcare,mapped,true
+02575.HK,药品及生物科技,Healthcare,mapped,true
+02577.HK,半导体,Information Technology,mapped,true
+02579.HK,原材料,Materials,mapped,false
+02580.HK,家庭电器及用品,Consumer Discretionary,mapped,true
+02583.HK,纺织及服饰,Consumer Discretionary,mapped,true
+02586.HK,软件服务,Information Technology,mapped,true
+02588.HK,旅游及消闲设施,Consumer Discretionary,mapped,true
+02589.HK,食物饮品,Consumer Staples,mapped,true
+02590.HK,资讯科技器材,Information Technology,mapped,true
+02591.HK,药品及生物科技,Healthcare,mapped,true
+02595.HK,药品及生物科技,Healthcare,mapped,true
+02600.HK,一般金属及矿石,Materials,mapped,true
+02601.HK,保险,Financials,mapped,true
+02602.HK,地产,Properties and Construction,mapped,true
+02603.HK,专业零售,Consumer Discretionary,mapped,false
+02607.HK,药品及生物科技,Healthcare,mapped,true
+02609.HK,其他医疗保健,Healthcare,mapped,true
+02610.HK,一般金属及矿石,Materials,mapped,true
+02611.HK,其他金融,Financials,mapped,true
+02616.HK,药品及生物科技,Healthcare,mapped,true
+02617.HK,药品及生物科技,Healthcare,mapped,true
+02618.HK,工用支援,Industrials,mapped,true
+02628.HK,保险,Financials,mapped,true
+02631.HK,半导体,Information Technology,mapped,false
+02632.HK,汽车,Consumer Discretionary,mapped,true
+02635.HK,软件服务,Information Technology,mapped,true
+02637.HK,药品及生物科技,Healthcare,mapped,true
+02643.HK,旅游及消闲设施,Consumer Discretionary,mapped,true
+02648.HK,食物饮品,Consumer Staples,mapped,false
+02650.HK,工业工程,Industrials,mapped,true
+02652.HK,药品及生物科技,Healthcare,mapped,true
+02655.HK,工业工程,Industrials,mapped,true
+02656.HK,药品及生物科技,Healthcare,mapped,true
+02659.HK,药品及生物科技,Healthcare,mapped,true
+02661.HK,媒体及娱乐,Consumer Discretionary,mapped,true
+02665.HK,软件服务,Information Technology,mapped,true
+02666.HK,其他医疗保健,Healthcare,mapped,true
+02669.HK,地产,Properties and Construction,mapped,true
+02670.HK,资讯科技器材,Information Technology,mapped,true
+02672.HK,保险,Financials,mapped,true
+02675.HK,其他医疗保健,Healthcare,mapped,true
+02676.HK,半导体,Information Technology,mapped,false
+02685.HK,专业零售,Consumer Discretionary,mapped,true
+02687.HK,软件服务,Information Technology,mapped,true
+02688.HK,公用事业,Utilities,mapped,true
+02689.HK,原材料,Materials,mapped,true
+02691.HK,其他金融,Financials,mapped,false
+02692.HK,工业工程,Industrials,mapped,false
+02696.HK,药品及生物科技,Healthcare,mapped,true
+02697.HK,其他医疗保健,Healthcare,mapped,true
+02698.HK,消费者主要零售商,Consumer Staples,mapped,true
+02701.HK,半导体,Information Technology,mapped,false
+02706.HK,软件服务,Information Technology,mapped,true
+02714.HK,农业产品,Consumer Staples,mapped,true
+02715.HK,资讯科技器材,Information Technology,mapped,false
+02718.HK,软件服务,Information Technology,mapped,true
+02726.HK,半导体,Information Technology,mapped,true
+02727.HK,工业工程,Industrials,mapped,true
+02729.HK,资讯科技器材,Information Technology,mapped,true
+02768.HK,原材料,Materials,mapped,false
+02788.HK,一般金属及矿石,Materials,mapped,true
+02799.HK,其他金融,Financials,mapped,true
+02858.HK,其他金融,Financials,mapped,true
+02865.HK,工业工程,Industrials,mapped,false
+02866.HK,工用运输,Industrials,mapped,false
+02869.HK,地产,Properties and Construction,mapped,true
+02877.HK,药品及生物科技,Healthcare,mapped,true
+02880.HK,工用运输,Industrials,mapped,false
+02883.HK,石油及天然气,Energy,mapped,true
+02888.HK,银行,Financials,mapped,true
+02889.HK,汽车,Consumer Discretionary,mapped,true
+02899.HK,黄金及贵金属,Materials,mapped,true
+02915.HK,资讯科技器材,Information Technology,mapped,false
+02947.HK,媒体及娱乐,Consumer Discretionary,mapped,true
+03200.HK,工业工程,Industrials,mapped,false
+03223.HK,半导体,Information Technology,mapped,false
+03228.HK,工业工程,Industrials,mapped,false
+03268.HK,资讯科技器材,Information Technology,mapped,false
+03277.HK,半导体,Information Technology,mapped,true
+03288.HK,食物饮品,Consumer Staples,mapped,true
+03296.HK,资讯科技器材,Information Technology,mapped,false
+03306.HK,纺织及服饰,Consumer Discretionary,mapped,true
+03308.HK,资讯科技器材,Information Technology,mapped,false
+03310.HK,半导体,Information Technology,mapped,true
+03311.HK,建筑,Properties and Construction,mapped,true
+03317.HK,软件服务,Information Technology,mapped,true
+03320.HK,药品及生物科技,Healthcare,mapped,true
+03323.HK,建筑,Properties and Construction,mapped,true
+03328.HK,银行,Financials,mapped,true
+03330.HK,黄金及贵金属,Materials,mapped,true
+03339.HK,工业工程,Industrials,mapped,true
+03347.HK,药品及生物科技,Healthcare,mapped,false
+03355.HK,软件服务,Information Technology,mapped,true
+03360.HK,其他金融,Financials,mapped,true
+03369.HK,工用运输,Industrials,mapped,false
+03380.HK,地产,Properties and Construction,mapped,true
+03388.HK,资讯科技器材,Information Technology,mapped,true
+03393.HK,工业工程,Industrials,mapped,true
+03396.HK,资讯科技器材,Information Technology,mapped,true
+03606.HK,汽车,Consumer Discretionary,mapped,true
+03613.HK,药品及生物科技,Healthcare,mapped,true
+03618.HK,银行,Financials,mapped,true
+03625.HK,半导体,Information Technology,mapped,true
+03633.HK,公用事业,Utilities,mapped,true
+03661.HK,半导体,Information Technology,mapped,false
+03668.HK,煤炭,Energy,mapped,true
+03677.HK,工业工程,Industrials,mapped,true
+03678.HK,其他金融,Financials,mapped,false
+03690.HK,专业零售,Consumer Discretionary,mapped,true
+03692.HK,药品及生物科技,Healthcare,mapped,true
+03696.HK,药品及生物科技,Healthcare,mapped,true
+03698.HK,银行,Financials,mapped,true
+03738.HK,软件服务,Information Technology,mapped,true
+03750.HK,工业工程,Industrials,mapped,true
+03759.HK,药品及生物科技,Healthcare,mapped,false
+03774.HK,其他医疗保健,Healthcare,mapped,true
+03800.HK,工业工程,Industrials,mapped,true
+03808.HK,工业工程,Industrials,mapped,true
+03858.HK,一般金属及矿石,Materials,mapped,true
+03866.HK,银行,Financials,mapped,false
+03868.HK,公用事业,Utilities,mapped,true
+03877.HK,工用运输,Industrials,mapped,true
+03881.HK,工业工程,Industrials,mapped,true
+03888.HK,软件服务,Information Technology,mapped,true
+03896.HK,软件服务,Information Technology,mapped,true
+03898.HK,工业工程,Industrials,mapped,true
+03899.HK,石油及天然气,Energy,mapped,true
+03900.HK,地产,Properties and Construction,mapped,true
+03908.HK,其他金融,Financials,mapped,true
+03918.HK,旅游及消闲设施,Consumer Discretionary,mapped,true
+03931.HK,工业工程,Industrials,mapped,true
+03933.HK,药品及生物科技,Healthcare,mapped,true
+03939.HK,黄金及贵金属,Materials,mapped,true
+03958.HK,其他金融,Financials,mapped,false
+03968.HK,银行,Financials,mapped,true
+03969.HK,工业工程,Industrials,mapped,true
+03986.HK,半导体,Information Technology,mapped,true
+03988.HK,银行,Financials,mapped,true
+03993.HK,一般金属及矿石,Materials,mapped,true
+03996.HK,工业工程,Industrials,mapped,true
+03998.HK,纺织及服饰,Consumer Discretionary,mapped,true
+06030.HK,其他金融,Financials,mapped,true
+06031.HK,工业工程,Industrials,mapped,true
+06049.HK,地产,Properties and Construction,mapped,true
+06055.HK,食物饮品,Consumer Staples,mapped,true
+06060.HK,保险,Financials,mapped,true
+06066.HK,其他金融,Financials,mapped,true
+06067.HK,工业工程,Industrials,mapped,false
+06069.HK,其他金融,Financials,mapped,true
+06078.HK,其他医疗保健,Healthcare,mapped,true
+06082.HK,半导体,Information Technology,mapped,true
+06088.HK,工业工程,Industrials,mapped,true
+06090.HK,家庭电器及用品,Consumer Discretionary,mapped,true
+06098.HK,地产,Properties and Construction,mapped,true
+06099.HK,其他金融,Financials,mapped,true
+06106.HK,资讯科技器材,Information Technology,mapped,true
+06110.HK,专业零售,Consumer Discretionary,mapped,true
+06127.HK,药品及生物科技,Healthcare,mapped,false
+06160.HK,药品及生物科技,Healthcare,mapped,true
+06166.HK,资讯科技器材,Information Technology,mapped,false
+06168.HK,专业零售,Consumer Discretionary,mapped,true
+06178.HK,其他金融,Financials,mapped,false
+06181.HK,纺织及服饰,Consumer Discretionary,mapped,true
+06185.HK,药品及生物科技,Healthcare,mapped,false
+06186.HK,食物饮品,Consumer Staples,mapped,true
+06196.HK,银行,Financials,mapped,false
+06198.HK,工用运输,Industrials,mapped,false
+06600.HK,家庭电器及用品,Consumer Discretionary,mapped,true
+06613.HK,资讯科技器材,Information Technology,mapped,false
+06618.HK,药品及生物科技,Healthcare,mapped,true
+06636.HK,软件服务,Information Technology,mapped,true
+06651.HK,软件服务,Information Technology,mapped,true
+06655.HK,建筑,Properties and Construction,mapped,true
+06656.HK,工业工程,Industrials,mapped,true
+06658.HK,食物饮品,Consumer Staples,mapped,true
+06666.HK,地产,Properties and Construction,mapped,true
+06675.HK,半导体,Information Technology,mapped,true
+06680.HK,一般金属及矿石,Materials,mapped,false
+06681.HK,其他医疗保健,Healthcare,mapped,true
+06682.HK,软件服务,Information Technology,mapped,true
+06683.HK,食物饮品,Consumer Staples,mapped,true
+06687.HK,软件服务,Information Technology,mapped,true
+06690.HK,家庭电器及用品,Consumer Discretionary,mapped,true
+06693.HK,黄金及贵金属,Materials,mapped,false
+06699.HK,其他医疗保健,Healthcare,mapped,true
+06715.HK,食物饮品,Consumer Staples,mapped,true
+06727.HK,软件服务,Information Technology,mapped,false
+06745.HK,原材料,Materials,mapped,false
+06806.HK,其他金融,Financials,mapped,false
+06808.HK,消费者主要零售商,Consumer Staples,mapped,true
+06809.HK,半导体,Information Technology,mapped,true
+06818.HK,银行,Financials,mapped,true
+06821.HK,药品及生物科技,Healthcare,mapped,false
+06826.HK,其他医疗保健,Healthcare,mapped,false
+06855.HK,药品及生物科技,Healthcare,mapped,true
+06862.HK,旅游及消闲设施,Consumer Discretionary,mapped,true
+06865.HK,工业工程,Industrials,mapped,false
+06869.HK,资讯科技器材,Information Technology,mapped,true
+06872.HK,药品及生物科技,Healthcare,mapped,true
+06881.HK,其他金融,Financials,mapped,true
+06886.HK,其他金融,Financials,mapped,true
+06936.HK,工用运输,Industrials,mapped,false
+06938.HK,药品及生物科技,Healthcare,mapped,true
+06951.HK,工业工程,Industrials,mapped,false
+06963.HK,保险,Financials,mapped,true
+06969.HK,家庭电器及用品,Consumer Discretionary,mapped,true
+06979.HK,食物饮品,Consumer Staples,mapped,true
+06990.HK,药品及生物科技,Healthcare,mapped,true
+06993.HK,消费者主要零售商,Consumer Staples,mapped,true
+07618.HK,工用支援,Industrials,mapped,true
+07630.HK,药品及生物科技,Healthcare,mapped,true
+07666.HK,药品及生物科技,Healthcare,mapped,true
+07688.HK,工业工程,Industrials,mapped,true
+09606.HK,药品及生物科技,Healthcare,mapped,true
+09607.HK,原材料,Materials,mapped,false
+09611.HK,资讯科技器材,Information Technology,mapped,false
+09626.HK,媒体及娱乐,Consumer Discretionary,mapped,true
+09630.HK,工业工程,Industrials,mapped,false
+09633.HK,食物饮品,Consumer Staples,mapped,true
+09636.HK,软件服务,Information Technology,mapped,true
+09637.HK,药品及生物科技,Healthcare,mapped,true
+09658.HK,旅游及消闲设施,Consumer Discretionary,mapped,true
+09660.HK,软件服务,Information Technology,mapped,true
+09678.HK,软件服务,Information Technology,mapped,true
+09688.HK,药品及生物科技,Healthcare,mapped,true
+09690.HK,专业零售,Consumer Discretionary,mapped,true
+09696.HK,一般金属及矿石,Materials,mapped,false
+09699.HK,工用运输,Industrials,mapped,true
+09858.HK,食物饮品,Consumer Staples,mapped,true
+09863.HK,汽车,Consumer Discretionary,mapped,true
+09868.HK,汽车,Consumer Discretionary,mapped,true
+09880.HK,资讯科技器材,Information Technology,mapped,true
+09887.HK,药品及生物科技,Healthcare,mapped,true
+09888.HK,媒体及娱乐,Consumer Discretionary,mapped,true
+09890.HK,软件服务,Information Technology,mapped,true
+09896.HK,专业零售,Consumer Discretionary,mapped,true
+09899.HK,媒体及娱乐,Consumer Discretionary,mapped,true
+09903.HK,半导体,Information Technology,mapped,true
+09911.HK,媒体及娱乐,Consumer Discretionary,mapped,true
+09926.HK,药品及生物科技,Healthcare,mapped,true
+09927.HK,汽车,Consumer Discretionary,mapped,true
+09969.HK,药品及生物科技,Healthcare,mapped,true
+09973.HK,汽车,Consumer Discretionary,mapped,true
+09976.HK,半导体,Information Technology,mapped,false
+09980.HK,食物饮品,Consumer Staples,mapped,false
+09981.HK,工业工程,Industrials,mapped,false
+09985.HK,食物饮品,Consumer Staples,mapped,true
+09987.HK,旅游及消闲设施,Consumer Discretionary,mapped,true
+09988.HK,专业零售,Consumer Discretionary,mapped,true
+09989.HK,药品及生物科技,Healthcare,mapped,false
+09992.HK,家庭电器及用品,Consumer Discretionary,mapped,true
+09993.HK,地产,Properties and Construction,mapped,true
+09995.HK,药品及生物科技,Healthcare,mapped,true
+09999.HK,软件服务,Information Technology,mapped,true

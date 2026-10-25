@@ -6,7 +6,7 @@ meta:
   version: "1.0"
 
 financial:
-  weight: 0.20
+  weight: 0.30
 
   roe:
     max_score: 3
@@ -24,7 +24,7 @@ financial:
     enabled: false
 
 valuation:
-  weight: 0.35
+  weight: 0.25
   primary_metric: pb
 
   pe_percentile:

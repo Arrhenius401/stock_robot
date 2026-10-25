@@ -89,6 +89,7 @@ def build_agent_core(
     from core.pipeline import Pipeline
     from core.registry import Registry
     from data.akshare import AkShareAdapter
+    from data.hk_hsics_peers import HKIndustryAdapter
     from index.pipeline import IndexPipeline
     from utils.config import Config
 
@@ -97,6 +98,7 @@ def build_agent_core(
 
     reg = Registry()
     reg.register_data_source(AkShareAdapter())
+    reg.register_data_source(HKIndustryAdapter())
     reg.register_analysis_module(FinancialAnalyzer())
     reg.register_analysis_module(TechnicalAnalyzer())
     reg.register_analysis_module(ValuationAnalyzer())

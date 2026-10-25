@@ -29,7 +29,7 @@ class TestConfigLoader:
         assert cfg["valuation"]["pe_percentile"]["enabled"] is False
         assert cfg["valuation"]["pb_percentile"]["max_score"] == 6
         assert cfg["financial"]["gross_margin_stability"]["enabled"] is False
-        assert cfg["valuation"]["weight"] == 0.35
+        assert cfg["valuation"]["weight"] == 0.25
 
     def test_load_cyclical_returns_reverse_pe(self, loader):
         """周期资源 PE 反转配置"""

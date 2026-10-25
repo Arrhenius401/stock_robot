@@ -67,9 +67,11 @@ def _get_registry():
     from analysis.valuation import ValuationAnalyzer
     from core.registry import Registry
     from data.akshare import AkShareAdapter
+    from data.hk_hsics_peers import HKIndustryAdapter
 
     reg = Registry()
     reg.register_data_source(AkShareAdapter())
+    reg.register_data_source(HKIndustryAdapter())
     reg.register_analysis_module(FinancialAnalyzer())
     reg.register_analysis_module(TechnicalAnalyzer())
     reg.register_analysis_module(ValuationAnalyzer())
@@ -338,11 +340,12 @@ def _render_compare_table(compare) -> Table | str:
         "PE 分位": "pe_pct", "PB 分位": "pb_pct", "趋势": "trend",
         "估值": "valuation", "资金": "capital", "综合评级": "composite",
     }
-    table = Table(title="指数横向对比")
+    table = Table(title="指数横向对比", caption=getattr(compare, "valuation_cutoff", ""))
     for h in compare.headers:
         table.add_column(h)
     for row in compare.rows:
-        table.add_row(*[str(row.get(header_key_map.get(h, h), "")) for h in compare.headers])
+        table.add_row(*[str(row["capital_display"]["label"] if h == "资金" and row.get("capital_display")
+                            else row.get(header_key_map.get(h, h), "")) for h in compare.headers])
     return table
 
 
@@ -605,6 +608,49 @@ def industry_mapping(action_or_symbol, resume, delay, verbose):
     except IndustryMappingError as e:
         console.print(f"[red]✗ 行业映射操作失败: {e}[/red]")
         sys.exit(1)
+
+
+@main.command("hk-industry-refresh")
+def hk_industry_refresh() -> None:
+    """依次刷新港股通成员资格和恒生 HSICS 行业快照。"""
+    from filelock import Timeout
+
+    from data.hk_hsics_industry import HsicsIndustryError, load_connect_symbols, refresh
+    from data.hk_stock_connect import (
+        HKStockConnectError,
+        fetch_sse_snapshot,
+        publish_snapshot,
+    )
+    from utils.paths import (
+        hk_hsics_industry_path,
+        hk_hsics_snapshot_path,
+        hk_stock_connect_path,
+    )
+
+    connect_path = hk_stock_connect_path(writable=True)
+    try:
+        connect_snapshot = fetch_sse_snapshot()
+        publish_snapshot(connect_snapshot, connect_path)
+    except (HKStockConnectError, OSError, ValueError, Timeout) as exc:
+        raise click.ClickException(f"港股通成员快照刷新失败：{exc}") from exc
+
+    try:
+        symbols = load_connect_symbols()
+        hsics_snapshot = refresh(
+            hk_hsics_industry_path(writable=True),
+            hk_hsics_snapshot_path(writable=True),
+            connect_symbols=symbols,
+        )
+    except (HsicsIndustryError, OSError, ValueError, Timeout) as exc:
+        raise click.ClickException(
+            f"港股通成员快照已更新（{connect_snapshot.total} 只）；HSICS 行业快照刷新失败：{exc}"
+        ) from exc
+
+    click.echo(
+        f"港股通成员 {connect_snapshot.total} 只；HSICS 总数 {hsics_snapshot.total}，"
+        f"二级 {hsics_snapshot.sector_count}，一级 {hsics_snapshot.industry_count}，"
+        f"数据日期 {hsics_snapshot.data_date.isoformat()}"
+    )
 
 
 @main.group()

@@ -135,7 +135,7 @@ def _extract_stock_reports(
             "commentary": commentary,
             "generated_at": report.get("generated_at"),
         }
-        for key in ("data_quality", "pending_verifications", "signal", "commentary_status",
+        for key in ("market", "scoring_method", "data_quality", "pending_verifications", "disclaimer", "signal", "commentary_status",
                     "commentary_retry_id"):
             if key in report:
                 payload[key] = report[key]
@@ -791,9 +791,13 @@ def create_app(
         name = await asyncio.to_thread(resolve_name, symbol) or symbol
 
         try:
-            results, commentary, ctx = await asyncio.to_thread(
-                agent_core.pipeline.run, symbol, name, market=market
-            )
+            # 两市场显式刷新都跳过数据缓存，同行专用快照同步刷新。
+            if body.get("refresh_cache") is True:
+                results, commentary, ctx = await asyncio.to_thread(
+                    agent_core.pipeline.run, symbol, name, market=market, refresh_cache=True)
+            else:
+                results, commentary, ctx = await asyncio.to_thread(
+                    agent_core.pipeline.run, symbol, name, market=market)
             from report.commentary import CommentaryContext, commentary_store
             from report.payload import build_stock_payload
             from report.signal import load_signal_config
@@ -953,7 +957,7 @@ def create_app(
                 _save_web_index_report(report)
             compare = None
             if result.compare is not None:
-                compare = {"headers": result.compare.headers,
+                compare = {"headers": result.compare.headers, "valuation_cutoff": getattr(result.compare, "valuation_cutoff", ""),
                            "rows": result.compare.rows}
             payload = {
                 "reports": [r.model_dump(mode="json") for r in result.reports],

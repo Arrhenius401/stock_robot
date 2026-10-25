@@ -32,7 +32,7 @@ class TechnicalAnalyzer(AnalysisModule):
         ) else "ok"
         summary = self._build_summary(metrics, status)
 
-        if config and context.market != "hk":
+        if config:
             from analysis.financial import FinancialAnalyzer
             scorer = FinancialAnalyzer._get_scorer(config)
             score, score_detail, risk_flags = scorer.score_technical(context)

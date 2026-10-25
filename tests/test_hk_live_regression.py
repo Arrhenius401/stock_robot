@@ -26,6 +26,7 @@ RESOURCES = Path(__file__).parent / "resources"
 @pytest.mark.parametrize("cash_flow_failure", [False, True])
 def test_real_financial_rows_survive_price_outage_through_saved_report(tmp_path, monkeypatch, cash_flow_failure):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("data.akshare.financial_report_directory", lambda code: [])
     snapshot = json.loads((RESOURCES / "data/eastmoney-00700-valuation-snapshot.json").read_text(encoding="utf-8"))
 
     class Response:
@@ -70,6 +71,10 @@ def test_real_financial_rows_survive_price_outage_through_saved_report(tmp_path,
     latest = max(context.financial_data, key=lambda item: item.fiscal_quarter)
     assert latest.revenue == 396431000000
     assert latest.net_profit == 114115000000
+    assert latest.gross_margin == pytest.approx(229698000000 / 401243000000)
+    financial = next(result for result in results if result.dimension == "financial")
+    assert financial.score is None and not financial.risk_flags
+    assert len(financial.metrics["operating_trends"]) <= 3
     assert latest.total_assets == 2159394000000
     assert latest.operating_cash_flow == (None if cash_flow_failure else 154061000000)
     if cash_flow_failure:
@@ -97,6 +102,9 @@ def test_real_financial_rows_survive_price_outage_through_saved_report(tmp_path,
     assert "腾讯估值快照" not in markdown
     assert "14.23" in markdown and "2.9" in markdown
     assert "操作信号：" not in markdown
+    assert "57.25%" in markdown and "毛利率计算口径" in markdown
+    assert "计算值：同期间披露毛利÷营运收入" in markdown
+    assert "其他营业收入" in markdown
     if cash_flow_failure:
         assert "现金流量表" in markdown and "超时" in markdown
         cached = pipeline.collect(symbol, name, market="hk", data_types=["financial"])
@@ -107,3 +115,4 @@ def test_real_financial_rows_survive_price_outage_through_saved_report(tmp_path,
     saved_payload = json.loads(saved.with_suffix(".report.json").read_text(encoding="utf-8"))["payload"]
     assert saved_payload["market"] == "hk"
     assert saved_payload["dimensions"]["financial"]["metrics"]["revenue"] == 396431000000
+    assert saved_payload["dimensions"]["financial"]["metrics"]["gross_margin_basis"] == latest.gross_margin_basis

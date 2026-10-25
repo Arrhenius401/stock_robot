@@ -646,6 +646,21 @@ class TestStructuredToolResults:
 
 
 class TestStockReportExtraction:
+    def test_keeps_hk_market_and_scoring_version_for_reopened_artifact(self):
+        extracted = _extract_stock_reports([{
+            "tool": "analyze_stock", "status": "done",
+            "content": {"symbol": "00700.HK", "market": "hk", "scoring_method": "five-dimension-v1"},
+        }])
+        assert extracted[0][1]["market"] == "hk"
+        assert extracted[0][1]["scoring_method"] == "five-dimension-v1"
+
+    def test_keeps_disclaimer_for_conversation_report(self):
+        extracted = _extract_stock_reports([{
+            "tool": "analyze_stock", "status": "done",
+            "content": {"symbol": "00700.HK", "disclaimer": ["原有免责声明"]},
+        }])
+        assert extracted[0][1]["disclaimer"] == ["原有免责声明"]
+
     def test_extracts_successful_executor_repr(self):
         """Executor 的 Python repr 应安全解析并规范化为股票报告。"""
         tool_results = [{
@@ -1218,6 +1233,22 @@ class TestStreamEndpoint:
 
 
 class TestAnalyzeEndpoint:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("symbol", "refresh", "expected"), [
+        ("00700.HK", True, {"refresh_cache": True}),
+        ("00700.HK", False, {}),
+        ("000001", True, {"refresh_cache": True}),
+        ("000001", False, {}),
+    ])
+    async def test_explicit_refresh_reaches_pipeline(self, client, mocker, symbol, refresh, expected):
+        mocker.patch("utils.symbols.resolve_name", return_value="测试公司")
+        original = FakePipeline.run
+        call = mocker.patch.object(FakePipeline, "run", side_effect=lambda code, name, market, **_kwargs:
+            original(FakePipeline(), code, name, market))
+        response = await client.post("/api/v1/analyze", json={"symbol": symbol, "refresh_cache": refresh})
+        assert response.status_code == 200
+        call.assert_called_once_with(symbol, "测试公司", market="hk" if symbol.endswith(".HK") else "a-shares", **expected)
+
     @pytest.mark.asyncio
     async def test_analyze_returns_report_json(self, client, mocker):
         mocker.patch("utils.symbols.resolve_name", return_value="平安银行")

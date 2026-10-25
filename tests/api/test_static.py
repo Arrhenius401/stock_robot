@@ -188,7 +188,7 @@ def _module_url(path: str) -> str:
     url = Path(path).resolve().as_uri()
     # 与聊天模块的正式导入保持同一 URL，避免产生两份抽屉状态单例。
     if path.endswith("/report-drawer.js"):
-        url += "?v=20261019-hk-shared-analysis-2"
+        url += "?v=20261025-signal-placeholder-1"
     return url
 
 
@@ -209,6 +209,86 @@ async def client():
 
 
 class TestStaticUI:
+    def test_hk_news_reuses_plain_list_and_hides_links(self, tmp_path):
+        script = _DOM_STUB + r"""
+const {renderStockReport} = await import(__RENDERER__);
+const article = renderStockReport({symbol: "00700.HK",market:"hk",dimensions:{sentiment:{status:"ok",metrics:{
+  news_fetched_at:"2026-10-23T20:41:00+08:00",
+  news_notes:["部分关键词查询失败或未执行，检索不完整。","已达到单关键词100条候选上限，不保证覆盖窗口内全部新闻。"],
+  news_items:[{title:"公司回购股份",published_at:"2026-10-23T18:21:00+08:00",links:[
+    {media:"媒体甲",url:"https://example.com/a"},{media:"媒体乙",url:"https://example.com/b"}
+  ]}]}}}});
+const news = descendants(article).find(node => node.id === "report-sentiment");
+if (!news) throw new Error("新闻区缺失");
+if (!byClass(news,"report-metric-list").length) throw new Error("应复用原新闻项目列表样式");
+if (!news.textContent.includes("公司回购股份（2026-10-23 18:21 · 媒体甲、媒体乙）")) throw new Error("标题、时间、媒体应紧凑展示");
+if (descendants(news).some(node => node.tagName.toLowerCase() === "a")) throw new Error("新闻区不应展示链接");
+if (news.textContent.includes("https://") || news.textContent.includes("· 原文")) throw new Error("链接文字泄露");
+for (const diagnostic of ["原采集时间", "部分关键词", "候选上限"]) {
+  if (news.textContent.includes(diagnostic)) throw new Error(`采集诊断不应出现在新闻正文：${diagnostic}`);
+}
+""".replace("__RENDERER__", json.dumps(_module_url("src/api/static/js/report-renderer.js")))
+        _run_node(tmp_path, script)
+
+    def test_hk_live_report_cache_expires_and_filters_dates(self, tmp_path):
+        """港股实时缓存不续期旧新闻；A股及归档渲染不受影响。"""
+        report_url = json.dumps(_module_url("src/api/static/js/report.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        script = _DOM_STUB + r"""
+makeElement("reportContent");
+const { store } = await import(__STATE_URL__);
+const { openReport } = await import(__REPORT_URL__);
+let now = Date.parse("2026-10-23T10:00:00+08:00");
+Date.now = () => now;
+const calls = [];
+function data(symbol, market = "hk", fetched = now) {
+  return {symbol, name: symbol, market, generated_at: new Date(now).toISOString(),
+    data_quality: {dimensions:[{key:"sentiment",fields:[{label:"检索状态",value:"旧状态"}]}]},
+    dimensions: {sentiment: {status: "ok", metrics: {news_fetched_at: new Date(fetched).toISOString(),
+      news_notes:["部分关键词查询失败或未执行，检索不完整。","已达到单关键词100条候选上限"],
+      news_items: [
+        {title: "有效新闻", published_at: "2026-10-23T09:00:00+08:00", links: []},
+        {title: "过期新闻不应展示", published_at: "2026-09-23T09:00:00+08:00", links: []},
+        {title: "未来新闻不应展示", published_at: "2026-10-24T09:00:00+08:00", links: []}
+      ]}}}};
+}
+globalThis.fetch = async (url, options) => {
+  calls.push(JSON.parse(options.body));
+  return {ok: true, json: async () => data(calls.at(-1).symbol)};
+};
+await openReport("00700.HK");
+if (calls.length !== 1) throw new Error("首次必须请求");
+if (document.getElementById("reportContent").textContent.includes("不应展示")) throw new Error("展示前必须过滤日期");
+if (document.getElementById("reportContent").textContent.includes("候选上限")) throw new Error("缓存过滤不能将后台诊断重新带入附录");
+const original = store.reportCache["00700.HK"];
+if (original.dimensions.sentiment.metrics.news_items.length !== 3) throw new Error("展示不能改写缓存原文或归档事实");
+now += 3599000;
+await openReport("00700.HK");
+if (calls.length !== 1) throw new Error("一小时内应复用");
+if (document.getElementById("reportContent").textContent.includes("部分关键词")) throw new Error("复用缓存不能展示诊断文案");
+now += 1000;
+await openReport("00700.HK");
+if (calls.length !== 2) throw new Error("一小时到期必须请求");
+await openReport("00700.HK", "stockInput", true);
+if (calls.length !== 3 || !calls.at(-1).refresh_cache) throw new Error("手动刷新必须透传");
+store.reportCache["09988.HK"] = data("09988.HK", "hk", now - 3600001);
+await openReport("09988.HK");
+if (calls.length !== 4) throw new Error("新报告不能续期旧采集时间");
+now = Date.parse("2026-10-23T23:59:30+08:00");
+await openReport("00005.HK");
+const beforeDayChange = calls.length;
+now += 60000;
+await openReport("00005.HK");
+if (calls.length !== beforeDayChange + 1) throw new Error("跨香港日期必须刷新");
+store.reportCache["600519"] = data("600519", "a-shares", now - 864000000);
+const beforeA = calls.length;
+await openReport("600519");
+if (calls.length !== beforeA) throw new Error("不改变A股缓存语义");
+await byClass(document.getElementById("reportContent"), "btn-refresh")[0].click();
+if (calls.length !== beforeA + 1 || !calls.at(-1).refresh_cache) throw new Error("A股手动刷新必须跳过新鲜缓存");
+""".replace("__REPORT_URL__", report_url).replace("__STATE_URL__", state_url)
+        _run_node(tmp_path, script)
+
     @pytest.mark.asyncio
     async def test_index_html_served(self, client):
         resp = await client.get("/")
@@ -309,7 +389,7 @@ class TestStaticUI:
         app_js = (await client.get("/js/app.js")).text
         api_js = (await client.get("/js/api.js")).text
 
-        assert 'import { initReportLibrary } from "./report-library.js?v=20261019-hk-shared-analysis-2";' in app_js
+        assert 'import { initReportLibrary } from "./report-library.js?v=20261025-signal-placeholder-1";' in app_js
         assert "initReportLibrary();" in app_js
         assert "listReports(" in api_js
         assert "getReport(" in api_js
@@ -346,7 +426,7 @@ class TestStaticUI:
     async def test_app_initializes_report_drawer(self, client):
         resp = await client.get("/js/app.js")
 
-        assert 'import { initReportDrawer } from "./report-drawer.js?v=20261019-hk-shared-analysis-2";' in resp.text
+        assert 'import { initReportDrawer } from "./report-drawer.js?v=20261025-signal-placeholder-1";' in resp.text
         assert "initReportDrawer();" in resp.text
 
     def test_markdown_renderer_escapes_untrusted_input_and_formats_safe_blocks(self):
@@ -521,15 +601,9 @@ if (!article.textContent.includes("最新收盘价") || !article.textContent.inc
     || article.textContent.includes('{\n  "value": 3\n}')) {
   throw new Error("对象指标应拆为可读字段，不能展示 JSON");
 }
-if (!article.textContent.includes("同行业公司") || !article.textContent.includes("同行范围")
-    || !article.textContent.includes("工商银行（601398）")
-    || !article.textContent.includes("建设银行（601939）")
-    || article.textContent.includes("peer_names")) {
-  throw new Error("行业字段必须显示中文标签与公司名（代码）");
-}
-if (!article.textContent.includes("头部同行公司")
-    || !article.textContent.includes("招商银行（600036）：市值 603.30 亿元 · PE(TTM) 6.2 · PB 0.8")) {
-  throw new Error("头部同行应以公司名、代码和指标的结构化格式展示");
+if (!article.textContent.includes("同行范围") || !article.textContent.includes("银行")
+    || ["同行业公司", "工商银行", "建设银行", "头部同行公司", "招商银行", "peer_names"].some(text=>article.textContent.includes(text))) {
+  throw new Error("历史行业报告只保留范围与汇总，不能展开同行名单");
 }
 if (article.textContent.includes("roe_low") || article.textContent.includes("bearish_ma")
     || !article.textContent.includes("净资产收益率偏低")
@@ -2173,7 +2247,7 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         assert 'id="subName"' not in html
         assert 'id="subChannel"' not in html
         assert "企业微信" not in html
-        assert 'href="/css/app.css?v=20261012-report-library-1"' in html
+        assert 'href="/css/app.css?v=20261025-signal-placeholder-1"' in html
         script = (await client.get("/js/subscriptions.js")).text
         assert "searchPushSymbols" in script
         assert "批量添加" not in script

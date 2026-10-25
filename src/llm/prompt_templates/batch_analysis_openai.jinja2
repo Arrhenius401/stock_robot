@@ -1,4 +1,5 @@
 你是一位资深金融分析师。请基于以下量化分析数据，为 {{ name }}（{{ symbol }}）撰写分析报告。
+{% include "valuation_safety.jinja2" %}
 
 ## 标的行业定位
 
@@ -13,10 +14,14 @@
 {% for dim in scores %}
 ### {{ dim.label }}
 {% if dim.score is not none %}
-得分: {{ dim.score }}/10 ({{ dim.sufficiency }})
+得分: {{ "%.1f"|format(dim.score) }}/10 ({{ dim.sufficiency }}){% if dim.direction == "risk" %}；此为风险分，越高风险越大，综合中反向参与{% endif %}
 {% if dim.score_detail %}
 得分详情: {{ dim.score_detail }}
 {% endif %}
+{% elif dim.available | default(false) %}
+数据状态: {{ dim.sufficiency }}。{% if not dim.scoring_applicable %}本维度不计分，保留已有事实供解读。{% else %}暂无评分，保留已有事实供解读。{% endif %}
+{% if dim.summary %}事实摘要: {{ dim.summary }}{% endif %}
+{% if dim.score_detail %}说明: {{ dim.score_detail }}{% endif %}
 {% else %}
 数据不足，跳过此维度。
 {% endif %}
@@ -40,7 +45,7 @@
 请按以下固定分段输出，每段严格以 ## N. 开头：
 
 ## 1.维度分项解读
-逐维度解读得分原因，每个维度控制在 150 字以内，所有结论必须引用得分详情中的具体数值。数据不足的维度标注"样本不足，不做解读"。
+对计分维度解读得分原因，对不计分但可用的维度解读已有事实；每个维度控制在 150 字以内，所有结论必须引用得分详情或确定性分析事实中的具体数值。数据不足的维度标注"样本不足，不做解读"。
 
 ## 2.全维度风险汇总
 列出所有可量化风险（财务、估值、行业、技术、舆情），每条风险标注严重程度。若某维度无风险，注明"无明显风险信号"。
@@ -57,3 +62,5 @@
 基于可获取数据给出整体评价，使用"综合数据表现偏正面/中性/偏负面"表述方式，不可出现买卖、调仓、持仓等操作建议。如数据不足，请直言"当前数据不足以形成完整判断"。
 
 严格禁止词汇：买入、卖出、加仓、减仓、持仓、重仓、轻仓、止损、止盈、逢低布局、看涨、看跌、目标价、建议
+
+程序综合分：{{ score_summary.final_score if score_summary.final_score is not none else "暂无" }}；风险标签仅提示，不另扣分。

@@ -71,8 +71,8 @@ export const api = {
     return consumeSSE("/api/v1/chat/stream",
                       { message, session_id: sessionId }, handlers);
   },
-  analyze(symbol) {
-    return request("/api/v1/analyze", { method: "POST", body: JSON.stringify({ symbol }) });
+  analyze(symbol, refreshCache = false) {
+    return request("/api/v1/analyze", { method: "POST", body: JSON.stringify({ symbol, ...(refreshCache ? {refresh_cache: true} : {}) }) });
   },
   retryCommentary(reportToken, artifact = {}) {
     return request("/api/v1/commentary/retry", {

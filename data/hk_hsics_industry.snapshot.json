@@ -1,0 +1,53 @@
+{
+  "source": "eastmoney.f10 + hsi.daily_pdf",
+  "source_urls": {
+    "f10": "https://datacenter.eastmoney.com/securities/api/data/v1/get",
+    "hsci": "https://www.hsi.com.hk/api/wsit-hsi-ddoc-ea-public-website-proxy/v1/product-data/pub/series/metadata/v2?data=dailyReport&seriesCode=hsci"
+  },
+  "data_date": "2026-10-23",
+  "fetched_at": "2026-10-24T19:21:18.143143+08:00",
+  "csv_sha256": "83052b8372f9a3c95f29bebb44ddae40b69f7e829770e7b590ba9c636ad8096e",
+  "total": 666,
+  "sector_count": 31,
+  "industry_count": 12,
+  "crosswalk": {
+    "综合企业": "Conglomerates",
+    "公用事业": "Utilities",
+    "地产": "Properties and Construction",
+    "银行": "Financials",
+    "电讯": "Telecommunications",
+    "药品及生物科技": "Healthcare",
+    "软件服务": "Information Technology",
+    "旅游及消闲设施": "Consumer Discretionary",
+    "媒体及娱乐": "Consumer Discretionary",
+    "食物饮品": "Consumer Staples",
+    "工用运输": "Industrials",
+    "工业工程": "Industrials",
+    "其他金融": "Financials",
+    "汽车": "Consumer Discretionary",
+    "原材料": "Materials",
+    "资讯科技器材": "Information Technology",
+    "家庭电器及用品": "Consumer Discretionary",
+    "黄金及贵金属": "Materials",
+    "一般金属及矿石": "Materials",
+    "保险": "Financials",
+    "石油及天然气": "Energy",
+    "建筑": "Properties and Construction",
+    "半导体": "Information Technology",
+    "纺织及服饰": "Consumer Discretionary",
+    "专业零售": "Consumer Discretionary",
+    "煤炭": "Energy",
+    "支援服务": "Consumer Discretionary",
+    "其他医疗保健": "Healthcare",
+    "消费者主要零售商": "Consumer Staples",
+    "农业产品": "Consumer Staples",
+    "工用支援": "Industrials"
+  },
+  "validation": {
+    "baseline_total": 580,
+    "parent_mismatches": 0,
+    "unmapped_sectors": 0,
+    "missing_rows": 0,
+    "non_hsci_covered": 107
+  }
+}

@@ -55,7 +55,7 @@ section_performance:{status:"success",metrics:{return_pct:12.123456789,return_ba
 const {openIndex} = await import(__INDEX__);
 await openIndex("515300");
 const box=document.getElementById("indexContent");
-for(const text of ["515300","跟踪指数","40%","银行","25.00%","15.00%","缺少资本开支","12.12%","价格指数，不含分红","前复权价格，含分红调整"]) {
+for(const text of ["515300","跟踪指数","40.00%","银行","25.00%","15.00%","缺少资本开支","12.12%","价格指数，不含分红","前复权价格，含分红调整"]) {
  if(!box.textContent.includes(text)) throw new Error("报告缺少 "+text+"："+box.textContent);
 }
 if(box.textContent.includes("[object Object]") || box.textContent.includes("fcf yield")) throw new Error("裸对象或内部键外泄");
@@ -78,6 +78,8 @@ let analyzed=[]; let indexed=[];
 api.indices=async()=>({indices:[],etfs:[{symbol:"515300",name:"嘉实红利低波ETF",index_symbol:"930740"}]});
 api.analyze=async(symbol)=>{analyzed.push(symbol); return {symbol,name:"普通股票"};};
 api.index=async(symbols)=>{indexed.push(symbols); return {reports:[]};};
+const {api: reportApi}=await import(__REPORT_API__);
+reportApi.analyze=api.analyze;
 const {openReport}=await import(__REPORT__);
 await openReport("515300");
 if(analyzed.length || indexed[0]?.[0] !== "515300" || document.getElementById("indexInput").value !== "515300") throw new Error("ETF没有从个股入口转指数");
@@ -93,7 +95,8 @@ if(analyzed.at(-1)!=="159998") throw new Error("目录失败阻断原入口");
 """
     script = script.replace("__API__", json.dumps(_module_url("src/api/static/js/api.js")))
     script = script.replace("__REPORT__", json.dumps(_module_url("src/api/static/js/report.js")))
-    script = script.replace("__INDEX__", json.dumps(_module_url("src/api/static/js/indexview.js") + "?v=20261002-strategy-valuation-2"))
+    script = script.replace("__REPORT_API__", json.dumps(_module_url("src/api/static/js/api.js") + "?v=20261025-signal-placeholder-1"))
+    script = script.replace("__INDEX__", json.dumps(_module_url("src/api/static/js/indexview.js") + "?v=20261025-signal-placeholder-1"))
     _run_node(tmp_path, script)
 
 
