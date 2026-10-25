@@ -492,17 +492,6 @@ function comparisonNumber(value, unit = "") {
   return value.toFixed(2) + (unit === "percent" ? "%" : "");
 }
 
-function comparisonReasons(row) {
-  const parts = [];
-  for (const key of ["reason", "reasons", "excluded_reasons"]) {
-    const value = row[key];
-    if (Array.isArray(value)) parts.push(...value.filter(Boolean).map(String));
-    else if (value && typeof value === "object") parts.push(...Object.values(value).filter(Boolean).map(String));
-    else if (value) parts.push(String(value));
-  }
-  return [...new Set(parts)].join("；");
-}
-
 function comparisonTable(headers, rows, className, captionText) {
   const table = el("table", className);
   table.appendChild(el("caption", "peer-sr-only", captionText));
@@ -558,34 +547,6 @@ function comparisonBlock(block, operating = false) {
   return result;
 }
 
-function comparisonPeers(block, operating = false) {
-  const wrap = el("div", "peer-table-wrap");
-  const metrics = Array.isArray(block.metrics) && block.metrics.length ? block.metrics
-    : operating ? [{key: "revenue_growth_yoy", label: "营收同比", unit: "percent"},
-      {key: "net_margin", label: "净利率", unit: "percent"}, {key: "roe", label: "ROE", unit: "percent"}]
-      : [{key: "pe_ttm", label: "PE TTM"}, {key: "pb", label: "PB"}];
-  const peers = Array.isArray(block.peers) ? block.peers : [];
-  if (!peers.length) {
-    wrap.appendChild(el("p", "peer-caption", "暂无同行明细"));
-    return wrap;
-  }
-  const rows = peers.map(row => {
-    let reason = comparisonReasons(row);
-    if (!operating) {
-      const invalid = metrics.filter(item => typeof row[item.key] === "number" && Number.isFinite(row[item.key]) && row[item.key] <= 0);
-      if (invalid.length) reason = [reason, `${invalid.map(item => item.label).join("、")} 非正值不参与统计`].filter(Boolean).join("；");
-    }
-    const period = operating ? `${readable(row.start, "未记录")} 至 ${readable(row.end, "未记录")}`
-      : readable(row.as_of || block.as_of, "未记录");
-    return [`${readable(row.name, "名称未记录")}（${readable(row.symbol, "代码未记录")}）`,
-      ...metrics.map(item => comparisonNumber(row[item.key], item.unit)), period,
-      [row.basis, reason].filter(Boolean).join("；") || "—"];
-  });
-  wrap.appendChild(comparisonTable(["公司", ...metrics.map(item => item.label || item.key),
-    operating ? "报告期" : "估值日期", "口径与不参与原因"], rows, "peer-detail-table", "全部同行的原始指标、期间和不参与原因"));
-  return wrap;
-}
-
 function industryComparisonSection(dimension, sectionIdPrefix) {
   const comparison = record(record(dimension.metrics).comparison);
   const card = section("report-industry", "行业对比", "panel peer-comparison", sectionIdPrefix);
@@ -616,14 +577,6 @@ function industryComparisonSection(dimension, sectionIdPrefix) {
   panel.setAttribute("role", "tabpanel");
   panel.setAttribute("aria-live", "polite");
   card.appendChild(panel);
-  const all = el("details", "peer-all");
-  all.appendChild(el("summary", "", `查看全部同行（${comparison.peer_count ?? 0} 家）`));
-  all.appendChild(el("p", "peer-caption", "统计使用全部符合条件的同行，已排除目标公司；不同期间或不适用值保留展示。"));
-  all.appendChild(el("h4", "peer-subtitle", "估值明细"));
-  all.appendChild(comparisonPeers(valuation));
-  const businessPeers = el("div", "peer-business-peers");
-  all.appendChild(businessPeers);
-  card.appendChild(all);
   const methods = el("details", "peer-methods");
   methods.appendChild(el("summary", "", "数据来源与统计口径"));
   const list = el("ul");
@@ -644,7 +597,6 @@ function industryComparisonSection(dimension, sectionIdPrefix) {
     }
     panel.setAttribute("aria-labelledby", `${card.id}-tab-${key}`);
     panel.replaceChildren(comparisonBlock(block, true));
-    businessPeers.replaceChildren(el("h4", "peer-subtitle", `经营明细 · ${key === "annual" ? "完整年度" : "最新一期"}`), comparisonPeers(block, true));
   }
   for (const [key, label] of [["annual", "完整年度"], ["latest", "最新一期"]]) {
     const button = el("button", "peer-period-button", label);
@@ -702,6 +654,7 @@ function dimensionSection(name, label, data, sectionIdPrefix, unscored = false, 
     const grid = el("div", "mtr");
     for (const [metric, value] of Object.entries(metrics)) {
       if (metric === "peer_names") continue;
+      if (name === "industry" && ["peers", "top_peers", "peer_display_note"].includes(metric)) continue;
       if (metric === "peers") {
         grid.appendChild(kv(metricLabel(metric), peerText(value, metrics.peer_names)));
         continue;

@@ -8,7 +8,7 @@ from tests.report.test_peer_comparison import (
 )
 
 
-def test_peer_comparison_card_periods_all_peers_and_legacy_fallback(tmp_path):
+def test_peer_comparison_card_keeps_summaries_without_peer_list_and_legacy_fallback(tmp_path):
     script = _DOM_STUB + "\nconst {renderStockReport}=await import(" + json.dumps(
         _module_url("src/api/static/js/report-renderer.js")) + ");\n"
     script += "const comparison=" + json.dumps(comparison_sample(), ensure_ascii=False) + ";\n"
@@ -18,8 +18,8 @@ for (const market of ['a-shares','hk']) {
   metrics:{comparison,industry_median_pe:9999,top_peers:[{symbol:'旧同行'}]}}}};
  const article=renderStockReport(report), card=byClass(article,'peer-comparison')[0];
  if(!card)throw new Error('缺少同行专用卡片');
- for(const value of ['不计分','估值对比','经营表现','12.50%','-2.50%','样本不足','5 家','同行6',
-  '估值来源','经营来源','2026-10-23','非正 PE 不参与统计','暂无数据']) {
+ for(const value of ['不计分','估值对比','经营表现','12.50%','-2.50%','样本不足','5 家',
+  '估值来源','经营来源','2026-10-23']) {
   if(!card.textContent.includes(value))throw new Error('缺少 '+value+': '+card.textContent);
  }
  if(card.textContent.includes('9999')||card.textContent.includes('旧同行'))throw new Error('重复旧行业证据');
@@ -30,8 +30,8 @@ for (const market of ['a-shares','hk']) {
  const panel=byClass(card,'peer-business-panel')[0];
  if(!panel.textContent.includes('6.25%')||!panel.textContent.includes('半年度累计'))throw new Error('期间未切换');
  if(tabs[1].getAttribute('aria-selected')!=='true')throw new Error('期间状态未更新');
- const details=byClass(card,'peer-all')[0];
- if(details.tagName!=='DETAILS'||!details.textContent.includes('同行6'))throw new Error('缺少全部同行');
+ if(byClass(card,'peer-all').length||byClass(card,'peer-detail-table').length)throw new Error('仍展示同行明细');
+ if(card.textContent.includes('查看全部同行')||card.textContent.includes('同行6'))throw new Error('同行列表文字泄露');
  if(JSON.stringify(report.dimensions.industry.metrics.comparison)!==JSON.stringify(comparison))throw new Error('改写数据');
 }
 const failed=structuredClone(comparison);

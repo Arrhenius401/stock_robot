@@ -81,7 +81,7 @@ def test_markdown_shows_dimension_count_and_not_applicable():
     assert "新闻暂时获取失败" in text
 
 
-def test_markdown_limits_hk_peer_list_and_shows_full_pool_scope():
+def test_markdown_hides_hk_peer_list_and_keeps_pool_counts():
     ctx = context()
     peers = [f"{index:05d}.HK" for index in range(1, 13)]
     result = AnalysisResult(
@@ -97,7 +97,9 @@ def test_markdown_limits_hk_peer_list_and_shows_full_pool_scope():
 
     text = build_report(ctx.symbol, ctx.name, [result], {}, ctx, no_llm=True)
 
-    assert "仅展示前10家，统计基于全部12家港股通同行" in text
-    assert "同行10（00010.HK）" in text
+    assert "仅展示前10家" not in text
+    assert "同行10（00010.HK）" not in text
+    assert "12" in text
+    assert "00001.HK" not in text
     assert "00011.HK" not in text
     assert "00012.HK" not in text

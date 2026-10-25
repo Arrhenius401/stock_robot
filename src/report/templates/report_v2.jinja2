@@ -73,26 +73,10 @@
 {% if r.metrics.get("roe_trend") %}
 {{ r.metrics["roe_trend"] | md_table({"报告期": "quarter", "ROE": "roe"}) }}
 {% endif %}
-{% if r.metrics.get("peers") %}
-**同行业公司：**
-{% for peer in r.metrics["peers"] %}
-{% set peer_name = r.metrics.get("peer_names", {}).get(peer) %}
-- {{ peer_name ~ '（' ~ peer ~ '）' if peer_name else peer }}
-{% endfor %}
-{% endif %}
-{% if r.metrics.get("peer_display_note") %}
-
-{{ r.metrics["peer_display_note"] }}
-{% endif %}
 {% if r.metrics.get("headlines") %}
 {% for headline in r.metrics["headlines"] %}
 - {{ headline }}
 {% endfor %}
-{% endif %}
-{% if r.metrics.get("top_peers") %}
-
-**市值前五可比公司（不含本公司）：**
-{{ r.metrics["top_peers"] | md_table({"代码": "symbol", "名称": "name", "市值": "market_cap", "PE(TTM)": "pe_ttm", "PB": "pb"}) }}
 {% endif %}
 {% else %}
 > 该维度数据不足，已跳过（暂无可用指标）

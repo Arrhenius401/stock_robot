@@ -25,19 +25,6 @@ def comparison_value(value: Any, unit: str = "") -> str:
     return f"{value:.2f}" + ("%" if unit == "percent" else "")
 
 
-def comparison_reasons(row: dict[str, Any]) -> str:
-    parts = []
-    for key in ("reason", "reasons", "excluded_reasons"):
-        value = row.get(key)
-        if isinstance(value, dict):
-            parts.extend(str(item) for item in value.values() if item)
-        elif isinstance(value, list):
-            parts.extend(str(item) for item in value if item)
-        elif value:
-            parts.append(str(value))
-    return "；".join(dict.fromkeys(parts))
-
-
 def _table(headers: list[str], rows: list[list[Any]]) -> str:
     return "\n".join([
         "| " + " | ".join(headers) + " |",
@@ -69,33 +56,13 @@ def _block(block: dict[str, Any], *, operating: bool = False) -> list[str]:
         lines += ["", _table(["指标", "目标公司", "同行中位数", "数值分位", "有效同行", "说明"], rows)]
     elif not block.get("reason"):
         lines += ["", "暂无可比较指标"]
-    peers = [row for row in block.get("peers", []) if isinstance(row, dict)]
-    lines += ["", f"**全部同行（{len(peers)} 家）**", ""]
-    if peers:
-        keys = [(item.get("key", ""), item.get("label", "指标"), item.get("unit", "")) for item in metrics]
-        if not keys:
-            keys = [("revenue_growth_yoy", "营收同比", "percent"), ("net_margin", "净利率", "percent"), ("roe", "ROE", "percent")] if operating else [("pe_ttm", "PE TTM", "multiple"), ("pb", "PB", "multiple")]
-        rows = []
-        for peer in peers:
-            period = f"{peer.get('start') or '未记录'} 至 {peer.get('end') or '未记录'}" if operating else peer.get("as_of") or block.get("as_of") or "未记录"
-            reason = comparison_reasons(peer)
-            if not operating:
-                invalid = [label for key, label, _ in keys if is_finite_number(peer.get(key)) and peer[key] <= 0]
-                if invalid:
-                    reason = "；".join(filter(None, [reason, "、".join(invalid) + " 非正值不参与统计"]))
-            rows.append([peer.get("symbol", ""), peer.get("name", ""),
-                         *(comparison_value(peer.get(key), unit) for key, _, unit in keys), period,
-                         "；".join(filter(None, [str(peer.get("basis") or ""), reason]))])
-        lines.append(_table(["代码", "公司", *(label for _, label, _ in keys), "报告期" if operating else "估值日期", "口径与不参与原因"], rows))
-    else:
-        lines.append("暂无同行明细。")
     for key in ("notes", "errors"):
         lines.extend(f"- {_text(item)}" for item in block.get(key, []) if item)
     return lines
 
 
 def format_peer_comparison_markdown(comparison: dict[str, Any]) -> str:
-    """下载与推送保留估值、两期经营、所有同行和来源。"""
+    """下载与推送展示估值、两期经营汇总和来源，不展开同行明细。"""
     lines = ["> 行业对比不计分。", "", f"同行范围：{_text(comparison.get('scope'))}；同行总数：{comparison.get('peer_count', 0)} 家。",
              "", "#### 估值对比", ""]
     lines += _block(comparison.get("valuation") or {})

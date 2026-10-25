@@ -57,7 +57,7 @@ def _md_table(data, headers=None):
         filtered = {
             k: v
             for k, v in data.items()
-            if not isinstance(v, (list, dict)) and k not in {"peer_names", "tag"}
+            if not isinstance(v, (list, dict)) and k not in {"peer_names", "peer_display_note", "tag"}
         }
         if not filtered:
             return ""

@@ -39,7 +39,7 @@ def comparison_sample():
 
 
 @pytest.mark.parametrize("market", ["a-shares", "hk"])
-def test_peer_comparison_markdown_and_payload_preserve_both_periods_and_all_peers(market):
+def test_peer_comparison_markdown_shows_summaries_and_payload_preserves_peer_evidence(market):
     comparison = comparison_sample()
     original = deepcopy(comparison)
     result = AnalysisResult(dimension="industry", status="partial", summary="同行比较",
@@ -48,10 +48,11 @@ def test_peer_comparison_markdown_and_payload_preserve_both_periods_and_all_peer
     markdown = ReportBuilder().build("000001", "目标", [result], {}, market="港股" if market == "hk" else "A 股")
     for expected in ["估值对比", "完整年度", "最新一期", "2025 年报", "2026 中报", "12.50%", "6.25%",
                      "-2.50%", "样本不足", "不计分", "估值来源", "经营来源", "2026-10-23",
-                     "半年度累计", "加权 ROE", "同行6", "非正 PE 不参与统计", "暂无数据"]:
+                     "半年度累计", "加权 ROE", "有效同行", "5 家"]:
         assert expected in markdown
     assert "9999" not in markdown and "旧同行" not in markdown
     assert "1250.00%" not in markdown
+    assert "全部同行" not in markdown and "同行6" not in markdown
     payload = build_stock_payload("000001", "目标", [result], {}, AnalysisContext(symbol="000001", name="目标", market=market))
     assert payload["dimensions"]["industry"]["metrics"]["comparison"] == original
     assert comparison == original
@@ -68,9 +69,15 @@ def test_peer_comparison_markdown_failure_keeps_valuation_and_does_not_hide_reas
 
 
 def test_legacy_industry_report_still_shows_original_metrics():
-    result = AnalysisResult(dimension="industry", status="ok", summary="", metrics={"industry": "银行", "peer_count": 8})
+    result = AnalysisResult(dimension="industry", status="ok", summary="", metrics={
+        "industry": "银行", "peer_count": 8, "peers": ["600036"],
+        "peer_names": {"600036": "招商银行"}, "top_peers": [{"symbol": "600036", "name": "招商银行"}],
+        "peer_display_note": "仅展示头部同行名单",
+    })
     markdown = ReportBuilder().build("000001", "目标", [result], {})
     assert "银行" in markdown and "8" in markdown
+    assert "600036" not in markdown and "招商银行" not in markdown
+    assert "仅展示头部同行名单" not in markdown
 
 
 def missing_latest_comparison():
