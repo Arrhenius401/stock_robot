@@ -2,6 +2,8 @@ include requirements-core.lock.txt requirements-rag.lock.txt
 include scripts/run-radar-collector.py
 include data/industry_mapping.csv data/eastmoney_sw_mapping.csv
 include data/index_mapping.csv data/etf_index_mapping.csv
+include data/hk_stock_connect.snapshot.json
+include data/hk_hsics_industry.csv data/hk_hsics_industry.snapshot.json
 recursive-include config *.yaml
 recursive-include src/analysis/config *.yaml
 recursive-include src/api/static *.html *.css *.js *.png

@@ -2,7 +2,7 @@
 import { store, switchView } from "./state.js";
 import { api } from "./api.js";
 import { renderMarkdown } from "./markdown.js";
-import { appendReadableMetric, riskText } from "./report-renderer.js?v=20261019-hk-shared-analysis-2";
+import { appendReadableMetric, riskText, formatMetricValue } from "./report-renderer.js?v=20261025-signal-placeholder-1";
 import { el, kv, tagChip, priceBar, errorCard, skeleton,
          showEntryError, clearEntryError } from "./components.js";
 
@@ -87,6 +87,7 @@ function compareCell(header, row) {
     return tdWithTag(TAGS.valuation[text]);
   }
   if (header === "资金") {
+    if (row.capital_display) return tdWithTag([row.capital_display.label, row.capital_display.tone]);
     return tdWithTag(TAGS.capital[text]);
   }
   if (header === "综合评级") {
@@ -108,6 +109,7 @@ function compareCard(compare) {
   const table = el("table");
   const thead = el("thead");
   const headRow = el("tr");
+  if (compare.valuation_cutoff) card.appendChild(el("p", "dim-sum", compare.valuation_cutoff));
   for (const h of compare.headers) headRow.appendChild(el("th", "", String(h)));
   thead.appendChild(headRow);
   table.appendChild(thead);
@@ -132,11 +134,11 @@ function reportCard(r) {
   const o = r.overview || {};
   const priceBox = el("div", "price-box");
   if (o.latest_close != null) {
-    priceBox.appendChild(el("span", "stock-price", String(o.latest_close)));
+    priceBox.appendChild(el("span", "stock-price", formatMetricValue('latest_close',o.latest_close)));
   }
   if (o.change_pct != null) {
     const cls = o.change_pct > 0 ? "up" : o.change_pct < 0 ? "down" : "flat";
-    priceBox.appendChild(el("span", `chg ${cls}`, `${o.change_pct > 0 ? "+" : ""}${o.change_pct}%`));
+    priceBox.appendChild(el("span", `chg ${cls}`, `${o.change_pct > 0 ? "+" : ""}${formatMetricValue('change_pct',o.change_pct)}`));
   }
   hdr.appendChild(priceBox);
   card.appendChild(hdr);
@@ -161,15 +163,18 @@ function reportCard(r) {
   if (o.pe_ttm != null || o.pe_snapshot != null || o.pb != null || o.pe_percentile != null) {
     const panel = el("div", "panel");
     panel.appendChild(el("div", "panel-title", "概览"));
+    const dateDisplay = o.valuation_display || {};
+    if (dateDisplay.cutoff) panel.appendChild(el("p", "dim-sum", dateDisplay.cutoff));
+    const dated = (key, value) => dateDisplay.metrics?.[key] ?? formatMetricValue(key, value);
     const kvs = el("div", "kv");
-    if (o.pe_ttm != null) kvs.appendChild(kv("PE-TTM", `${o.pe_ttm}x`));
-    if (o.pe_ttm == null && o.pe_snapshot != null) kvs.appendChild(kv("官方单张PE", `${o.pe_snapshot}x`));
-    if (o.pb != null) kvs.appendChild(kv("PB", String(o.pb)));
-    if (o.pe_percentile != null) {
+    if (o.pe_ttm != null) kvs.appendChild(kv("PE-TTM", dated('pe_ttm',o.pe_ttm)));
+    if (o.pe_ttm == null && o.pe_snapshot != null) kvs.appendChild(kv("官方单张PE", dated('pe_snapshot',o.pe_snapshot)));
+    if (o.pb != null) kvs.appendChild(kv("PB", dated('pb',o.pb)));
+    if (o.valuation_valid && o.pe_percentile != null) {
       const box = el("div");
       box.appendChild(el("div", "k", o.strategy_valuation ? `PE 分位（近 ${o.percentile_lookback_years || 5} 年窗口内 ${o.pe_sample_count || 0} 个交易日）` : `PE 分位（近 ${o.percentile_lookback_years || 5} 年）`));
       const val = el("div", "v");
-      val.appendChild(el("span", "", `${o.pe_percentile}%`));
+      val.appendChild(el("span", "", dated('pe_percentile',o.pe_percentile)));
       val.appendChild(priceBar(o.pe_percentile));
       box.appendChild(val);
       kvs.appendChild(box);
@@ -183,7 +188,15 @@ function reportCard(r) {
     const section = r[field];
     if (!section) continue;
     if (Array.isArray(visible) && visible.length && !visible.includes(key)) continue;
-    card.appendChild(sectionCard(label, section, tagFor(key, r[tagField])));
+    const display = key === 'capital' ? section.display : null;
+    card.appendChild(sectionCard(label, display ? {...section, summary:display.summary} : section,
+      display ? tagChip(display.label,display.tone) : tagFor(key, r[tagField])));
+  }
+  if (r.section_valuation?.display?.details?.length) {
+    const details = el("div", "panel");
+    details.appendChild(el("div", "panel-title", "估值数据说明"));
+    for (const text of r.section_valuation.display.details) details.appendChild(el("p", "dim-sum", text));
+    card.appendChild(details);
   }
   card.appendChild(compositeCard(r));
   const risks = riskCard(r.risk_list || []);
@@ -198,6 +211,7 @@ function tagFor(kind, tag) {
 }
 
 function sectionCard(label, section, tag) {
+  section = section.display?.summary ? {...section, summary:section.display.summary} : section;
   const card = el("div", "panel");
   const head = el("div", "dim-head");
   head.appendChild(el("span", "dim-name", label));
@@ -211,7 +225,7 @@ function sectionCard(label, section, tag) {
     sum.innerHTML = renderMarkdown(section.summary);
     card.appendChild(sum);
   }
-  const metrics = section.metrics || {};
+  const metrics = section.display?.metrics || section.metrics || {};
   const keys = Object.keys(metrics).filter((k) => k !== "tag");
   if (keys.length) {
     const mtr = el("div", "mtr");

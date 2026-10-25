@@ -20,6 +20,7 @@ RESOURCES = Path(__file__).parents[1] / "resources" / "data"
 def isolate_tencent_history(mocker):
     """旧东财样本测试显式隔离新增主源，不能触网。"""
     mocker.patch("data.akshare.tencent_history", return_value=[])
+    mocker.patch("data.akshare.financial_report_directory", return_value=[])
 
 
 def sample(kind):

@@ -1,5 +1,6 @@
 """报告格式化器 — 文件保存和终端渲染"""
 import hashlib
+import html
 import json
 import logging
 import math
@@ -14,13 +15,122 @@ from rich.console import Group
 from rich.markdown import Markdown
 from rich.table import Table
 
+from utils.numbers import is_finite_number
+
 logger = logging.getLogger(__name__)
+
+
+def format_hk_news_markdown(metrics: dict[str, Any]) -> str:
+    """沿用普通新闻项目列表，只展示标题、时间和媒体，不输出链接。"""
+    def text(value: Any) -> str:
+        clean = html.escape(str(value), quote=False).replace("\n", " ").replace("\r", " ")
+        return re.sub(r"([\\`*_{}\[\]()#+.!|>~-])", r"\\\1", clean)
+
+    def stamp(value: Any) -> str:
+        try:
+            return datetime.fromisoformat(str(value)).strftime("%Y-%m-%d %H:%M")
+        except ValueError:
+            return str(value)
+
+    lines = [f"> {text(metrics.get('news_disclaimer', ''))}"]
+    for item in metrics.get("news_items", [])[:20]:
+        media = "、".join(dict.fromkeys(str(link.get("media") or "来源未标注") for link in item.get("links", []))) or "来源未标注"
+        lines.append(f"\n- {text(item.get('title', ''))}（{text(stamp(item.get('published_at', '')))} · {text(media)}）")
+    return "\n".join(lines)
+
+
+def _news_text(value: Any) -> str:
+    """外部资讯作为纯文本转义，避免 Markdown 注入。"""
+    clean = html.escape(str(value), quote=False).replace("\n", " ").replace("\r", " ")
+    return re.sub(r"([\\`*_{}\[\]()#+.!|>~-])", r"\\\1", clean)
+
+
+def _news_url(value: Any) -> str | None:
+    """仅允许完整 HTTP 链接，并转义 Markdown 目标中的控制字符。"""
+    from urllib.parse import quote, urlsplit
+
+    try:
+        raw = str(value or "").strip()
+        parsed = urlsplit(raw)
+        if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+            return None
+    except ValueError:
+        return None
+    return quote(raw, safe=":/?&=#%+;,@!$*'~-._")
+
+
+def sentiment_display_items(metrics: dict[str, Any]) -> list[dict[str, Any]]:
+    """保留原新闻的全部来源，并合并标注依据，不能用标注子集隐藏成功列表。"""
+    assessed = [item for item in metrics.get("all_items", []) if isinstance(item, dict)]
+    news = [item for item in metrics.get("news_items", []) if isinstance(item, dict)]
+    if not news:
+        return assessed
+
+    def identity(item: dict[str, Any]) -> tuple[str, str]:
+        return str(item.get("title") or ""), str(item.get("publish_date") or item.get("published_at") or "")[:10]
+
+    by_id = {item["item_id"]: item for item in assessed if item.get("item_id")}
+    by_date_title = {identity(item): item for item in assessed}
+    combined = [{**(by_id.get(item.get("item_id")) or by_date_title.get(identity(item), {})), **item} for item in news]
+    identities = {identity(item) for item in news}
+    combined.extend(item for item in assessed if identity(item) not in identities)
+    return combined
+
+
+def format_sentiment_risk_markdown(metrics: dict[str, Any]) -> str:
+    """新舆情口径同时披露原风险、反向参与值和可追溯样本。"""
+    risk, participation = metrics.get("risk_score"), metrics.get("participation_score")
+    lines = ["**舆情原风险分：** " + (f"{risk:.1f}/10" if is_finite_number(risk) else "无法评估") + "（越高风险越大）",
+             "", "**综合参与分：** " + (f"{participation:.1f}/10" if is_finite_number(participation) else "暂无，暂不参与综合评分") + " · 权重5%",
+             "", f"评估窗口：{_news_text(metrics.get('window_start') or '未记录')} 至 {_news_text(metrics.get('window_end') or '未记录')}；已评估{_news_text(metrics.get('evaluated_count', 0))}条。"]
+    reason = metrics.get("assessment_reason")
+    if reason:
+        lines += ["", _news_text(reason)]
+    if risk == 0:
+        lines += ["", "本次有效样本未识别到负面，不代表全市场无风险。"]
+    disclaimer = metrics.get("news_disclaimer") or "本次限量样本，不保证完整覆盖；风险依据仅来自已取得内容。"
+    if "不作AI筛选或情绪评分" in disclaimer or "不进行模型或评分" in disclaimer:
+        disclaimer = "本次限量样本，不保证完整覆盖；风险依据仅来自已取得内容。"
+    lines += ["", _news_text(disclaimer)]
+    items = sentiment_display_items(metrics)
+    if items:
+        lines += ["", "#### 采集样本与来源"]
+    for item in items[:30]:
+        if not isinstance(item, dict):
+            continue
+        state = ("与目标无直接关联" if item.get("related") is False else "不可评估" if item.get("assessable") is False
+                 else "有效相关样本" if item.get("related") is True and item.get("assessable") is True else "标注状态未记录")
+        stamp = item.get("publish_date") or item.get("published_at") or "日期未记录"
+        links = item.get("links") or [{"url": item.get("url"), "media": item.get("media") or item.get("source")}]
+        sources = []
+        for link in links:
+            if not isinstance(link, dict):
+                continue
+            label = _news_text(link.get("media") or "来源未标注")
+            url = _news_url(link.get("url"))
+            sources.append(f"[{label}](<{url}>)" if url else label)
+        lines += ["", f"- {_news_text(item.get('title', ''))}（{_news_text(stamp)} · {'、'.join(dict.fromkeys(sources)) or '来源未标注'} · {state}）"]
+        if item.get("evidence"):
+            lines.append(f"  依据：{_news_text(item['evidence'])}")
+    return "\n".join(lines)
+
 
 _STOCK_SYMBOL_PATTERN = r"(?:\d{6}|\d{5}\.HK)"
 
 _SEP_RE = re.compile(r'^\|[-\s:|]+\|$')
 
 METRIC_DISPLAY_NAMES = {
+    "operating_trends": "经营趋势",
+    "trend_note": "趋势分析限制",
+    "cash_flow_source": "经营现金流来源",
+    "deducted_net_profit": "扣非净利润",
+    "amount_basis": "财务金额口径",
+    "revenue_basis": "营收科目口径",
+    "gross_margin_basis": "毛利率计算口径",
+    "valuation_applicability": "估值适用性",
+    "historical_valuation_applicability": "独立历史分位适用性",
+    "applicable": "可用于高低估判断",
+    "reason": "原因",
     "pe_snapshot_basis": "单张PE计算口径",
     "pe_snapshot_source_url": "单张PE官方来源",
     "pe_snapshot_as_of": "单张PE数据日期",
@@ -72,6 +182,8 @@ METRIC_DISPLAY_NAMES = {
     "peer_scope": "同业口径",
     "peer_industry": "可比行业",
     "peers": "同行业公司",
+    "peer_total": "全部同行数（不含本公司）",
+    "peer_display_note": "同行展示范围",
     "top_peers": "头部同行公司",
     "roe_trend": "净资产收益率走势",
     "quarter": "报告期",
@@ -82,6 +194,16 @@ METRIC_DISPLAY_NAMES = {
     "industry_median_pb": "行业 PB 中位数",
     "target_pe_premium": "相对行业 PE 溢价",
     "target_market_cap_rank": "行业市值排名",
+    "classification_scheme": "分类体系",
+    "industry_source": "行业数据来源",
+    "industry_data_date": "行业数据日期",
+    "industry_scheme_note": "分类口径说明",
+    "target_pe": "目标 PE（行业池口径）",
+    "target_pb": "目标 PB（行业池口径）",
+    "target_pe_percentile": "相对行业 PE 分位",
+    "target_pb_percentile": "相对行业 PB 分位",
+    "peer_pe_sample": "有效 PE 样本数",
+    "peer_pb_sample": "有效 PB 样本数",
     "headline_count": "新闻数量",
     "date": "数据日期",
     "north_bound": "北向资金净流入",
@@ -114,19 +236,133 @@ def metric_display_name(key: object) -> str:
     return METRIC_DISPLAY_NAMES.get(text, text)
 
 
-_TECHNICAL_METRIC_DIGITS = {
-    "latest_close": 2, "ma_5": 2, "ma_20": 2, "ma_60": 2,
-    "volume_ratio": 2, "macd_dif": 3, "macd_dea": 3, "macd_bar": 3,
-}
+_PRICE_KEYS = {"latest_close", "latest_price", "year_high", "year_low", "ma_5", "ma_20", "ma_60"}
+_MULTIPLE_KEYS = {"pe_ttm", "pe_snapshot", "pb", "ps_ttm", "industry_median_pe", "industry_median_pb",
+                  "target_pe", "target_pb"}
+_RATIO_KEYS = {"roe", "gross_margin", "revenue_growth_yoy", "profit_growth_yoy", "industry_median_gross_margin"}
+_PERCENT_KEYS = {"change_pct", "pe_percentile", "pb_percentile", "target_pe_premium", "dividend_yield",
+                 "shibor_3m", "cpi_yoy", "shibor_percentile", "pmi_percentile",
+                 "target_pe_percentile", "target_pb_percentile"}
+# 这些字段在适配层按基本货币单位记录；币种由各报告上下文披露，不由上市地推断。
+_AMOUNT_KEYS = {"revenue", "net_profit", "deducted_net_profit", "total_assets", "total_equity", "common_equity",
+                "operating_cash_flow", "market_cap"}
+_ONE_DIGIT_KEYS = {"score", "base_score", "final_score", "risk_deduction"}
+_THREE_DIGIT_KEYS = {"macd_dif", "macd_dea", "macd_bar"}
+_TWO_DIGIT_KEYS = {"volume_ratio", "operating_cash_flow_per_share", "basic_eps", "pmi", "usd_cny"}
+
+
+def _fixed_number(value: float, digits: int) -> str:
+    """避免二进制尾数和负零；极小非零价格由调用者另行保留。"""
+    text = f"{value:,.{digits}f}"
+    return text.removeprefix("-") if round(value, digits) == 0 else text
 
 
 def format_metric_value(key: object, value: Any) -> Any:
-    """技术指标按显示精度格式化；其他指标保持原有格式。"""
-    digits = _TECHNICAL_METRIC_DIGITS.get(str(key))
-    if (digits is not None and isinstance(value, (int, float))
-            and not isinstance(value, bool) and math.isfinite(value)):
-        return f"{value:.{digits}f}"
+    """只按已知字段口径格式化显示，不改动计算或持久化数值。"""
+    key = str(key)
+    if value is None or (isinstance(value, str) and value == "N/A"):
+        return "暂无数据"
+    if isinstance(value, float) and not math.isfinite(value):
+        return "数据异常"
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or not is_finite_number(value):
+        return value
+    if key == "north_bound":
+        return (f"{value:.8g}" if value != 0 and round(value, 2) == 0 else _fixed_number(value, 2)) + " 亿"
+    if key in {"main_net_inflow", "margin_balance"}:
+        return (f"{value:.8g}" if value != 0 and round(value, 2) == 0 else _fixed_number(value, 2)) + "（原始单位未记录）"
+    if key in _AMOUNT_KEYS:
+        unit, divisor = (" 亿", 1e8) if abs(value) >= 1e8 else (" 万", 1e4) if abs(value) >= 1e4 else ("", 1)
+        return _fixed_number(value / divisor, 2) + unit
+    if key in _RATIO_KEYS:
+        return _fixed_number(value * 100, 2) + "%"
+    if key in _PERCENT_KEYS or key.endswith("_pct"):
+        return _fixed_number(value, 2) + "%"
+    if key in _MULTIPLE_KEYS:
+        text = _fixed_number(value, 2)
+        return text + "（不适用于高低估判断）" if value <= 0 else text
+    if key in _PRICE_KEYS:
+        return f"{value:.8g}" if value != 0 and round(value, 2) == 0 else _fixed_number(value, 2)
+    if key in _THREE_DIGIT_KEYS:
+        return _fixed_number(value, 3)
+    if key in _ONE_DIGIT_KEYS:
+        return _fixed_number(value, 1)
+    if key in _TWO_DIGIT_KEYS:
+        return _fixed_number(value, 2)
     return value
+
+
+def _format_comparison_facts(comparison: dict[str, Any]) -> dict[str, Any]:
+    """比较快照使用显式单位；百分数与财务小数比例不能共用转换。"""
+    from report.peer_comparison import comparison_value
+
+    def block_facts(block: dict[str, Any]) -> dict[str, Any]:
+        formatted = dict(block)
+        units = {"pe_ttm": "multiple", "pb": "multiple", "revenue_growth_yoy": "percent",
+                 "net_margin": "percent", "roe": "percent"}
+        metrics = []
+        for metric in block.get("metrics", []):
+            item = dict(metric)
+            unit = metric.get("unit", "")
+            units[metric.get("key", "")] = unit
+            for key in ("target", "median"):
+                if key in metric and unit in {"percent", "multiple"}:
+                    item[key] = comparison_value(metric[key], unit)
+            if "percentile" in metric:
+                item["percentile"] = comparison_value(metric["percentile"], "percent")
+            metrics.append(item)
+        if "metrics" in block:
+            formatted["metrics"] = metrics
+        if "peers" in block:
+            formatted["peers"] = [
+                {key: comparison_value(value, units[key])
+                 if key in units and units[key] in {"percent", "multiple"} else value
+                 for key, value in peer.items()}
+                for peer in block["peers"]
+            ]
+        return formatted
+
+    formatted = dict(comparison)
+    if isinstance(comparison.get("valuation"), dict):
+        formatted["valuation"] = block_facts(comparison["valuation"])
+    if isinstance(comparison.get("periods"), dict):
+        formatted["periods"] = {key: block_facts(value) if isinstance(value, dict) else value
+                                for key, value in comparison["periods"].items()}
+    return formatted
+
+
+def format_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
+    """模型事实及嵌套表格使用字段语义，保留代码、日期与未知字段。"""
+    def display(key: str, value: Any) -> Any:
+        if isinstance(value, dict):
+            if key == "comparison":
+                return _format_comparison_facts(value)
+            formatted = format_metrics(value)
+            if key == "annual_roe" and "value" in value:
+                # 年度 ROE 独立事实的 value 为小数比例，不能被模型当作已格式化百分数。
+                formatted["value"] = format_metric_value("roe", value["value"])
+            return formatted
+        if isinstance(value, list):
+            return [display(key, item) for item in value]
+        return format_metric_value(key, value)
+
+    formatted = {key: display(key, value) for key, value in metrics.items()}
+    applicability = metrics.get("valuation_applicability")
+    if isinstance(applicability, dict):
+        for snapshot, derived in (("pe_ttm", "pe_percentile"), ("pb", "pb_percentile")):
+            historical = metrics.get("historical_valuation_applicability", {})
+            historical_rule = historical.get(derived, {}) if isinstance(historical, dict) else {}
+            # 港股同源历史已独立校验；快照缺项不能覆盖其有效分位，旧 A 股路径不变。
+            if (isinstance(historical_rule, dict) and historical_rule.get("applicable") is True
+                    and metrics.get(derived) is not None):
+                continue
+            rule = applicability.get(snapshot, {})
+            if isinstance(rule, dict) and not rule.get("applicable"):
+                formatted[derived] = "不适用" if metrics.get(snapshot) is not None else rule.get("reason", "暂无数据")
+            elif metrics.get(derived) is None:
+                formatted[derived] = "历史样本不足"
+        if metrics.get("target_pe_premium") is None:
+            formatted["target_pe_premium"] = "不适用" if not applicability.get("pe_ttm", {}).get("applicable") else "暂无可比数据"
+    return formatted
 
 
 def risk_display_name(key: object) -> str:

@@ -1,0 +1,1432 @@
+{
+  "responses": [
+    {
+      "label": "lrb",
+      "payload": {
+        "result": {
+          "status": {
+            "code": 0
+          },
+          "data": {
+            "report_list": {
+              "20230930": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "127634000000.000000"
+                  },
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "39635000000.000000"
+                  },
+                  {
+                    "item_field": "BASICEPS",
+                    "item_value": "1.940000"
+                  }
+                ]
+              },
+              "20231231": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "164699000000.000000"
+                  },
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "46455000000.000000"
+                  },
+                  {
+                    "item_field": "BASICEPS",
+                    "item_value": "2.250000"
+                  }
+                ]
+              },
+              "20240331": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "38770000000.000000"
+                  },
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "14932000000.000000"
+                  },
+                  {
+                    "item_field": "BASICEPS",
+                    "item_value": "0.660000"
+                  }
+                ]
+              },
+              "20240630": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "77132000000.000000"
+                  },
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "25879000000.000000"
+                  },
+                  {
+                    "item_field": "BASICEPS",
+                    "item_value": "1.230000"
+                  }
+                ]
+              },
+              "20240930": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "111582000000.000000"
+                  },
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "39729000000.000000"
+                  },
+                  {
+                    "item_field": "BASICEPS",
+                    "item_value": "1.940000"
+                  }
+                ]
+              },
+              "20241231": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "146695000000.000000"
+                  },
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "44508000000.000000"
+                  },
+                  {
+                    "item_field": "BASICEPS",
+                    "item_value": "2.150000"
+                  }
+                ]
+              },
+              "20250331": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "33709000000.000000"
+                  },
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "14096000000.000000"
+                  },
+                  {
+                    "item_field": "BASICEPS",
+                    "item_value": "0.620000"
+                  }
+                ]
+              },
+              "20250630": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "69385000000.000000"
+                  },
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "24870000000.000000"
+                  },
+                  {
+                    "item_field": "BASICEPS",
+                    "item_value": "1.180000"
+                  }
+                ]
+              },
+              "20250930": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "100668000000.000000"
+                  },
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "38339000000.000000"
+                  },
+                  {
+                    "item_field": "BASICEPS",
+                    "item_value": "1.870000"
+                  }
+                ]
+              },
+              "20251231": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "131442000000.000000"
+                  },
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "42633000000.000000"
+                  },
+                  {
+                    "item_field": "BASICEPS",
+                    "item_value": "2.070000"
+                  }
+                ]
+              },
+              "20260331": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "35277000000.000000"
+                  },
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "14523000000.000000"
+                  },
+                  {
+                    "item_field": "BASICEPS",
+                    "item_value": "0.670000"
+                  }
+                ]
+              },
+              "20260630": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "70617000000.000000"
+                  },
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "25696000000.000000"
+                  },
+                  {
+                    "item_field": "BASICEPS",
+                    "item_value": "1.240000"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "params": {
+        "paperCode": "sz000001",
+        "source": "lrb",
+        "type": "0",
+        "page": "1",
+        "num": "12"
+      }
+    },
+    {
+      "label": "fzb",
+      "payload": {
+        "result": {
+          "status": {
+            "code": 0
+          },
+          "data": {
+            "report_list": {
+              "20230930": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "TOTASSET",
+                    "item_value": "5516388000000.000000"
+                  },
+                  {
+                    "item_field": "TOTSHAREQUI",
+                    "item_value": "465860000000.000000"
+                  }
+                ]
+              },
+              "20231231": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "TOTASSET",
+                    "item_value": "5587116000000.000000"
+                  },
+                  {
+                    "item_field": "TOTSHAREQUI",
+                    "item_value": "472328000000.000000"
+                  }
+                ]
+              },
+              "20240331": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "TOTASSET",
+                    "item_value": "5729398000000.000000"
+                  },
+                  {
+                    "item_field": "TOTSHAREQUI",
+                    "item_value": "485576000000.000000"
+                  }
+                ]
+              },
+              "20240630": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "TOTASSET",
+                    "item_value": "5754033000000.000000"
+                  },
+                  {
+                    "item_field": "TOTSHAREQUI",
+                    "item_value": "481869000000.000000"
+                  }
+                ]
+              },
+              "20240930": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "TOTASSET",
+                    "item_value": "5745988000000.000000"
+                  },
+                  {
+                    "item_field": "TOTSHAREQUI",
+                    "item_value": "490469000000.000000"
+                  }
+                ]
+              },
+              "20241231": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "TOTASSET",
+                    "item_value": "5769270000000.000000"
+                  },
+                  {
+                    "item_field": "TOTSHAREQUI",
+                    "item_value": "494842000000.000000"
+                  }
+                ]
+              },
+              "20250331": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "TOTASSET",
+                    "item_value": "5777858000000.000000"
+                  },
+                  {
+                    "item_field": "TOTSHAREQUI",
+                    "item_value": "506112000000.000000"
+                  }
+                ]
+              },
+              "20250630": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "TOTASSET",
+                    "item_value": "5874961000000.000000"
+                  },
+                  {
+                    "item_field": "TOTSHAREQUI",
+                    "item_value": "510062000000.000000"
+                  }
+                ]
+              },
+              "20250930": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "TOTASSET",
+                    "item_value": "5766764000000.000000"
+                  },
+                  {
+                    "item_field": "TOTSHAREQUI",
+                    "item_value": "517930000000.000000"
+                  }
+                ]
+              },
+              "20251231": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "TOTASSET",
+                    "item_value": "5925777000000.000000"
+                  },
+                  {
+                    "item_field": "TOTSHAREQUI",
+                    "item_value": "551184000000.000000"
+                  }
+                ]
+              },
+              "20260331": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "TOTASSET",
+                    "item_value": "6033962000000.000000"
+                  },
+                  {
+                    "item_field": "TOTSHAREQUI",
+                    "item_value": "544083000000.000000"
+                  }
+                ]
+              },
+              "20260630": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "TOTASSET",
+                    "item_value": "6028785000000.000000"
+                  },
+                  {
+                    "item_field": "TOTSHAREQUI",
+                    "item_value": "548214000000.000000"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "params": {
+        "paperCode": "sz000001",
+        "source": "fzb",
+        "type": "0",
+        "page": "1",
+        "num": "12"
+      }
+    },
+    {
+      "label": "llb",
+      "payload": {
+        "result": {
+          "status": {
+            "code": 0
+          },
+          "data": {
+            "report_list": {
+              "20230930": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "115930000000.000000"
+                  }
+                ]
+              },
+              "20231231": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "92461000000.000000"
+                  }
+                ]
+              },
+              "20240331": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "-21382000000.000000"
+                  }
+                ]
+              },
+              "20240630": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "113722000000.000000"
+                  }
+                ]
+              },
+              "20240930": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "137158000000.000000"
+                  }
+                ]
+              },
+              "20241231": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "63336000000.000000"
+                  }
+                ]
+              },
+              "20250331": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "162946000000.000000"
+                  }
+                ]
+              },
+              "20250630": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "174682000000.000000"
+                  }
+                ]
+              },
+              "20250930": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "71783000000.000000"
+                  }
+                ]
+              },
+              "20251231": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "315858000000.000000"
+                  }
+                ]
+              },
+              "20260331": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "37802000000.000000"
+                  }
+                ]
+              },
+              "20260630": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "215012000000.000000"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "params": {
+        "paperCode": "sz000001",
+        "source": "llb",
+        "type": "0",
+        "page": "1",
+        "num": "12"
+      }
+    },
+    {
+      "label": "gjzb",
+      "payload": {
+        "result": {
+          "status": {
+            "code": 0
+          },
+          "data": {
+            "report_list": {
+              "20230930": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "39635000000.000000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "127634000000.000000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "39568000000.000000"
+                  },
+                  {
+                    "item_field": "TOTSHAREQUI",
+                    "item_value": "465860000000.000000"
+                  },
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "115930000000.000000"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "1.940000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "5.973925"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "9.880000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "72.442295"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "1.940000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "5.973925"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "9.880000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "72.442295"
+                  },
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "39635000000.000000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "127634000000.000000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "39568000000.000000"
+                  }
+                ]
+              },
+              "20231231": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "46455000000.000000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "164699000000.000000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "46431000000.000000"
+                  },
+                  {
+                    "item_field": "TOTSHAREQUI",
+                    "item_value": "472328000000.000000"
+                  },
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "92461000000.000000"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "2.250000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "4.764557"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "11.380000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "71.052040"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "2.250000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "4.764557"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "11.380000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "71.052040"
+                  },
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "46455000000.000000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "164699000000.000000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "46431000000.000000"
+                  }
+                ]
+              },
+              "20240331": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "14932000000.000000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "38770000000.000000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "14906000000.000000"
+                  },
+                  {
+                    "item_field": "TOTSHAREQUI",
+                    "item_value": "485576000000.000000"
+                  },
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "-21382000000.000000"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "0.660000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "-1.101824"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "3.150000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "72.091823"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "0.660000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "-1.101824"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "3.150000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "72.091823"
+                  },
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "14932000000.000000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "38770000000.000000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "14906000000.000000"
+                  }
+                ]
+              },
+              "20240630": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "25879000000.000000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "77132000000.000000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "25880000000.000000"
+                  },
+                  {
+                    "item_field": "TOTSHAREQUI",
+                    "item_value": "481869000000.000000"
+                  },
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "113722000000.000000"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "1.230000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "5.860146"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "5.790000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "71.617486"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "1.230000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "5.860146"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "5.790000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "71.617486"
+                  },
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "25879000000.000000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "77132000000.000000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "25880000000.000000"
+                  }
+                ]
+              },
+              "20240930": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "39729000000.000000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "111582000000.000000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "39748000000.000000"
+                  },
+                  {
+                    "item_field": "TOTSHAREQUI",
+                    "item_value": "490469000000.000000"
+                  },
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "137158000000.000000"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "1.940000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "7.067814"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "9.100000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "71.591296"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "1.940000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "7.067814"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "9.100000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "71.591296"
+                  },
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "39729000000.000000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "111582000000.000000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "39748000000.000000"
+                  }
+                ]
+              },
+              "20241231": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "44508000000.000000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "146695000000.000000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "44838000000.000000"
+                  },
+                  {
+                    "item_field": "TOTSHAREQUI",
+                    "item_value": "494842000000.000000"
+                  },
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "63336000000.000000"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "2.150000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "3.263732"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "10.080000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "71.327584"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "2.150000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "3.263732"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "10.080000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "71.327584"
+                  },
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "44508000000.000000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "146695000000.000000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "44838000000.000000"
+                  }
+                ]
+              },
+              "20250331": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "14096000000.000000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "33709000000.000000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "14043000000.000000"
+                  },
+                  {
+                    "item_field": "TOTSHAREQUI",
+                    "item_value": "506112000000.000000"
+                  },
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "162946000000.000000"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "0.620000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "8.396681"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "2.800000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "72.206235"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "0.620000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "8.396681"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "2.800000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "72.206235"
+                  },
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "14096000000.000000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "33709000000.000000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "14043000000.000000"
+                  }
+                ]
+              },
+              "20250630": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "24870000000.000000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "69385000000.000000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "24930000000.000000"
+                  },
+                  {
+                    "item_field": "TOTSHAREQUI",
+                    "item_value": "510062000000.000000"
+                  },
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "174682000000.000000"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "1.180000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "9.001442"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "5.250000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "71.416012"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "1.180000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "9.001442"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "5.250000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "71.416012"
+                  },
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "24870000000.000000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "69385000000.000000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "24930000000.000000"
+                  }
+                ]
+              },
+              "20250930": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "38339000000.000000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "100668000000.000000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "38269000000.000000"
+                  },
+                  {
+                    "item_field": "TOTSHAREQUI",
+                    "item_value": "517930000000.000000"
+                  },
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "71783000000.000000"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "1.870000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "3.699010"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "8.280000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "71.607660"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "1.870000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "3.699010"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "8.280000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "71.607660"
+                  },
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "38339000000.000000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "100668000000.000000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "38269000000.000000"
+                  }
+                ]
+              },
+              "20251231": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "42633000000.000000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "131442000000.000000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "42624000000.000000"
+                  },
+                  {
+                    "item_field": "TOTSHAREQUI",
+                    "item_value": "551184000000.000000"
+                  },
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "315858000000.000000"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "2.070000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "16.276306"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "9.150000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "69.973828"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "2.070000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "16.276306"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "9.150000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "69.973828"
+                  },
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "42633000000.000000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "131442000000.000000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "42624000000.000000"
+                  }
+                ]
+              },
+              "20260331": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "14523000000.000000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "35277000000.000000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "14488000000.000000"
+                  },
+                  {
+                    "item_field": "TOTSHAREQUI",
+                    "item_value": "544083000000.000000"
+                  },
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "37802000000.000000"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "0.670000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "1.947954"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "2.830000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "71.910876"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "0.670000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "1.947954"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "2.830000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "71.910876"
+                  },
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "14523000000.000000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "35277000000.000000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "14488000000.000000"
+                  }
+                ]
+              },
+              "20260630": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "25696000000.000000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "70617000000.000000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "25633000000.000000"
+                  },
+                  {
+                    "item_field": "TOTSHAREQUI",
+                    "item_value": "548214000000.000000"
+                  },
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "215012000000.000000"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "1.240000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "11.079666"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "5.220000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "71.882124"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "1.240000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "11.079666"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "5.220000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "71.882124"
+                  },
+                  {
+                    "item_field": "NETPARECOMPPROF",
+                    "item_value": "25696000000.000000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "70617000000.000000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "25633000000.000000"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "params": {
+        "paperCode": "sz000001",
+        "source": "gjzb",
+        "type": "0",
+        "page": "1",
+        "num": "12"
+      }
+    }
+  ]
+}

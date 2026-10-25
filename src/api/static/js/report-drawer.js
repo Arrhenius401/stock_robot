@@ -1,7 +1,7 @@
 // 完整研报右侧抽屉：管理焦点、局部错误与请求竞态。
 import { api } from "./api.js";
 import { el } from "./components.js";
-import { normalizeArtifactReport, renderStockReport } from "./report-renderer.js?v=20261019-hk-shared-analysis-2";
+import { normalizeArtifactReport, renderStockReport } from "./report-renderer.js?v=20261025-signal-placeholder-1";
 import { store, switchView } from "./state.js";
 import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js";
 
@@ -173,7 +173,7 @@ async function refreshReport() {
   const sequence = ++requestSequence;
   clearError();
   try {
-    const payload = await api.analyze(symbol);
+    const payload = await api.analyze(symbol, true);
     if (!isCurrent(sequence, id)) return;
     artifact.payload = payload;
     store.currentArtifact = artifact;

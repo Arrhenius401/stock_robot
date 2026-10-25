@@ -53,31 +53,29 @@ def test_pipeline_collect_healthy_cache_and_breaker(tmp_path, mocker):
     # 缓存路径由 Config(config_dir=...) 派生，tmp_path 隔离真实缓存
     pipe = Pipeline(registry=reg, config=Config(config_dir=tmp_path), llm_enabled=False)
 
-    # 第一次收集：industry 健康数据写入缓存
+    # 第一次收集：财务健康数据写入通用缓存
     ctx1 = pipe.collect("000001", "平安银行")
-    assert ctx1.industry_data is not None
-    assert ctx1.industry_data.industry == "银行"
+    assert ctx1.financial_data == [fin]
 
     # 缓存命中：第二次不再请求源头
     source._calls = {}
     ctx2 = pipe.collect("000001", "平安银行")
-    assert ctx2.industry_data is not None
-    assert ctx2.industry_data.industry == "银行"
-    assert source._calls.get("industry", 0) == 0
+    assert ctx2.financial_data == [fin]
+    assert source._calls.get("financial", 0) == 0
 
-    # 断路器：退化源（industry 返回 []）失败 3 次后打开，第 4 次不再请求源头
+    # 断路器：退化源（financial 返回 []）失败 3 次后打开，第 4 次不再请求源头
     # 注意：fetch 每次 collect 有 2 次尝试，3 次 collect 共 6 次调用
-    bad = FakeSource({"industry": []}, fail_first=0)
+    bad = FakeSource({"financial": []}, fail_first=0)
     reg2 = Registry()
     reg2.register_data_source(bad)
-    # 独立 config_dir 隔离缓存，避免命中上一段写入的 industry 缓存
+    # 独立 config_dir 隔离缓存，避免命中上一段写入的财务缓存
     pipe2 = Pipeline(registry=reg2, config=Config(config_dir=tmp_path / "cfg2"),
                      llm_enabled=False)
     for _ in range(3):
         pipe2.collect("000001", "平安银行")
-    assert bad._calls["industry"] == 6  # 3 次 collect × 每次 2 次尝试
+    assert bad._calls["financial"] == 6  # 3 次 collect × 每次 2 次尝试
     pipe2.collect("000001", "平安银行")
-    assert bad._calls["industry"] == 6  # 断路器打开，不再请求源头
+    assert bad._calls["financial"] == 6  # 断路器打开，不再请求源头
 
 
 def test_degenerate_result_counts_as_failure(tmp_path, mocker):
@@ -142,7 +140,7 @@ def test_pipeline_passes_sw_levels_to_industry_source(tmp_path, mocker):
         style_category="必选消费", mapping_status="verified",
     )
 
-    captured: dict[str, str] = {}
+    captured: dict[str, object] = {}
 
     class IndustrySource(FakeSource):
         def fetch(self, symbol: str, **kwargs) -> list:
@@ -161,6 +159,8 @@ def test_pipeline_passes_sw_levels_to_industry_source(tmp_path, mocker):
     assert captured == {
         "data_type": "industry", "market": "a-shares",
         "sw_level1": "农林牧渔", "sw_level2": "养殖业",
+        "comparison_cache": pipe._cache, "refresh_cache": False,
+        "comparison_cache_only": False,
     }
     assert ctx.sw_industry == "农林牧渔"
     assert ctx.sw_industry_level2 == "养殖业"

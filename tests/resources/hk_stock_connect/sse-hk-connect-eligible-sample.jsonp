@@ -1,0 +1,6 @@
+cb({"pageHelp": {"pageSize": 2000, "pageNo": 1, "pageCount": 1, "total": 4, "data": [
+  {"SECURITY_CODE": "00005", "ABBR_CN": "汇丰控股", "ABBR_EN": "HSBC HOLDINGS", "SECURITY_TYPE": "股票", "UPDATE_DATE": "2026-10-23", "TRADE_FLAG": "1", "NUM": "1"},
+  {"SECURITY_CODE": "00700", "ABBR_CN": "腾讯控股", "ABBR_EN": "TENCENT", "SECURITY_TYPE": "股票", "UPDATE_DATE": "2026-10-23", "TRADE_FLAG": "1", "NUM": "2"},
+  {"SECURITY_CODE": "09988", "ABBR_CN": "　　", "ABBR_EN": "BABA-W", "SECURITY_TYPE": "股票", "UPDATE_DATE": "2026-10-23", "TRADE_FLAG": "1", "NUM": "3"},
+  {"SECURITY_CODE": "02800", "ABBR_CN": "盈富基金", "ABBR_EN": "TRACKER FUND", "SECURITY_TYPE": "ETF", "UPDATE_DATE": "2026-10-23", "TRADE_FLAG": "1", "NUM": "4"}
+]}});

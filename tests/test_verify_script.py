@@ -25,6 +25,7 @@ def _run(*arguments: str):
     ("src/stock_robot/cli.py", "tests/test_cli.py"),
     ("config/default.yaml", "tests/utils"),
     ("scripts/verify.ps1", "tests/test_verify_script.py"),
+    ("tests/resources/hk/eastmoney-00005-financial-20261022.json", "tests/data/test_hk_bank_currency.py"),
     ("src/radar/calendar.py", "tests/radar"),
     ("pyproject.toml", "tests/test_integration.py"),
     ("tests/api/deleted_test.py", "tests/api"),
@@ -32,6 +33,7 @@ def _run(*arguments: str):
     ("tests/resources/index/cni-980092-valuation-factsheet-layout.txt", "tests/index"),
     ("tests/resources/data/eastmoney-00700-income-report.json", "tests/data"),
     ("tests/resources/report/qq-00700-unavailable-report.md", "tests/report"),
+    ("tests/resources/industry/eastmoney-hk-main-indicators.json", "tests/analysis/test_industry_comparison.py"),
 ])
 def test_changed_scope_never_expands_to_full(path, expected):
     result = _run("-PlanOnly", "-Files", path)

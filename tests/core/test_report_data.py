@@ -220,10 +220,10 @@ def test_empty_major_data_skips_sentiment_llm(tmp_path, monkeypatch):
         name="测试",
         raw_sentiment=RawSentimentData(
             symbol="000001",
-            fetch_date=date(2026, 1, 1),
+            fetch_date=datetime.now().astimezone().date(),
             items=[
                 RawSentimentItem(
-                    title=f"新闻{i}", source="news", publish_date=date(2026, 1, 1)
+                    title=f"新闻{i}", source="news", publish_date=datetime.now().astimezone().date()
                 )
                 for i in range(3)
             ],

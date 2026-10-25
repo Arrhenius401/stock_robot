@@ -2,16 +2,16 @@
 from dataclasses import dataclass, field
 
 from data.schemas import AnalysisContext, AnalysisResult
+from report.formatter import format_metric_value
 from report.signal import SIGNAL_LABELS, SignalConfig, derive_signal
+from utils.numbers import is_finite_number
 
-DIM_WEIGHTS = {"financial": 0.30, "technical": 0.20,
-               "valuation": 0.25, "industry": 0.25}
+SCORING_METHOD = "five-dimension-v1"
+DIM_WEIGHTS = {"financial": 0.30, "technical": 0.20, "valuation": 0.25,
+               "industry": 0.20, "sentiment": 0.05}
 DIM_LABELS = {"financial": "财务健康", "technical": "技术趋势",
-              "valuation": "估值合理", "industry": "行业对比",
-              "sentiment": "舆情风险"}
-DIM_WEIGHT_LABELS = {"financial": "30%", "technical": "20%",
-                     "valuation": "25%", "industry": "25%",
-                     "sentiment": "不计分"}
+              "valuation": "估值合理", "industry": "行业对比", "sentiment": "舆情风险"}
+DIM_WEIGHT_LABELS = {key: f"{weight:.0%}" for key, weight in DIM_WEIGHTS.items()}
 SUFFICIENCY_LABEL = {"ok": "充足", "partial": "部分可用", "unavailable": "数据不足"}
 LLM_UNAVAILABLE_PREFIXES = ("（LLM 分析暂时不可用", "LLM 分析暂时不可用", "AI 解读不可用")
 
@@ -25,45 +25,47 @@ class ScoreSummary:
     risk_flags: list[str] = field(default_factory=list)
 
 
+def participation_score(result: AnalysisResult | None) -> float | None:
+    """显式新舆情口径才反向；旧标注和无效分不能进入新总分。"""
+    if result is None or result.status == "unavailable":
+        return None
+    value = result.score
+    if value is None or not is_finite_number(value) or not 0 <= value <= 10:
+        return None
+    if result.dimension == "sentiment":
+        metrics = result.metrics
+        if (metrics.get("sentiment_scoring_version") != "risk-v1"
+                or metrics.get("assessment_status") != "complete"
+                or metrics.get("risk_score") != value):
+            return None
+        return 10 - value
+    return value
+
+
 def compute_score_summary(results: list[AnalysisResult]) -> ScoreSummary:
-    """维度加权得分 + 风险扣分"""
-    results_map = {r.dimension: r for r in results}
-    score_rows = []
-    all_risk_flags = []
-
-    base_score = 0.0
-    total_weight = 0.0
-    for dim, weight in DIM_WEIGHTS.items():
-        r = results_map.get(dim)
-        if r and r.status != "unavailable" and r.score is not None:
-            base_score += r.score * weight
-            total_weight += weight
-    if total_weight > 0:
-        base_score = round(base_score / total_weight, 1)
-
-    risk_deduction = 0
-    for r in results:
-        risk_deduction += len(r.risk_flags)
-    risk_deduction = min(risk_deduction, 10)
-    final_score = max(0, base_score - risk_deduction) if total_weight else None
-    if not total_weight:
-        base_score = None
-
-    for dim, label in DIM_LABELS.items():
-        r = results_map.get(dim)
-        if r:
-            score_rows.append({
-                "label": label,
-                "score": f"{r.score:.1f}" if r.status != "unavailable" and r.score is not None else "N/A",
-                "weight": DIM_WEIGHT_LABELS[dim],
-                "sufficiency": SUFFICIENCY_LABEL.get(r.status, r.status),
-                "detail": r.score_detail or "",
-            })
-        all_risk_flags.extend(r.risk_flags if r else [])
-
-    return ScoreSummary(score_rows=score_rows, base_score=base_score,
-                        risk_deduction=risk_deduction, final_score=final_score,
-                        risk_flags=all_risk_flags)
+    """五维按有效原权重归一；风险标签只提示，不额外扣分。"""
+    results_map = {result.dimension: result for result in results}
+    scores = {key: participation_score(results_map.get(key)) for key in DIM_WEIGHTS}
+    has_core = any(value is not None for key, value in scores.items() if key != "sentiment")
+    total_weight = sum(DIM_WEIGHTS[key] for key, value in scores.items() if value is not None)
+    total = (round(sum(value * DIM_WEIGHTS[key] for key, value in scores.items()
+                       if value is not None) / total_weight, 1) if has_core and total_weight else None)
+    rows = []
+    flags = []
+    for key, label in DIM_LABELS.items():
+        result = results_map.get(key)
+        if result is None:
+            continue
+        value = scores[key]
+        rows.append({"label": label, "score": f"{value:.1f}" if value is not None else "N/A",
+                     "raw_score": result.score if value is not None else None,
+                     "direction": "risk" if key == "sentiment" else "higher_better",
+                     "weight": DIM_WEIGHT_LABELS[key],
+                     "sufficiency": SUFFICIENCY_LABEL.get(result.status, result.status),
+                     "detail": result.score_detail or ""})
+        flags.extend(result.risk_flags)
+    return ScoreSummary(score_rows=rows, base_score=total, final_score=total,
+                        risk_deduction=0, risk_flags=list(dict.fromkeys(flags)))
 
 
 def compute_price_info(ctx: AnalysisContext) -> dict:
@@ -109,7 +111,7 @@ def _fallback_neutral_commentary(summary: ScoreSummary) -> str:
         (
             f"1. 综合数据表现{tendency}。当前可用维度：{available_text}；"
             f"缺失或未计分维度：{missing_text}。"
-            + (f"最终综合得分为 {summary.final_score}/10。" if summary.final_score is not None else "暂无综合得分。")
+            + (f"最终综合得分为 {summary.final_score:.1f}/10。" if summary.final_score is not None else "暂无综合得分。")
         ),
     ]
     if summary.risk_deduction > 0:
@@ -119,7 +121,7 @@ def _fallback_neutral_commentary(summary: ScoreSummary) -> str:
         )
     else:
         lines.append("2. 风险汇总：本次未触发明确风险扣分，仍需结合数据时效性和接口完整性复核。")
-    lines.append("3. 多风格观察视角：该摘要不包含模型主观推演，仅用于在 AI 不可用时维持报告可读性。")
+    lines.append("本次未生成多风格观察和综合评价。")
     return "\n".join(lines)
 
 
@@ -135,7 +137,7 @@ def with_commentary_fallback(
     if bulk and not bulk.startswith(LLM_UNAVAILABLE_PREFIXES):
         return commentary
     if unscored:
-        return {**commentary, "bulk": "AI 解读当前不可用，可用分析指标已保留；港股综合评分、申万同行比较与交易信号不适用。"}
+        return {**commentary, "bulk": "AI 解读当前不可用，可用分析指标已保留；港股综合评分与交易信号不适用，行业对比使用恒生 HSICS 口径。"}
     return {**commentary, "bulk": _fallback_neutral_commentary(summary)}
 
 
@@ -145,7 +147,7 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
                  signal_cfg: SignalConfig | None = None) -> str:
     """组装完整报告文本（ReportBuilder 渲染）"""
     from report.builder import ReportBuilder
-    from report.quality import build_data_quality
+    from report.quality import build_data_quality, hk_industry_label
 
     quality = build_data_quality(ctx, results)
     summary = compute_score_summary(results)
@@ -154,13 +156,10 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
         summary.final_score = None
     if not quality["has_analysis_data"]:
         commentary = {}
-    commentary = with_commentary_fallback(commentary, summary, no_llm, unscored=ctx.market == "hk") if quality["has_analysis_data"] else commentary
-    if ctx.market == "hk":
-        summary.base_score = None
-        summary.final_score = None
+    commentary = with_commentary_fallback(commentary, summary, no_llm) if quality["has_analysis_data"] else commentary
     price_info = compute_price_info(ctx)
     if ctx.market == "hk":
-        industry = "不适用（港股不使用申万行业分类）"
+        industry = hk_industry_label(ctx, results)
     elif ctx.sw_industry:
         industry = ctx.sw_industry
     elif (ctx.industry_data and ctx.industry_data.industry
@@ -177,7 +176,11 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
                   "action": action.action, "position": action.position}
 
     builder = ReportBuilder()
+    from report.valuation_dates import stock_date_presentation
+
+    valuation = next((r for r in results if r.dimension == "valuation"), None)
     return builder.build(
+        scoring_method=SCORING_METHOD,
         symbol=symbol,
         name=name,
         market="港股" if ctx.market == "hk" else "A 股",
@@ -185,8 +188,8 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
         commentary=commentary,
         no_llm=no_llm,
         industry=industry,
-        year_high=f"{price_info['year_high']:.2f}" if price_info['year_high'] else "暂无",
-        year_low=f"{price_info['year_low']:.2f}" if price_info['year_low'] else "暂无",
+        year_high=str(format_metric_value("year_high", price_info['year_high'])),
+        year_low=str(format_metric_value("year_low", price_info['year_low'])),
         price_position=price_info['price_position'],
         score_rows=summary.score_rows,
         base_score=summary.base_score,
@@ -198,4 +201,5 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
         data_quality=quality,
         price_start=price_info["price_start"],
         price_end=price_info["price_end"],
+        valuation_display=stock_date_presentation(ctx, valuation.metrics, valuation.summary) if valuation else None,
     )

@@ -1,0 +1,19 @@
+# 只用于计分，左侧保留真实恒生分类；右侧复用现有投资风格配置。
+sectors:
+  银行: 银行
+  保险: 非银金融
+  其他金融: 非银金融
+  地产: 房地产
+  建筑: 建筑装饰
+industries:
+  Financials: 非银金融
+  Properties and Construction: 建筑装饰
+  Information Technology: 电子
+  Telecommunications: 电子
+  Healthcare: 医药生物
+  Consumer Staples: 食品饮料
+  Consumer Discretionary: 家用电器
+  Energy: 煤炭
+  Materials: 有色金属
+  Industrials: 机械设备
+  Utilities: 公用事业

@@ -1,11 +1,33 @@
 """报告构建器 — 将分析结果组装为 Markdown 报告"""
+import re
 from datetime import datetime
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
 
 from data.schemas import AnalysisResult
-from report.formatter import format_metric_value, metric_display_name
+from report.formatter import (
+    format_hk_news_markdown,
+    format_metric_value,
+    format_metrics,
+    format_sentiment_risk_markdown,
+    metric_display_name,
+)
+from report.peer_comparison import format_peer_comparison_markdown
+
+
+def build_disclaimer(*, hk: bool = False) -> list[str]:
+    """Markdown 与结构化报告共用免责声明，避免两端文案漂移。"""
+    paragraphs = [
+        "本报告仅供信息参考与研究使用，不构成投资建议或收益保证，不应作为投资决策的唯一依据。",
+        "报告基于公开数据生成，数据可能存在延迟、缺失或误差，实际来源与覆盖范围请参阅「数据覆盖与时效」。",
+    ]
+    if hk:
+        paragraphs.append("财务金额按数据源返回值展示；目录列报币种不等同于金额币种，金额币种未核实时不作金额趋势比较，不推断上游是否换汇。港币行情与财报金额不混算。财报按报告期展示，不将半年度或年度报告视作季度数据。")
+    return paragraphs + [
+        "指标、评分及观察结论受数据口径、样本范围和分析方法限制，不代表对未来表现的预测。",
+        "请结合自身风险承受能力独立判断，并核实相关信息。市场有风险，投资需谨慎。",
+    ]
 
 
 def _display_width(s: str) -> int:
@@ -32,17 +54,18 @@ def _md_table(data, headers=None):
     rows = []
 
     if isinstance(data, dict):
+        data = format_metrics(data)
         # 过滤掉列表和仅供 Web 渲染的内部映射，它们在模板中单独展示。
         filtered = {
             k: v
             for k, v in data.items()
-            if not isinstance(v, list) and k not in {"peer_names", "tag"}
+            if not isinstance(v, (list, dict)) and k not in {"peer_names", "peer_display_note", "tag"}
         }
         if not filtered:
             return ""
         headers = ["指标", "数值"]
         for k, v in filtered.items():
-            rows.append([metric_display_name(k), str(format_metric_value(k, v)) if v is not None else "N/A"])
+            rows.append([metric_display_name(k), str(format_metric_value(k, v))])
 
     elif isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
         if headers is None:
@@ -58,7 +81,7 @@ def _md_table(data, headers=None):
             row = []
             for key in data_keys:
                 val = item.get(key, "")
-                row.append(str(val) if val is not None else "N/A")
+                row.append(str(format_metric_value(key, val)))
             rows.append(row)
         headers = display_headers
     else:
@@ -101,6 +124,13 @@ class ReportBuilder:
             lstrip_blocks=True,
         )
         self._env.filters["md_table"] = _md_table
+        self._env.filters["hk_news_markdown"] = format_hk_news_markdown
+        self._env.filters["sentiment_risk_markdown"] = format_sentiment_risk_markdown
+        self._env.filters["peer_comparison_markdown"] = format_peer_comparison_markdown
+        self._env.filters["metric_value"] = lambda value, key: format_metric_value(key, value)
+        # 模型仍按原提示词输出编号段落，报告内统一降为第四节的子标题。
+        self._env.filters["commentary_section"] = lambda text: re.sub(
+            r"^#{1,2}\s+(?=\d+[.、．])", "### ", text, flags=re.MULTILINE)
         from report.formatter import risk_display_name
         self._env.filters["risk_display_name"] = risk_display_name
 
@@ -115,7 +145,8 @@ class ReportBuilder:
               signal: dict | None = None,
               data_quality: dict | None = None,
               price_start: str | None = None, price_end: str | None = None,
-              market: str = "A 股") -> str:
+              market: str = "A 股", valuation_display: dict | None = None,
+              scoring_method: str | None = None) -> str:
         results_map = {r.dimension: r for r in results}
         if market == "港股" and "financial" in results_map:
             financial = results_map["financial"]
@@ -128,6 +159,7 @@ class ReportBuilder:
             symbol=symbol,
             name=name,
             market=market,
+            scoring_method=scoring_method,
             generated_at=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
             no_llm=no_llm,
             industry=industry,
@@ -145,4 +177,6 @@ class ReportBuilder:
             data_quality=data_quality,
             price_start=price_start,
             price_end=price_end,
+            valuation_display=valuation_display,
+            disclaimer=build_disclaimer(hk=market == "港股"),
         )

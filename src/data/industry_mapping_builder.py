@@ -37,6 +37,11 @@ MAPPING_COLUMNS = ["symbol", "sw_level1", "sw_level2", "style_category", "mappin
 MIN_VALID_CLASSIFICATION_RATE = 0.95
 MIN_COVERAGE_RATE = 0.95
 CHECKPOINT_VERSION = 1
+_A_SHARE_SYMBOL = re.compile(r"\d{6}")
+
+
+def _is_a_share(symbol: str) -> bool:
+    return bool(_A_SHARE_SYMBOL.fullmatch(symbol))
 
 # 行业树日级稳定，模块级缓存避免每次分析重复抓取 1MB 页面
 _TAXONOMY_CACHE: tuple | None = None
@@ -308,7 +313,7 @@ def validate_rows(rows: list[dict[str, str]], known_total: int | None = None,
     duplicate_count = len(symbols) - len(set(symbols))
     placeholder_count = sum(
         1 for row in rows if row.get("sw_level1", "") in ("", "综合", "未知"))
-    invalid_symbol_count = sum(1 for symbol in symbols if not re.fullmatch(r"\d{6}", symbol))
+    invalid_symbol_count = sum(1 for symbol in symbols if not _is_a_share(symbol))
     invalid_hierarchy_count = 0
     if level2_map is not None:
         invalid_hierarchy_count = sum(
@@ -441,7 +446,9 @@ def rebuild_all(delay: float = DEFAULT_DELAY, on_progress=None, resume: bool = F
             time.sleep(current_delay)
 
     rows = list(stock_rows.values())
-    known_total = len(_read_rows(_csv_path()))
+    # 港股通占位行不是 A 股候选的来源，不能稀释 A 股覆盖率分母
+    known_total = sum(
+        1 for row in _read_rows(_csv_path()) if _is_a_share(row["symbol"]))
     validation = validate_rows(rows, known_total=known_total, level2_map=level2_map)
     result = {
         "total_industries": total,
@@ -456,7 +463,7 @@ def rebuild_all(delay: float = DEFAULT_DELAY, on_progress=None, resume: bool = F
 
 
 def publish_candidate() -> dict:
-    """通过质量门槛后，将候选映射原子发布为正式映射表。"""
+    """通过质量门槛后，将候选映射原子发布为正式映射表，并保留非 A 股行。"""
     candidate = _candidate_path()
     rows = _read_rows(candidate)
     state = _read_checkpoint()
@@ -472,9 +479,14 @@ def publish_candidate() -> dict:
             f"候选构建仍有 {len(failed)} 个失败行业，完成续跑后才能发布")
     try:
         with _formal_mapping_lock():
-            validation = validate_rows(rows, known_total=len(_read_rows(_csv_path())),
-                                       level2_map=state["level2_map"])
-            _write_csv(rows)
+            current = _read_rows(_csv_path())
+            validation = validate_rows(
+                rows,
+                known_total=sum(1 for row in current if _is_a_share(row["symbol"])),
+                level2_map=state["level2_map"],
+            )
+            extras = [row for row in current if not _is_a_share(row["symbol"])]
+            _write_csv([*rows, *extras])
     except Timeout as e:
         raise IndustryMappingError("行业映射表正被其他任务更新，请稍后重试") from e
     return {**validation, "published_path": str(_csv_path())}
@@ -540,7 +552,7 @@ def backfill_peer_pool(symbols: list[str], sw_level1: str, sw_level2: str) -> in
     if level2_map.get(sw_level2) != sw_level1:
         raise IndustryMappingError(f"同行池行业层级无效: {sw_level1}/{sw_level2}")
     style = _load_style_mapping().get(sw_level1, "高端制造")
-    symbols = sorted({symbol for symbol in symbols if re.fullmatch(r"\d{6}", symbol)})
+    symbols = sorted({symbol for symbol in symbols if _is_a_share(symbol)})
     try:
         with _formal_mapping_lock():
             rows = _read_rows(_csv_path())
