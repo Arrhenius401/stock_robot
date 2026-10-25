@@ -149,10 +149,17 @@ const summary=descendants(article).find(n=>n.id==='report-summary');
 if(summary.textContent.includes('暂无操作信号'))throw new Error('有效信号被partial文案否定');
 if(!byClass(summary,'badge')[0].textContent.includes('数据不完整'))throw new Error('掩盖维度缺失');
 if(!byClass(summary,'report-investment-summary')[0].innerHTML.includes('积极观察'))throw new Error('有效信号缺失');
+if(byClass(summary,'report-signal-placeholder').length)throw new Error('已有信号却显示占位');
 const blocked=renderStockReport({...base,market:'a-shares',signal:null,data_quality:{...base.data_quality,signal_allowed:false}});
 if(!byClass(blocked,'report-investment-summary')[0].innerHTML.includes('暂无操作信号'))throw new Error('核心门槛不足未解释');
+const detail=renderStockReport({...base,market:'a-shares',signal:null,data_quality:{...base.data_quality,signal_allowed:false,
+ signal_unavailable_reason:'财务、估值分析依据未满足信号生成条件。'}});
+const placeholder=byClass(detail,'report-signal-placeholder')[0];
+if(!placeholder?.textContent.includes('操作信号：暂未生成')||!placeholder.textContent.includes('财务、估值分析依据未满足信号生成条件'))throw new Error('缺失占位或具体原因');
+if(!byClass(blocked,'report-signal-placeholder')[0]?.textContent.includes('当前报告未生成操作信号'))throw new Error('旧快照缺原因时仍需占位');
 const hk=renderStockReport({...base,market:'hk',signal:null,data_quality:{...base.data_quality,signal_allowed:false}});
 const hkSummary=byClass(hk,'report-investment-summary')[0].innerHTML;
 if(!hkSummary.includes('不提供交易信号或仓位建议')||hkSummary.includes('积极观察'))throw new Error('港股信号边界丢失');
+if(!byClass(hk,'report-signal-placeholder')[0]?.textContent.includes('操作信号：不适用'))throw new Error('港股缺少信号占位');
 '''
     _run_node(tmp_path, script)

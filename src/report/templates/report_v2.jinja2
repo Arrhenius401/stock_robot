@@ -9,6 +9,12 @@
 
 {% if signal %}
 > **操作信号：{{ signal.label }}** — {{ signal.action }}（建议仓位 {{ signal.position }}）
+{% elif market == "港股" %}
+> **操作信号：不适用**
+> 本期港股不提供交易信号或仓位建议。
+{% else %}
+> **操作信号：暂未生成**
+> 原因：{{ (data_quality.get("signal_unavailable_reason") if data_quality else "") or "当前报告未生成操作信号，请核对数据覆盖与信号条件。" }}
 {% endif %}
 
 ---

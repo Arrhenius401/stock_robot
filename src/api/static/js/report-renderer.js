@@ -428,6 +428,14 @@ function summarySection(report, sectionIdPrefix) {
       : {ok: "数据完整", partial: "数据不完整", unavailable: "数据不可用 · 暂无结论"})[quality.status] || "数据状态未记录";
     card.appendChild(badge);
   }
+  if (report.market === "hk" || !naturalText(record(report.signal).label)) {
+    const placeholder = el("div", "report-empty report-signal-placeholder");
+    placeholder.appendChild(el("strong", "", `操作信号：${report.market === "hk" ? "不适用" : "暂未生成"}`));
+    const reason = report.market === "hk" ? "本期港股不提供交易信号或仓位建议。"
+      : naturalText(quality.signal_unavailable_reason) || "当前报告未生成操作信号，请核对数据覆盖与信号条件。";
+    placeholder.appendChild(el("div", "", `原因：${reason}`));
+    card.appendChild(placeholder);
+  }
   card.appendChild(markdownBlock(investmentSummary(report), "report-investment-summary md"));
 
   const overview = record(report.overview);

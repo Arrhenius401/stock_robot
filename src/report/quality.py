@@ -109,6 +109,7 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult]) -> d
     has_scored = False
     all_complete = True
     signal_complete = True
+    signal_blocked: list[str] = []
     hk = ctx.market == "hk"
     available = sum(participation_score(result_map.get(key)) is not None for key in DIM_WEIGHTS)
     for key, title, suff_key, source_key, weight in _DIMENSIONS:
@@ -127,8 +128,11 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult]) -> d
             coverage += weight * (level / 2)
             all_complete = all_complete and level == 2 and value is not None
         if key in {"financial", "technical", "valuation"}:
-            signal_complete = (signal_complete and suff.level == "sufficient"
-                               and result is not None and result.status == "ok" and value is not None)
+            signal_ready = (suff.level == "sufficient" and result is not None
+                            and result.status == "ok" and value is not None)
+            signal_complete = signal_complete and signal_ready
+            if not signal_ready:
+                signal_blocked.append(title)
         record = records.get(source_key)
         sample, cutoff = _sample_dates(ctx, source_key)
         if cutoff == "未记录":
@@ -215,6 +219,8 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult]) -> d
         "status": "ok" if all_complete else "partial" if analysis_available else "unavailable",
         "coverage": round(coverage * 100, 1),
         "signal_allowed": not hk and signal_complete and has_scored,
+        "signal_unavailable_reason": ("本期港股不提供交易信号或仓位建议。" if hk else
+            f"{'、'.join(signal_blocked)}分析依据未满足信号生成条件。" if signal_blocked else ""),
         "has_scored_data": has_scored,
         "has_analysis_data": analysis_available,
         "dimensions": dimensions,

@@ -487,3 +487,10 @@ AI重试实现明确为服务端短期报告上下文，容量64、过期30分�
 - 真实路径 `.venv/Scripts/stock-robot.exe run --host 127.0.0.1 --port 8765` 启动隔离服务；Edge实际发送600519/00700.HK，15:08:08/15:09:55生成新报告，两份commentary均ok且保留多风格及综合评价。新Markdown实际点击下载均只有七个主章节，第4节内为三级标题，第5/6/7节对应待验证/覆盖/免责声明。报告库新视图无独立观察卡；旧腾讯14:35:38报告的研报视图无重复卡及空指引，原文不改写。1440px/390px无水平溢出，查看真实截图；首条真实会话响应通过，零脚本错误。首次脚本误将卡内所有h2当唯一标题，修正为卡片直接子标题后复用已生成茅台归档，不重复调用模型。
 - 响应、下载、截图、浏览器脚本和测试日志仅留 `tmp/peer-acceptance/merge-*` 与唯一 `tmp/pytest/commentary-merge-*`。正式文档仍只有本主题原设计和本实施文件；仅相关源码/测试/两文档合为一次本地提交，不推送或合并，不运行全量检查。评分、取数和SSE未改，相同代码状态的原验证复用。
 - 最后历史正文混合提示的定向复核4项通过（1.71秒），对应测试Ruff/Pyright通过。暂存22个文件且 `git diff --cached --check` 通过，未暂存变更为空；已核对并停止本任务的8765启动器和Python子进程。所有测试结束后核对本次成功测试目录并尝试清理，自动审批以 `blocked by policy` 拒绝，未执行、未重试，产物保留，不影响通过结果与提交。
+
+### 用户确认：未生成信号保留占位（2026-10-25）
+
+- 用户在查看茅台7.4分但无信号的报告后确认顶部应有占位。主会话按明确的小修复执行：现有原门槛同时记录未满足的财务/技术/估值名称，质量增加原因字段；Markdown顶部及公共网页投资摘要显示未生成与原因，有效信号不显示占位，港股显示不适用。旧快照缺原因仅显示通用提示；未改评分、阈值、配置或数据采集。资源版本为 `20261025-signal-placeholder-1`。
+- 先补顶部原因、真实信号、港股、旧快照回归及调整旧隐藏断言，取得5失败/22通过红灯。实现后 `.venv/Scripts/python -m pytest tests/report tests/api/test_static.py tests/api/test_static_strategy_indices.py tests/api/test_report_usability.py tests/api/test_report_library_unification_static.py tests/api/test_app.py -q` **402通过/1失败**（33.55秒，4条既有弃用警告）；唯一失败为旧「不传规则就隐藏」断言，更新为占位且不伪造信号，并覆盖充分数据不误标为不足。最后 `.venv/Scripts/python -m pytest tests/report/test_signal.py tests/report/test_quality.py tests/report/test_five_dimension_display.py tests/llm tests/core/test_peer_commentary.py -q` **114通过**（16.31秒），复用其余相同代码结果；未跑全量。初次新增测试有Literal标注诊断及一次导入排版告警，修正后指定类型零错误，Ruff通过；Changed计划无未映射项。
+- 真实路径 `.venv/Scripts/stock-robot.exe run --host 127.0.0.1 --port 8765` 启动工作树隔离服务；Edge实际发送600519，15:31:47生成报告。API的signal保持null、signal_allowed保持false，原因是「财务、估值分析依据未满足信号生成条件。」；1440px/390px网页顶部占位和实际下载Markdown一致，报告库占位唯一。查看了实际窄屏截图，无水平溢出；旧腾讯15:09:55快照明确不适用，真实首条会话响应通过，零脚本错误。实际响应/下载/截图/脚本保留 `tmp/peer-acceptance/signal-*`，测试日志在唯一 `tmp/pytest/signal-placeholder-*`，正式文档沿用本主题两份原文件。
+- 本轮验收服务已停止，Ruff最终通过、指定类型零错误，暂存差异检查通过。所有测试结束后对本次成功运行目录核对路径并尝试清理，自动审批返回 `blocked by policy`，未执行或重试；产物保留。按完整事项一次本地提交，无运行配置/报告/日志入库，不推送、合并或全量回归。

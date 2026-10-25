@@ -120,7 +120,7 @@ async def test_unavailable_report_download_keeps_sections_and_no_signal(tmp_path
         assert download.status_code == 200
         assert "待验证事项" in download.text
         assert "数据覆盖与时效" in download.text
-        assert "操作信号：" not in download.text
+        assert "操作信号：暂未生成" in download.text
         assert "text/markdown" in download.headers["content-type"]
 
 
