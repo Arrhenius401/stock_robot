@@ -102,7 +102,9 @@ class GeneralScorer(BaseScorer):
                             value = None
                         else:
                             score, _ = self._tier_score(value, item.get("tiers", []))
-                            label += f" {value:.2f}（{latest.period_start} 至 {latest.fiscal_quarter}，{latest.report_currency}，{latest.cash_flow_basis}）"
+                            basis_label = {"reported": "直接披露", "estimated": "推算值（非直接披露）"}.get(
+                                latest.cash_flow_basis, "期间或币种证据不足")
+                            label += f" {value:.2f}（{latest.period_start} 至 {latest.fiscal_quarter}，{latest.report_currency}，{basis_label}）"
                             if value < 0.5:
                                 risks.append("cash_flow_mismatch")
                     elif item.get("extra_config", {}).get("negative_profit_zero"):

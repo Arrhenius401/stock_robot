@@ -41,6 +41,7 @@ from utils.numbers import parse_cn_number
 from utils.retry import retry_on_network_error
 
 logger = logging.getLogger(__name__)
+_THS_GROSS_MARGIN_BASIS = "同花顺财务摘要-销售毛利率（摘要口径，未重算）"
 
 
 def _resolve_eastmoney_to_sw(industry: str) -> tuple[str, str] | None:
@@ -147,10 +148,8 @@ def _get_industry_name(symbol: str) -> str:
 
 
 def _normalize_percentage(value: float | None) -> float | None:
-    """将同花顺百分比字段转为小数，负百分比同样按绝对值判断单位。"""
-    if value is not None and abs(value) >= 1:
-        return value / 100.0
-    return value
+    """同花顺百分比字段始终按百分数返回，转小数时不按数值大小猜单位。"""
+    return value / 100.0 if value is not None else None
 
 
 @retry_on_network_error()
@@ -472,6 +471,42 @@ class AkShareAdapter(DataSource):
             )
         return annotate_selection(selection)
 
+    def _fetch_ths_cashflow(self, symbol: str) -> dict[date, float]:
+        """同源按报告期取直接披露经营现金流；失败返回空映射，不伪造期间证据。"""
+        try:
+            cash_df: Any = ak.stock_financial_cash_ths(symbol=symbol, indicator="按报告期")
+        except AttributeError:
+            logger.warning("同花顺现金流量表接口不可用")
+            return {}
+        except Exception as error:  # 第三方接口隔离；akshare.py 已豁免 BLE001
+            logger.warning("同花顺现金流量表获取失败，保留原推算现金流: %s", error)
+            return {}
+        if not hasattr(cash_df, "get"):
+            logger.warning("同花顺现金流量表响应形态异常")
+            return {}
+        dates = cash_df.get("报告期")
+        values = cash_df.get("*经营活动产生的现金流量净额")
+        if dates is None or values is None:
+            logger.warning("同花顺现金流量表缺少报告期或经营活动现金流列")
+            return {}
+        output: dict[date, float] = {}
+        conflicts: set[date] = set()
+        for period, value in zip(dates, values, strict=False):
+            try:
+                day = datetime.strptime(str(period)[:10], "%Y-%m-%d").astimezone().date()
+            except (TypeError, ValueError):
+                continue
+            amount = parse_cn_number(value)
+            if amount is None or day in conflicts:
+                continue
+            if day in output and output[day] != amount:
+                logger.warning("同花顺现金流量表重复报告期冲突: %s", day)
+                output.pop(day, None)
+                conflicts.add(day)
+                continue
+            output[day] = amount
+        return output
+
     def _fetch_ths_financial(self, symbol: str, **kwargs) -> list[FinancialData]:
         """原同花顺主源采集与算法原样保留，外层仅负责主备选择。"""
         df: Any = ak.stock_financial_abstract_ths(symbol=symbol)
@@ -515,6 +550,8 @@ class AkShareAdapter(DataSource):
 
         # 取最近 12 期数据（数据按时间升序排列，最新在末尾）
         total = len(periods)
+        cash_flow_map = (self._fetch_ths_cashflow(symbol)
+                         if total and kwargs.get("market", "a-shares") == "a-shares" else {})
         start = max(0, total - 12)
         for idx in range(start, total):
             try:
@@ -563,6 +600,18 @@ class AkShareAdapter(DataSource):
                 else:
                     currency = next(iter(currencies)) if len(currencies) == 1 else ""
 
+                period_start = date(fiscal_date.year, 1, 1) if (fiscal_date.month, fiscal_date.day) in {
+                    (3, 31), (6, 30), (9, 30), (12, 31)} else None
+                direct_ocf = cash_flow_map.get(fiscal_date)
+                if direct_ocf is not None:
+                    ocf = direct_ocf
+                    reported = period_start is not None and currency == "CNY"
+                    cash_flow_basis = "reported" if reported else "unknown"
+                    cash_flow_period_start = period_start if reported else None
+                else:
+                    cash_flow_basis = "estimated" if ocf is not None else "unknown"
+                    cash_flow_period_start = None
+
                 results.append(FinancialData(
                     symbol=symbol,
                     fiscal_quarter=fiscal_date,
@@ -576,13 +625,14 @@ class AkShareAdapter(DataSource):
                     operating_cash_flow_per_share=ocf_per_share,
                     roe=roe,
                     gross_margin=gross_margin,
+                    gross_margin_basis=_THS_GROSS_MARGIN_BASIS if gross_margin is not None else "",
                     basic_eps=basic_eps,
-                    period_start=date(fiscal_date.year, 1, 1) if (fiscal_date.month, fiscal_date.day) in {
-                        (3, 31), (6, 30), (9, 30), (12, 31)} else None,
+                    period_start=period_start,
                     period_basis="cumulative",
                     reporting_basis="同花顺财务摘要-按报告期",
                     report_currency=currency,
-                    cash_flow_basis="estimated" if ocf is not None else "unknown",
+                    cash_flow_basis=cash_flow_basis,
+                    cash_flow_period_start=cash_flow_period_start,
                 ))
             except (ValueError, IndexError, TypeError) as e:
                 logger.warning(f"跳过异常财务数据行 {idx}: {e}")

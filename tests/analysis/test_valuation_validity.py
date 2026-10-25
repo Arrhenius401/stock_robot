@@ -1,5 +1,5 @@
 """估值适用性回归：异常快照不能借残留充实数据获得加分。"""
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -11,6 +11,7 @@ from data.enrichers.industry_enricher import IndustryEnricher
 from data.enrichers.valuation_enricher import ValuationEnricher
 from data.schemas import (
     AnalysisContext,
+    DailyValuationPoint,
     DimensionSufficiency,
     EnrichedIndustry,
     EnrichedValuation,
@@ -39,6 +40,47 @@ def context(pe: float | None = 20.0, pb: float | None = 2.0, ps: float | None = 
     ctx.sufficiency.valuation = DimensionSufficiency(
         level=SufficiencyLevel.SUFFICIENT, sample_count=120)
     return ctx
+
+
+def history_context(pe: float | None = 20.0, pb: float | None = 2.0, ps: float | None = 3.0):
+    ctx = context(pe=pe, pb=pb, ps=ps)
+    ctx.enriched_valuation = EnrichedValuation(
+        daily_points=[
+            DailyValuationPoint(trade_date=date(2026, 1, 1) + timedelta(days=index),
+                                close=1.0, pe=pe, pb=pb)
+            for index in range(120)
+        ],
+        pe_percentile=10, pb_percentile=10)
+    return ctx
+
+
+@pytest.mark.parametrize("ps", [None, 0, -1, float("nan"), float("inf")])
+def test_ps_is_disclosure_only_and_does_not_block_ok_status(ps):
+    result = ValuationAnalyzer().analyze(history_context(ps=ps), CONFIG)
+    assert result.status == "ok"
+    assert result.score == 10
+    assert not result.metrics["valuation_applicability"]["ps_ttm"]["applicable"]
+
+
+def test_loss_pe_with_valid_pb_remains_partial():
+    result = ValuationAnalyzer().analyze(history_context(pe=-32.03, pb=2, ps=None), CONFIG)
+    assert result.score == 10
+    assert result.status == "partial"
+
+
+def test_bank_without_pe_remains_partial():
+    config = {**CONFIG, "meta": {"strategy_key": "BankScorer"}}
+    result = ValuationAnalyzer().analyze(history_context(pe=None, pb=2, ps=None), config)
+    assert result.score == 10
+    assert result.status == "partial"
+
+
+def test_ps_missing_does_not_override_insufficient_history():
+    ctx = history_context(ps=None)
+    if ctx.enriched_valuation is not None:
+        ctx.enriched_valuation.daily_points = ctx.enriched_valuation.daily_points[:119]
+    result = ValuationAnalyzer().analyze(ctx, CONFIG)
+    assert result.status == "partial"
 
 
 @pytest.mark.parametrize("value", INVALID)

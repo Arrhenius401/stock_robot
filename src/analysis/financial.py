@@ -72,7 +72,7 @@ class FinancialAnalyzer(AnalysisModule):
         metrics["trend_note"] = trends["note"]
         if latest.operating_cash_flow is not None:
             metrics["cash_flow_source"] = {"reported": "直接披露", "estimated": "推算值（非直接披露）"}.get(
-                latest.cash_flow_basis, "来源未记录")
+                latest.cash_flow_basis, "期间或币种证据不足")
 
         status = "ok" if (
             len(sorted_data) >= 4

@@ -201,3 +201,55 @@ def test_financial_subitem_score_does_not_bypass_original_signal_gate():
     quality = build_data_quality(ctx, results)
     assert quality["has_scored_data"]
     assert not quality["signal_allowed"]
+
+
+def test_ps_missing_does_not_block_core_signal_gate():
+    from datetime import date, timedelta
+
+    from analysis.valuation import ValuationAnalyzer
+    from data.schemas import DailyValuationPoint, EnrichedValuation, ValuationData
+    from report.quality import build_data_quality
+
+    config = {"valuation": {
+        "pe_percentile": {"tiers": [{"max": 100, "score": 4}]},
+        "pb_percentile": {"tiers": [{"max": 100, "score": 2}]},
+        "industry_premium": {"tiers": [{"max": 100, "score": 4}]},
+    }}
+    ctx = AnalysisContext(symbol="600519", name="贵州茅台")
+    for key in ("financial", "price", "valuation"):
+        setattr(ctx.sufficiency, key, DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT))
+    ctx.valuation_data = ValuationData(symbol="600519", date=date(2026, 10, 20),
+                                       pe_ttm=20, pb=2, ps_ttm=None)
+    ctx.enriched_valuation = EnrichedValuation(
+        daily_points=[
+            DailyValuationPoint(trade_date=date(2026, 1, 1) + timedelta(days=index),
+                                close=1.0, pe=20, pb=2)
+            for index in range(120)
+        ],
+        pe_percentile=10, pb_percentile=10)
+    valuation = ValuationAnalyzer().analyze(ctx, config)
+    results = [
+        AnalysisResult(dimension="financial", status="ok", score=8, summary="财务"),
+        AnalysisResult(dimension="technical", status="ok", score=8, summary="技术"),
+        valuation,
+    ]
+    quality = build_data_quality(ctx, results)
+    assert valuation.status == "ok"
+    assert quality["signal_allowed"]
+
+
+def test_missing_cashflow_keeps_core_signal_gate_closed():
+    from report.quality import build_data_quality
+
+    ctx = AnalysisContext(symbol="600519", name="贵州茅台")
+    for key in ("financial", "price", "valuation"):
+        setattr(ctx.sufficiency, key, DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT))
+    results = [
+        AnalysisResult(dimension="financial", status="partial", score=6, summary="现金流证据不足",
+                       metrics={"scoring_basis": {"available_max": 7, "eligible_max": 10}}),
+        AnalysisResult(dimension="technical", status="ok", score=8, summary="技术"),
+        AnalysisResult(dimension="valuation", status="ok", score=8, summary="估值"),
+    ]
+    quality = build_data_quality(ctx, results)
+    assert not quality["signal_allowed"]
+    assert "财务" in quality["signal_unavailable_reason"]

@@ -34,6 +34,8 @@ def mock_akshare(mocker):
     mocker.patch("akshare.stock_zh_a_hist", side_effect=_mock_history)
     mocker.patch("akshare.stock_financial_abstract_ths", side_effect=_mock_financial)
     mocker.patch("akshare.stock_financial_debt_ths", side_effect=_mock_balance_sheet)
+    mocker.patch("akshare.stock_financial_cash_ths",
+                 return_value=pd.DataFrame({"报告期": [], "*经营活动产生的现金流量净额": []}))
     return {"history": _mock_history, "financial": _mock_financial}
 
 

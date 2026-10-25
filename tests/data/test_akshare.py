@@ -16,6 +16,8 @@ def isolate_a_financial_backups(monkeypatch):
                         lambda _: FinancialPackage("新浪财报", [], {}))
     monkeypatch.setattr("data.a_financial_sources.fetch_eastmoney_financial",
                         lambda _: FinancialPackage("东方财富财报", [], {}))
+    monkeypatch.setattr("akshare.stock_financial_cash_ths",
+                        lambda **_: pd.DataFrame({"报告期": [], "*经营活动产生的现金流量净额": []}))
 
 
 class TestAkShareAdapter:
@@ -111,6 +113,18 @@ def test_fetch_financial_normalizes_negative_percentage_and_uses_gross_margin(mo
     assert result.gross_margin == pytest.approx(-0.0158)
     assert result.operating_cash_flow is None
     assert result.operating_cash_flow_per_share == pytest.approx(-0.39)
+
+
+def test_fetch_financial_keeps_sub_one_percent_values_as_percentages(mocker):
+    mocker.patch("akshare.stock_financial_abstract_ths", return_value=pd.DataFrame({
+        "报告期": ["2026-06-30"], "营业总收入": ["100"], "净利润": ["1"],
+        "净资产收益率": ["0.80%"], "销售毛利率": ["0.50%"],
+    }))
+    mocker.patch("akshare.stock_financial_debt_new_ths", return_value=pd.DataFrame())
+    mocker.patch("akshare.stock_financial_debt_ths", return_value=pd.DataFrame())
+    row = AkShareAdapter()._fetch_ths_financial("600519")[0]
+    assert row.roe == pytest.approx(0.008)
+    assert row.gross_margin == pytest.approx(0.005)
 
 
 def test_fetch_financial_unparseable_becomes_none(mocker):

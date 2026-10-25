@@ -7,6 +7,8 @@ from analysis.valuation_rules import valuation_evidence
 from data.schemas import AnalysisContext, AnalysisResult, SufficiencyLevel
 from utils.numbers import is_finite_number, is_positive_finite
 
+_SCORING_APPLICABILITY_KEYS = ("pe_ttm", "pb")
+
 
 class ValuationAnalyzer(AnalysisModule):
     @property
@@ -85,7 +87,9 @@ class ValuationAnalyzer(AnalysisModule):
             and len(context.enriched_valuation.daily_points) >= 120
             and context.sufficiency.valuation.level == SufficiencyLevel.SUFFICIENT
         ) else "partial"
-        if not all(info["applicable"] for info in applicability.values()):
+        # PS 仅披露、不参与估值评分，不能单独把完整估值降为 partial；
+        # PE/PB 边界不变，银行无 PE 仍按原逻辑 partial，另行决策。
+        if not all(applicability[key]["applicable"] for key in _SCORING_APPLICABILITY_KEYS):
             status = "partial"
         summary = self._build_summary(metrics, historical_reference=context.market == "hk")
 

@@ -499,7 +499,7 @@ AI重试实现明确为服务端短期报告上下文，容量64、过期30分�
 
 #### 接手位置与状态
 
-- 用户因 Codex 额度不足要求交给 Claude，当前停止在只读问题诊断，以下三个问题尚未修改源码或新增修复回归。不要把本节诊断当作已修复结果。
+- 用户因 Codex 额度不足要求交给 Claude，接手时停止在只读问题诊断；三个问题已在本计划末尾「三处证据缺口最小修复」完成修复与验收。本节保留接手时的诊断状态，不再作为当前未修复依据。
 - 必须继续使用工作树 `C:/Users/25618/.codex/worktrees/industry-comparison/stock_robot`，分支 `codex/industry-comparison`。原仓 `D:/code/stock_robot` 存在其他事项改动，不直接在原仓修改、不覆盖其文档、不自动合并或推送。交接记录写入前工作树干净。
 - 最近业务提交：`d16f15a` 五维评分、`2e9936d` 多风格观察并入第四节、`c647d7e` 缺失操作信号占位。后续交接提交仅补本文，不改变业务。未建立新设计/实施文档，同主题只维护原spec与本plan。
 - 当前工作树无 `.codegraph`，可直接使用rg/源码；原仓索引不能代表工作树的新源码。先遵守根AGENTS及 `C:/Users/25618/.codex/skills/design-before-implementation/SKILL.md`。已确认方案无需重复确认，但本节尚未确认的新修复路线或规则变更须先说明具体方案，不能直接放松信号条件。
@@ -555,3 +555,32 @@ AI重试实现明确为服务端短期报告上下文，容量64、过期30分�
 - 最新已通过范围见上节：402项通过后仅1条旧隐藏断言更新，114项最后复核通过；Ruff/Pyright通过，真实茅台顶部占位、下载、报告库、港股不适用、1440/390和会话响应均通过。更早五维和合并章节的完整范围记录在本plan前文。这些结果不覆盖尚未实施的三处修复。
 - 最新验收数据/脚本：`tmp/peer-acceptance/signal-placeholder-600519.json`、`signal-placeholder-result.json`、`verify-signal-placeholder.cjs`、`signal-placeholder-390.png`；两市合并章节样本为`merge-*`，原五维样本为`five-*`，均忽略且不提交。Playwright默认Chromium缺失，复用已安装Edge：`chromium.launch({channel:'msedge',headless:true})`；Node和Playwright可用路径见已有cjs脚本，不安装额外浏览器。
 - 交接后沿用本spec/plan继续记录，按完整事项本地中文提交，默认不推送、不合并、不发布。正式实施前先核对git状态与用户是否有新的Claude指令。
+
+### 三处证据缺口最小修复（2026-10-25，Claude 接手）
+
+用户确认：现金流采用同源补取同花顺现金流量表；估值状态只排除 PS，PE/PB、银行无 PE、亏损 PE、历史不足和同行溢价边界保持不变。未修改信号阈值、动作、仓位或五维权重。
+
+#### 实现
+
+- `src/data/akshare.py`：新增 `_fetch_ths_cashflow`，同源请求 `stock_financial_cash_ths(..., indicator="按报告期")`，按报告日匹配 `*经营活动产生的现金流量净额`。同一报告期出现冲突值时丢弃该日（不采用首值）；响应形态异常、缺列或请求失败均告警并保留原推算值。仅当报告期为标准 A 股累计报告期末且行币种为 CNY 时，设置 `cash_flow_basis="reported"` 与 `cash_flow_period_start=period_start`；否则保留直接金额但 basis unknown、无期间起点、不参与评分。毛利率非空时填写 `同花顺财务摘要-销售毛利率（摘要口径，未重算）`。百分比换算改为始终按百分数除以 100，修复 <1% 毛利率/ROE 被放大 100 倍。
+- `src/analysis/valuation.py`：估值状态门槛只检查参与评分的 `pe_ttm`/`pb` 适用性；`ps_ttm` 继续在适用性、估值说明和报告中披露，但不再单独把估值降为 partial。银行无 PE 仍按原逻辑 partial，另行决策。
+- `src/analysis/scorers/general.py`、`src/analysis/financial.py`：现金流依据显示中文「直接披露」「推算值（非直接披露）」或「期间或币种证据不足」，不再向报告泄漏原始 `reported`。
+- 新增/更新回归：`tests/data/test_ths_cashflow_evidence.py`（适配器→选择→评分器、直接值/失败回退/币种不足/非标报告期/冲突重复期/缺列/完整证据门槛），`tests/data/test_akshare.py`（<1% 百分比）、`tests/data/test_financial_trend_metadata.py` 与 `tests/data/conftest.py`（同源现金流测试夹具）、`tests/analysis/test_valuation_validity.py`（PS 披露专用、银行/亏损 PE/历史边界）、`tests/report/test_quality.py`（缺 PS 不挡信号、缺现金流仍挡信号）。
+- 首轮红灯覆盖：直接现金流未被采用、毛利率口径为空、PS 仍将估值降为 partial、冲突重复期仍被标 reported、<1% 百分比被放大。修复后依次转绿。
+
+#### 回归与门禁
+
+- 受影响数据/评分/报告范围最终 **393 通过**（18.23 秒，含新增用例）；`.\scripts\verify.ps1 -Scope Changed` 最终 **1004 通过**（56.97 秒），Ruff/Pyright 零错误，无未映射文件。测试显式使用工作树 Windows PYTHONPATH、唯一 basetemp/cache；产物留 `tmp/pytest/`，未入库。未运行 `-Scope Full`。
+- 独立审查未发现 P1；P2「冲突重复报告期仍采用首值」已修复并补回归；P3 中 `reported` 英文标签、期间/币种不足文案和 <1% 单位问题一并收敛，银行无 PE 边界按用户确认保留。
+
+#### 真实验收
+
+- 最终代码启动工作树 8765 并强制刷新 600519（2026-10-25 16:22:31）：财务 ok、8.0 分，`available_max=eligible_max=10`；经营现金流 706.91 亿元、来源「直接披露」、期间 2026-01-01 至 2026-06-30、币种 CNY；毛利率口径已填；估值 ok、7.0 分，PE/PB 分位 63.80%、同行 PE 溢价 -23.91%，PS 仍缺失但不阻断；综合分 8.0，按既有 7.0 阈值输出进攻信号，质量 `signal_allowed=true`、覆盖 95%。该信号是证据补齐后既有阈值的直接结果，未改阈值或强制放行。
+- 00700.HK（16:22:49）：`signal=null`，质量原因为「本期港股不提供交易信号或仓位建议」；财务 partial、估值 ok，未生成信号或仓位。
+- Edge 真实报告库/下载/旧报告/港股/1440/390：新报告顶部显示进攻、直接现金流与毛利率证据、PS 缺失披露；旧 15:31 报告仍显示「操作信号：暂未生成」及原原因，未被改写；港股显示「不适用」；无水平溢出、无页面脚本错误。响应、Markdown、截图和脚本留 `tmp/peer-acceptance/ths-cashflow-*`，不提交。验收服务已停止，8765 端口已释放。
+
+#### 仍未覆盖/风险
+
+- 同花顺现金流接口依赖第三方响应形态；失败、缺列或冲突时保留推算值且不评分，不伪造 reported。现金流量表接口未提供显式起始日/币种字段，只有标准累计报告期、CNY 且报告日一致时才标记 reported；否则直接金额仅展示、basis unknown、不可评分。
+- 银行无 PE 仍为 partial；若要按 BankScorer 只要求 PB，属于新的信号可得性决策，需单独确认。
+- 本轮只覆盖 Changed 范围，未验证全市场低毛利、非标报告期和所有行业的线上稳定性；未运行全量回归，未推送、合并或修改原仓。
