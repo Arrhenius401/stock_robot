@@ -19,6 +19,7 @@ class CapturingBackend(LLMBackend):
         return "test"
 
     def generate(self, prompt, **kwargs):
+        self.calls = getattr(self, "calls", 0) + 1
         self.prompt = prompt
         return "事实解读"
 
@@ -53,6 +54,9 @@ def test_actual_prompt_keeps_comparison_units_and_industry_availability(tmp_path
     registry.register_llm_backend(backend, provider=provider)
     assert Pipeline(registry, config)._generate_commentary(ctx.symbol, ctx.name, [financial, industry], context=ctx) == {"bulk": "事实解读"}
     prompt = backend.prompt
+    assert backend.calls == 1
+    assert "## 3.多风格观察视角" in prompt
+    assert "## 4.综合" in prompt
     start = prompt.index('[{"dimension"')
     facts, _ = json.JSONDecoder().raw_decode(prompt[start:])
     assert facts[0]["metrics"]["roe"] == "12.50%"

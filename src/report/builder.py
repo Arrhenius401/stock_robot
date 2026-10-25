@@ -1,4 +1,5 @@
 """报告构建器 — 将分析结果组装为 Markdown 报告"""
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -127,6 +128,9 @@ class ReportBuilder:
         self._env.filters["sentiment_risk_markdown"] = format_sentiment_risk_markdown
         self._env.filters["peer_comparison_markdown"] = format_peer_comparison_markdown
         self._env.filters["metric_value"] = lambda value, key: format_metric_value(key, value)
+        # 模型仍按原提示词输出编号段落，报告内统一降为第四节的子标题。
+        self._env.filters["commentary_section"] = lambda text: re.sub(
+            r"^#{1,2}\s+(?=\d+[.、．])", "### ", text, flags=re.MULTILINE)
         from report.formatter import risk_display_name
         self._env.filters["risk_display_name"] = risk_display_name
 

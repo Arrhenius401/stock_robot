@@ -188,7 +188,7 @@ def _module_url(path: str) -> str:
     url = Path(path).resolve().as_uri()
     # 与聊天模块的正式导入保持同一 URL，避免产生两份抽屉状态单例。
     if path.endswith("/report-drawer.js"):
-        url += "?v=20261025-five-dimension-1"
+        url += "?v=20261025-commentary-merge-1"
     return url
 
 
@@ -389,7 +389,7 @@ if (calls.length !== beforeA + 1 || !calls.at(-1).refresh_cache) throw new Error
         app_js = (await client.get("/js/app.js")).text
         api_js = (await client.get("/js/api.js")).text
 
-        assert 'import { initReportLibrary } from "./report-library.js?v=20261025-five-dimension-1";' in app_js
+        assert 'import { initReportLibrary } from "./report-library.js?v=20261025-commentary-merge-1";' in app_js
         assert "initReportLibrary();" in app_js
         assert "listReports(" in api_js
         assert "getReport(" in api_js
@@ -426,7 +426,7 @@ if (calls.length !== beforeA + 1 || !calls.at(-1).refresh_cache) throw new Error
     async def test_app_initializes_report_drawer(self, client):
         resp = await client.get("/js/app.js")
 
-        assert 'import { initReportDrawer } from "./report-drawer.js?v=20261025-five-dimension-1";' in resp.text
+        assert 'import { initReportDrawer } from "./report-drawer.js?v=20261025-commentary-merge-1";' in resp.text
         assert "initReportDrawer();" in resp.text
 
     def test_markdown_renderer_escapes_untrusted_input_and_formats_safe_blocks(self):
@@ -2247,7 +2247,7 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         assert 'id="subName"' not in html
         assert 'id="subChannel"' not in html
         assert "企业微信" not in html
-        assert 'href="/css/app.css?v=20261025-five-dimension-1"' in html
+        assert 'href="/css/app.css?v=20261025-commentary-merge-1"' in html
         script = (await client.get("/js/subscriptions.js")).text
         assert "searchPushSymbols" in script
         assert "批量添加" not in script

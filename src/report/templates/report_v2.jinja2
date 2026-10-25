@@ -124,14 +124,14 @@
 
 ---
 
-## 四、AI 中性解读 + 风险汇总
+## 四、AI 综合解读
 
 {% if data_quality and not data_quality.has_analysis_data %}
 > 主要分析数据不可用，暂不生成 AI 结论。
 {% elif no_llm %}
 > 纯量化模式，未启用 AI 解读。
 {% elif commentary.get("bulk") %}
-{{ commentary["bulk"] }}
+{{ commentary["bulk"] | commentary_section }}
 {% else %}
 > AI 解读不可用
 {% endif %}
@@ -145,17 +145,7 @@
 
 ---
 
-## 五、多风格观察视角
-
-{% if no_llm or (data_quality and not data_quality.has_analysis_data) %}
-> 本次未生成模型观察视角。
-{% else %}
-> 多风格观察视角内容已包含在上方「AI 中性解读」的第 3 段中，详见上方 ## 3.多风格观察视角 部分。
-{% endif %}
-
----
-
-## 六、待验证事项
+## 五、待验证事项
 
 {% if data_quality and data_quality.pending_verifications %}
 {% for item in data_quality.pending_verifications %}
@@ -167,7 +157,7 @@
 
 ---
 
-## 七、数据覆盖与时效
+## 六、数据覆盖与时效
 
 {% if valuation_display and valuation_display.details %}
 ### 估值数据说明
@@ -192,7 +182,7 @@
 
 ---
 
-## 八、免责声明
+## 七、免责声明
 
 {% for paragraph in disclaimer %}
 > {{ paragraph }}

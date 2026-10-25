@@ -121,7 +121,7 @@ def _fallback_neutral_commentary(summary: ScoreSummary) -> str:
         )
     else:
         lines.append("2. 风险汇总：本次未触发明确风险扣分，仍需结合数据时效性和接口完整性复核。")
-    lines.append("3. 多风格观察视角：该摘要不包含模型主观推演，仅用于在 AI 不可用时维持报告可读性。")
+    lines.append("本次未生成多风格观察和综合评价。")
     return "\n".join(lines)
 
 

@@ -7,6 +7,38 @@ from report.builder import ReportBuilder
 
 
 class TestReportBuilder:
+    @pytest.mark.parametrize("market", ["A 股", "港股"])
+    def test_ai_perspectives_and_rating_are_subsections_inside_fourth_section(self, market):
+        commentary = {"bulk": "\n\n".join(f"## {i}.{title}\n\n{body}" for i, title, body in [
+            (1, "维度分项解读", "财务原文"), (2, "全维度风险汇总", "风险原文"),
+            (3, "多风格观察视角", "价值观点；成长观点；短线观点"), (4, "综合评级", "综合评价原文")])}
+        original = commentary["bulk"]
+        report = ReportBuilder().build("000001", "测试", [], commentary, market=market)
+        chapter = report.split("## 四、AI 综合解读", 1)[1].split("## 五、待验证事项", 1)[0]
+        assert "### 3.多风格观察视角" in chapter and "### 4.综合评级" in chapter
+        assert chapter.count("价值观点；成长观点；短线观点") == 1
+        assert "综合评价原文" in chapter and "已包含在上方" not in report
+        assert len([line for line in report.splitlines() if line.startswith("## ")]) == 7
+        assert commentary["bulk"] == original
+
+    @pytest.mark.parametrize("state", ["failed", "disabled", "insufficient"])
+    def test_missing_ai_never_claims_perspectives_were_generated(self, state):
+        from data.schemas import AnalysisContext, DimensionSufficiency, SufficiencyLevel
+        from report.scoring import build_report
+
+        ctx = AnalysisContext(symbol="000001", name="测试")
+        results = []
+        if state != "insufficient":
+            ctx.sufficiency.financial = DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT)
+            results = [AnalysisResult(dimension="financial", status="ok", summary="财务", score=8)]
+        report = build_report(ctx.symbol, ctx.name, results, {}, ctx, no_llm=state == "disabled")
+        assert "## 四、AI 综合解读" in report and "## 五、多风格观察视角" not in report
+        assert "已包含在上方" not in report and "3. 多风格观察视角：" not in report
+        if state == "failed":
+            assert "AI 解读当前不可用" in report and "本次未生成多风格观察和综合评价" in report
+        else:
+            assert "未启用 AI 解读" in report if state == "disabled" else "暂不生成 AI 结论" in report
+
     def test_build_full_report(self):
         results = [
             AnalysisResult(dimension="financial", status="ok",
@@ -33,12 +65,12 @@ class TestReportBuilder:
         assert "## 一、标的基础概况" in report
         assert "## 二、五大维度量化数据" in report
         assert "## 三、综合评分" in report
-        assert "## 四、AI 中性解读 + 风险汇总" in report
-        assert "## 五、多风格观察视角" in report
-        assert "## 六、待验证事项" in report
-        assert "## 七、数据覆盖与时效" in report
-        assert "## 八、免责声明" in report
-        assert [line for line in report.splitlines() if line.startswith("## ")][-1] == "## 八、免责声明"
+        assert "## 四、AI 综合解读" in report
+        assert "## 五、多风格观察视角" not in report
+        assert "## 五、待验证事项" in report
+        assert "## 六、数据覆盖与时效" in report
+        assert "## 七、免责声明" in report
+        assert [line for line in report.splitlines() if line.startswith("## ")][-1] == "## 七、免责声明"
         assert "工具局限性 + 免责声明" not in report
         assert "1. 财务量化数据" in report
         assert "2. 技术面量化数据" in report
@@ -70,8 +102,8 @@ class TestReportBuilder:
         from report.payload import build_stock_payload
 
         report = ReportBuilder().build("00700.HK", "测试", [], {}, market=market)
-        assert report.rfind("\n## ") == report.index("\n## 八、免责声明")
-        assert report.index("## 七、数据覆盖与时效") < report.index("## 八、免责声明")
+        assert report.rfind("\n## ") == report.index("\n## 七、免责声明")
+        assert report.index("## 六、数据覆盖与时效") < report.index("## 七、免责声明")
         payload = build_stock_payload("00700.HK", "测试", [], {}, AnalysisContext(
             symbol="00700.HK", name="测试", market="hk" if market == "港股" else "a-shares"))
         assert payload["disclaimer"]

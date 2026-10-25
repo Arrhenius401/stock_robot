@@ -837,7 +837,7 @@ function commentaryParts(report) {
 }
 
 function commentarySection(report, sectionIdPrefix, options) {
-  const card = section("report-commentary", "AI 解读", "llm", sectionIdPrefix);
+  const card = section("report-commentary", "AI 综合解读", "llm", sectionIdPrefix);
   const state = report.commentary_status;
   if (state && state !== "ok") {
     const messages = {failed: "AI 解读生成失败，数据报告已保留。", disabled: "AI 解读未启用。", insufficient: "主要分析数据不足，未生成 AI 解读。", config: "AI 解读尚未配置。"};
@@ -860,8 +860,9 @@ function commentarySection(report, sectionIdPrefix, options) {
     return card;
   }
   const { intro, points } = commentaryParts(report);
+  const nested = text => text.replace(/^#{1,2}[ \t]+(?=\d+[.、．])/gm, "### ");
   if (intro) {
-    card.appendChild(markdownBlock(intro, "report-commentary-intro dim-sum md"));
+    card.appendChild(markdownBlock(nested(intro), "report-commentary-intro dim-sum md"));
   }
   if (!points.length) {
     card.appendChild(el("div", "report-empty", "暂无 AI 解读"));
@@ -871,7 +872,7 @@ function commentarySection(report, sectionIdPrefix, options) {
   points.forEach((point, index) => {
     const row = el("div", "report-detail-row report-commentary-item");
     row.appendChild(el("span", "k", `要点 ${String(index + 1).padStart(2, "0")}`));
-    row.appendChild(markdownBlock(point, "v report-commentary-value md"));
+    row.appendChild(markdownBlock(nested(point), "v report-commentary-value md"));
     list.appendChild(row);
   });
   card.appendChild(list);
@@ -950,6 +951,12 @@ function cleanDisclaimer(value) {
     !/^\s*(?:>\s*)?[（(]部分内容由\s*AI\s*生成[）)]\s*$/.test(line)).join("\n");
 }
 
+function archivedCommentaryBody(part) {
+  const body = part.replace(/^##\s+.+\n?/, "").replace(/\n\s*---\s*$/, "").trim();
+  return body.split("\n").filter(line =>
+    !/已包含在上方|本次未生成模型观察视角|该摘要不包含模型主观推演/.test(line)).join("\n").trim();
+}
+
 export function renderStockReport(report, options = {}) {
   const data = record(report);
   const sectionIdPrefix = options.sectionIdPrefix || "";
@@ -973,13 +980,14 @@ export function renderStockReport(report, options = {}) {
     article.appendChild(dimensionSection(name, label, dimensions[name], sectionIdPrefix, legacyHk(data), applicable, fiveDimension(data)));
   }
   article.appendChild(risksSection(data, sectionIdPrefix));
-  article.appendChild(commentarySection(data, sectionIdPrefix, options));
+  const commentary = commentarySection(data, sectionIdPrefix, options);
+  article.appendChild(commentary);
   const disclaimer = section("report-disclaimer", "免责声明", "panel", sectionIdPrefix);
   let archivedDisclaimer = false;
   if (options.archiveMarkdown) {
     // 原文补充章沿用安全 Markdown 渲染，未知章节仍保留在原文入口。
     const parts = String(options.archiveMarkdown).split(/\n(?=##\s+)/);
-    for (const [index, part] of parts.entries()) {
+    for (const part of parts) {
       const match = part.match(/^##\s+(.+)$/m);
       if (!match || !/多风格观察|工具局限性|免责声明/.test(match[1])) continue;
       if (/工具局限性|免责声明/.test(match[1])) {
@@ -987,10 +995,10 @@ export function renderStockReport(report, options = {}) {
         archivedDisclaimer = true;
         continue;
       }
-      const title = match[1].replace(/^[一二三四五六七八九十]+[、.．]\s*/, "");
-      const card = section(`report-archive-${index}`, title, "panel", sectionIdPrefix);
-      card.appendChild(markdownBlock(localizeReportMarkdown(part.replace(/^##\s+.+\n?/, "")), "md report-archive-body"));
-      article.appendChild(card);
+      const body = archivedCommentaryBody(part);
+      if (!body || commentaryText(data).replace(/\s+/g, "").includes(body.replace(/\s+/g, ""))) continue;
+      commentary.appendChild(el("h3", "", "多风格观察视角（历史内容）"));
+      commentary.appendChild(markdownBlock(localizeReportMarkdown(body), "md report-archive-body"));
     }
   }
   article.appendChild(pendingSection(data, sectionIdPrefix));
@@ -1023,15 +1031,32 @@ export function renderStockMarkdownReport(markdown, options = {}) {
   article.appendChild(heading);
 
   const disclaimers = [];
+  let commentary = null;
   parts.forEach((part, index) => {
     const match = part.match(/^##\s+(.+)$/m);
+    const title = match?.[1] || "";
+    const isCommentary = /AI.*解读/.test(title);
+    const isObservation = /多风格观察/.test(title);
+    const isSubsection = /^\d+[.、．]\s*(维度分项解读|全维度风险汇总|综合评级|综合评价|现有数据观察|风险与数据限制)/.test(title);
+    if (isObservation || (commentary && isSubsection)) {
+      const body = archivedCommentaryBody(part);
+      if (!body) return;
+      if (!commentary) {
+        commentary = section("report-commentary", "AI 综合解读", "llm", sectionIdPrefix);
+        article.appendChild(commentary);
+      }
+      commentary.appendChild(el("h3", "", isObservation ? "多风格观察视角（历史内容）" : title));
+      commentary.appendChild(markdownBlock(localizeReportMarkdown(body), "md"));
+      return;
+    }
     const isDisclaimer = /工具局限性|免责声明/.test(match?.[1] || "");
-    const label = isDisclaimer ? "免责声明" : match?.[1] || `报告章节 ${index + 1}`;
+    const label = isCommentary ? "AI 综合解读" : isDisclaimer ? "免责声明" : title || `报告章节 ${index + 1}`;
     const card = section(`report-library-${index}`, label, "panel", sectionIdPrefix);
     const body = part.replace(/^##\s+.+\n?/, "");
     card.appendChild(markdownBlock(localizeReportMarkdown(isDisclaimer ? cleanDisclaimer(body) : body), "md"));
     if (isDisclaimer) disclaimers.push(card);
     else article.appendChild(card);
+    if (isCommentary) commentary = card;
   });
   for (const card of disclaimers) article.appendChild(card);
   return article;

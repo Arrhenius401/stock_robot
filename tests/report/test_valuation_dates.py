@@ -121,7 +121,7 @@ def test_stock_markdown_and_payload_use_same_dates():
     assert display["cutoff"] in markdown
     assert display["metrics"]["ps_ttm"] in markdown
     assert "3.00（截至 2026-10-21）" in markdown
-    assert markdown.index("PS(TTM)：测试") > markdown.index("## 七、数据覆盖与时效")
+    assert markdown.index("PS(TTM)：测试") > markdown.index("## 六、数据覆盖与时效")
 
 
 def test_index_comparison_has_one_baseline_and_dates_on_exceptions():
