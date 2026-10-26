@@ -11,6 +11,7 @@ from data.schemas import (
     NewsData,
     PriceData,
     ValuationData,
+    DataCollectionRecord,
 )
 
 
@@ -220,3 +221,23 @@ class TestAnalysisContext:
         d = ctx.model_dump()
         assert d["symbol"] == "000001"
         assert d["financial_data"] is None
+
+def test_collection_record_defaults_result_state_unknown():
+    record = DataCollectionRecord()
+    assert record.result_state == "unknown"
+    assert record.cache_state == "unknown"
+
+
+def test_collection_record_result_state_roundtrip():
+    record = DataCollectionRecord(result_state="partial", cache_state="degraded")
+    restored = DataCollectionRecord.model_validate_json(record.model_dump_json())
+    assert restored.result_state == "partial"
+    assert restored.cache_state == "degraded"
+
+
+def test_legacy_collection_record_without_result_state_is_unknown():
+    record = DataCollectionRecord.model_validate_json(
+        '{"source": "旧来源", "cache_state": "complete"}'
+    )
+    assert record.result_state == "unknown"
+    assert record.cache_state == "complete"

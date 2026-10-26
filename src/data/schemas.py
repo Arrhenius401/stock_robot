@@ -340,6 +340,9 @@ class AnalysisResult(BaseModel):
     industry_note: str = ""
 
 
+ResultState = Literal["complete", "partial", "empty", "not_applicable", "failed", "unknown"]
+
+
 class DataCollectionRecord(BaseModel):
     """采集出处与时效，旧缓存未知值保持空缺。"""
     source: str = ""
@@ -348,6 +351,7 @@ class DataCollectionRecord(BaseModel):
     error_kind: str = ""
     error_message: str = ""
     cache_state: Literal["complete", "degraded", "not_applicable", "unknown"] = "unknown"
+    result_state: ResultState = "unknown"
 
 
 class DataReference(BaseModel):
