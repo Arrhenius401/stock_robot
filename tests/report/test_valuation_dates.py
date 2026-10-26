@@ -124,6 +124,50 @@ def test_stock_markdown_and_payload_use_same_dates():
     assert markdown.index("PS(TTM)：测试") > markdown.index("## 六、数据覆盖与时效")
 
 
+@pytest.mark.parametrize(("pe_date", "pb_date"), [
+    (date(2026, 1, 1), date(2026, 10, 23)),
+    (date(2026, 10, 23), date(2026, 10, 23)),
+    (None, date(2026, 10, 23)),
+    (None, None),
+])
+def test_hk_independent_snapshot_dates_reach_analysis_markdown_payload_and_quality(pe_date, pb_date):
+    from analysis.valuation import ValuationAnalyzer
+    from data.enrichers.valuation_enricher import ValuationEnricher
+    from data.schemas import DataCollectionRecord
+    from report.payload import build_stock_payload
+    from report.scoring import build_report
+
+    val = ValuationData(
+        symbol="00700.HK", date=date(2026, 10, 23), pe_ttm=20, pb=2,
+        pe_as_of=pe_date, pb_as_of=pb_date)
+    ctx = AnalysisContext(symbol=val.symbol, name="日期回归", market="hk", valuation_data=val)
+    ctx.collection_records["valuation"] = DataCollectionRecord(source="东财估值逐项补位")
+    ValuationEnricher().enrich(ctx)
+    result = ValuationAnalyzer().analyze(ctx)
+    assert result.metrics["pe_as_of"] == pe_date
+    assert result.metrics["pb_as_of"] == pb_date
+    markdown = build_report(ctx.symbol, ctx.name, [result], {}, ctx, no_llm=True)
+    payload = build_stock_payload(ctx.symbol, ctx.name, [result], {}, ctx, no_llm=True)
+    valuation = payload["dimensions"]["valuation"]
+    for key, period in (("pe", pe_date), ("pb", pb_date)):
+        expected = period.isoformat() if period else None
+        assert valuation["metrics"][f"{key}_as_of"] == expected
+        display_key = "pe_ttm" if key == "pe" else "pb"
+        assert valuation["display"]["dates"][display_key] == expected
+        if period:
+            assert period.isoformat() in markdown
+        else:
+            assert "日期未记录" in valuation["display"]["metrics"][display_key]
+    quality = next(row for row in payload["data_quality"]["dimensions"] if row["key"] == "valuation")
+    sources = next(field["value"] for field in quality["fields"] if field["label"] == "估值字段来源")
+    assert f"PE(TTM) 快照：东财估值逐项补位（{pe_date or '未记录'}）" in sources
+    assert f"PB 快照：东财估值逐项补位（{pb_date or '未记录'}）" in sources
+    assert "PE/PB 当前快照日期" not in str(result.metrics["valuation_details"])
+    if pe_date is None and pb_date is None:
+        cutoff = next(field["value"] for field in quality["fields"] if field["label"] == "数据截止")
+        assert cutoff == "未记录"
+
+
 def test_index_comparison_has_one_baseline_and_dates_on_exceptions():
     from data.schemas import AnalysisTarget, IndexAnalysisContext, IndexValuationData
     from index.analysis.valuation import IndexValuationAnalyzer

@@ -174,3 +174,13 @@ def test_new_runtime_industry_score_and_risks_enter_summary():
     industry = next(row for row in summary.score_rows if row["label"] == "行业对比")
     assert industry["weight"] == "20%"
     assert industry["score"] == "10.0"
+
+
+def test_negative_equity_risk_is_chinese_and_does_not_deduct_composite():
+    from report.formatter import risk_display_name
+
+    assert risk_display_name("negative_equity") == "净资产为负（资不抵债风险）"
+    summary = compute_score_summary([_result("financial", 8, risk_flags=["negative_equity"])])
+    assert summary.final_score == 8
+    assert summary.risk_deduction == 0
+    assert summary.risk_flags == ["negative_equity"]

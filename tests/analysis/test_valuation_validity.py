@@ -7,6 +7,7 @@ from analysis.scorers.bank import BankScorer
 from analysis.scorers.cyclical import CyclicalScorer
 from analysis.scorers.general import GeneralScorer
 from analysis.valuation import ValuationAnalyzer
+from analysis.valuation_rules import valuation_evidence
 from data.enrichers.industry_enricher import IndustryEnricher
 from data.enrichers.valuation_enricher import ValuationEnricher
 from data.schemas import (
@@ -19,6 +20,7 @@ from data.schemas import (
     PeerBasicInfo,
     SufficiencyLevel,
     ValuationData,
+    ValuationHistorySummary,
 )
 
 INVALID = [None, 0, -32.03, float("nan"), float("inf"), float("-inf")]
@@ -158,3 +160,41 @@ def test_hk_ps_snapshot_is_independently_available(invalid):
     result = ValuationAnalyzer().analyze(ctx)
     assert result.status == "partial"
     assert result.metrics["ps_ttm"] == 2
+
+
+@pytest.mark.parametrize("metric", ["pe", "pb"])
+@pytest.mark.parametrize("value", [-32.03, 0])
+def test_hk_known_nonpositive_snapshot_blocks_its_old_positive_history(metric, value):
+    ctx = context(pe=20, pb=2, ps=None)
+    ctx.market = "hk"
+    assert ctx.valuation_data is not None
+    setattr(ctx.valuation_data, "pe_ttm" if metric == "pe" else "pb", value)
+    ctx.enriched_valuation = EnrichedValuation(
+        pe_percentile=10, pb_percentile=10,
+        pe_history_summary=ValuationHistorySummary(
+            source="百度", sample_count=130, reference=20.0, median=20.0, low=15.0, high=25.0,
+            start=date(2026, 1, 1), as_of=date(2026, 10, 20)),
+        pb_history_summary=ValuationHistorySummary(
+            source="百度", sample_count=130, reference=2.0, median=2.0, low=1.5, high=2.5,
+            start=date(2026, 1, 1), as_of=date(2026, 10, 20)),
+    )
+    pe, pb, _ = valuation_evidence(ctx)
+    assert (pe, pb) == ((None, 10) if metric == "pe" else (10, None))
+    analyzed = ValuationAnalyzer().analyze(ctx, CONFIG)
+    assert analyzed.metrics[f"{metric}_percentile"] is None
+    assert not analyzed.metrics["historical_valuation_applicability"][f"{metric}_percentile"]["applicable"]
+    assert f"{metric.upper()} 分位 10.00%" not in analyzed.score_detail
+
+
+@pytest.mark.parametrize("metric", ["pe", "pb"])
+def test_hk_missing_snapshot_keeps_independent_history_percentile(metric):
+    ctx = context()
+    ctx.market = "hk"
+    assert ctx.valuation_data is not None
+    setattr(ctx.valuation_data, "pe_ttm" if metric == "pe" else "pb", None)
+    ctx.enriched_valuation = EnrichedValuation(
+        pe_percentile=10, pb_percentile=10,
+        pe_history_summary=ValuationHistorySummary(source="百度", sample_count=130, reference=20.0),
+        pb_history_summary=ValuationHistorySummary(source="百度", sample_count=130, reference=2.0),
+    )
+    assert valuation_evidence(ctx)[:2] == (10, 10)

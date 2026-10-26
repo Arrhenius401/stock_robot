@@ -11,12 +11,16 @@ def select_history(
     sources: Iterable[tuple[str, Callable[[], list[T]]]],
     on_error: Callable[[str, Exception], None],
     minimum: int = 60,
+    *,
+    validate: Callable[[list[T]], bool] | None = None,
 ) -> list[T]:
     """足量立即采用；不足保留最长整份，同长后者优先，绝不拼接。"""
     best: list[T] = []
     for label, fetch in sources:
         try:
             rows = fetch()
+            if rows and validate is not None and not validate(rows):
+                raise ValueError("行情截止日期早于已知成功历史，不能作为本次有效数据")
         except Exception as error:  # noqa: BLE001 — 第三方来源隔离，保留诊断后切换
             logger.warning("%s获取失败: %s", label, error)
             on_error(label, error)

@@ -6,6 +6,22 @@ from data.schemas import PriceData
 
 
 class TestCacheManager:
+    def test_complete_copy_preserves_age_metadata_and_cleanup_exemption(self, tmp_path, mocker):
+        cache = CacheManager(db_path=tmp_path / "cache.db")
+        clock = mocker.patch("data.cache.time.time", return_value=1000)
+        cache.put("valuation", "09888.HK", "latest", "old", ttl_seconds=60, metadata="original")
+        clock.return_value = 1050
+        cache.copy_entry("valuation", "09888.HK", "latest", "last_complete")
+        cache.put("valuation", "09888.HK", "latest", "partial", ttl_seconds=1800)
+        cache.cleanup_old_entries("valuation", "09888.HK", "latest",
+                                  preserve_date_keys=("last_complete",))
+        clock.return_value = 1061
+        assert cache.get("valuation", "09888.HK", "last_complete", preserve_expired=True) is None
+        assert cache.get_stale("valuation", "09888.HK", "last_complete") == "old"
+        assert cache.get_metadata("valuation", "09888.HK", "last_complete") == "original"
+        assert cache.get("valuation", "09888.HK", "latest") == "partial"
+        assert cache.invalidate_data_type("valuation") == 2
+
     def test_put_and_get(self, tmp_path):
         cache = CacheManager(db_path=tmp_path / "cache.db")
         data = PriceData(

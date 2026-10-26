@@ -215,6 +215,7 @@ METRIC_DISPLAY_NAMES = {
 }
 
 RISK_DISPLAY_NAMES = {
+    "negative_equity": "净资产为负（资不抵债风险）",
     "roe_low": "净资产收益率偏低",
     "high_debt": "资产负债率偏高",
     "cash_flow_mismatch": "经营现金流与净利润不匹配",

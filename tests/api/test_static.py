@@ -188,7 +188,7 @@ def _module_url(path: str) -> str:
     url = Path(path).resolve().as_uri()
     # 与聊天模块的正式导入保持同一 URL，避免产生两份抽屉状态单例。
     if path.endswith("/report-drawer.js"):
-        url += "?v=20261025-news-escaping-1"
+        url += "?v=20261026-hk-valuation-1"
     return url
 
 
@@ -209,6 +209,28 @@ async def client():
 
 
 class TestStaticUI:
+    def test_negative_equity_risk_is_localized_in_cards_and_legacy_markdown(self, tmp_path):
+        script = _DOM_STUB + r"""
+const {riskText, localizeReportMarkdown, renderStockReport} = await import(__RENDERER__);
+const expected = "净资产为负（资不抵债风险）";
+if (riskText("negative_equity") !== expected) throw new Error("负权益风险没有中文标签");
+const markdown = localizeReportMarkdown("- negative_equity\n- roe_low");
+if (markdown.includes("negative_equity") || !markdown.includes(expected)) {
+  throw new Error("旧 Markdown 中的负权益风险没有本地化");
+}
+const article = renderStockReport({symbol: "00001.HK", market: "hk", dimensions: {
+  financial: {status: "partial", risk_flags: ["negative_equity", "negative_equity"]},
+}});
+if (article.textContent.includes("negative_equity") || !article.textContent.includes(expected)) {
+  throw new Error("结构化报告暴露风险代码");
+}
+const risks = byClass(article, "report-risk-item");
+if (risks.length !== 1 || !risks[0].textContent.includes(expected)) {
+  throw new Error("汇总风险没有使用中文标签或没有去重");
+}
+"""
+        _run_node(tmp_path, script.replace("__RENDERER__", json.dumps(_module_url("src/api/static/js/report-renderer.js"))))
+
     def test_hk_news_reuses_plain_list_and_hides_links(self, tmp_path):
         script = _DOM_STUB + r"""
 const {renderStockReport} = await import(__RENDERER__);
@@ -389,7 +411,7 @@ if (calls.length !== beforeA + 1 || !calls.at(-1).refresh_cache) throw new Error
         app_js = (await client.get("/js/app.js")).text
         api_js = (await client.get("/js/api.js")).text
 
-        assert 'import { initReportLibrary } from "./report-library.js?v=20261025-news-escaping-1";' in app_js
+        assert 'import { initReportLibrary } from "./report-library.js?v=20261026-hk-valuation-1";' in app_js
         assert "initReportLibrary();" in app_js
         assert "listReports(" in api_js
         assert "getReport(" in api_js
@@ -426,7 +448,7 @@ if (calls.length !== beforeA + 1 || !calls.at(-1).refresh_cache) throw new Error
     async def test_app_initializes_report_drawer(self, client):
         resp = await client.get("/js/app.js")
 
-        assert 'import { initReportDrawer } from "./report-drawer.js?v=20261025-news-escaping-1";' in resp.text
+        assert 'import { initReportDrawer } from "./report-drawer.js?v=20261026-hk-valuation-1";' in resp.text
         assert "initReportDrawer();" in resp.text
 
     def test_markdown_renderer_escapes_untrusted_input_and_formats_safe_blocks(self):
@@ -2247,7 +2269,7 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         assert 'id="subName"' not in html
         assert 'id="subChannel"' not in html
         assert "企业微信" not in html
-        assert 'href="/css/app.css?v=20261025-news-escaping-1"' in html
+        assert 'href="/css/app.css?v=20261026-hk-valuation-1"' in html
         script = (await client.get("/js/subscriptions.js")).text
         assert "searchPushSymbols" in script
         assert "批量添加" not in script

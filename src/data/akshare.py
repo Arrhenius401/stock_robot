@@ -375,15 +375,18 @@ class AkShareAdapter(DataSource):
         # 回测等场景可显式指定起止日期（YYYYMMDD）；未完整指定时保持默认近一年（days=250）行为
         start_date = kwargs.get("start_date")
         end_date = kwargs.get("end_date")
+        today = datetime.now().astimezone().date()
         if start_date is None or end_date is None:
-            today = datetime.now().astimezone().date()
             days = kwargs.get("days", 250)  # 近一年交易日，覆盖完整行情周期
             start_date = start_date or (today - timedelta(days=days)).strftime("%Y%m%d")
             end_date = end_date or today.strftime("%Y%m%d")
+        start, end = _parse_date(start_date), min(_parse_date(end_date), today)
+        minimum_end = _parse_date(kwargs["minimum_end_date"]) if kwargs.get("minimum_end_date") is not None else None
+        minimum_points = max(60, int(kwargs.get("minimum_points", 60)))
 
         def _parse(df, source_label: str) -> list[PriceData]:
-            results = []
-            prev_close: float | None = None
+            rows: dict[date, PriceData] = {}
+            conflicts: set[date] = set()
             for _, row in df.iterrows():
                 try:
                     date_val = row.get("date", row.get("日期"))
@@ -392,35 +395,45 @@ class AkShareAdapter(DataSource):
                     low_val = row.get("low", row.get("最低"))
                     close_val = row.get("close", row.get("收盘"))
                     vol_val = row.get("volume", row.get("成交量"))
-                    close_f = float(close_val)
+                    period = _parse_date(date_val)
+                    values = [finite_number(value) for value in (open_val, high_val, low_val, close_val, vol_val)]
+                    if any(value is None for value in values) or not start <= period <= end:
+                        continue
+                    opening, high, low, close_f, volume = cast(list[float], values)
+                    if (min(opening, high, low, close_f) <= 0 or volume < 0
+                            or not low <= min(opening, close_f) <= max(opening, close_f) <= high):
+                        continue
                     # 涨跌幅：优先取源数据列（东方财富），缺失/坏值则按前收盘计算（新浪源）。
                     # 解析隔离在独立 try 中，坏 pct 值不连累整行 OHLCV 数据。
                     pct_raw = row.get("涨跌幅", row.get("pct_chg"))
-                    change_pct = None
-                    if pct_raw is not None and str(pct_raw) not in ("", "nan"):
-                        try:
-                            change_pct = round(float(pct_raw), 2)
-                        except (ValueError, TypeError) as e:
-                            logger.debug(f"涨跌幅解析失败，回退按前收盘计算: {e}")
-                    if change_pct is None and prev_close:
-                        change_pct = round((close_f - prev_close) / prev_close * 100, 2)
+                    change_pct = finite_number(pct_raw)
                     item = PriceData(
                         symbol=symbol,
-                        trade_date=datetime.strptime(str(date_val)[:10], "%Y-%m-%d").astimezone().date(),
-                        open=float(open_val),
-                        high=float(high_val),
-                        low=float(low_val),
+                        trade_date=period,
+                        open=opening,
+                        high=high,
+                        low=low,
                         close=close_f,
-                        volume=int(float(vol_val)),
-                        change_pct=change_pct,
+                        volume=int(volume),
+                        change_pct=round(change_pct, 2) if change_pct is not None else None,
                     )
                     item._data_source = source_label
-                    results.append(item)
-                    # 异常行不更新 prev_close（真实数据中异常行罕见；若连续异常，
-                    # 下一正常行将相对最后正常收盘计算，属可接受的近似）
-                    prev_close = close_f
-                except (ValueError, KeyError) as e:
+                    previous = rows.get(period)
+                    if previous is not None:
+                        if (previous.open, previous.high, previous.low, previous.close, previous.volume) != (
+                                item.open, item.high, item.low, item.close, item.volume):
+                            conflicts.add(period)
+                        continue
+                    rows[period] = item
+                except (ValueError, KeyError, TypeError, OverflowError) as e:
                     logger.warning(f"跳过异常行情数据行: {e}")
+            if conflicts:
+                raise ValueError("同一日期存在冲突行情，拒收该来源整段历史")
+            results = list(rows.values())
+            # 保留来源原有顺序；异常行和重复行不再影响前收盘参照。
+            for previous, current in pairwise(results):
+                if current.change_pct is None:
+                    current.change_pct = round((current.close / previous.close - 1) * 100, 2)
             return results
 
         return select_history([
@@ -429,7 +442,9 @@ class AkShareAdapter(DataSource):
             ("东方财富行情（前复权）", lambda: _parse(_ak_hist(
                 symbol=symbol, period="daily", start_date=start_date, end_date=end_date, adjust="qfq"),
                 "东方财富行情（前复权）")),
-        ], self._append_collection_error)
+        ], self._append_collection_error, minimum=minimum_points,
+            validate=(lambda rows: max(row.trade_date for row in rows) >= minimum_end)
+            if minimum_end is not None else None)
 
     def _fetch_financial(self, symbol: str, **kwargs) -> list[FinancialData]:
         if kwargs.get("market") == "hk":
@@ -675,7 +690,9 @@ class AkShareAdapter(DataSource):
         code = symbol.removesuffix(".HK")
         today = datetime.now().astimezone().date()
         start = _parse_date(kwargs.get("start_date") or (today - timedelta(days=365)))
-        end = _parse_date(kwargs.get("end_date") or today)
+        end = min(_parse_date(kwargs.get("end_date") or today), today)
+        minimum_end = _parse_date(kwargs["minimum_end_date"]) if kwargs.get("minimum_end_date") is not None else None
+        minimum_points = max(60, int(kwargs.get("minimum_points", 60)))
         if start > end:
             raise ValueError("港股行情起始日期晚于结束日期")
         if len(code) != 5 or not code.isdigit():
@@ -683,6 +700,7 @@ class AkShareAdapter(DataSource):
 
         def parse(lines, source: str, eastmoney: bool = False) -> list[PriceData]:
             rows: dict[date, PriceData] = {}
+            conflicts: set[date] = set()
             for line in lines:
                 try:
                     fields = line.split(",") if eastmoney else line
@@ -698,9 +716,17 @@ class AkShareAdapter(DataSource):
                         low=low, close=close, volume=int(volume),
                         change_pct=finite_number(fields[8]) if eastmoney and len(fields) > 8 else None)
                     item._data_source = source
+                    previous = rows.get(period)
+                    if previous is not None and (
+                            previous.open, previous.high, previous.low, previous.close, previous.volume) != (
+                            item.open, item.high, item.low, item.close, item.volume):
+                        conflicts.add(period)
+                        continue
                     rows[period] = item
                 except (ValueError, TypeError, IndexError, AttributeError) as error:
                     logger.debug("跳过港股异常行情行: %s", error)
+            if conflicts:
+                raise ValueError("同一日期存在冲突港股行情，拒收该来源整段历史")
             ordered = [rows[key] for key in sorted(rows)]
             if not eastmoney:
                 for previous, current in pairwise(ordered):
@@ -713,7 +739,9 @@ class AkShareAdapter(DataSource):
                                                     "腾讯港股行情（不复权）")),
             ("东方财富港股行情（不复权）", lambda: parse(daily_history(code, start_text, end_text, limit),
                                                         "东方财富港股行情（不复权）", True)),
-        ], self._append_collection_error)
+        ], self._append_collection_error, minimum=minimum_points,
+            validate=(lambda rows: max(row.trade_date for row in rows) >= minimum_end)
+            if minimum_end is not None else None)
 
     def _fetch_hk_financial(self, symbol: str) -> list[FinancialData]:
         from data.financial_selection import FinancialPackage, select_financial
@@ -878,79 +906,155 @@ class AkShareAdapter(DataSource):
         code = symbol.removesuffix(".HK")
         if len(code) != 5 or not code.isdigit():
             raise ValueError("港股代码必须为五位数字")
-        item: ValuationData | None = None
+        today = datetime.now(timezone(timedelta(hours=8))).date()
         notes: list[str] = []
+
+        pe: float | None = None
+        pb: float | None = None
+        pe_as_of: date | None = None
+        pb_as_of: date | None = None
+        primary_failed = False
         try:
             snapshot = stock_snapshot(code)
             if snapshot.get("f57") != code:
                 raise ValueError("东方财富港股估值代码不匹配")
-            pe, pb = finite_number(snapshot.get("f164")), finite_number(snapshot.get("f167"))
+            snapshot_pe = finite_number(snapshot.get("f164"))
+            snapshot_pb = finite_number(snapshot.get("f167"))
             timestamp = finite_number(snapshot.get("f86"))
-            pe = pe if pe is not None and pe > 0 else None
-            pb = pb if pb is not None and pb > 0 else None
-            if timestamp is None or timestamp <= 0 or (pe is None and pb is None):
+            if timestamp is None or timestamp <= 0 or (snapshot_pe is None and snapshot_pb is None):
                 raise ValueError("东方财富港股估值没有合法指标或日期")
-            snapshot_date = datetime.fromtimestamp(timestamp, tz=UTC).astimezone(timezone(timedelta(hours=8))).date()
-            if snapshot_date > datetime.now(timezone(timedelta(hours=8))).date():
+            snapshot_date = datetime.fromtimestamp(timestamp, tz=UTC).astimezone(
+                timezone(timedelta(hours=8))).date()
+            if snapshot_date > today:
                 raise ValueError("东方财富港股估值日期晚于采集日期")
-            item = ValuationData(symbol=symbol, date=snapshot_date, pe_ttm=pe, pb=pb)
-            item._data_source = "东方财富港股估值快照"
+            # 全部校验通过后才接受快照，否则保持 None 以允许估值对比或曲线兜底。
+            pe, pb = snapshot_pe, snapshot_pb
+            pe_as_of = snapshot_date if pe is not None else None
+            pb_as_of = snapshot_date if pb is not None else None
         except Exception as error:  # 第三方快照隔离；本文件已豁免 BLE001
-            logger.warning("东方财富港股估值失败，切换百度: %s", error)
+            logger.warning("东方财富港股估值快照失败: %s", error)
             self._append_collection_error("东方财富港股估值快照", error)
+            notes.append("东方财富港股估值快照：采集失败")
+            primary_failed = True
 
-        ps, ps_date = None, None
+        comparison: dict[str, float | None] = {}
+        comparison_date: date | None = None
+        comparison_failed = False
         try:
-            ps_row = valuation_comparison_snapshot(code)
-            ps = finite_number(ps_row.get("PS_TTM"))
-            ps_date = date.fromisoformat(str(ps_row["REPORT_DATE"])[:10])
-            if ps is None:
-                notes.append("PS(TTM)：东财估值对比未提供有效数值")
-        except Exception as error:  # 第三方 PS 请求隔离，不影响已有快照或历史
-            logger.warning("东方财富港股 PS 获取失败: %s", error)
-            self._append_collection_error("东方财富港股PS", error)
-            notes.append("PS(TTM)：东方财富估值对比采集失败")
+            row = valuation_comparison_snapshot(code)
+            comparison_date = date.fromisoformat(str(row["REPORT_DATE"])[:10])
+            if comparison_date > today:
+                raise ValueError("东方财富港股估值对比日期晚于采集日期")
+            comparison = {
+                "pe": finite_number(row.get("PE_TTM")),
+                "pb": finite_number(row.get("PB_MQR")),
+                "ps": finite_number(row.get("PS_TTM")),
+            }
+        except Exception as error:  # 第三方估值对比请求隔离
+            logger.warning("东方财富港股估值对比失败: %s", error)
+            self._append_collection_error("东方财富港股估值对比", error)
+            comparison_failed = True
+            notes.append("东财估值对比采集失败，PE(TTM)/PB/PS(TTM) 补位不可用")
+
+        filled: list[str] = []
+        if pe is None and comparison.get("pe") is not None:
+            pe, pe_as_of = comparison["pe"], comparison_date
+            filled.append("PE(TTM)")
+        if pb is None and comparison.get("pb") is not None:
+            pb, pb_as_of = comparison["pb"], comparison_date
+            filled.append("PB")
+        if filled:
+            notes.append(f"东财估值对比补位：{'、'.join(filled)}（截至 {comparison_date}）")
+        ps = comparison.get("ps")
+        ps_date = comparison_date if ps is not None else None
+        if not comparison_failed and ps is None:
+            notes.append("PS(TTM)：东财估值对比未提供有效数值")
 
         # 两项请求独立，最多两个并发；诊断在调用线程写回，避免 thread-local 丢失。
         curves: dict[str, dict[date, float]] = {}
+        history_failed = False
         with ThreadPoolExecutor(max_workers=2) as executor:
-            futures = {metric: executor.submit(baidu_metric, code, metric) for metric in ("市盈率(TTM)", "市净率")}
+            futures = {metric: executor.submit(baidu_metric, code, metric)
+                       for metric in ("市盈率(TTM)", "市净率")}
             for metric, future in futures.items():
                 try:
                     points = future.result()
                     if not points:
                         raise ValueError("百度估值没有合法指标")
                     curves[metric] = points
-                except Exception as error:  # 第三方指标请求隔离；保留另一项成功结果
+                except Exception as error:  # 第三方指标请求隔离
                     logger.warning("百度港股%s获取失败: %s", metric, error)
                     self._append_collection_error(f"百度港股{metric}", error)
                     notes.append(f"{metric}历史：百度近一年曲线采集失败")
+                    history_failed = True
         pe_curve, pb_curve = curves.get("市盈率(TTM)", {}), curves.get("市净率", {})
         common = pe_curve.keys() & pb_curve.keys()
         if common:
             period = max(common)
         elif pe_curve or pb_curve:
             period = max(pe_curve.keys() | pb_curve.keys())
-            if pe_curve and pb_curve and item is None:
+            if pe_curve and pb_curve and pe is None and pb is None:
                 diagnostic = self.get_collection_error()
                 if diagnostic is not None:
                     self._collection_diagnostics.record = diagnostic.model_copy(update={
                         "error_message": diagnostic.error_message + "；百度 PE/PB 无共同日期，仅保留日期较新指标",
                     })
-        elif item is not None:
-            period = item.date
-        elif ps_date is not None and ps is not None:
+        elif pe_as_of is not None or pb_as_of is not None:
+            period = max(value for value in (pe_as_of, pb_as_of) if value is not None)
+        elif ps_date is not None:
             period = ps_date
         else:
             return []
-        if item is None:
-            item = ValuationData(symbol=symbol, date=period, pe_ttm=pe_curve.get(period), pb=pb_curve.get(period))
-            item._data_source = "百度港股估值（PE TTM/PB）" if pe_curve or pb_curve else "东方财富港股估值对比"
-        item.ps_ttm, item.ps_as_of = ps, ps_date if ps is not None else None
+
+        curve_fallback = pe is None and pb is None and bool(pe_curve or pb_curve)
+        if curve_fallback:
+            item_date = period
+        else:
+            # item.date 只代表 PE/PB 快照时点；PS 日期单独展示，不能冒充 PE/PB 日期。
+            snapshot_dates = [value for value in (pe_as_of, pb_as_of)
+                              if value is not None]
+            if snapshot_dates:
+                item_date = max(snapshot_dates)
+            elif ps_date is not None:
+                item_date = ps_date
+            else:
+                item_date = period
+
+        item = ValuationData(symbol=symbol, date=item_date, pe_ttm=pe, pb=pb,
+                             pe_as_of=pe_as_of, pb_as_of=pb_as_of)
+        if curve_fallback:
+            # 两个东财入口都未取得 PE/PB 时，才允许百度曲线末值兜底。
+            item.pe_ttm = pe_curve.get(period)
+            item.pb = pb_curve.get(period)
+            item.pe_as_of = period if item.pe_ttm is not None else None
+            item.pb_as_of = period if item.pb is not None else None
+            item._data_source = "百度港股估值曲线末值（非实时快照）"
+            notes.append(f"东财 PE/PB 均未取得，使用百度曲线末值（截至 {period}）")
+        elif primary_failed and not comparison_failed:
+            item._data_source = (
+                "仅 PS" if pe is None and pb is None and ps is not None
+                else "东方财富港股估值对比"
+            )
+        elif filled:
+            item._data_source = "东方财富港股估值快照+估值对比"
+        else:
+            item._data_source = "东方财富港股估值快照"
+        item.ps_ttm, item.ps_as_of = ps, ps_date
         item.ps_source = "东方财富港股估值对比" if ps is not None else ""
         item.pe_history, item.pb_history = pe_curve, pb_curve
         item.history_source = "百度港股估值（近一年）" if curves else ""
         item.valuation_notes = notes
+        item.cache_degraded = (
+            primary_failed or comparison_failed or history_failed or curve_fallback
+        )
+        if primary_failed:
+            item.failed_components.append("snapshot")
+        if comparison_failed:
+            item.failed_components.append("comparison")
+        if "市盈率(TTM)" not in curves:
+            item.failed_components.append("pe_history")
+        if "市净率" not in curves:
+            item.failed_components.append("pb_history")
         return [item]
 
     def _fetch_industry(self, symbol: str, **kwargs) -> list[IndustryData]:

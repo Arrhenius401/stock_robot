@@ -55,6 +55,17 @@ class GeneralScorer(BaseScorer):
         details: list[str] = []
         risks: list[str] = []
         reasons: list[str] = []
+        equity_details = []
+        for key, label, value in (("common_equity", "普通股权益", latest.common_equity),
+                                  ("total_equity", "总权益", latest.total_equity)):
+            source = latest.field_sources.get(key) or latest.financial_source or latest._data_source
+            if value is not None and is_finite_number(value) and value < 0 and source:
+                equity_details.append(f"{label} {value:,.2f}（{source}）")
+        if equity_details:
+            risks.append("negative_equity")
+            details.append(
+                f"最新可信报告期 {latest.fiscal_quarter} {'、'.join(equity_details)}为负，"
+                "存在资不抵债风险；该标签只提示，不扣分")
         fact = annual_roe_fact(ctx)
         gms = gross_margin_periods(rows)
         financial_sector = self.config.get("meta", {}).get("strategy_key") in ("BankScorer", "NonBankFinancialScorer")

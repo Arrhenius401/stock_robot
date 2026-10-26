@@ -3,7 +3,7 @@ from typing import Any, Literal
 
 from analysis.base import AnalysisModule
 from analysis.financial import FinancialAnalyzer
-from analysis.valuation_rules import valuation_evidence
+from analysis.valuation_rules import valuation_evidence, valuation_snapshot_dates
 from data.schemas import AnalysisContext, AnalysisResult, SufficiencyLevel
 from utils.numbers import is_finite_number, is_positive_finite
 
@@ -52,6 +52,9 @@ class ValuationAnalyzer(AnalysisModule):
             for key, info in applicability.items() if not info["applicable"]
         ]
         if context.market == "hk":
+            snapshot_dates = valuation_snapshot_dates(context)
+            metrics.update(pe_as_of=snapshot_dates["pe_ttm"], pb_as_of=snapshot_dates["pb"],
+                           ps_as_of=snapshot_dates["ps_ttm"])
             metrics["historical_valuation_applicability"] = {
                 key: {"applicable": metrics[key] is not None}
                 for key in ("pe_percentile", "pb_percentile")
@@ -61,7 +64,7 @@ class ValuationAnalyzer(AnalysisModule):
             metrics["valuation_details"] = details
             if latest is not None:
                 notes.extend(latest.valuation_notes)
-                details.append(f"PE/PB 当前快照日期：{latest.date}；历史分位使用下述曲线参照值，不用其他来源快照排名")
+                details.append("PE/PB 当前值按各自字段日期展示；历史分位使用下述曲线参照值，不用其他来源快照排名")
             else:
                 details.append("当前 PE/PB 快照未取得；独立同行比较采用本次同源目标值，不回填其他来源快照")
             if latest is not None and latest.ps_ttm is not None:

@@ -1,8 +1,8 @@
 import { api } from "./api.js";
 import { el, errorCard, skeleton } from "./components.js";
-import { renderMarkdown } from "./markdown.js?v=20261025-news-escaping-1";
+import { renderMarkdown } from "./markdown.js?v=20261026-hk-valuation-1";
 import { bus } from "./state.js";
-import { localizeReportMarkdown, renderStockMarkdownReport, renderStockReport } from "./report-renderer.js?v=20261025-news-escaping-1";
+import { localizeReportMarkdown, renderStockMarkdownReport, renderStockReport } from "./report-renderer.js?v=20261026-hk-valuation-1";
 
 const TYPE_LABELS = {
   stock: "个股",

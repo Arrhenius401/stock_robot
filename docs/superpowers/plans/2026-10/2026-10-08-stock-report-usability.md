@@ -594,3 +594,786 @@ AI重试实现明确为服务端短期报告上下文，容量64、过期30分�
 - 插件真实渲染链验证：调用未修改的插件 `_render_report`、`ReportRenderer` 与 AstrBot `LocalRenderStrategy/MarkdownRenderer` 生成修复前后图片；仅隔离框架配置、临时路径及渲染路由，未替换解析/排版/绘图逻辑。样本来自用户截图标题，并补充特殊字符和注入边界，非新生成的完整投资报告。原图可见 `2026\\-10\\-16`，修复后为 `2026-10-16`，真实路径 `C:\reports\a_b.md` 保留。产物在 `tmp/plugin-report-diagnosis/native-news-*`。
 - 网页真实验收：通过项目 `.venv/Scripts/stock-robot.exe run --host 127.0.0.1 --port 8765` 启动隔离 cwd/config，禁用推送及定时采集，不复制用户会话/订阅。Edge 实际报告库打开同一 Markdown 样本，1440/390 均无水平溢出、脚本错误；DOM 验证 HTML/伪链接均为普通文字、代码实体保持字面值，并真实发送一次问候获得回复。截图、脚本、结果保留于 `tmp/plugin-report-diagnosis/web-news-*`。
 - 部署限制：这是当前源码修复；插件仍固定后端 v0.2.2，部署实例需要后续统一发布/升级才会采用。已保存旧报告不会自动改写。未验证线上机器人完整发送链路，未推送、合并或发布。
+
+## 2026-10-25 港股估值完整性修复实施计划
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** 修复港股估值在负值、备用快照和缓存降级下的缺失与误标，使 `09888.HK` 这类亏损公司能稳定展示 PB/PS 与可用历史分位，并让一次瞬时失败不再污染整日缓存。
+
+**Architecture:** 东财 `push2` 为主快照；东财估值对比（原先只取 PS 的同一请求）扩展为 PE/PB/PS 逐项补位。保留有限负值并由分析器标记“不适用”；Pipeline 对降级结果使用 30 分钟 TTL、同源旧历史/PS 合并和过期缓存兜底；负 PB 仅在最新财务权益证据确认时增加 `negative_equity` 提示，不扣分。
+
+**Tech Stack:** Python 3.11、Pydantic v2、requests、pytest、SQLite 缓存、Jinja2/Markdown/原生 JS。
+
+**项目规则：** 按 `AGENTS.md` 的提交节奏，本主题在全部实现与验证通过后合为一笔本地提交；任务中的“检查点”不是提交点。未获用户明确授权不推送、不合并、不发布。实现默认交给 Codex，主会话负责逐任务审查、验证和验收。
+
+### 文件地图
+
+- Modify: `src/data/hk_eastmoney.py` — 扩展估值对比请求字段。
+- Modify: `src/data/schemas.py` — `ValuationData.cache_degraded`。
+- Modify: `src/data/akshare.py` — `_fetch_hk_valuation` 快照合并、负值保留、降级标记。
+- Modify: `src/core/pipeline.py` — 港股估值健康判据、短 TTL、旧缓存合并/兜底。
+- Modify: `src/analysis/valuation_rules.py` — 已知非正 PE/PB 分位不计分。
+- Modify: `src/analysis/scorers/general.py` — `negative_equity` 财务风险提示。
+- Modify: `src/report/formatter.py` — 风险标签中文名。
+- Modify: `src/report/scoring.py` — 估值 N/A 时在评分详情说明权重归一。
+- Modify: `src/api/static/js/report-renderer.js` — 网页风险标签中文名。
+- Modify: `src/api/static/index.html`、`src/api/static/js/*.js` — 静态资源版本号。
+- Test: `tests/data/test_hk_valuation_history.py` — 补源/负值/降级。
+- Test: `tests/core/test_pipeline_health.py`、`tests/core/test_pipeline.py` — 健康、TTL、旧缓存合并/兜底。
+- Test: `tests/analysis/test_valuation_validity.py`、`tests/analysis/scorers/test_general_scorer.py` — 负值分位与负权益风险标签。
+- Test: `tests/report/test_five_scoring.py`、`tests/report/test_scoring.py`、`tests/api/test_static.py` — 权重说明、风险标签、版本链。
+
+### Task 1: 东财估值对比逐项补位与负值保留
+
+**Files:**
+- Modify: `src/data/hk_eastmoney.py:92-114`
+- Modify: `src/data/schemas.py:230-245`
+- Modify: `src/data/akshare.py:877-954`
+- Test: `tests/data/test_hk_valuation_history.py`
+
+- [x] **Step 1: 写失败测试**
+
+在 `tests/data/test_hk_valuation_history.py` 追加：
+
+```python
+def test_push2_failure_uses_valuation_comparison_for_all_metrics(mocker):
+    mocker.patch("data.akshare.stock_snapshot", side_effect=TimeoutError)
+    mocker.patch("data.akshare.valuation_comparison_snapshot", return_value={
+        "SECUCODE": "09888.HK", "CORRE_SECUCODE": "09888.HK",
+        "REPORT_DATE": "2026-10-23 00:00:00",
+        "PE_TTM": -56.62, "PB_MQR": 0.66, "PS_TTM": 1.44,
+    })
+    mocker.patch("data.akshare.baidu_metric", side_effect=TimeoutError)
+    row = AkShareAdapter().fetch("09888.HK", market="hk", data_type="valuation")[0]
+    assert (row.pe_ttm, row.pb, row.ps_ttm) == (-56.62, 0.66, 1.44)
+    assert row.pe_as_of == row.pb_as_of == row.ps_as_of == date(2026, 10, 23)
+    assert row.cache_degraded is True  # 两条百度历史均失败
+    assert any("估值对比补位" in note for note in row.valuation_notes)
+
+
+def test_negative_pe_is_preserved_and_not_replaced_by_baidu_history(mocker):
+    mocker.patch("data.akshare.stock_snapshot", return_value={
+        "f57": "09888", "f86": 1792742888, "f164": -56.62, "f167": 0.66,
+    })
+    mocker.patch("data.akshare.valuation_comparison_snapshot", return_value={
+        "SECUCODE": "09888.HK", "CORRE_SECUCODE": "09888.HK",
+        "REPORT_DATE": "2026-10-23 00:00:00",
+        "PE_TTM": -56.62, "PB_MQR": 0.66, "PS_TTM": 1.44,
+    })
+    mocker.patch("data.akshare.baidu_metric", side_effect=lambda _code, metric: (
+        {date(2026, 8, 17): 183.04} if metric == "市盈率(TTM)"
+        else {date(2026, 10, 23): 0.66}))
+    row = AkShareAdapter().fetch("09888.HK", market="hk", data_type="valuation")[0]
+    assert row.pe_ttm == -56.62
+    assert row.pb == 0.66
+    assert row.pe_history == {date(2026, 8, 17): 183.04}
+    assert row.cache_degraded is False
+
+
+def test_comparison_structural_ps_missing_is_not_degraded(mocker):
+    mocker.patch("data.akshare.stock_snapshot", return_value={
+        "f57": "00700", "f86": 1792742888, "f164": 13.15, "f167": 2.68,
+    })
+    mocker.patch("data.akshare.valuation_comparison_snapshot", return_value={
+        "SECUCODE": "00700.HK", "CORRE_SECUCODE": "00700.HK",
+        "REPORT_DATE": "2026-10-23 00:00:00",
+        "PE_TTM": 13.15, "PB_MQR": 2.68, "PS_TTM": None,
+    })
+    mocker.patch("data.akshare.baidu_metric", return_value={date(2026, 10, 23): 13.0})
+    row = AkShareAdapter().fetch("00700.HK", market="hk", data_type="valuation")[0]
+    assert row.ps_ttm is None
+    assert row.cache_degraded is False
+    assert any("未提供有效数值" in note for note in row.valuation_notes)
+
+
+def test_comparison_request_includes_pe_pb_ps(mocker):
+    row = {"SECUCODE": "09888.HK", "CORRE_SECUCODE": "09888.HK",
+           "REPORT_DATE": "2026-10-23 00:00:00",
+           "PE_TTM": -56.62, "PB_MQR": 0.66, "PS_TTM": 1.44}
+    request = mocker.patch("requests.get")
+    request.return_value.json.return_value = {
+        "success": True, "result": {"count": 1, "pages": 1, "data": [row]}}
+    valuation_comparison_snapshot("09888")
+    columns = request.call_args.kwargs["params"]["columns"]
+    assert {"PE_TTM", "PB_MQR", "PS_TTM"} <= set(columns.split(","))
+```
+
+- [x] **Step 2: 运行测试确认红灯**
+
+Run: `.venv/Scripts/python -m pytest tests/data/test_hk_valuation_history.py -q`
+Expected: 新用例失败；主要是 `cache_degraded` 字段不存在、负 PE 仍被过滤、对比接口未返回 PE/PB。
+
+- [x] **Step 3: 扩展估值对比请求**
+
+`src/data/hk_eastmoney.py` 的 `valuation_comparison_snapshot` 参数改为：
+
+```python
+        "columns": "SECUCODE,CORRE_SECUCODE,REPORT_DATE,PE_TTM,PB_MQR,PS_TTM",
+```
+
+其余单行、代码匹配、未来日期校验保持不变。
+
+- [x] **Step 4: 增加降级字段**
+
+`src/data/schemas.py` 的 `ValuationData` 增加：
+
+```python
+    cache_degraded: bool = False  # 请求失败导致的残缺结果，仅短 TTL 缓存
+```
+
+- [x] **Step 5: 重写港股估值采集**
+
+用以下实现替换 `src/data/akshare.py` 的 `_fetch_hk_valuation`：
+
+```python
+    def _fetch_hk_valuation(self, symbol: str) -> list[ValuationData]:
+        code = symbol.removesuffix(".HK")
+        if len(code) != 5 or not code.isdigit():
+            raise ValueError("港股代码必须为五位数字")
+        today = datetime.now(timezone(timedelta(hours=8))).date()
+        notes: list[str] = []
+
+        pe: float | None = None
+        pb: float | None = None
+        pe_as_of: date | None = None
+        pb_as_of: date | None = None
+        snapshot_date: date | None = None
+        primary_failed = False
+        try:
+            snapshot = stock_snapshot(code)
+            if snapshot.get("f57") != code:
+                raise ValueError("东方财富港股估值代码不匹配")
+            pe = finite_number(snapshot.get("f164"))
+            pb = finite_number(snapshot.get("f167"))
+            timestamp = finite_number(snapshot.get("f86"))
+            if timestamp is None or timestamp <= 0 or (pe is None and pb is None):
+                raise ValueError("东方财富港股估值没有合法指标或日期")
+            snapshot_date = datetime.fromtimestamp(timestamp, tz=UTC).astimezone(
+                timezone(timedelta(hours=8))).date()
+            if snapshot_date > today:
+                raise ValueError("东方财富港股估值日期晚于采集日期")
+            pe_as_of = snapshot_date if pe is not None else None
+            pb_as_of = snapshot_date if pb is not None else None
+        except Exception as error:  # 第三方快照隔离；本文件已豁免 BLE001
+            logger.warning("东方财富港股估值快照失败: %s", error)
+            self._append_collection_error("东方财富港股估值快照", error)
+            notes.append("东方财富港股估值快照：采集失败")
+            primary_failed = True
+
+        comparison: dict[str, float | None] = {}
+        comparison_date: date | None = None
+        comparison_failed = False
+        try:
+            row = valuation_comparison_snapshot(code)
+            comparison_date = date.fromisoformat(str(row["REPORT_DATE"])[:10])
+            if comparison_date > today:
+                raise ValueError("东方财富港股估值对比日期晚于采集日期")
+            comparison = {
+                "pe": finite_number(row.get("PE_TTM")),
+                "pb": finite_number(row.get("PB_MQR")),
+                "ps": finite_number(row.get("PS_TTM")),
+            }
+        except Exception as error:  # 第三方估值对比请求隔离
+            logger.warning("东方财富港股估值对比失败: %s", error)
+            self._append_collection_error("东方财富港股估值对比", error)
+            comparison_failed = True
+            notes.append("PS(TTM)：东财估值对比采集失败")
+
+        filled: list[str] = []
+        if pe is None and comparison.get("pe") is not None:
+            pe, pe_as_of = comparison["pe"], comparison_date
+            filled.append("PE(TTM)")
+        if pb is None and comparison.get("pb") is not None:
+            pb, pb_as_of = comparison["pb"], comparison_date
+            filled.append("PB")
+        if filled:
+            notes.append(f"东财估值对比补位：{'、'.join(filled)}（截至 {comparison_date}）")
+        ps = comparison.get("ps")
+        ps_date = comparison_date if ps is not None else None
+        if not comparison_failed and ps is None:
+            notes.append("PS(TTM)：东财估值对比未提供有效数值")
+
+        # 两项请求独立，最多两个并发；诊断在调用线程写回，避免 thread-local 丢失。
+        curves: dict[str, dict[date, float]] = {}
+        history_failed = False
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = {metric: executor.submit(baidu_metric, code, metric)
+                       for metric in ("市盈率(TTM)", "市净率")}
+            for metric, future in futures.items():
+                try:
+                    points = future.result()
+                    if not points:
+                        raise ValueError("百度估值没有合法指标")
+                    curves[metric] = points
+                except Exception as error:  # 第三方指标请求隔离
+                    logger.warning("百度港股%s获取失败: %s", metric, error)
+                    self._append_collection_error(f"百度港股{metric}", error)
+                    notes.append(f"{metric}历史：百度近一年曲线采集失败")
+                    history_failed = True
+        pe_curve, pb_curve = curves.get("市盈率(TTM)", {}), curves.get("市净率", {})
+        common = pe_curve.keys() & pb_curve.keys()
+        if common:
+            period = max(common)
+        elif pe_curve or pb_curve:
+            period = max(pe_curve.keys() | pb_curve.keys())
+            if pe_curve and pb_curve and pe is None and pb is None:
+                diagnostic = self.get_collection_error()
+                if diagnostic is not None:
+                    self._collection_diagnostics.record = diagnostic.model_copy(update={
+                        "error_message": diagnostic.error_message + "；百度 PE/PB 无共同日期，仅保留日期较新指标",
+                    })
+        elif pe_as_of is not None or pb_as_of is not None:
+            period = max(value for value in (pe_as_of, pb_as_of) if value is not None)
+        elif ps_date is not None:
+            period = ps_date
+        else:
+            return []
+
+        item = ValuationData(symbol=symbol, date=period, pe_ttm=pe, pb=pb,
+                             pe_as_of=pe_as_of, pb_as_of=pb_as_of)
+        if pe is None and pb is None and (pe_curve or pb_curve):
+            # 两个东财入口都未取得快照时，才允许百度曲线末值兜底。
+            item.pe_ttm = pe_curve.get(period)
+            item.pb = pb_curve.get(period)
+            item.pe_as_of = period if item.pe_ttm is not None else None
+            item.pb_as_of = period if item.pb is not None else None
+            item._data_source = "百度港股估值曲线末值（非实时快照）"
+            notes.append(f"东财估值快照未取得，使用百度曲线末值（截至 {period}）")
+        elif primary_failed and not comparison_failed:
+            item._data_source = "东方财富港股估值对比（补位）"
+        elif filled:
+            item._data_source = "东方财富港股估值快照+估值对比"
+        else:
+            item._data_source = "东方财富港股估值快照"
+        item.ps_ttm, item.ps_as_of = ps, ps_date
+        item.ps_source = "东方财富港股估值对比" if ps is not None else ""
+        item.pe_history, item.pb_history = pe_curve, pb_curve
+        item.history_source = "百度港股估值（近一年）" if curves else ""
+        item.valuation_notes = notes
+        usable_snapshot = any(value is not None and value > 0 for value in (item.pe_ttm, item.pb))
+        item.cache_degraded = comparison_failed or history_failed or not usable_snapshot
+        return [item]
+```
+
+注意：`pe`/`pb` 不再按正数过滤；`pe_as_of`/`pb_as_of` 按实际来源填写；不要用百度历史值覆盖已有东财值。
+
+- [x] **Step 6: 运行测试确认绿灯**
+
+Run: `.venv/Scripts/python -m pytest tests/data/test_hk_valuation_history.py -q`
+Expected: 全部通过，包括既有 PS、曲线和旧快照失败用例。
+
+- [x] **Step 7: 检查点（不提交）**
+
+Run: `pyright src/data/hk_eastmoney.py src/data/schemas.py src/data/akshare.py`
+Run: `ruff check src/data/hk_eastmoney.py src/data/schemas.py src/data/akshare.py`
+Expected: 零错误；若有存量告警先记录再处理。
+
+### Task 2: 港股估值缓存健康、短 TTL 与旧数据合并
+
+**Files:**
+- Modify: `src/core/pipeline.py:137-246,530-664`
+- Test: `tests/core/test_pipeline_health.py`、`tests/core/test_pipeline.py`
+
+- [x] **Step 1: 写失败测试**
+
+在 `tests/core/test_pipeline_health.py` 追加：
+
+```python
+def test_hk_valuation_health_requires_positive_metric():
+    from data.schemas import ValuationData
+    pipe = Pipeline.__new__(Pipeline)
+    negative_only = ValuationData(symbol="09888.HK", date=date(2026, 10, 23),
+                                  pe_ttm=-56.62)
+    assert pipe._is_healthy("valuation", [negative_only]) is False
+    with_pb = ValuationData(symbol="09888.HK", date=date(2026, 10, 23),
+                            pe_ttm=-56.62, pb=0.66)
+    assert pipe._is_healthy("valuation", [with_pb]) is True
+    a_share = ValuationData(symbol="000001", date=date(2026, 10, 23), pe_ttm=-1)
+    assert pipe._is_healthy("valuation", [a_share]) is True
+
+
+def test_hk_degraded_valuation_uses_short_ttl(tmp_path, mocker):
+    from data.schemas import ValuationData
+    pipe = Pipeline(registry=Registry(), config=Config(config_dir=tmp_path), llm_enabled=False)
+    put = mocker.spy(pipe._cache, "put")
+    row = ValuationData(symbol="09888.HK", date=date(2026, 10, 23), pb=0.66,
+                        cache_degraded=True)
+    pipe._set_cache("09888.HK", "valuation", [row])
+    assert put.call_args.kwargs["ttl_seconds"] == 1800
+
+
+def test_hk_degraded_does_not_overwrite_complete_history(tmp_path, mocker):
+    from data.schemas import ValuationData
+    pipe = Pipeline(registry=Registry(), config=Config(config_dir=tmp_path), llm_enabled=False)
+    old = ValuationData(symbol="09888.HK", date=date(2026, 10, 22), pb=0.65,
+                        pb_history={date(2026, 10, 22): 0.65},
+                        history_source="百度港股估值（近一年）")
+    pipe._set_cache("09888.HK", "valuation", [old])
+    new = ValuationData(symbol="09888.HK", date=date(2026, 10, 23), pb=0.66,
+                        cache_degraded=True)
+    pipe._set_cache("09888.HK", "valuation", [new])
+    cached = pipe._get_cached("09888.HK", "valuation")
+    assert cached is not None and cached[0].pb_history
+
+
+def test_merge_hk_valuation_fills_missing_history_and_ps():
+    from data.schemas import ValuationData
+    old = ValuationData(
+        symbol="09888.HK", date=date(2026, 10, 22), pb=0.65,
+        ps_ttm=1.4, ps_as_of=date(2026, 10, 22), ps_source="东方财富港股估值对比",
+        pb_history={date(2026, 10, 22): 0.65},
+        history_source="百度港股估值（近一年）")
+    new = ValuationData(symbol="09888.HK", date=date(2026, 10, 23),
+                        pe_ttm=-56.62, pb=0.66, cache_degraded=True)
+    merged, used_stale = Pipeline._merge_hk_valuation([old], [new])
+    assert used_stale is True
+    assert merged is not None
+    assert merged[0].pb_history == {date(2026, 10, 22): 0.65}
+    assert merged[0].ps_ttm == 1.4
+    assert any("沿用上次成功数据" in note for note in merged[0].valuation_notes)
+
+
+def test_stale_valuation_used_when_live_returns_none(tmp_path, mocker):
+    from data.schemas import ValuationData
+    mocker.patch("core.pipeline.time.sleep")
+    reg = Registry()
+    reg.register_data_source(FakeSource({"valuation": []}))
+    pipe = Pipeline(registry=reg, config=Config(config_dir=tmp_path), llm_enabled=False)
+    old = ValuationData(symbol="09888.HK", date=date(2026, 10, 22), pb=0.65,
+                        pb_history={date(2026, 10, 22): 0.65},
+                        history_source="百度港股估值（近一年）")
+    pipe._set_cache("09888.HK", "valuation", [old])
+    ctx = pipe.collect("09888.HK", "百度集团", market="hk", data_types=["valuation"],
+                       refresh_cache=True)
+    assert ctx.valuation_data is not None and ctx.valuation_data.pb == 0.65
+    assert ctx.collection_records["valuation"].cache_status == "stale"
+```
+
+- [x] **Step 2: 运行测试确认红灯**
+
+Run: `.venv/Scripts/python -m pytest tests/core/test_pipeline_health.py -q`
+Expected: 新用例失败；健康判据仍接受仅负值、TTL 仍为 86400、无合并/兜底。
+
+- [x] **Step 3: 实现健康判据与常量**
+
+`src/core/pipeline.py` 顶部增加：
+
+```python
+from utils.numbers import is_positive_finite
+
+HK_VALUATION_DEGRADED_TTL = 1800
+```
+
+`_is_healthy` 的 valuation 分支改为：
+
+```python
+        elif data_type == "valuation":
+            is_hk = (symbol or "").endswith(".HK") or all(
+                str(getattr(v, "symbol", "")).endswith(".HK") for v in data)
+            if is_hk:
+                return any(
+                    is_positive_finite(value)
+                    for v in data
+                    for value in (v.pe_ttm, v.pb, v.ps_ttm)
+                )
+            if all(v.pe_ttm is None and v.pb is None for v in data):
+                return False
+```
+
+- [x] **Step 4: 实现旧数据合并与短 TTL**
+
+在 `Pipeline` 内增加：
+
+```python
+    @staticmethod
+    def _merge_hk_valuation(previous: list | None,
+                            current: list | None) -> tuple[list | None, bool]:
+        """用上次成功的同源历史/PS 补当前残缺快照；不覆盖当前有限快照值。"""
+        if not previous or not current:
+            return current, False
+        old, new = previous[0], current[0]
+        used_stale = False
+        if old.history_source and (not new.history_source
+                                   or new.history_source == old.history_source):
+            if not new.pe_history and old.pe_history:
+                new.pe_history = dict(old.pe_history)
+                used_stale = True
+            if not new.pb_history and old.pb_history:
+                new.pb_history = dict(old.pb_history)
+                used_stale = True
+            if used_stale:
+                new.history_source = new.history_source or old.history_source
+                new.valuation_notes.append("历史曲线沿用上次成功数据")
+        if new.ps_ttm is None and old.ps_ttm is not None:
+            new.ps_ttm, new.ps_as_of, new.ps_source = (
+                old.ps_ttm, old.ps_as_of, old.ps_source)
+            used_stale = True
+            new.valuation_notes.append("PS 沿用上次成功数据")
+        return [new], used_stale
+```
+
+在 `fetch_one` 的 `stale_cached` 初始化处扩展：
+
+```python
+            if data_type == "news" and not refresh_cache:
+                stale_cached = self._get_stale_cached(symbol, data_type)
+            elif market == "hk" and data_type == "valuation":
+                stale_cached = self._get_stale_cached(symbol, data_type)
+```
+
+在 `result` 为真、采集记录创建之后、健康校验之前加入：
+
+```python
+                            if data_type == "valuation" and market == "hk":
+                                result, used_stale = self._merge_hk_valuation(
+                                    stale_cached, result)
+                                if used_stale:
+                                    record = record.model_copy(update={
+                                        "error_kind": "live_unavailable",
+                                        "error_message": "估值实时数据不完整，沿用上次成功的同源历史/PS",
+                                    })
+```
+
+在 `_set_cache` 的健康检查之后加入完整缓存保护：
+
+```python
+        if (data_type == "valuation"
+                and getattr(data[0], "symbol", "").endswith(".HK")
+                and getattr(data[0], "cache_degraded", False)):
+            previous = self._get_stale_cached(symbol, data_type)
+            if previous is not None and not getattr(previous[0], "cache_degraded", False):
+                if ((previous[0].pe_history and not data[0].pe_history)
+                        or (previous[0].pb_history and not data[0].pb_history)):
+                    logger.info("港股估值残缺结果不覆盖完整历史缓存 %s", symbol)
+                    return
+```
+
+在 `_store_cache` 的 TTL 计算后加入：
+
+```python
+            if (data_type == "valuation" and symbol.endswith(".HK")
+                    and getattr(data[0], "cache_degraded", False)):
+                ttl = min(ttl, HK_VALUATION_DEGRADED_TTL)
+```
+
+- [x] **Step 5: 运行测试确认绿灯**
+
+Run: `.venv/Scripts/python -m pytest tests/core/test_pipeline_health.py tests/core/test_pipeline.py -q`
+Expected: 全部通过；既有新闻缓存、行业缓存、断路器和健康判据用例不回归。
+
+- [x] **Step 6: 检查点（不提交）**
+
+Run: `pyright src/core/pipeline.py`
+Run: `ruff check src/core/pipeline.py`
+Expected: 零错误。
+
+### Task 3: 负值分位语义与 `negative_equity` 风险提示
+
+**Files:**
+- Modify: `src/analysis/valuation_rules.py:6-38`
+- Modify: `src/analysis/scorers/general.py:45-144`
+- Modify: `src/report/formatter.py:217-226`
+- Modify: `src/report/scoring.py:45-68`
+- Test: `tests/analysis/test_valuation_validity.py`、`tests/analysis/scorers/test_general_scorer.py`、`tests/report/test_five_scoring.py`、`tests/report/test_scoring.py`
+
+- [x] **Step 1: 写失败测试**
+
+在 `tests/analysis/test_valuation_validity.py` 追加：
+
+```python
+def test_hk_known_negative_pe_does_not_score_stale_history_percentile():
+    ctx = history_context(pe=-32.03, pb=2, ps=None)
+    ctx.market = "hk"
+    ctx.enriched_valuation = EnrichedValuation(
+        pe_percentile=10, pb_percentile=10,
+        pe_history_summary={"source": "百度", "sample_count": 130,
+                            "reference": 20.0, "as_of": date(2026, 10, 20)},
+        pb_history_summary={"source": "百度", "sample_count": 130,
+                            "reference": 2.0, "as_of": date(2026, 10, 20)},
+    )
+    detail = GeneralScorer(CONFIG, {}).score_valuation(ctx)[1]
+    assert "PE 分位 10.00%" not in detail
+    assert "PB 分位 10.00%" in detail
+
+
+def test_hk_missing_pe_none_keeps_existing_history_percentile_behavior():
+    ctx = history_context(pe=None, pb=2, ps=None)
+    ctx.market = "hk"
+    ctx.valuation_data.pe_ttm = None
+    ctx.enriched_valuation = EnrichedValuation(
+        pe_percentile=10, pb_percentile=10,
+        pe_history_summary={"source": "百度", "sample_count": 130,
+                            "reference": 20.0, "as_of": date(2026, 10, 20)},
+        pb_history_summary={"source": "百度", "sample_count": 130,
+                            "reference": 2.0, "as_of": date(2026, 10, 20)},
+    )
+    score, detail, _ = GeneralScorer(CONFIG, {}).score_valuation(ctx)
+    assert score is not None
+    assert "PE 分位 10.00%" in detail
+```
+
+在 `tests/analysis/scorers/test_general_scorer.py` 追加：
+
+```python
+def test_negative_equity_adds_risk_without_score_penalty(self, config):
+    ctx = AnalysisContext(
+        symbol="000333", name="测试",
+        financial_data=[FinancialData(
+            symbol="000333", fiscal_quarter=date(2025, 12, 31),
+            total_assets=100, total_equity=-10, common_equity=-10,
+            revenue=100, net_profit=-5, operating_cash_flow=-3)],
+    )
+    score, detail, risks = GeneralScorer(config, {}).score_financial(ctx)
+    assert "negative_equity" in risks
+    assert "2025-12-31" in detail and "-10" in detail
+```
+
+在 `tests/report/test_five_scoring.py` 追加：
+
+```python
+def test_unavailable_valuation_detail_explains_weight_renormalization():
+    summary = compute_score_summary([
+        result("financial", 8), result("technical", 6),
+        result("valuation", None, status="unavailable"),
+        result("industry", 7.2),
+    ])
+    row = next(row for row in summary.score_rows if row["label"] == "估值合理")
+    assert "25%" in row["detail"] and "重新归一" in row["detail"]
+    assert summary.final_score == round((8 * 30 + 6 * 20 + 7.2 * 20) / 70, 1)
+```
+
+- [x] **Step 2: 运行测试确认红灯**
+
+Run: `.venv/Scripts/python -m pytest tests/analysis/test_valuation_validity.py tests/analysis/scorers/test_general_scorer.py tests/report/test_five_scoring.py -q`
+Expected: 新用例失败；港股负 PE 仍使用历史分位、没有 `negative_equity`、估值 N/A 详情没有权重说明。
+
+- [x] **Step 3: 负值分位不计分**
+
+`src/analysis/valuation_rules.py` 中在 `if ctx.market == "hk":` 前计算：
+
+```python
+    pe_known_nonpositive = (val is not None and is_finite_number(val.pe_ttm)
+                            and not is_positive_finite(val.pe_ttm))
+    pb_known_nonpositive = (val is not None and is_finite_number(val.pb)
+                            and not is_positive_finite(val.pb))
+```
+
+港股分支改为：
+
+```python
+        pe_pct = (None if pe_known_nonpositive else
+                  ev.pe_percentile if ev and pe_summary and pe_summary.source
+                  and pe_summary.sample_count >= 120 and is_positive_finite(pe_summary.reference)
+                  and is_valid_percentile(ev.pe_percentile) else None)
+        pb_pct = (None if pb_known_nonpositive else
+                  ev.pb_percentile if ev and pb_summary and pb_summary.source
+                  and pb_summary.sample_count >= 120 and is_positive_finite(pb_summary.reference)
+                  and is_valid_percentile(ev.pb_percentile) else None)
+```
+
+仅对“已知非正”生效；`None` 保留原行为。
+
+- [x] **Step 4: 负权益风险提示**
+
+`src/analysis/scorers/general.py` 的 `score_financial` 在 `latest = rows[0]` 后、指标循环前加入：
+
+```python
+        equity_values = [value for value in (latest.common_equity, latest.total_equity)
+                         if is_finite_number(value)]
+        if any(value < 0 for value in equity_values):
+            risks.append("negative_equity")
+            details.append(
+                f"最新报告期 {latest.fiscal_quarter} 普通股权益/总权益为负"
+                f"（{min(equity_values):,.2f}），存在资不抵债风险；该标签只提示，不扣分")
+```
+
+不要依据估值 `pb` 推断负净资产；本提示只读取财务事实。
+
+- [x] **Step 5: 风险标签显示名与权重说明**
+
+`src/report/formatter.py` 的 `RISK_DISPLAY_NAMES` 增加：
+
+```python
+    "negative_equity": "净资产为负（资不抵债风险）",
+```
+
+`src/report/scoring.py` 的 `compute_score_summary` 在构造 row 前加入：
+
+```python
+        detail = result.score_detail or ""
+        if key == "valuation" and value is None and total_weight:
+            note = "估值维度不适用，原 25% 权重已由其余有效维度按原比例重新归一"
+            detail = f"{detail}；{note}" if detail else note
+```
+
+并把 `rows.append({... "detail": result.score_detail or ""})` 改为 `"detail": detail`。
+
+- [x] **Step 6: 运行测试确认绿灯**
+
+Run: `.venv/Scripts/python -m pytest tests/analysis/test_valuation_validity.py tests/analysis/scorers/test_general_scorer.py tests/report/test_five_scoring.py tests/report/test_scoring.py -q`
+Expected: 全部通过；既有“缺失快照仍展示独立历史分位”的测试保持通过。
+
+- [x] **Step 7: 检查点（不提交）**
+
+Run: `pyright src/analysis/valuation_rules.py src/analysis/scorers/general.py src/report/formatter.py src/report/scoring.py`
+Run: `ruff check src/analysis/valuation_rules.py src/analysis/scorers/general.py src/report/formatter.py src/report/scoring.py`
+Expected: 零错误。
+
+### Task 4: 网页风险标签与静态资源版本
+
+**Files:**
+- Modify: `src/api/static/js/report-renderer.js:77-89`
+- Modify: `src/api/static/index.html`、`src/api/static/js/*.js`
+- Test: `tests/api/test_static.py`
+
+- [x] **Step 1: 写失败测试**
+
+在 `tests/api/test_static.py` 的静态资源版本断言处，把旧版本 `20261025-news-escaping-1` 全部改为新版本 `20261025-valuation-fallback-1`，并增加：
+
+```python
+def test_report_renderer_maps_negative_equity_label():
+    from pathlib import Path
+    text = (Path(__file__).resolve().parents[2] / "src/api/static/js/report-renderer.js").read_text(encoding="utf-8")
+    assert 'negative_equity: "净资产为负（资不抵债风险）"' in text
+```
+
+- [x] **Step 2: 运行测试确认红灯**
+
+Run: `.venv/Scripts/python -m pytest tests/api/test_static.py -q`
+Expected: 版本断言和标签断言失败。
+
+- [x] **Step 3: 增加网页标签并统一版本**
+
+在 `report-renderer.js` 的 `RISK_LABELS` 增加：
+
+```js
+  negative_equity: "净资产为负（资不抵债风险）",
+```
+
+将 `src/api/static` 下所有 `20261025-news-escaping-1` 替换为 `20261025-valuation-fallback-1`，包括 `index.html` 和全部 JS 的 import URL。可用：
+
+```bash
+rg -l '20261025-news-escaping-1' src/api/static
+```
+
+逐一替换；不要改 CSS/布局。
+
+- [x] **Step 4: 运行测试确认绿灯**
+
+Run: `.venv/Scripts/python -m pytest tests/api/test_static.py -q`
+Expected: 全部通过，版本链一致。
+
+### Task 5: 回归、真实服务验收与交付
+
+**Files:**
+- Test: 上述相关测试文件
+- Acceptance artifacts: `tmp/valuation-acceptance/`
+
+- [x] **Step 1: 相关模块回归**
+
+Run: `.venv/Scripts/python -m pytest tests/data/test_hk_valuation_history.py tests/core/test_pipeline_health.py tests/core/test_pipeline.py tests/analysis/test_valuation_validity.py tests/analysis/scorers/test_general_scorer.py tests/report/test_five_scoring.py tests/report/test_scoring.py tests/api/test_static.py -q`
+Expected: 全部通过；保留失败产物，不提交 `tmp/`。
+
+- [x] **Step 2: 范围门禁**
+
+Run: `powershell -NoProfile -Command ".\\scripts\\verify.ps1 -Scope Changed"`
+Expected: Ruff/Pyright/pytest 通过，无未映射文件。若脚本提示未覆盖，按提示用 `-Files` 指定相关源码和测试，并把未覆盖范围写进验收记录；不要表述为全量通过。
+
+- [x] **Step 3: 真实服务生成港股报告**
+
+使用项目标准路径启动隔离 cwd/config：
+
+```powershell
+$root = "D:\code\stock_robot"
+$instance = Join-Path $root "tmp\valuation-acceptance\instance"
+New-Item -ItemType Directory -Force $instance | Out-Null
+$env:PYTHONPATH = Join-Path $root "src"
+Push-Location $instance
+& "$root\.venv\Scripts\stock-robot.exe" run --host 127.0.0.1 --port 8765
+```
+
+启动前确认 8765 端口未被用户现有服务占用；若占用，不要结束用户进程，改用其他端口并记录。生成：
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8765/api/v1/analyze `
+  -ContentType "application/json" `
+  -Body '{"symbol":"09888.HK","refresh_cache":true}'
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8765/api/v1/analyze `
+  -ContentType "application/json" `
+  -Body '{"symbol":"00700.HK","refresh_cache":true}'
+```
+
+预期：
+
+- `09888.HK`：PE(TTM) 为负值并显示“不适用”；PB 与 PS 有值（东财估值对比可用时）；PB 历史分位在百度曲线成功时可用；PE 分位不参与计分；不出现 `negative_equity`（其净资产为正）。
+- `00700.HK`：PE/PB/PS 正常，历史分位正常；作为未回归对照。
+- 若本机 `push2` 仍不可用，报告应通过东财估值对比补位；记录实际响应与来源。
+- 若百度历史失败，记录“历史曲线沿用/历史样本不足”，不得伪造分位。
+
+- [x] **Step 4: 浏览器/报告库验收**
+
+用 Edge 打开真实服务，检查新报告的投资摘要、估值表、数据覆盖与时效、风险标签；1440 与 390 宽屏无水平溢出和脚本错误。网页 `negative_equity` 标签应在 Markdown 与网页都显示中文；估值 N/A 时评分详情显示权重归一说明。
+
+- [x] **Step 5: 清理与交付**
+
+停止隔离服务并释放端口；保留 `tmp/valuation-acceptance/` 产物，不提交。汇总实际改动、验证命令与结果、未验证风险（云端百度可达性、插件 v0.2.2 部署）。在用户确认后，按完整事项合为一笔本地提交；不推送、不合并、不发布。
+
+### 自审清单
+
+- [x] 东财估值对比同时提供 PE/PB/PS，且不新增请求。
+- [x] 负 PE/PB 保留为有限值，前端/Markdown 显示“不适用”，与请求失败区分。
+- [x] 已知非正 PE/PB 不使用历史分位计分；`None` 行为不变。
+- [x] `negative_equity` 仅由财务权益证据触发，只提示不扣分。
+- [x] 估值 N/A 时报告说明 25% 权重重新归一。
+- [x] 降级结果 30 分钟 TTL、不覆盖完整缓存、旧同源历史/PS 可合并。
+- [x] A 股估值路径与 A 股信号规则未改变。
+- [x] 真实 09888/00700 报告和网页验收完成。
+- [x] 未推送、未合并、未发布。
+
+
+### Codex 续接实施与验证（2026-10-26）
+
+- 续接目录为 `.claude/worktrees/hk-valuation-fix`、分支 `fix/hk-valuation-completeness`，基线 `e9bbcb5`。Claude 已完成 Task 1 与部分 Task 2 的源码和测试，但未提交；本次续接沿用其已确认设计，完成剩余计分、风险提示、权重说明、网页与验收，不重做已通过的来源调查，不改 README/AGENTS、A 股估值路径、交易信号或五维权重。
+- 取数保留东财有限非正值，复用同一估值对比请求补 PE/PB/PS，保留分项日期及来源说明。百度仍为唯一近一年历史源，没有新增第三方依赖或收费源。新增可选 `failed_components` 元信息，区分具体接口故障与成功响应明确无值，避免因其他组件失败错误沿用旧 PS；旧模型缺字段按空列表兼容。
+- 缓存保留两种事实：`latest` 是当前结果（降级最多 1800 秒），`last_complete` 是上次健康且非降级的完整兜底。复制保留原数据库写入时间和采集 metadata；清理/按标的或类型失效覆盖两键，无数据库结构迁移。只有 collect 合并一次，同一结果用于上下文和存储；明确空 PS 不从更早完整缓存复活。沿用来源、日期可见；普通读取不删除仍可用于失败兜底的过期值。
+- 非正指标不作为成功估值缓存直接命中，但最新有限事实可保留作失败兜底，避免下次请求复活旧正值；合法非正事实不触发源头熔断，可选 PS/历史故障不改变这一点。百度曲线末值日期早于已知快照时，不覆盖较新快照，尤其不以旧正 PE 替代新负 PE。永久 daily TTL 配置下，降级结果仍强制 1800 秒。
+- 负 PE/PB 的历史分位跳过、None 保留原独立历史行为；负权益标签只根据最新可信且来源明确的财务权益事实产生，不额外扣分。估值 N/A 且实际存在综合分时说明原 25% 权重按原比例重新归一。中文风险标签同时覆盖结构化和旧 Markdown 视图，缓存版本为 `20261026-hk-valuation-1`。
+- 逐项日期修正贯穿分析 metrics、Markdown、payload/display 和数据质量字段；显式未知日期不借另一指标或汇总日期补齐，旧港股未携带逐项日期字段的对象保留原兼容逻辑。
+- 测试先行：初接数据/缓存 57 项通过；新增首组缓存回归红灯 4 项，修正后 71 项通过。评分新回归红灯 11 项，网页标签红灯 1 项；后续独立审查再复现缓存/断路器/日期边界并补回归。初次 Changed 门禁在新增测试的 4 处模型字典类型上失败，已改为显式模型实例；最终所有改动 Python 文件 Ruff/Pyright 零错误，差异格式检查通过。
+- 按 Changed 计划执行 `tests/analysis tests/core tests/data tests/report tests/api/test_static.py tests/api/test_app.py` 得 **1528 通过，4 条既有依赖弃用警告**（74.84 秒）；审查修正后复核 `tests/core tests/data/test_cache.py tests/data/test_hk_valuation_history.py tests/report tests/analysis/test_valuation_validity.py tests/api/test_app.py tests/api/test_static.py` 得 **645 通过，4 条警告**（42.06 秒），最终合并说明调整后再复核 `tests/core/test_pipeline_health.py` **20 通过**。各批次有重叠，不相加作为独立用例数，未运行 Full。日志分别在 `tmp/pytest/hk-valuation-scope-19692-8c30bb05cc9b4c3d90d3c130a22ffd3f/`、`hk-final-affected-16816-113f963f8a394564a4d94faa8a479156/`、`hk-merge-last-36716-62216eb6aad742a09fa32f5b1421623b/`。
+- 按项目分级做独立规格与质量审查，修正后两项最终复审均无剩余 P1/P2。实际序列复核覆盖旧正缓存→新非正→网络失败、非正伴随可选请求失败、明确无 PS→对比失败的报告/缓存一致性、旧正曲线→较新负快照。
+- 真实服务通过主仓 `.venv/Scripts/stock-robot.exe run --host 127.0.0.1 --port 8765`、工作树 PYTHONPATH 与隔离 cwd/config 启动，关闭推送和定时采集。首次请求赶在监听就绪前连接被拒，健康检查通过后正常生成两份报告，不把该启动时序问题算作产品接口失败。09888.HK 实测 PE=-56.28（不适用）、PB=0.66、PS=1.4373（2026-10-23）、PB 分位0.40%（有效244样本），PE 分位不参与，未出现 negative_equity；00700.HK PE=13.23、PB=2.70、PS=3.9234，历史分位可用。两者无港股交易信号。数值为当次返回，不作为固定市场事实。
+- Edge 实际报告库、Markdown 下载、1440/390 与一次真实聊天通过，无水平溢出或脚本错误；人工查看窄屏截图确认负 PE 和分位不适用、PB/PS 日期、原评分依据保留。独立 DOM 检查验证新风险标签中文化；没有伪造真实股票的负权益标签。完整响应、脚本、截图和下载在忽略目录 `tmp/valuation-acceptance/`，不提交。
+- 最终服务重启后再次以缓存路径生成两份报告，逐项 metrics 日期与 display.dates 一致，估值原采集时间仍分别为 11:51:46 / 11:52:06，没有冒充 12:06 的报告生成时间；Edge 报告库、下载、宽窄屏和会话再次通过。摘要在 `tmp/valuation-acceptance/final-acceptance-summary.json`。隔离服务已停止，8765 端口已释放。
+- 交付状态：实现与正式设计/实施文档均留在原工作树，等待用户确认后合为一笔本地提交；未推送、未合并、未发布。主仓原有文档改动及 AGENTS 恢复操作保留，未覆盖；未运行全量门禁。插件固定后端 v0.2.2，云端机器人尚不包含本修复；历史仍依赖百度，未来网络故障只能显式降级，不能保证实时数据永不缺失。
+
+
+## 2026-10-26 财务、行情与 A 股新闻缓存可靠性（用户已确认）
+
+范围：延续上述估值可靠性工作，在原 Claude 工作树实施。覆盖 A/HK 财务与行情、A 股新闻；不改变已完成港股估值、港股新闻、行业专用缓存、评分公式或交易信号。没有新数据源、依赖、收费服务或后台轮询。
+
+已确认规则：正常 TTL 保持财务7天、行情1天、A股新闻6小时；接口故障/未知缺项降级最多1800秒后由后续报告请求重试，主动刷新可跳过等待，沿用已有来源和每源最多两轮尝试。明确不适用/正常无结果采用正常 TTL，不能仅凭字段少推定正常。历史参考最大年龄（自原采集时间起）为财务30天、行情7天、A股新闻24小时；新闻条目仍按原30天窗口过滤。不能证明采集时间、未来采集时间或超过上限不采用旧参考。
+
+接口与实施分工：
+1. `core/resilient_collection.py` 封装三类数据的结果状态、缓存与参考选择；`DataCollectionRecord.cache_state` 为 complete/degraded/not_applicable/unknown。`CacheManager.get_entry` 原子读取原值、created_at、ttl与metadata，过期不删除。当前结果和last_complete分离，无数据库结构迁移；财报不跨期补值、行情不跨源拼接。无有效新事实时不把旧数据写入当前上下文。
+2. `AnalysisContext.reference_data` 保存 `DataReference(data_type, record, financial_data, price_data, news_data, reason)`，与当前事实完全独立；只有报告的数据覆盖与时效区展示精简真实值、来源和原日期。`build_data_quality(...,include_references=False)`供AI事实提示使用，旧参考不参与评分/信号，也不伪装当前事实送入AI。
+3. 行情在来源选择前校验OHLC/有限值/日期/重复冲突；主源不合格则尝试现有备用。可选minimum_end_date/minimum_points来自已保存窗口历史，防止足60条就接受倒退/截短；无已知历史保持原60门槛。全部不足仍返回最佳合法整份，由管道标为降级。
+4. 主会话负责模型、缓存收集器、Pipeline接线与集成；行情与报告显示按独立文件分工并行实施。先回归红灯，后实现；原文件上的港股估值未提交改动保留，不按任务拆提交。
+5. 依次验证完整→部分→再次命中/1800秒后重试/手动刷新、过期连续失败、参考年龄上限/未知时间、报告与缓存一致、正常空新闻、显式不适用、A/HK行情主备校验；相关Ruff/Pyright/pytest，不跑Full。独立规格与质量审查；真实服务、报告库、Markdown、宽窄屏和会话验收，不修改页面布局或新增控件。
+
+### 实施与验收结果
+
+- 已实现 `latest` 当前事实、`last_complete` 完整快照及 `last_attempt` 失败等待状态分离。没有新事实的失败只记录等待状态，不覆盖已取得的部分事实；正常空新闻与明确不适用沿用正常 TTL。参考年龄依据可追溯的原采集时间，未知或未来时间不能采用；旧缓存升级为完整备份前检查来源、时间与已有备份的新旧，防止旧格式缓存覆盖可信备份。同标的同类采集串行，避免慢请求覆盖新结果；日期边界统一使用香港时区。
+- A/HK 行情在来源选择前检查有限值、OHLC、日期及重复冲突，沿用现有备用源及请求预算。最新截止日期与完整窗口覆盖分别约束后续结果，拒绝倒退或覆盖骤减，不跨源拼接。
+- 历史参考只在数据覆盖与时效区展示，并标记 `reference_only`。批量解读排除参考；ReAct 使用实际 LangChain `content_and_artifact` 接口，模型 content 过滤参考，用户 artifact 保留完整报告。历史工具消息与工具选择摘要同样过滤，原始存档不改写。解析失败且含参考标记的旧消息不向模型暴露原值。
+- 测试先行及独立规格、质量审查均已完成；最终两项审查无剩余 P1/P2。新增回归覆盖原采集时间、参考年龄、等待/强刷、正常空结果、永久 TTL 降级上限、并发及模型/存档隔离。
+- 执行 `scripts/verify.ps1 -Scope Changed -VenvPath D:/code/stock_robot/.venv`：Ruff/Pyright 通过，所选 pytest 首轮 **1750 通过、3 失败**，13 条既有依赖警告。失败均为既有行情测试使用固定 2026 年 1 月样本却未指定请求窗口；新增日期校验正确拒绝窗口外数据，测试已显式设置对应起止日期。修正后相关范围 **45 通过**，最终 provenance/类型回归 **34 通过**；另有模型隔离相关 **51 通过**、核心兼容 **88 通过**。批次有重叠，不相加；最终全部改动 Python 文件 Ruff/Pyright 零错误。未运行 Full，也未将首轮门禁表述为全部通过。详细日志为 `tmp/reliability-verify.log` 及 `tmp/pytest/` 对应独立目录。
+- 按真实启动路径运行隔离服务，先正常联网生成 `600519` 与 `00700.HK` 报告，再仅对验证服务进程配置不可达代理，触发实际数据源失败。两市场财务/技术评分均为空、操作信号为空，旧值只作历史参考；仍有事实的其他维度按原规则继续计分。逐项对比成功与失败报告，财务/行情参考原采集时间完全一致，未被失败时间或报告生成时间改写。
+- Edge 在真实服务完成报告库查看、Markdown 下载、1440/390 宽屏检查及真实 AI 发送/工具响应，无水平溢出或页面脚本错误；人工查看窄屏截图确认参考标签、来源、日期与指标可读。真实工具 artifact 保留参考，重新打开归档、切换新会话后返回均能恢复完整研报。完整响应、脚本、下载和截图留在忽略目录 `tmp/reliability-acceptance/`，验收结果为 `browser-result.json`、`reopen-result.json`；模型输入隔离另由实际 LangChain ToolMessage 回归验证，不仅凭最终 AI 文案判断。
+- 验收脚本最初按股票代码查找实际被截短的会话标题导致超时，后改按真实 session_id；PowerShell 自动将 ISO 时间解析为日期造成字符串断言误报，后用原始 JSON 字段逐项对比通过。这两项为验收脚本问题，没有据此修改产品代码。
+- 交付仍在 Claude 原工作树，保留前序港股估值改动，等待用户确认后按完整事项合为一笔本地提交；未推送、未合并、未发布，未修改 README/AGENTS。现有数据源仍可能不可达，本次保证明确降级、后续重试与参考隔离，不保证实时数据永不缺失。插件云端部署和主动打断 SSE 的专项验收未在本轮执行。
+
+### 本地交付收敛（2026-10-26）
+
+用户已授权合并回主仓 `dev`。本事项源码、测试及两份在维护文档收敛为一笔本地提交，按同一基线快进合并；主仓两份文档原内容已逐项核对并备份，保留其他任务的黄金报告文档。复用上述同一代码状态已通过的范围检查和真实验收，补暂存差异格式检查；遵照用户不跑全量测试的要求，本轮不执行 Full，不能表述为全量门禁通过。隔离服务已停止，8765 端口已释放；临时产物不提交，不推送、不发布，不改 README/AGENTS。

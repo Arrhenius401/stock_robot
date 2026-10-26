@@ -1,5 +1,5 @@
 // 结构化股票报告共享渲染器：不读取业务状态，也不发起网络请求。
-import { renderMarkdown } from "./markdown.js?v=20261025-news-escaping-1";
+import { renderMarkdown } from "./markdown.js?v=20261026-hk-valuation-1";
 import { el, kv, priceBar, statusBadge } from "./components.js";
 
 const DIMENSIONS = [
@@ -76,6 +76,7 @@ Object.assign(METRIC_LABELS, {
 
 const RISK_LABELS = {
   roe_low: "净资产收益率偏低",
+  negative_equity: "净资产为负（资不抵债风险）",
   high_debt: "资产负债率偏高",
   cash_flow_mismatch: "经营现金流与净利润不匹配",
   high_pe_premium: "市盈率分位偏高",
@@ -302,7 +303,7 @@ const REPORT_TOKEN_LABELS = {
 
 export function localizeReportMarkdown(markdown) {
   const text = String(markdown || "");
-  return text.replace(/\b(?:roe_low|high_debt|cash_flow_mismatch|high_pe_premium|industry_weak_margin|bearish_ma|volume_bearish|major_negative_news|bull|shake|bear|undervalued|overvalued|invalid|positive|negative|neutral|na)\b/g,
+  return text.replace(/\b(?:roe_low|negative_equity|high_debt|cash_flow_mismatch|high_pe_premium|industry_weak_margin|bearish_ma|volume_bearish|major_negative_news|bull|shake|bear|undervalued|overvalued|invalid|positive|negative|neutral|na)\b/g,
     (token) => REPORT_TOKEN_LABELS[token] || token);
 }
 

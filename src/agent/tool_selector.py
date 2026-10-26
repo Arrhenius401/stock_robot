@@ -4,7 +4,7 @@ import re
 from typing import Any
 
 from agent.memory import TaskStep
-from agent.tools import ToolRegistry
+from agent.tools import ToolRegistry, model_tool_data
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +107,7 @@ class ToolSelector:
             recent = tool_results[-3:]
             lines = []
             for r in recent:
-                data = str(r.get("data") or r.get("error") or "")[:500]
+                data = str(model_tool_data(r.get("data") or r.get("error") or ""))[:500]
                 lines.append(f"  [{r.get('step_id', '')}] {r.get('status', '')}: "
                              f"{data}")
             parts.append("## 最近工具结果\n" + "\n".join(lines))

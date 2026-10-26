@@ -1,13 +1,14 @@
 from datetime import date, timedelta
 from unittest.mock import MagicMock
 
+import pytest
+
 from core.pipeline import Pipeline
 from core.registry import Registry
 from data.base import DataSource
 from data.schemas import (
     AnalysisContext,
     AnalysisResult,
-    DataSufficiency,
     FinancialData,
     IndustryData,
     NewsData,
@@ -18,6 +19,12 @@ from data.schemas import (
 )
 from llm.base import LLMBackend
 from utils.config import Config
+
+
+@pytest.fixture(autouse=True)
+def isolate_default_pipeline_state(tmp_path, monkeypatch):
+    """默认构造也隔离真实运行缓存，避免失败等待状态串入其他用例。"""
+    monkeypatch.setattr("utils.config.project_state_dir", lambda: tmp_path / "state")
 
 
 def make_test_registry():
@@ -308,8 +315,8 @@ class TestCacheHealth:
 
         assert pipe._get_cached("000001", "news") is None
 
-    def test_news_uses_stale_cache_when_live_result_degraded(self, tmp_path, mocker):
-        """实时舆情为空时，使用过期旧缓存兜底并标注来源"""
+    def test_successful_empty_news_does_not_revive_legacy_news(self, tmp_path, mocker):
+        """成功空新闻是正常结果，不复活无采集时间且已超窗口的旧新闻"""
         class EmptyNewsSource(DataSource):
             def supports(self, market, data_type):
                 return data_type == "news"
@@ -355,19 +362,9 @@ class TestCacheHealth:
 
         ctx = pipe.collect("000001", "平安银行", data_types=["news"])
         assert ctx.raw_sentiment is not None
-        assert len(ctx.raw_sentiment.items) == 3
-        assert ctx.raw_sentiment._from_stale_cache is True
-
-        from data.enrichers.sentiment_enricher import SentimentEnricher
-
-        enriched = SentimentEnricher().enrich(AnalysisContext(
-            symbol="000001", name="平安银行", raw_sentiment=ctx.raw_sentiment,
-            sufficiency=DataSufficiency(),
-        ))
-        assert enriched.sufficiency is not None
-        assert "缓存仅作参考" in enriched.sufficiency.sentiment.reason
-        assert enriched.enriched_sentiment is not None
-        assert enriched.enriched_sentiment.risk_score is None
+        assert ctx.raw_sentiment.items == []
+        assert ctx.collection_records["news"].cache_state == "complete"
+        assert ctx.reference_data == {}
 
     def test_cache_served_when_breaker_open(self, tmp_path, mocker):
         """断路器打开时，collect 仍从本地缓存返回健康数据"""

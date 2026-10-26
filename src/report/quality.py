@@ -2,9 +2,12 @@
 from datetime import date
 from typing import Any
 
-from data.schemas import AnalysisContext, AnalysisResult
+from analysis.valuation_rules import valuation_snapshot_dates
+from data.schemas import AnalysisContext, AnalysisResult, DataReference
 from data.validation import FINANCIAL_ANALYSIS_FIELDS, has_finite_facts
+from report.formatter import format_metric_value
 from report.scoring import DIM_WEIGHTS, participation_score
+from utils.numbers import is_finite_number
 
 _DIMENSIONS = (
     ("financial", "财务", "financial", "financial", DIM_WEIGHTS["financial"]),
@@ -67,13 +70,11 @@ def _sample_dates(ctx: AnalysisContext, key: str) -> tuple[str, str]:
         if dates:
             sample = f"{len(dates)}个估值样本（{min(dates).isoformat()} 至 {max(dates).isoformat()}）"
         elif ctx.valuation_data:
-            sample = "单日估值快照"
+            periods = valuation_snapshot_dates(ctx)
+            known = {period for period in periods.values() if period is not None}
+            sample = "分项估值快照" if len(known) > 1 else "单日估值快照" if known else "估值快照（日期未记录）"
         if ctx.valuation_data:
-            val = ctx.valuation_data
-            periods = [val.pe_as_of, val.pb_as_of, val.ps_as_of]
-            if ctx.market == "hk":
-                periods.append(val.date)
-            dates.extend(period for period in periods if period is not None)
+            dates.extend(period for period in valuation_snapshot_dates(ctx).values() if period is not None)
     elif key == "industry":
         count = ctx.enriched_industry.peer_count if ctx.enriched_industry else len(ctx.industry_data.peers) if ctx.industry_data else 0
         if count:
@@ -99,7 +100,56 @@ def _sample_dates(ctx: AnalysisContext, key: str) -> tuple[str, str]:
     return sample, max(dates).isoformat() if dates else "未记录"
 
 
-def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult]) -> dict[str, Any]:
+def _reference_fields(reference: DataReference) -> list[dict[str, Any]]:
+    """仅构建历史参考的显示字段，不修改当前事实、充分度或计分结果。"""
+    note = "以下为此前取得的数据，仅供历史参考，不进入本次综合评分或操作信号"
+    if reference.reason:
+        note = f"{reference.reason}；{note}"
+    values = [
+        ("历史参考（不计分）", note),
+        ("参考原采集时间", reference.record.collected_at.isoformat() if reference.record.collected_at else "未记录"),
+        ("参考数据来源", reference.record.source or "未记录"),
+    ]
+    if reference.data_type == "financial" and reference.financial_data:
+        latest = max(reference.financial_data, key=lambda row: row.fiscal_quarter)
+        values.append(("参考报告期", latest.fiscal_quarter.isoformat()))
+        facts = [
+            f"{label} {format_metric_value(key, getattr(latest, key))}"
+            for key, label in (("revenue", "营业收入"), ("net_profit", "净利润"),
+                               ("total_assets", "总资产"), ("total_equity", "净资产"),
+                               ("operating_cash_flow", "经营现金流"))
+            if is_finite_number(getattr(latest, key))
+        ]
+        if facts:
+            currency = latest.report_currency or "未记录，不推断换汇"
+            values.append(("参考财务指标", "；".join(facts) + f"；金额币种：{currency}"))
+    elif reference.data_type == "price" and reference.price_data:
+        rows = reference.price_data
+        latest = max(rows, key=lambda row: row.trade_date)
+        first = min(row.trade_date for row in rows)
+        values.extend([
+            ("参考交易区间", f"{len(rows)}条日线（{first.isoformat()} 至 {latest.trade_date.isoformat()}）"),
+            ("参考末收盘价", str(format_metric_value("latest_close", latest.close))),
+        ])
+    elif reference.data_type == "news" and reference.news_data:
+        news = reference.news_data
+        raw = news._raw_sentiment
+        messages = ([(item.publish_date, item.title) for item in
+                     sorted(raw.items, key=lambda item: item.publish_date, reverse=True)] if raw is not None
+                    else [(None, title) for title in news.headlines])
+        periods = [period for period, _title in messages if period is not None]
+        values.extend([
+            ("参考消息日期", max(periods).isoformat() if periods else "未记录"),
+            ("参考消息数量", f"{len(messages)}条（最多展示5条标题）"),
+        ])
+        values.extend((f"参考消息 {index}", f"{period.isoformat() if period else '发布日期未记录'} · {title}")
+                      for index, (period, title) in enumerate(messages[:5], 1))
+    # 网页继续显示原文；仅 Markdown 表格针对这些外部纯文本做转义。
+    return [{"label": label, "value": value, "plain_text": True, "reference_only": True} for label, value in values]
+
+
+def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
+                       include_references: bool = True) -> dict[str, Any]:
     """五维按原权重表达数据覆盖，A 股交易信号保持原三核心门槛。"""
     result_map = {r.dimension: r for r in results}
     records = getattr(ctx, "collection_records", {})
@@ -139,17 +189,20 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult]) -> d
             pending.append(f"{title}：数据截止未记录，需核对时效")
         if sample == "未记录" and suff.sample_count:
             sample = f"{suff.sample_count}个样本"
-        fields = [
+        fields: list[dict[str, Any]] = [
             {"label": "样本范围", "value": sample},
             {"label": "数据来源", "value": getattr(record, "source", "") or "未记录"},
             {"label": "数据截止", "value": cutoff},
         ]
         if key == "valuation" and hk and ctx.valuation_data:
             valuation = ctx.valuation_data
+            snapshot_dates = valuation_snapshot_dates(ctx)
+            source = getattr(record, "source", "") or valuation._data_source or "未记录"
             fields.append({"label": "估值字段来源", "value": "；".join(filter(None, [
-                f"PE/PB 快照：{getattr(record, 'source', '') or '未记录'}（{valuation.date}）",
+                f"PE(TTM) 快照：{source}（{snapshot_dates['pe_ttm'] or '未记录'}）" if valuation.pe_ttm is not None else "PE(TTM) 快照：未取得",
+                f"PB 快照：{source}（{snapshot_dates['pb'] or '未记录'}）" if valuation.pb is not None else "PB 快照：未取得",
                 f"历史分位：{valuation.history_source}，各指标日期与样本数见估值说明" if valuation.history_source else "",
-                f"PS(TTM)：{valuation.ps_source}（{valuation.ps_as_of}）" if valuation.ps_ttm is not None else "",
+                f"PS(TTM)：{valuation.ps_source or '未记录'}（{valuation.ps_as_of or '未记录'}）" if valuation.ps_ttm is not None else "",
             ]))})
         if key == "financial" and ctx.market in {"a-shares", "hk"} and ctx.financial_data:
             latest = max(ctx.financial_data, key=lambda row: row.fiscal_quarter)
@@ -211,6 +264,9 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult]) -> d
         if key == "valuation" and ctx.enriched_valuation and not ctx.enriched_valuation.validated:
             fields.append({"label": "分析限制", "value": "历史估值序列未经实测锚定校验"})
             pending.append("估值：核对历史估值序列的锚定口径")
+        reference = ctx.reference_data.get(source_key) if include_references else None
+        if reference is not None and reference.data_type == source_key:
+            fields.extend(_reference_fields(reference))
         dimensions.append({"key": key, "title": title, "status": _STATUS[level], "fields": fields})
     has_scored = any(participation_score(result_map.get(key)) is not None
                      for key in DIM_WEIGHTS if key != "sentiment")
