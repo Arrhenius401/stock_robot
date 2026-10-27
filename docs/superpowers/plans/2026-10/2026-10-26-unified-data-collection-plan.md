@@ -14,7 +14,7 @@
 
 - 日常只跑改动范围检查；`.\scripts\verify.ps1 -Scope Full` 只在合并、发布或用户明确要求时执行。
 - Python 命令显式使用 `.venv/Scripts/python.exe`、`.venv/Scripts/ruff.exe`、`.venv/Scripts/pyright.exe`。
-- pytest 使用 PID＋GUID 唯一临时目录；不要复用固定目录。
+- pytest 使用 PID＋GUID 唯一临时目录；不要复用固定目录。手动执行 pytest 前必须先运行 `New-Item -ItemType Directory -Path $run -Force | Out-Null`；否则 `--basetemp="$run/basetemp"` 的父目录不存在，pytest 会在 fixture 初始化时报 `FileNotFoundError`。
 - 提交按完整事项组织；本计划建议 4 笔：设计/计划文档、基础契约、收集器迁移、入口门禁。每笔提交前运行对应范围检查和 `git diff --cached --check`。
 - 不推送、不合并、不发布；不修改港股估值、港股新闻、行业、指数、雷达和辅助补取的业务逻辑。
 
@@ -98,6 +98,7 @@ def test_fetch_result_returns_rows_and_diagnostic():
 
 ```powershell
 $run = "tmp/pytest/phase0-task1-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
 .\.venv\Scripts\python.exe -m pytest tests/data/test_schemas.py tests/data/test_base.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
 ```
 
@@ -172,6 +173,7 @@ class DataSource(ABC):
 
 ```powershell
 $run = "tmp/pytest/phase0-task1-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
 .\.venv\Scripts\python.exe -m pytest tests/data/test_schemas.py tests/data/test_base.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
 ```
 
@@ -361,6 +363,7 @@ def test_legacy_fetch_sites_declare_current_migration_ledger():
 
 ```powershell
 $run = "tmp/pytest/phase0-task2-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
 .\.venv\Scripts\python.exe -m pytest tests/data/test_collection_policies.py tests/core/test_collection_contract.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
 ```
 
@@ -667,6 +670,7 @@ def policy_for(market: str, kind: str) -> CollectionPolicy | None:
 
 ```powershell
 $run = "tmp/pytest/phase0-task2-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
 .\.venv\Scripts\python.exe -m pytest tests/data/test_collection_policies.py tests/core/test_collection_contract.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
 ```
 
@@ -768,6 +772,7 @@ def test_migrated_capability_is_rejected_by_legacy_branch(tmp_path, monkeypatch)
 
 ```powershell
 $run = "tmp/pytest/phase0-task3-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
 .\.venv\Scripts\python.exe -m pytest tests/data/test_akshare.py tests/core/test_pipeline.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
 ```
 
@@ -922,6 +927,7 @@ class FetchResultMixin:
 
 ```powershell
 $run = "tmp/pytest/phase0-task3-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
 .\.venv\Scripts\python.exe -m pytest tests/data/test_akshare.py tests/core/test_pipeline.py tests/core/test_pipeline_health.py tests/core/test_report_data.py tests/core/test_resilient_collection.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
 ```
 
@@ -1168,6 +1174,7 @@ def test_late_registered_bad_source_returns_contract_error_without_cache(tmp_pat
 
 ```powershell
 $run = "tmp/pytest/phase0-task4-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
 .\.venv\Scripts\python.exe -m pytest tests/core/test_resilient_collection.py tests/core/test_collection_contract.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
 ```
 
@@ -1647,6 +1654,7 @@ class ResilientCollector:
 
 ```powershell
 $run = "tmp/pytest/phase0-task4-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
 .\.venv\Scripts\python.exe -m pytest tests/core/test_resilient_collection.py tests/core/test_collection_contract.py tests/core/test_pipeline.py tests/core/test_pipeline_health.py tests/core/test_report_data.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
 ```
 
@@ -1662,6 +1670,7 @@ $run = "tmp/pytest/phase0-task4-$PID-$([guid]::NewGuid().ToString('N'))"
 
 ```powershell
 $run = "tmp/pytest/phase0-task4-reg-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
 .\.venv\Scripts\python.exe -m pytest tests/core tests/report/test_reference_quality.py tests/agent/test_reference_isolation.py tests/data/test_akshare.py tests/data/test_a_financial_fallback.py tests/data/test_price_source_validation.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
 ```
 
@@ -1806,6 +1815,7 @@ def test_contract_changes_pull_related_tests(path, expected):
 
 ```powershell
 $run = "tmp/pytest/phase0-task5-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
 .\.venv\Scripts\python.exe -m pytest tests/test_data_entrypoints.py tests/test_verify_script.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
 ```
 
@@ -2006,6 +2016,7 @@ $env:PYTHONPATH = "$(Resolve-Path .\src);$(Get-Location)"
 
 ```powershell
 $run = "tmp/pytest/phase0-task5-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
 .\.venv\Scripts\python.exe -m pytest tests/test_data_entrypoints.py tests/test_verify_script.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
 $env:PYTHONPATH = "$(Resolve-Path .\src);$(Get-Location)"
 .\.venv\Scripts\python.exe .\scripts\check-data-entrypoints.py
@@ -2054,6 +2065,7 @@ git commit -m "chore(门禁): 增加数据取数入口检查与迁移台账"
 
 ```powershell
 $run = "tmp/pytest/phase0-accept-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
 .\.venv\Scripts\python.exe -m pytest tests/core tests/data tests/report/test_reference_quality.py tests/agent/test_reference_isolation.py tests/index/test_collector.py tests/backtest -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
 ```
 

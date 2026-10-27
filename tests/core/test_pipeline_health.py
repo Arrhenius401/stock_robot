@@ -7,10 +7,11 @@ from core.pipeline import Pipeline
 from core.registry import Registry
 from data.base import DataSource
 from data.schemas import FinancialData, IndustryData, PriceData
+from tests.support import FetchResultMixin
 from utils.config import Config
 
 
-class FakeSource(DataSource):
+class FakeSource(FetchResultMixin, DataSource):
     """模拟数据源：可配置各类型返回值与失败次数（前 N 次调用抛网络错误）"""
 
     def __init__(self, returns: dict[str, list], fail_first: int = 0):

@@ -18,6 +18,7 @@ from data.schemas import (
     ValuationData,
 )
 from llm.base import LLMBackend
+from tests.support import FetchResultMixin
 from utils.config import Config
 
 
@@ -29,7 +30,7 @@ def isolate_default_pipeline_state(tmp_path, monkeypatch):
 
 def make_test_registry():
     """构建测试用注册表"""
-    class MockDataSource(DataSource):
+    class MockDataSource(FetchResultMixin, DataSource):
         def supports(self, market, data_type):
             return True
 
@@ -44,7 +45,18 @@ def make_test_registry():
             elif data_type == "industry":
                 return [IndustryData(symbol=symbol, industry="银行", sector="金融", peers=["600036"])]
             elif data_type == "news":
-                return [NewsData(symbol=symbol, date=date(2026,7,1), headlines=["利好公告"])]
+                news = NewsData(
+                    symbol=symbol, date=date(2026, 7, 1), headlines=["利好公告"]
+                )
+                news._raw_sentiment = RawSentimentData(
+                    symbol=symbol,
+                    fetch_date=date(2026, 7, 1),
+                    items=[RawSentimentItem(
+                        title="利好公告", source="news", publish_date=date(2026, 7, 1)
+                    )],
+                )
+                return [news]
+
             return []
 
     reg = Registry()
@@ -317,7 +329,7 @@ class TestCacheHealth:
 
     def test_successful_empty_news_does_not_revive_legacy_news(self, tmp_path, mocker):
         """成功空新闻是正常结果，不复活无采集时间且已超窗口的旧新闻"""
-        class EmptyNewsSource(DataSource):
+        class EmptyNewsSource(FetchResultMixin, DataSource):
             def supports(self, market, data_type):
                 return data_type == "news"
 
@@ -470,3 +482,28 @@ class TestPipelineIndustryIntegration:
         # 至少有一个维度有分数
         scored = [r for r in results if r.score is not None]
         assert len(scored) > 0
+
+
+def test_migrated_capability_is_rejected_by_legacy_branch(tmp_path, monkeypatch):
+    from core.registry import Registry
+    from tests.support import FetchResultMixin
+
+    class Source(FetchResultMixin, DataSource):
+        def __init__(self):
+            self.calls = []
+
+        def supports(self, market, data_type):
+            return True
+
+        def fetch(self, symbol, **kwargs):
+            self.calls.append(kwargs)
+            return []
+
+    source = Source()
+    registry = Registry()
+    registry.register_data_source(source)
+    pipeline = Pipeline(registry, Config(config_dir=tmp_path), llm_enabled=False)
+    monkeypatch.setattr("core.resilient_collection.supports", lambda market, kind: False)
+    ctx = pipeline.collect("000001", "测试", data_types=["financial"])
+    assert ctx.collection_records["financial"].error_kind == "contract_error"
+    assert source.calls == []

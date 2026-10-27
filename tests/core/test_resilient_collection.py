@@ -14,10 +14,11 @@ from data.schemas import (
     RawSentimentData,
     RawSentimentItem,
 )
+from tests.support import FetchResultMixin
 from utils.config import Config
 
 
-class Source(DataSource):
+class Source(FetchResultMixin, DataSource):
     def __init__(self, rows):
         self.rows = rows
         self.calls = []

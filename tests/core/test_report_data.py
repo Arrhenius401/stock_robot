@@ -8,6 +8,7 @@ from core.registry import Registry
 from data.cache import CacheManager
 from data.enrichers.price_enricher import PriceEnricher
 from data.schemas import AnalysisContext, AnalysisResult, PriceData
+from tests.support import FetchResultMixin
 from utils.config import Config
 
 
@@ -101,7 +102,7 @@ def test_mutated_invalid_price_rejected(tmp_path, field, value):
 def test_collection_source_roundtrip(tmp_path, monkeypatch):
     from data.base import DataSource
 
-    class ShortSource(DataSource):
+    class ShortSource(FetchResultMixin, DataSource):
         def supports(self, market, data_type):
             return data_type == "price"
 
@@ -145,7 +146,7 @@ def test_stale_retains_original_source(tmp_path):
         RawSentimentItem,
     )
 
-    class EmptySource(DataSource):
+    class EmptySource(FetchResultMixin, DataSource):
         def supports(self, market, data_type):
             return data_type == "news"
 
@@ -182,7 +183,7 @@ def test_stale_retains_original_source(tmp_path):
 def test_failed_source_summary_safe(tmp_path, monkeypatch):
     from data.base import DataSource
 
-    class FailedSource(DataSource):
+    class FailedSource(FetchResultMixin, DataSource):
         def supports(self, market, data_type):
             return data_type == "price"
 

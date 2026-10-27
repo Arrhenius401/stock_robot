@@ -6,7 +6,6 @@ from data.base import CollectionResult, DataSource
 from data.schemas import DataCollectionRecord, PriceData
 
 
-
 class FakeSource(DataSource):
     """测试用数据源实现"""
     def supports(self, market: str, data_type: str) -> bool:
