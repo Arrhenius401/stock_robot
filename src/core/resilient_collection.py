@@ -13,6 +13,7 @@ from core.registry import Registry
 from data.base import CollectionResult, DataSource
 from data.cache import CacheEntry, CacheManager
 from data.collection_policies import POLICIES, CollectionPolicy, policy_for
+from data.collection_state import CACHE_STATE, record_consistent, with_result_state
 from data.hk_news import HK_TZ
 from data.schemas import (
     DataCollectionRecord,
@@ -27,16 +28,7 @@ from utils.config import Config
 
 logger = logging.getLogger(__name__)
 Kind = Literal["financial", "price", "news"]
-State = Literal["complete", "degraded", "not_applicable", "unknown"]
 RETRY_TTL = 1800
-CACHE_STATE: dict[ResultState, State] = {
-    "complete": "complete",
-    "partial": "degraded",
-    "empty": "complete",
-    "not_applicable": "not_applicable",
-    "failed": "degraded",
-    "unknown": "unknown",
-}
 
 
 @dataclass
@@ -104,7 +96,7 @@ class ResilientCollector:
                 DataCollectionRecord.model_validate_json(entry.metadata)
                 if entry.metadata else DataCollectionRecord()
             )
-            if record.result_state != "unknown" and not self._record_consistent(record):
+            if not record_consistent(record):
                 logger.error("缓存采集记录状态矛盾 %s/%s/%s", symbol, kind, key)
                 return None
             policy = policy_for(market, kind)
@@ -127,9 +119,7 @@ class ResilientCollector:
                         symbol, rows, record,
                         previous.rows if previous and previous.rows else None, now,
                     )
-                    record = record.model_copy(
-                        update={"result_state": state, "cache_state": CACHE_STATE[state]}
-                    )
+                    record = with_result_state(record, state)
             elif record.result_state == "unknown" and record.cache_state == "not_applicable":
                 record = record.model_copy(update={"result_state": "not_applicable"})
             elif record.result_state not in ("not_applicable", "failed"):
@@ -186,17 +176,13 @@ class ResilientCollector:
         normal = self._normal_ttl(policy)
         return RETRY_TTL if normal < 0 else min(normal, RETRY_TTL)
 
-    @staticmethod
-    def _record_consistent(record: DataCollectionRecord) -> bool:
-        return record.cache_state == CACHE_STATE.get(record.result_state)
-
     def _store(self, kind: Kind, symbol: str, rows: list[Any],
                record: DataCollectionRecord, market: str) -> None:
         try:
             with self._lock:
                 policy = policy_for(market, kind)
                 if (policy is None or record.result_state == "unknown"
-                        or not self._record_consistent(record)):
+                        or not record_consistent(record)):
                     logger.error("拒绝写入不一致的采集记录 %s/%s", symbol, kind)
                     return
                 if record.error_kind == "contract_error":

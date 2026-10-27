@@ -168,3 +168,16 @@ def test_directory_failure_restores_callers_pythonpath():
     outcome = json.loads(result.stdout.splitlines()[-1])
     assert outcome["Failure"] == "injected-directory-failure"
     assert outcome["Restored"] == "caller-sentinel"
+
+
+@pytest.mark.parametrize("path,expected", [
+    ("src/core/pipeline.py", {"tests/core", "tests/data", "tests/report", "tests/agent"}),
+    ("src/data/collection_policies.py", {"tests/core", "tests/data"}),
+    ("src/data/collection_state.py", {"tests/core", "tests/data"}),
+    ("src/data/hk_hsics_peers.py", {"tests/core", "tests/data"}),
+])
+def test_phase1_paths_cover_related_tests(path, expected):
+    result = _run("-PlanOnly", "-Files", path)
+    assert result.returncode == 0, result.stderr
+    targets = {item.replace("\\", "/") for item in json.loads(result.stdout)["TestTargets"]}
+    assert expected <= targets

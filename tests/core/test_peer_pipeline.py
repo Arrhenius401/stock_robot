@@ -1,4 +1,5 @@
 """比较服务必须在分析前同步完成，失败不得阻断整份报告。"""
+
 import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -8,6 +9,7 @@ from core.pipeline import Pipeline, _cacheable
 from core.registry import Registry
 from data.base import DataSource
 from data.schemas import AnalysisContext, AnalysisResult, IndustryData
+from tests.support import FetchResultMixin
 from utils.config import Config
 
 
@@ -73,7 +75,7 @@ def test_industry_breaker_keeps_dedicated_cache_readable(monkeypatch, tmp_path):
     monkeypatch.setattr("core.pipeline.time.sleep", lambda _: None)
     calls = []
 
-    class CachedIndustrySource(DataSource):
+    class CachedIndustrySource(FetchResultMixin, DataSource):
         def supports(self, market, data_type):
             return data_type == "industry"
 
@@ -93,6 +95,7 @@ def test_industry_breaker_keeps_dedicated_cache_readable(monkeypatch, tmp_path):
     ctx = pipeline.collect("600519", "测试", refresh_cache=True, data_types=["industry"])
     assert ctx.industry_data is not None
     assert ctx.industry_data.industry == "白酒Ⅲ"
+    assert ctx.collection_records["industry"].result_state == "complete"
     assert len(calls) == 1
     assert pipeline._breaker.is_open("600519", "industry")
 
@@ -101,7 +104,7 @@ def test_partial_industry_pool_does_not_claim_network_recovery(monkeypatch, tmp_
     """分类可用而报价失败时保留经营入口，同时累计真实上游失败。"""
     monkeypatch.setattr("core.pipeline.time.sleep", lambda _: None)
 
-    class PartialIndustrySource(DataSource):
+    class PartialIndustrySource(FetchResultMixin, DataSource):
         def supports(self, market, data_type):
             return data_type == "industry"
 
@@ -116,4 +119,22 @@ def test_partial_industry_pool_does_not_claim_network_recovery(monkeypatch, tmp_
     for _ in range(3):
         ctx = pipeline.collect("00700.HK", "测试", market="hk", data_types=["industry"])
         assert ctx.industry_data is not None
+        assert ctx.collection_records["industry"].result_state == "partial"
     assert pipeline._breaker.is_open("00700.HK", "industry")
+
+
+def test_unknown_industry_keeps_diagnostic_data_with_failed_state(tmp_path, monkeypatch):
+    class UnknownIndustrySource(FetchResultMixin, DataSource):
+        def supports(self, market, data_type):
+            return data_type == "industry"
+
+        def fetch(self, symbol, **kwargs):
+            return [IndustryData(symbol=symbol, industry="未知", sector="")]
+
+    monkeypatch.setattr("core.pipeline.time.sleep", lambda _: None)
+    registry = Registry()
+    registry.register_data_source(UnknownIndustrySource())
+    pipeline = Pipeline(registry, Config(tmp_path / "state"), llm_enabled=False)
+    ctx = pipeline.collect("00700.HK", "测试", market="hk", data_types=["industry"])
+    assert ctx.industry_data is not None and ctx.industry_data.industry == "未知"
+    assert ctx.collection_records["industry"].result_state == "failed"

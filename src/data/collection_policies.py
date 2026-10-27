@@ -4,7 +4,13 @@ from datetime import date, datetime, timedelta
 from typing import Any, Protocol
 
 from data.hk_news import HK_TZ
-from data.schemas import DataCollectionRecord, NewsData, ResultState
+from data.schemas import (
+    DataCollectionRecord,
+    IndustryData,
+    NewsData,
+    ResultState,
+    ValuationData,
+)
 from data.validation import financial_has_facts
 
 
@@ -218,3 +224,103 @@ POLICIES: dict[tuple[str, str], CollectionPolicy] = {
 
 def policy_for(market: str, kind: str) -> CollectionPolicy | None:
     return POLICIES.get((market, kind))
+
+
+class HKNewsPolicy(_Policy):
+    kind = "news"
+    ttl_key = "news"
+    reference_age = 0
+    source_attempts = 1
+
+    def validate(self, symbol: str, rows: list[Any], now: datetime) -> bool:
+        if len(rows) != 1 or not isinstance(rows[0], NewsData):
+            return False
+        news = rows[0]
+        snapshot = news.hk_news
+        return (news.symbol == symbol and news.date <= now.astimezone(HK_TZ).date()
+                and snapshot is not None and snapshot.fetched_at.utcoffset() is not None
+                and snapshot.fetched_at <= now)
+
+    def classify(self, symbol: str, rows: list[Any], diagnostic: DataCollectionRecord | None,
+                 previous_rows: list[Any] | None, now: datetime) -> ResultState:
+        if not self.validate(symbol, rows, now):
+            return "failed"
+        snapshot = rows[0].hk_news
+        assert snapshot is not None
+        if snapshot.query_errors:
+            return "partial"
+        return "empty" if not snapshot.items else "complete"
+
+    def reference_rows(self, rows: list[Any], now: datetime) -> list[Any] | None:
+        return None
+
+
+class ValuationPolicy(_Policy):
+    kind = "valuation"
+    ttl_key = "daily"
+    reference_age = 0
+    source_attempts = 2
+
+    def __init__(self, market: str):
+        self.market = market
+
+    def validate(self, symbol: str, rows: list[Any], now: datetime) -> bool:
+        return len(rows) == 1 and isinstance(rows[0], ValuationData) and rows[0].symbol == symbol
+
+    def classify(self, symbol: str, rows: list[Any], diagnostic: DataCollectionRecord | None,
+                 previous_rows: list[Any] | None, now: datetime) -> ResultState:
+        if not self.validate(symbol, rows, now):
+            return "failed"
+        item = rows[0]
+        values = [value for value in (item.pe_ttm, item.pb, item.ps_ttm)
+                  if isinstance(value, (int, float)) and not isinstance(value, bool)
+                  and math.isfinite(value)]
+        if not values:
+            return "failed"
+        if self.market == "hk":
+            return "complete" if any(value > 0 for value in values) and not item.cache_degraded else "partial"
+        return "complete" if any(
+            value is not None and math.isfinite(value) for value in (item.pe_ttm, item.pb)
+        ) else "failed"
+
+    def reference_rows(self, rows: list[Any], now: datetime) -> list[Any] | None:
+        return None
+
+
+class IndustryPolicy(_Policy):
+    kind = "industry"
+    ttl_key = "quarterly"
+    reference_age = 0
+    source_attempts = 1
+
+    def __init__(self, market: str):
+        self.market = market
+
+    def validate(self, symbol: str, rows: list[Any], now: datetime) -> bool:
+        return (len(rows) == 1 and isinstance(rows[0], IndustryData)
+                and rows[0].symbol == symbol and rows[0].industry not in ("", "未知"))
+
+    def classify(self, symbol: str, rows: list[Any], diagnostic: DataCollectionRecord | None,
+                 previous_rows: list[Any] | None, now: datetime) -> ResultState:
+        if not self.validate(symbol, rows, now):
+            return "failed"
+        item = rows[0]
+        if item.comparison_snapshot.get("errors"):
+            return "partial"
+        return "complete" if item.comparison_ready else "partial"
+
+    def reference_rows(self, rows: list[Any], now: datetime) -> list[Any] | None:
+        return None
+
+
+DEDICATED_POLICIES: dict[tuple[str, str], CollectionPolicy] = {
+    ("hk", "news"): HKNewsPolicy(),
+    ("a-shares", "valuation"): ValuationPolicy("a-shares"),
+    ("hk", "valuation"): ValuationPolicy("hk"),
+    ("a-shares", "industry"): IndustryPolicy("a-shares"),
+    ("hk", "industry"): IndustryPolicy("hk"),
+}
+
+
+def dedicated_policy_for(market: str, kind: str) -> CollectionPolicy | None:
+    return DEDICATED_POLICIES.get((market, kind))

@@ -6,7 +6,7 @@ from typing import Any
 
 import requests
 
-from data.base import DataSource
+from data.base import CollectionResult, DataSource
 from data.hk_hsics_industry import HsicsMember, load_connect_symbols, load_hsics_members
 from data.peer_comparison_fetch import (
     COLLECTION_BUDGET,
@@ -188,7 +188,13 @@ class HKIndustryAdapter(DataSource):
     def supports(self, market: str, data_type: str) -> bool:
         return market == "hk" and data_type == "industry"
 
-    def fetch(self, symbol: str, **_kwargs) -> list:
+    def fetch(self, symbol: str, **kwargs) -> list:
+        return self._fetch_impl(symbol, **kwargs)
+
+    def fetch_result(self, symbol: str, **kwargs) -> CollectionResult:
+        return CollectionResult(rows=self._fetch_impl(symbol, **kwargs), record=None)
+
+    def _fetch_impl(self, symbol: str, **_kwargs) -> list:
         cache_only = bool(_kwargs.get("comparison_cache_only", False))
         deadline = time.monotonic() + (0 if cache_only else COLLECTION_BUDGET)
         members = load_hsics_members()
