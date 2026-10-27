@@ -26,3 +26,27 @@ def test_record_consistency_rejects_contradiction_but_accepts_old_records():
     assert record_consistent(DataCollectionRecord(result_state="complete", cache_state="complete"))
     assert not record_consistent(DataCollectionRecord(result_state="complete", cache_state="degraded"))
     assert record_consistent(DataCollectionRecord(result_state="unknown", cache_state="complete"))
+
+
+from datetime import datetime, timezone
+
+from data.base import CollectionResult
+from data.collection_state import (
+    RefreshRecord, ValueResult, make_refresh_record,
+)
+
+
+def test_collection_result_keeps_error_details():
+    result = CollectionResult(rows=[{"symbol": "000001"}], errors=["批次失败"])
+    assert result.rows == [{"symbol": "000001"}]
+    assert result.errors == ["批次失败"]
+
+
+def test_value_result_and_refresh_record():
+    value = ValueResult(value=1.0, record=make_refresh_record("测试源", "complete"))
+    assert value.value == 1.0
+    record = make_refresh_record("测试源", "partial", error_message="部分失败")
+    assert record.result_state == "partial"
+    assert record.published is False
+    assert isinstance(record, RefreshRecord)
+    assert record.attempted_at.tzinfo is not None
