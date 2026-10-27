@@ -193,7 +193,7 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/report"
         continue
     }
-    if ($path -in @("src\data\base.py", "src\data\schemas.py", "src\data\collection_policies.py")) {
+    if ($path -in @("src\data\base.py", "src\data\schemas.py", "src\data\collection_policies.py", "src\data\collection_state.py", "src\data\hk_hsics_peers.py")) {
         Add-UniqueTarget $testTargets "tests/data"
         Add-UniqueTarget $testTargets "tests/core"
         continue

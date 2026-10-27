@@ -239,6 +239,7 @@ def test_stale_valuation_used_when_live_returns_none(tmp_path, mocker):
                        refresh_cache=True)
     assert ctx.valuation_data is not None and ctx.valuation_data.pb == 0.65
     assert ctx.collection_records["valuation"].cache_status == "stale"
+    assert ctx.collection_records["valuation"].result_state == "complete"
 
 
 def test_expired_hk_valuation_survives_repeated_refresh_failures(tmp_path, mocker):
@@ -261,6 +262,7 @@ def test_expired_hk_valuation_survives_repeated_refresh_failures(tmp_path, mocke
         assert ctx.valuation_data is not None
         assert ctx.collection_records["valuation"].cache_status == "stale"
         assert ctx.collection_records["valuation"].collected_at == record.collected_at
+        assert ctx.collection_records["valuation"].result_state == "complete"
     assert pipe._cache.get_stale("valuation", row.symbol, "latest") is not None
 
 
@@ -328,6 +330,7 @@ def test_forced_refresh_negative_pe_is_retained_on_next_cached_read(tmp_path, mo
                            refresh_cache=refresh)
         assert ctx.valuation_data and ctx.valuation_data.pe_ttm == -56
         assert ctx.valuation_data.pb_history == old.pb_history
+        assert ctx.collection_records["valuation"].result_state == "partial"
     assert source._calls["valuation"] == 1
     complete = pipe._get_stale_cached(old.symbol, "valuation", date_key="last_complete")
     assert complete and complete[0].pe_ttm == 20
@@ -361,6 +364,7 @@ def test_legal_nonpositive_valuation_does_not_trip_source_breaker(tmp_path, mock
     for _ in range(4):
         ctx = pipe.collect(row.symbol, "百度", market="hk", data_types=["valuation"], refresh_cache=_ == 0)
         assert ctx.valuation_data and ctx.valuation_data.pe_ttm == -56
+        assert ctx.collection_records["valuation"].result_state == "partial"
     assert source._calls["valuation"] == 4
     assert not pipe._breaker.is_open(row.symbol, "valuation")
     assert pipe._get_cached(row.symbol, "valuation") is None
@@ -381,6 +385,33 @@ def test_latest_nonpositive_facts_survive_next_network_failure(tmp_path, mocker)
     ctx = pipe.collect(row.symbol, "百度", market="hk", data_types=["valuation"])
     assert ctx.valuation_data and ctx.valuation_data.pe_ttm == -56
     assert ctx.collection_records["valuation"].cache_status == "stale"
+    assert ctx.collection_records["valuation"].result_state == "partial"
+
+
+def test_a_valuation_result_state_and_cache(tmp_path, mocker):
+    from data.schemas import ValuationData
+
+    mocker.patch("core.pipeline.time.sleep")
+    source = FakeSource({"valuation": [ValuationData(symbol="000001", date=date(2026, 10, 23), pe_ttm=10)]})
+    registry = Registry()
+    registry.register_data_source(source)
+    pipe = Pipeline(registry, Config(config_dir=tmp_path), llm_enabled=False)
+    first = pipe.collect("000001", "平安银行", data_types=["valuation"])
+    second = pipe.collect("000001", "平安银行", data_types=["valuation"])
+    assert first.collection_records["valuation"].result_state == "complete"
+    assert second.collection_records["valuation"].result_state == "complete"
+    assert second.collection_records["valuation"].cache_status == "cache"
+    assert source._calls["valuation"] == 1
+
+
+def test_empty_valuation_has_failed_state(tmp_path, mocker):
+    mocker.patch("core.pipeline.time.sleep")
+    registry = Registry()
+    registry.register_data_source(FakeSource({"valuation": []}))
+    pipe = Pipeline(registry, Config(config_dir=tmp_path), llm_enabled=False)
+    result = pipe.collect("000001", "平安银行", data_types=["valuation"])
+    assert result.valuation_data is None
+    assert result.collection_records["valuation"].result_state == "failed"
 
 
 def test_old_positive_curve_fallback_does_not_override_newer_negative_snapshot():

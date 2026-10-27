@@ -395,3 +395,17 @@ def test_hk_invalid_date_refresh_keeps_previous_success_cache(monkeypatch, mocke
     assert refreshed.comparison_snapshot["cache_status"] == "stale"
     assert refreshed.comparison_snapshot["errors"]
     assert refreshed.comparison_snapshot["peers"] == first.comparison_snapshot["peers"]
+
+
+def test_adapter_fetch_result_explicitly_uses_same_collection(monkeypatch, mocker, tmp_path):
+    monkeypatch.setattr(peers, "load_hsics_members", lambda: MEMBERS)
+    monkeypatch.setattr(peers, "load_connect_symbols", lambda: {s.removesuffix(".HK") for s in CONNECT})
+    rows = [pool_row("00700.HK", "腾讯", 13, 2), pool_row("00268.HK", "金蝶", 30, 4)]
+    mocker.patch.object(peers, "fetch_sector_pool", return_value=(rows, "2026-10-23"))
+    adapter = peers.HKIndustryAdapter()
+    assert type(adapter).fetch_result is not peers.DataSource.fetch_result
+    result = adapter.fetch_result("00700.HK", comparison_cache=CacheManager(tmp_path / "cache.db"))
+    assert result.rows and result.rows[0].industry == "软件服务"
+    assert result.record is None
+    legacy = adapter.fetch("00700.HK", comparison_cache=CacheManager(tmp_path / "other.db"))
+    assert [row.model_dump() for row in result.rows] == [row.model_dump() for row in legacy]

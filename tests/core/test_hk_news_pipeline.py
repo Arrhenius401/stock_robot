@@ -1,4 +1,5 @@
 """港股关键词新闻接线、缓存及调用预算回归。"""
+
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from threading import Event, Lock, current_thread
@@ -8,7 +9,7 @@ import pytest
 from core.pipeline import Pipeline
 from core.registry import Registry
 from data.akshare import AkShareAdapter
-from data.base import DataSource
+from data.base import CollectionResult, DataSource
 from data.schemas import (
     DataCollectionRecord,
     HKNewsItem,
@@ -16,6 +17,7 @@ from data.schemas import (
     HKNewsSnapshot,
     NewsData,
 )
+from tests.support import FetchResultMixin
 from utils.config import Config
 
 NOW = datetime.now(timezone(timedelta(hours=8)))
@@ -30,7 +32,7 @@ def snapshot(*, age=0, partial=False, empty=False):
     )
 
 
-class NewsSource(DataSource):
+class NewsSource(FetchResultMixin, DataSource):
     def __init__(self, result):
         self.result = result
         self.calls = []
@@ -80,6 +82,8 @@ def test_empty_success_is_cached_for_one_hour(tmp_path, mocker):
     second = collect(pipe)
     assert first.news_data is not None and first.news_data.hk_news is not None
     assert first.news_data.hk_news.items == []
+    assert first.collection_records["news"].result_state == "empty"
+    assert second.collection_records["news"].result_state == "empty"
     assert second.collection_records["news"].cache_status == "cache"
     assert len(source.calls) == 1
     assert source.calls[0]["name"] == "腾讯控股"
@@ -99,6 +103,7 @@ def test_failure_reuses_old_snapshot_once_with_original_time(tmp_path, mocker, r
     assert result.news_data.hk_news.fetched_at == value.fetched_at
     assert result.collection_records["news"].collected_at == value.fetched_at
     assert result.collection_records["news"].cache_status == "stale"
+    assert result.collection_records["news"].result_state == "complete"
     assert "刷新失败" in result.collection_records["news"].error_message
 
 
@@ -110,6 +115,7 @@ def test_partial_does_not_overwrite_complete_cache(tmp_path, mocker):
     assert result.news_data is not None and result.news_data.hk_news is not None
     assert result.news_data.hk_news.query_errors
     assert result.collection_records["news"].error_kind == "partial"
+    assert result.collection_records["news"].result_state == "partial"
     cached = pipe._get_stale_cached("00700.HK", "news")
     assert cached is not None and cached[0].hk_news == complete
 
@@ -148,6 +154,7 @@ def test_failure_without_cache_returns_explicit_error_and_no_retry(tmp_path, moc
     assert result.news_data is None
     assert len(source.calls) == 1
     assert result.collection_records["news"].error_kind == "fetch_failed"
+    assert result.collection_records["news"].result_state == "failed"
     assert "获取失败" in result.collection_records["news"].error_message
 
 
@@ -168,6 +175,27 @@ def test_partial_first_snapshot_can_be_cached_with_diagnostic(tmp_path, mocker):
     assert len(source.calls) == 1
     assert ctx.collection_records["news"].cache_status == "cache"
     assert ctx.collection_records["news"].error_kind == "partial"
+    assert ctx.collection_records["news"].result_state == "partial"
+
+
+def test_news_uses_fetch_result_only(tmp_path, mocker):
+    class ResultOnlySource(NewsSource):
+        def fetch(self, symbol, **kwargs):
+            raise AssertionError("不得调用 fetch")
+
+        def fetch_result(self, symbol, **kwargs):
+            self.calls.append(kwargs)
+            return CollectionResult(rows=[news(snapshot())])
+
+    mocker.patch("core.pipeline.time.sleep")
+    source = ResultOnlySource([])
+    registry = Registry()
+    registry.register_data_source(source)
+    pipe = Pipeline(registry, Config(config_dir=tmp_path), llm_enabled=False)
+    ctx = collect(pipe)
+    assert ctx.news_data is not None
+    assert ctx.collection_records["news"].result_state == "complete"
+    assert len(source.calls) == 1
 
 
 def test_open_breaker_keeps_fresh_and_stale_cache_without_network(tmp_path, mocker):

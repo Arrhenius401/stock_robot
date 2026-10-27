@@ -11,9 +11,13 @@ from threading import Lock
 from typing import Any
 
 from core.circuit_breaker import CircuitBreaker
-from core.collection_contract import MIGRATED_CAPABILITIES
+from core.collection_contract import DEDICATED_CAPABILITIES, MIGRATED_CAPABILITIES
 from core.registry import Registry
+from data.base import CollectionResult, DataSource
 from data.cache import CacheManager
+from data.collection_policies import dedicated_policy_for
+from data.collection_state import make_record, record_consistent, with_result_state
+from data.hk_news import HK_TZ
 from data.schemas import (
     AnalysisContext,
     AnalysisResult,
@@ -117,6 +121,18 @@ class Pipeline:
         from data.industry_classifier import IndustryClassifier
         self._classifier = IndustryClassifier()
         self._config_loader = ConfigLoader()
+        self._validate_dedicated_contract()
+
+    def _validate_dedicated_contract(self) -> None:
+        for market, kind in DEDICATED_CAPABILITIES:
+            sources = self._registry.get_data_sources(market, kind)
+            if not isinstance(sources, list):
+                continue
+            for source in sources:
+                if type(source).fetch_result is DataSource.fetch_result:
+                    raise ValueError(
+                        f"数据源 {source.__class__.__name__} 未实现统一取数入口 fetch_result"
+                    )
 
     def collect(self, symbol: str, name: str, market: str = "a-shares",
                 refresh_cache: bool = False, data_types: list[str] | None = None,
@@ -164,6 +180,7 @@ class Pipeline:
                 result, record = self._collect_hk_news(symbol, name, refresh_cache)
                 return data_type, result, record
             cacheable = _cacheable(market, data_type)
+            policy = dedicated_policy_for(market, data_type)
             record = DataCollectionRecord()
             raw_record = self._cache.get_metadata(data_type, symbol, "latest")
             if raw_record:
@@ -176,7 +193,7 @@ class Pipeline:
                 "cache_status": "stale", "error_kind": "live_unavailable",
                 "error_message": "实时数据不可用，使用过期缓存",
             })
-            failure_record = DataCollectionRecord(error_kind="empty", error_message="数据源未返回可用数据")
+            failure_record = make_record("", "failed", error_kind="empty", error_message="数据源未返回可用数据")
             stale_cached = None
             if ((data_type == "news" and not refresh_cache)
                     or (market == "hk" and data_type == "valuation")):
@@ -191,11 +208,19 @@ class Pipeline:
                                         "error_message": "实时数据不可用，使用上次完整缓存"})
                         except ValueError:
                             logger.debug("港股完整估值的采集记录损坏 %s", symbol)
+            if stale_cached is not None and policy is not None and stale_record.result_state == "unknown":
+                stale_record = with_result_state(
+                    stale_record, policy.classify(symbol, stale_cached, None, None, datetime.now(HK_TZ))
+                )
             # 本地缓存读取不触达上游，优先于断路器——断路器打开期间缓存健康数据仍可用
             if not refresh_cache and cacheable:
                 cached = self._get_cached(symbol, data_type)
                 if cached is not None:
                     self._breaker.record_success(symbol, data_type)
+                    if policy is not None and record.result_state == "unknown":
+                        record = with_result_state(
+                            record, policy.classify(symbol, cached, None, None, datetime.now(HK_TZ))
+                        )
                     return data_type, cached, record.model_copy(update={"cache_status": "cache"})
             breaker_open = self._breaker.is_open(symbol, data_type)
             if breaker_open and data_type != "industry":
@@ -207,6 +232,11 @@ class Pipeline:
 
             sources = self._registry.get_data_sources(market, data_type)
             for source in sources:
+                if type(source).fetch_result is DataSource.fetch_result:
+                    return data_type, None, make_record(
+                        source.__class__.__name__, "failed", error_kind="contract_error",
+                        error_message="数据源未实现统一取数入口 fetch_result",
+                    )
                 for attempt in range(1 if data_type == "industry" else 2):
                     try:
                         fetch_kwargs: dict[str, Any] = {"data_type": data_type, "market": market}
@@ -218,14 +248,33 @@ class Pipeline:
                                 refresh_cache=refresh_cache,
                                 comparison_cache_only=breaker_open,
                             )
-                        result = source.fetch(symbol, **fetch_kwargs)
-                        diagnostic = None
-                        diagnostic_reader = getattr(source, "get_collection_error", None)
-                        if callable(diagnostic_reader):
-                            diagnostic = diagnostic_reader()
-                            if isinstance(diagnostic, DataCollectionRecord):
-                                failure_record = diagnostic
+                        collection = source.fetch_result(symbol, **fetch_kwargs)
+                        if not isinstance(collection, CollectionResult):
+                            return data_type, None, make_record(
+                                source.__class__.__name__, "failed", error_kind="contract_error",
+                                error_message="fetch_result 返回类型无效",
+                            )
+                        result = collection.rows or []
+                        diagnostic = collection.record
+                        if diagnostic is not None and not record_consistent(diagnostic):
+                            return data_type, None, make_record(
+                                source.__class__.__name__, "failed", error_kind="contract_error",
+                                error_message="取数诊断状态矛盾",
+                            )
+                        if diagnostic is not None:
+                            failure_record = make_record(
+                                diagnostic.source or source.__class__.__name__, "failed", diagnostic=diagnostic,
+                            )
                         if result:
+                            if (data_type == "valuation" and policy is not None
+                                    and not policy.validate(symbol, result, datetime.now(HK_TZ))):
+                                failure_record = make_record(
+                                    source.__class__.__name__, "failed", diagnostic=diagnostic,
+                                    error_kind="invalid_data", error_message="估值数据无效或缺失",
+                                )
+                                if attempt == 0:
+                                    time.sleep(1)
+                                continue
                             record = DataCollectionRecord(
                                 source=getattr(result[0], "_data_source", "") or source.__class__.__name__,
                                 collected_at=datetime.now().astimezone(), cache_status="live",
@@ -236,6 +285,7 @@ class Pipeline:
                                     "error_kind": diagnostic.error_kind,
                                     "error_message": diagnostic.error_message,
                                 })
+                            used_stale = False
                             if data_type == "valuation" and market == "hk":
                                 merged_result, used_stale = self._merge_hk_valuation(
                                     stale_cached, result)
@@ -248,12 +298,28 @@ class Pipeline:
                                         "error_kind": "live_unavailable",
                                         "error_message": "估值实时数据不完整，沿用已记录日期的快照或同源历史/PS",
                                     })
+                            if data_type == "valuation" and policy is not None:
+                                state = policy.classify(symbol, result, diagnostic, None, datetime.now(HK_TZ))
+                                if state == "failed":
+                                    failure_record = make_record(
+                                        source.__class__.__name__, "failed", diagnostic=diagnostic,
+                                        error_kind="invalid_data", error_message="估值数据无效或缺失",
+                                    )
+                                    if attempt == 0:
+                                        time.sleep(1)
+                                    continue
+                                if market == "hk" and used_stale:
+                                    state = "partial"
+                                record = with_result_state(record, state)
                             if data_type == "price" and not self._is_healthy(data_type, result):
                                 logger.warning("行情格式校验失败 %s", symbol)
                                 failure_record = DataCollectionRecord(source=record.source,
                                     error_kind="invalid_data", error_message="行情日期或价格格式无效")
                                 continue
                             if data_type == "industry":
+                                if policy is not None:
+                                    state = policy.classify(symbol, result, diagnostic, None, datetime.now(HK_TZ))
+                                    record = with_result_state(record, state)
                                 # 资格池可用于经营比较，但仅读缓存或报价失败不代表上游恢复。
                                 if not breaker_open:
                                     if (self._is_healthy(data_type, result, symbol)
@@ -285,7 +351,7 @@ class Pipeline:
                     except Exception as e:  # noqa: BLE001 — 多数据源逐个尝试，单源失败降级
                         logger.warning(f"数据源 {source.__class__.__name__} 获取 {data_type} 失败: {e}")
                         kind = "timeout" if isinstance(e, TimeoutError) or "Timeout" in type(e).__name__ else "fetch_failed"
-                        failure_record = DataCollectionRecord(source=source.__class__.__name__,
+                        failure_record = make_record(source.__class__.__name__, "failed",
                             error_kind=kind, error_message="数据请求超时" if kind == "timeout" else "数据请求失败")
                     if attempt == 0 and data_type != "industry":
                         time.sleep(1)  # 重试前等待 1 秒
@@ -325,6 +391,8 @@ class Pipeline:
         """港股关键词检索不计情绪分，单次采集的两请求预算不被外层重试放大。"""
         from data.hk_news import SOURCE
 
+        policy = dedicated_policy_for("hk", "news")
+        assert policy is not None
         previous = self._get_stale_cached(symbol, "news")
         record = DataCollectionRecord(source=SOURCE)
         raw_record = self._cache.get_metadata("news", symbol, "latest")
@@ -336,23 +404,42 @@ class Pipeline:
         if previous is not None:
             # 即使旧缓存缺少独立元数据，也只能采用快照内保存的实际采集时刻。
             record = record.model_copy(update={"collected_at": previous[0].hk_news.fetched_at})
+            if record.result_state == "unknown":
+                record = with_result_state(
+                    record, policy.classify(symbol, previous, None, None, datetime.now(HK_TZ))
+                )
         if not refresh:
             cached = self._get_cached(symbol, "news")
             if cached is not None:
                 return cached, record.model_copy(update={"cache_status": "cache"})
 
-        failure = DataCollectionRecord(source=SOURCE, error_kind="fetch_failed",
-                                       error_message="新闻暂时获取失败")
+        failure = make_record(SOURCE, "failed", error_kind="fetch_failed", error_message="新闻暂时获取失败")
         if refresh or not self._breaker.is_open(symbol, "news"):
             sources = self._registry.get_data_sources("hk", "news")
             if sources:
+                source = sources[0]
+                if type(source).fetch_result is DataSource.fetch_result:
+                    return None, make_record(SOURCE, "failed", error_kind="contract_error",
+                                             error_message="港股新闻来源未实现统一取数入口 fetch_result")
                 try:
                     # 此能力只有一个已验证入口；不尝试备用适配器重复发起相同双查询。
-                    result = sources[0].fetch(symbol, market="hk", data_type="news", name=name)
-                    if self._is_healthy("news", result, symbol):
+                    collection = source.fetch_result(symbol, market="hk", data_type="news", name=name)
+                    if not isinstance(collection, CollectionResult):
+                        return None, make_record(SOURCE, "failed", error_kind="contract_error",
+                                                 error_message="fetch_result 返回类型无效")
+                    if collection.record is not None and not record_consistent(collection.record):
+                        return None, make_record(SOURCE, "failed", error_kind="contract_error",
+                                                 error_message="取数诊断状态矛盾")
+                    result = collection.rows or []
+                    if collection.record is not None:
+                        failure = make_record(SOURCE, "failed", diagnostic=collection.record,
+                                              error_kind=collection.record.error_kind or "fetch_failed",
+                                              error_message=collection.record.error_message or "新闻暂时获取失败")
+                    state = policy.classify(symbol, result, collection.record, None, datetime.now(HK_TZ))
+                    if state != "failed" and self._is_healthy("news", result, symbol):
                         snapshot = result[0].hk_news
-                        record = DataCollectionRecord(
-                            source=SOURCE, collected_at=snapshot.fetched_at, cache_status="live",
+                        record = make_record(
+                            SOURCE, state, diagnostic=collection.record, collected_at=snapshot.fetched_at,
                             error_kind="partial" if snapshot.query_errors else "",
                             error_message="部分关键词未成功检索，结果不完整" if snapshot.query_errors else "",
                         )
@@ -745,6 +832,9 @@ class Pipeline:
 
     def _set_cache(self, symbol: str, data_type: str, data: list,
                    record: DataCollectionRecord | None = None):
+        if record is not None and (not record_consistent(record) or record.error_kind == "contract_error"):
+            logger.error("拒绝缓存不一致或契约错误的采集记录 %s/%s", symbol, data_type)
+            return
         if not self._is_healthy(data_type, data, symbol):
             if (data_type == "valuation" and symbol.endswith(".HK") and data
                     and any(is_finite_number(value) for value in
@@ -769,6 +859,9 @@ class Pipeline:
     def _store_cache(self, symbol: str, data_type: str, data: list,
                      record: DataCollectionRecord | None = None):
         """写入已验证的数据；港股新闻由调用方持锁覆盖条件读取与落库。"""
+        if record is not None and (not record_consistent(record) or record.error_kind == "contract_error"):
+            logger.error("拒绝缓存不一致或契约错误的采集记录 %s/%s", symbol, data_type)
+            return
         if data_type == "news" and symbol.endswith(".HK") and data[0].hk_news.query_errors:
             previous = self._get_stale_cached(symbol, data_type)
             if previous is not None and not previous[0].hk_news.query_errors:

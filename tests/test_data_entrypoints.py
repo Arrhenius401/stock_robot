@@ -79,3 +79,16 @@ def test_check_script_runs_from_repository():
         encoding="utf-8", errors="replace", check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_pipeline_fetch_result_calls_are_declared(tmp_path):
+    write(tmp_path, "src/core/pipeline.py", """
+        class Pipeline:
+            def collect(self, source):
+                def fetch_one():
+                    source.fetch_result("000001")
+                return fetch_one()
+            def _collect_hk_news(self, source):
+                return source.fetch_result("00700.HK")
+    """)
+    assert find_violations(tmp_path, ()) == []
