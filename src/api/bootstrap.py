@@ -116,6 +116,10 @@ def build_agent_core(
     registry = ToolRegistry()
     registry.register(AnalyzeStockTool(pipeline=_wrap_pipeline(pipeline)))
     registry.register(AnalyzeIndexTool(index_pipeline=index_pipeline))
+    from gold.service import GoldService
+    from gold.tool import AnalyzeGoldTool
+
+    registry.register(AnalyzeGoldTool(GoldService(config=config, llm=llm)))
     registry.register(GetSnapshotTool(index_pipeline=index_pipeline))
     registry.register(ScreenStocksTool())
 

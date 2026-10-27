@@ -1,5 +1,5 @@
 // 结构化股票报告共享渲染器：不读取业务状态，也不发起网络请求。
-import { renderMarkdown } from "./markdown.js?v=20261026-hk-valuation-1";
+import { renderMarkdown } from "./markdown.js?v=20261026-gold-report-1";
 import { el, kv, priceBar, statusBadge } from "./components.js";
 
 const DIMENSIONS = [
@@ -966,8 +966,26 @@ function archivedCommentaryBody(part) {
     !/已包含在上方|本次未生成模型观察视角|该摘要不包含模型主观推演/.test(line)).join("\n").trim();
 }
 
+function goldDirectionSummary(report) {
+  const markets = record(report.markets);
+  const direction = value => readable(record(value).direction, "无法判断");
+  return `长期：${direction(report.long_term)}；国内短期：${direction(record(markets.domestic).short_term)}；国际短期：${direction(record(markets.international).short_term)}`;
+}
+
+function renderGoldReport(report, options) {
+  // 黄金复用已有 Markdown 章节卡片，不经过股票评分和维度空态。
+  const markdown = options.archiveMarkdown || report.markdown || "# 黄金综合研报\n\n报告正文缺失，请重新生成。";
+  const article = renderStockMarkdownReport(markdown, options);
+  article.classList.add("gold-report");
+  const summary = article.children[0];
+  summary.children[0].textContent = "黄金研判摘要";
+  summary.appendChild(el("p", "report-investment-summary", goldDirectionSummary(report)));
+  return article;
+}
+
 export function renderStockReport(report, options = {}) {
   const data = record(report);
+  if (data.report_type === "gold") return renderGoldReport(data, options);
   const sectionIdPrefix = options.sectionIdPrefix || "";
   const article = el("article", "stock-report");
   if (options.className) article.classList.add(String(options.className));
@@ -1103,15 +1121,17 @@ export function renderReportSummary(artifact) {
     readable(report.name, reportSymbol(report))));
   header.appendChild(el("span", "report-summary-code", reportSymbol(report)));
   const score = record(report.score);
-  if (score.final !== null && score.final !== undefined && score.final !== "") {
+  if (report.report_type !== "gold" && score.final !== null && score.final !== undefined && score.final !== "") {
     header.appendChild(el("span", "report-summary-score", `${scoreText(score.final)}/10`));
   }
   card.appendChild(header);
 
-  card.appendChild(markdownBlock(summaryConclusion(report),
-    "report-summary-conclusion md"));
+  card.appendChild(report.report_type === "gold"
+    ? el("p", "report-summary-conclusion md", goldDirectionSummary(report))
+    : markdownBlock(summaryConclusion(report), "report-summary-conclusion md"));
   const meta = el("div", "report-summary-meta");
-  meta.appendChild(el("span", "report-summary-risks", `${riskFlags(report).length} 项风险`));
+  meta.appendChild(el("span", "report-summary-risks", report.report_type === "gold"
+    ? "风险与量化重估见正文" : `${riskFlags(report).length} 项风险`));
   meta.appendChild(el("span", "report-summary-time", artifactTime(item, report)));
   card.appendChild(meta);
 

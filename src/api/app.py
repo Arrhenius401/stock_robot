@@ -32,6 +32,7 @@ from api.report_library import (
 from api.runtime import RuntimeManager, RuntimeSnapshot
 from api.session_titles import SessionTitleRefiner, derive_session_title
 from api.sessions import is_draft_session_id
+from gold.service import GoldService, is_gold_request
 from push.backends.base import get_backend
 from push.models import Subscription
 from push.names import resolve_subscription
@@ -152,11 +153,28 @@ def _persist_artifacts_if_present(
         manager, session_id: str, tool_results: list[dict], *, memory) -> list[dict]:
     """逐项保存工具结果中的报告；单项故障不影响其他成果与聊天。"""
     events = []
-    for symbol, payload, message_id in _extract_stock_reports(tool_results):
+    reports = [("stock_report", *report) for report in _extract_stock_reports(tool_results)]
+    for result in tool_results:
+        if result.get("tool") != "analyze_gold" or result.get("status") not in ("done", "success"):
+            continue
+        payload = result.get("content")
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload.removeprefix("[analyze_gold] success:").strip())
+            except ValueError:
+                try:
+                    payload = ast.literal_eval(payload.removeprefix("[analyze_gold] success:").strip())
+                except (ValueError, SyntaxError):
+                    logger.debug("黄金工具结果不是结构化报告")
+                    continue
+        if (isinstance(payload, dict) and payload.get("report_type") == "gold"
+                and payload.get("symbol") == "GOLD"):
+            reports.append(("gold_report", "GOLD", payload, result.get("message_id")))
+    for kind, symbol, payload, message_id in reports:
         try:
             artifact = manager.save_artifact(
                 session_id,
-                kind="stock_report",
+                kind=kind,
                 symbol=symbol,
                 payload=payload,
                 message_id=message_id,
@@ -171,7 +189,7 @@ def _persist_artifacts_if_present(
                     "artifact_id": None,
                     "session_id": session_id,
                     "message_id": message_id,
-                    "kind": "stock_report",
+                    "kind": kind,
                     "symbol": symbol,
                     "payload": _json_safe(payload),
                     "created_at": now,
@@ -290,6 +308,7 @@ def create_app(
     runtime: RuntimeManager | None = None,
     log_start_offset: int | None = None,
     runtime_log_path: Path | None = None,
+    gold_service: Any = None,
 ):
     # 生产路径由 RuntimeManager 独占 core、执行器和推送调度器的初始所有权。
     # 测试传入 push=False、推送桩或 runtime 桩时保持既有注入行为，不创建真实依赖。
@@ -342,6 +361,24 @@ def create_app(
         if snapshot is not None:
             return snapshot.core
         return core
+
+    async def _run_gold(snapshot, *, refresh_cache: bool = False) -> dict:
+        from utils.config import Config
+
+        current_core = _snapshot_core(snapshot)
+        service = gold_service if gold_service is not None else GoldService(
+            config=snapshot.config if snapshot is not None else Config(),
+            llm=getattr(current_core, "llm", None), output_dir=Path.cwd() / "reports",
+        )
+        return await asyncio.to_thread(service.run, refresh_cache=refresh_cache)
+
+    async def _gold_chat(snapshot, manager, sid, memory) -> tuple[dict, list[dict]]:
+        payload = await _run_gold(snapshot)
+        message_id = memory.add_message("assistant", encode_message_content(payload["markdown"]))
+        results = [{"tool": "analyze_gold", "symbol": "GOLD", "status": "done",
+                    "content": payload, "message_id": message_id}]
+        artifacts = _persist_artifacts_if_present(manager, sid, results, memory=memory)
+        return payload, artifacts
 
     def _build_agent(session_memory, agent_core):
         """按会话现建轻量 Planner/Executor/ChatResponder（无状态，构造廉价）"""
@@ -425,7 +462,7 @@ def create_app(
     async def reports(
             report_type: str | None = Query(default=None, alias="type"),
             query: str | None = None):
-        if report_type not in (None, "stock", "index", "backtest"):
+        if report_type not in (None, "stock", "index", "backtest", "gold"):
             raise HTTPException(status_code=422, detail="报告类型无效")
         items = list_reports(_reports_root(), report_type=report_type, query=query)
         return JSONResponse({"reports": [item.to_dict() for item in items],
@@ -462,6 +499,12 @@ def create_app(
 
         try:
             sid, memory = sessions.get_or_create_for_message(session_id, message)
+            if is_gold_request(message):
+                payload, _ = await _gold_chat(snapshot, sessions, sid, memory)
+                return JSONResponse({"response": payload["markdown"], "session_id": sid,
+                                     "plan": {"goal": "黄金综合研报", "mode": "plan", "steps": []},
+                                     "tool_results": [{"tool": "analyze_gold", "symbol": "GOLD",
+                                                       "status": "done", "content": payload}]})
             planner, executor, chat_responder = _build_agent(memory, agent_core)
             plan = await asyncio.to_thread(planner.plan, message)
             if plan.mode == "chat":
@@ -619,6 +662,17 @@ def create_app(
                             current_core.model, queue,
                         )
 
+                    if is_gold_request(message):
+                        await queue.put({"type": "plan", "goal": "黄金综合研报",
+                                         "mode": "gold", "steps": [], "session_id": sid})
+                        await queue.put({"type": "progress", "stage": "gold", "current": 0,
+                                         "total": 1, "label": "采集金价与长期因子，生成研报"})
+                        payload, artifacts = await _gold_chat(snapshot, manager, sid, memory)
+                        await queue.put({"type": "text", "content": payload["markdown"]})
+                        for artifact_event in artifacts:
+                            await queue.put({"type": "artifact", **artifact_event})
+                        await queue.put({"type": "done"})
+                        return
                     planner, executor, chat_responder = _build_agent(memory, current_core)
                     plan = await asyncio.to_thread(planner.plan, message)
                     if plan.mode == "chat":
@@ -774,6 +828,12 @@ def create_app(
         if not symbol:
             raise HTTPException(status_code=422, detail="symbol 不能为空")
         snapshot = _runtime_snapshot()
+        if is_gold_request(symbol):
+            try:
+                return JSONResponse(await _run_gold(snapshot, refresh_cache=body.get("refresh_cache") is True))
+            except Exception as exc:  # noqa: BLE001, RUF100 — 分析入口服务隔离
+                logger.exception("黄金报告生成失败")
+                raise HTTPException(status_code=500, detail="黄金报告生成失败，请重试") from exc
         agent_core = _snapshot_core(snapshot)
         if agent_core is None:
             raise HTTPException(status_code=503, detail="Agent 核心未注入")
@@ -820,6 +880,15 @@ def create_app(
         except Exception as e:  # noqa: BLE001 — HTTP 边界兜底
             logger.error("个股分析失败: %s", e)
             return JSONResponse({"symbol": symbol, "error": str(e)}, status_code=500)
+
+    @app.post("/api/v1/gold")
+    async def gold(request: Request):
+        body = await request.json()
+        try:
+            return JSONResponse(await _run_gold(_runtime_snapshot(), refresh_cache=body.get("refresh_cache") is True))
+        except Exception as exc:  # noqa: BLE001, RUF100 — 黄金服务边界，提供可重试错误
+            logger.exception("黄金报告生成失败")
+            raise HTTPException(status_code=500, detail="黄金报告生成失败，请重试") from exc
 
     @app.post("/api/v1/commentary/retry")
     async def retry_commentary(request: Request):

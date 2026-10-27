@@ -491,14 +491,15 @@ def update_stock_snapshot(markdown: str, path: Path, payload: dict[str, Any]) ->
 class ReportFormatter:
     @staticmethod
     def save(report: str, symbol: str, output_dir: Path | None = None,
-             category: Literal["stock", "index"] = "stock",
+             category: Literal["stock", "index", "gold"] = "stock",
              stock_payload: dict[str, Any] | None = None) -> Path:
         if output_dir is None:
             output_dir = Path.cwd() / "reports"
         output_dir = Path(output_dir)
-        if (category not in ("stock", "index")
+        if (category not in ("stock", "index", "gold")
                 or not re.fullmatch(
                     _STOCK_SYMBOL_PATTERN if category == "stock"
+                    else r"GOLD" if category == "gold"
                     else r"[A-Za-z0-9][A-Za-z0-9._-]*", symbol)):
             raise ValueError("报告分类或标的无效")
         generated_at = datetime.now().astimezone()
@@ -506,7 +507,8 @@ class ReportFormatter:
         if not report_dir.resolve().is_relative_to(output_dir.resolve()):
             raise ValueError("报告路径超出保存目录")
         report_dir.mkdir(parents=True, exist_ok=True)
-        filename = f"{symbol}_{generated_at.strftime('%Y%m%d_%H%M%S')}.md"
+        suffix = f"_{uuid.uuid4().hex}" if category == "gold" else ""
+        filename = f"{symbol}_{generated_at.strftime('%Y%m%d_%H%M%S')}{suffix}.md"
         filepath = report_dir / filename
         if category == "stock" and stock_payload is not None:
             try:

@@ -24,6 +24,9 @@ def _run(*arguments: str):
 @pytest.mark.parametrize("path,expected", [
     ("src/stock_robot/cli.py", "tests/test_cli.py"),
     ("config/default.yaml", "tests/utils"),
+    ("config/gold.yaml", "tests/gold"),
+    ("src/gold/analysis.py", "tests/gold"),
+    ("tests/resources/gold/sge-au9999-daily.json", "tests/gold"),
     ("scripts/verify.ps1", "tests/test_verify_script.py"),
     ("tests/resources/hk/eastmoney-00005-financial-20261022.json", "tests/data/test_hk_bank_currency.py"),
     ("src/radar/calendar.py", "tests/radar"),

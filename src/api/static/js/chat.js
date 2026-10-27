@@ -5,10 +5,10 @@ import {
   markSessionDetailStale,
 } from "./state.js";
 import { api } from "./api.js";
-import { renderMarkdown } from "./markdown.js?v=20261026-hk-valuation-1";
+import { renderMarkdown } from "./markdown.js?v=20261026-gold-report-1";
 import { el } from "./components.js";
-import { openReportDrawer, closeReportDrawer } from "./report-drawer.js?v=20261026-hk-valuation-1";
-import { renderReportSummary } from "./report-renderer.js?v=20261026-hk-valuation-1";
+import { openReportDrawer, closeReportDrawer } from "./report-drawer.js?v=20261026-gold-report-1";
+import { renderReportSummary } from "./report-renderer.js?v=20261026-gold-report-1";
 
 const scrollEl = () => document.getElementById("chatScroll");
 
@@ -212,6 +212,9 @@ function buildRunBubble(run) {
     run.thinking, run.thinkingFallback, duration, run.thinkingOpen !== false,
     (event) => { run.thinkingOpen = event.target.open; });
   if (details) content.appendChild(details);
+  if (run.plan?.mode === "gold" && !run.done && !run.answers.length && !run.error) {
+    content.appendChild(el("div", "report-summary-meta", run.progress?.label || "正在采集金价与长期因子…"));
+  }
   for (const answer of run.answers) content.appendChild(mdDiv(answer));
   for (const artifact of run.artifacts) appendReportSummary(artifact, content);
   if (run.error) {
@@ -430,7 +433,7 @@ export async function sendMessage(text) {
         if (!adoptSession(e.session_id || streamSid)) return;
         run.plan = e;
         // 旧 plan 模式无模型推理，带步骤的 plan 事件不显示思考占位
-        if ((e.steps || []).length) run.thinkingFallback = false;
+        if ((e.steps || []).length || e.mode === "gold") run.thinkingFallback = false;
         renderRun(run);
       },
       thinking: (e) => {

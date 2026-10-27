@@ -104,6 +104,10 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/test_distribution.py"
         continue
     }
+    if ($path -eq "config\gold.yaml" -or $path.StartsWith("src\gold\", [StringComparison]::OrdinalIgnoreCase)) {
+        Add-UniqueTarget $testTargets "tests/gold"
+        continue
+    }
     if ($path.StartsWith("config\", [StringComparison]::OrdinalIgnoreCase)) {
         Add-UniqueTarget $testTargets "tests/utils"
         Add-UniqueTarget $testTargets "tests/test_cli.py"
