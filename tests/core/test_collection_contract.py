@@ -59,6 +59,7 @@ def test_dedicated_capabilities_and_entrypoint_ledger():
         ALLOWED_FETCH_RESULT_CALLS,
         CONTRACT_CAPABILITIES,
         DEDICATED_CAPABILITIES,
+        GOLD_CAPABILITIES,
     )
     from data.collection_policies import DEDICATED_POLICIES
 
@@ -67,12 +68,16 @@ def test_dedicated_capabilities_and_entrypoint_ledger():
         ("a-shares", "industry"), ("hk", "industry"),
     }
     assert set(DEDICATED_POLICIES) == DEDICATED_CAPABILITIES
-    assert CONTRACT_CAPABILITIES == MIGRATED_CAPABILITIES | DEDICATED_CAPABILITIES
+    assert CONTRACT_CAPABILITIES == MIGRATED_CAPABILITIES | DEDICATED_CAPABILITIES | GOLD_CAPABILITIES
+    assert GOLD_CAPABILITIES == {("gold", key) for key in (
+        "domestic", "international", "real_yield", "dollar", "fx", "china_reserves", "holdings", "global_reserves",
+    )}
     assert not any(site.path == "src/core/pipeline.py" for site in LEGACY_FETCH_SITES)
     assert {
         ("src/core/resilient_collection.py", "ResilientCollector._collect"),
         ("src/core/pipeline.py", "Pipeline.collect.fetch_one"),
         ("src/core/pipeline.py", "Pipeline._collect_hk_news"),
+        ("src/gold/data.py", "GoldCollector._request"),
     } <= ALLOWED_FETCH_RESULT_CALLS
 
 

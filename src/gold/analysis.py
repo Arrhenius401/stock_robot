@@ -168,13 +168,13 @@ def _factor(
         else rules.daily_max_age_days
     )
     valid = bool(points) and (today - points[-1].observation_date).days <= limit
-    if series is None or series.status == "unavailable":
+    if series is None or series.status != "ok":
         valid = False
     if series and _future_publication(series, now):
         valid = False
         issues.append("记录的发布日期在报告日期之后")
     if series and series.status == "stale":
-        issues.append("刷新失败，沿用原始观察日仍有效的旧缓存")
+        issues.append("刷新失败，旧缓存仅供历史参考，不参与本次观察窗口计算")
     if not valid:
         issues.append("观察日过期或数据不可用")
     if key != "real_yield" and any(p.value <= 0 for p in points):
@@ -199,6 +199,7 @@ def _factor(
         else None,
         "state": "有效" if valid else "数据缺失",
         "source_status": series.status if series else "unavailable",
+        "result_state": series.collection_record.result_state if series and series.collection_record else None,
         "error": series.error if series else None,
         "notes": issues + (series.notes if series else []),
     }
@@ -385,15 +386,18 @@ def _market(
     key: str, series: GoldSeries | None, collection: GoldCollection, rules: GoldRules
 ) -> dict:
     bars, issues = _clean(series, collection.generated_at.date(), bars=True)
-    values = [bar.close for bar in bars]
+    observed_values = [bar.close for bar in bars]
     fresh = (
         bool(bars)
         and (collection.generated_at.date() - bars[-1].trade_date).days
         <= rules.daily_max_age_days
         and series is not None
-        and series.status != "unavailable"
+        and series.status == "ok"
         and not _future_publication(series, collection.generated_at)
     )
+    # 缓存历史价格可展示，但过期或刷新失败的序列不进入本次技术计算。
+    current_bars = bars if fresh else []
+    values = observed_values if fresh else []
     fast = mean(values[-rules.ma_fast :]) if len(values) >= rules.ma_fast else None
     slow = mean(values[-rules.ma_slow :]) if len(values) >= rules.ma_slow else None
     slope = _slope(values, rules)
@@ -413,7 +417,7 @@ def _market(
         slope_text = "上涨" if slope > 0 else "下降" if slope < 0 else "持平"
         reason = f"收盘价{relation(values[-1], fast)}{rules.ma_fast}日均线，{relation(values[-1], slow)}{rules.ma_slow}日均线；{rules.ma_slow}日均线近{rules.ma_slope_window}个观察日{slope_text}（{slope:+.2f}%）。"
     rsi = _wilder_rsi(values, rules.rsi_period)
-    atr = _wilder_atr(bars, rules.atr_period)
+    atr = _wilder_atr(current_bars, rules.atr_period)
     deviation = (
         (values[-1] - fast) / atr
         if values and fast is not None and atr is not None and atr > 0
@@ -427,9 +431,9 @@ def _market(
         "rsi14": rsi,
         "atr14": atr,
         "deviation_atr": deviation,
-        **_volatility(bars, rules),
+        **_volatility(current_bars, rules),
     }
-    position = _price_position(bars, rules)
+    position = _price_position(current_bars, rules)
     vol_rank = indicators["vol_percentile"]
     ranks = {key: value["percentile"] for key, value in position.items()}
     complete = (
@@ -490,7 +494,7 @@ def _market(
             "message": "部分风险观察数据不足。",
             "value": None,
             "threshold": None,
-            "active": not complete,
+            "active": not complete if fresh else None,
         },
     ]
     performance = {}
@@ -504,9 +508,9 @@ def _market(
             "end": bars[-1].trade_date.isoformat() if bars else None,
             "count": window + 1 if valid else len(bars),
             "status": "有效"
-            if valid and fresh
-            else "数据过期"
             if valid
+            else "数据过期"
+            if bars and not fresh
             else "样本不足",
         }
     return {
@@ -519,17 +523,18 @@ def _market(
         else ("元/克" if key == "domestic" else "美元/金衡盎司"),
         "source": series.source if series else None,
         "source_url": series.source_url if series else None,
-        "status": (
-            series.status if fresh and series else "stale" if bars else "unavailable"
-        ),
+        "status": ("unavailable" if series is None or series.status == "unavailable"
+                   else "ok" if fresh else "stale" if bars else "unavailable"),
         "source_status": series.status if series else "unavailable",
+        "result_state": series.collection_record.result_state if series and series.collection_record else None,
         "error": series.error if series else None,
         "notes": issues + (series.notes if series else []),
-        "as_of": bars[-1].trade_date.isoformat() if bars else None,
-        "latest_close": values[-1] if values else None,
-        "daily_change": values[-1] - values[-2] if len(values) > 1 else None,
-        "daily_change_pct": (values[-1] / values[-2] - 1) * 100
-        if len(values) > 1
+        "as_of": bars[-1].trade_date.isoformat() if bars and series and series.status != "unavailable" else None,
+        "latest_close": observed_values[-1] if observed_values and series and series.status != "unavailable" else None,
+        "daily_change": observed_values[-1] - observed_values[-2]
+        if len(observed_values) > 1 and series and series.status != "unavailable" else None,
+        "daily_change_pct": (observed_values[-1] / observed_values[-2] - 1) * 100
+        if len(observed_values) > 1 and series and series.status != "unavailable"
         else None,
         "performance": performance,
         "short_term": {
@@ -567,7 +572,7 @@ def _fx_decomposition(collection: GoldCollection, rules: GoldRules) -> list[dict
         not d
         or not g
         or not f
-        or any(s.status == "unavailable" for s in (domestic, international, fx))
+        or any(s.status != "ok" for s in (domestic, international, fx))
         or any(
             _future_publication(s, collection.generated_at)
             for s in (domestic, international, fx)

@@ -130,11 +130,13 @@ class GoldService:
             "sources": [{"key": key, "name": series.name, "source": series.source,
                          "source_url": series.source_url, "unit": series.unit,
                          "as_of": series.as_of.isoformat() if series.as_of else None,
-                         "fetched_at": series.fetched_at.isoformat(),
+                         "fetched_at": series.fetched_at.isoformat() if series.status != "unavailable" else None,
                          "published_at": series.published_at.isoformat() if series.published_at else None,
                          "status": series.status, "error": series.error, "parser": series.parser,
                          "count": len(series.bars) or len(series.observations), "notes": series.notes,
-                         "metadata": series.metadata}
+                         "metadata": series.metadata,
+                         "collection_record": series.collection_record.model_dump(mode="json")
+                         if series.collection_record else None}
                         for key, series in collection.series.items()],
             "commentary": "", "commentary_status": "not_used",
         })
@@ -146,6 +148,7 @@ class GoldService:
         payload["markdown"] = markdown
         payload["status"] = "ok" if all(
             payload["markets"].get(key, {}).get("status") == "ok"
+            and payload["markets"].get(key, {}).get("result_state") != "partial"
             for key in ("domestic", "international")
         ) else "partial"
         if save:

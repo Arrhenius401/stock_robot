@@ -45,6 +45,25 @@ def test_missing_and_stale_prices_are_not_current():
     assert "**0" not in text
 
 
+def test_partial_and_historical_references_are_labeled_in_report():
+    data = sample()
+    data["markets"]["domestic"]["result_state"] = "partial"
+    data["observations"][0].update({"source_status": "stale", "state": "数据缺失", "latest_value": 2.66})
+    data["sources"].append({"name": "国内黄金", "status": "ok", "collection_record": {"result_state": "partial"}})
+    text = render_gold_markdown(data)
+    assert "正常（部分数据）" in text
+    assert "历史参考值 2.66" in text
+    assert "观察日期 2026-10-23" in text
+    assert "最新值 2.66" not in text
+
+
+def test_partial_macro_is_labeled_without_hiding_current_observation():
+    data = sample()
+    data["observations"][0].update({"source_status": "ok", "result_state": "partial", "state": "有效"})
+    text = render_gold_markdown(data)
+    assert "状态 有效（部分数据）" in text
+
+
 def test_untrusted_text_is_escaped_and_ai_text_omitted():
     data = sample()
     data["observations"][0]["name"] = "<script>alert(1)</script>|# hi"

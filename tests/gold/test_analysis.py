@@ -4,6 +4,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
+from data.collection_state import make_record
 from gold.analysis import (
     _change_rank,
     _short_direction,
@@ -119,6 +120,75 @@ def test_short_state_and_risk_are_unknown_when_market_is_stale():
         next(row for row in market["risks"] if row["key"] == "oversold")["active"]
         is None
     )
+
+
+@pytest.mark.parametrize("source_status", ["stale", "unavailable"])
+def test_failed_price_reference_does_not_enter_technical_calculations(source_status):
+    prior = series("domestic", [100 + i * 0.1 for i in range(150)], bars=True)
+    prior.status = source_status
+    market = analyze_collection(collection(domestic=prior))["markets"]["domestic"]
+    assert market["status"] == source_status
+    assert market["short_term"]["direction"] == "无法判断"
+    assert market["indicators"]["ma20"] is None
+    assert market["indicators"]["rsi14"] is None
+    assert market["price_position"]["3y"]["percentile"] is None
+    assert all(row["return_pct"] is None for row in market["performance"].values())
+    assert all(row["active"] is not True for row in market["risks"])
+    if source_status == "stale":
+        assert market["latest_close"] == prior.bars[-1].close
+        assert market["as_of"] == prior.bars[-1].trade_date.isoformat()
+    else:
+        assert market["latest_close"] is None
+
+
+def test_partial_history_preserves_price_and_only_computable_indicators():
+    short = series("domestic", [100 + i * 0.1 for i in range(25)], bars=True)
+    short.collection_record = make_record("测试", "partial", collected_at=NOW)
+    market = analyze_collection(collection(domestic=short))["markets"]["domestic"]
+    assert market["status"] == "ok"
+    assert market["result_state"] == "partial"
+    assert market["latest_close"] == short.bars[-1].close
+    assert market["indicators"]["ma20"] is not None
+    assert market["indicators"]["ma60"] is None
+    assert market["short_term"]["direction"] == "无法判断"
+    assert market["performance"]["20"]["return_pct"] is not None
+    assert market["performance"]["60"]["return_pct"] is None
+
+
+def test_partial_macro_records_data_coverage_without_discarding_valid_window():
+    sample = series("dollar", [100 + i * 0.1 for i in range(150)])
+    sample.collection_record = make_record("测试", "partial", collected_at=NOW)
+    row = next(row for row in analyze_collection(collection(dollar=sample))["observations"] if row["key"] == "dollar")
+    assert row["result_state"] == "partial"
+    assert row["main"]["change"] is not None
+
+
+@pytest.mark.parametrize("source_status", ["stale", "unavailable"])
+@pytest.mark.parametrize("key", ["real_yield", "dollar", "china_reserves", "holdings"])
+def test_failed_macro_reference_is_not_used_in_windows(key, source_status):
+    values = [100 + i * 0.1 for i in range(150)]
+    reference = series(key, values, monthly=key == "china_reserves")
+    reference.status = source_status
+    reference.error = "刷新失败"
+    rows = analyze_collection(collection(**{key: reference}))["observations"]
+    item = next(row for row in rows if row["key"] == key)
+    assert item["state"] == "数据缺失"
+    assert item["main"]["change"] is None
+    assert item["marginal"]["change"] is None
+    assert item["source_status"] == source_status
+    assert item["error"] == "刷新失败"
+
+
+@pytest.mark.parametrize("source_status", ["stale", "unavailable"])
+@pytest.mark.parametrize("key", ["domestic", "international", "fx"])
+def test_failed_reference_is_not_used_in_fx_decomposition(key, source_status):
+    values = {
+        "domestic": series("domestic", [100 + i for i in range(70)], bars=True),
+        "international": series("international", [100 + i for i in range(70)], bars=True),
+        "fx": series("fx", [7 + i * 0.01 for i in range(70)]),
+    }
+    values[key].status = source_status
+    assert analyze_collection(collection(**values))["fx_decomposition"] == []
 
 
 def cores(bull=True):

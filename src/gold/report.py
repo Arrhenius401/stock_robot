@@ -198,6 +198,20 @@ def _status(value: Any) -> str:
     return _STATUS.get(value, "状态未提供") if isinstance(value, str) else "状态未提供"
 
 
+def _coverage_status(value: Any, result_state: Any) -> str:
+    status = _status(value)
+    return status + "（部分数据）" if value == "ok" and result_state == "partial" else status
+
+
+def _observation_status(observation: dict[str, Any]) -> str:
+    status = _plain(observation.get("state"))
+    if observation.get("source_status") == "stale":
+        return status + "（历史参考）"
+    if observation.get("result_state") == "partial":
+        return status + "（部分数据）"
+    return status
+
+
 def _direction(market: dict[str, Any]) -> str:
     if market.get("status") != "ok":
         return "无法判断"
@@ -221,7 +235,7 @@ def render_gold_markdown(payload: dict[str, Any]) -> str:
         price = _number(market.get("latest_close"))
         unit = _plain(market.get("unit"), "单位未提供")
         shown = f"**{_cell(price)} {_cell(unit)}**" if price != "数据缺失" else "数据缺失"
-        lines.append(f"| {label} | {shown} | {_cell(_pct(market.get('daily_change_pct')))} | {_cell(market.get('as_of'))}（{_cell(_status(market.get('status')))}） |")
+        lines.append(f"| {label} | {shown} | {_cell(_pct(market.get('daily_change_pct')))} | {_cell(market.get('as_of'))}（{_cell(_coverage_status(market.get('status'), market.get('result_state')))}） |")
     lines += ["", "国际 XAU 为 CFD 参考行情，非官方基准或同步可成交报价；两地行情可能存在时点差异。", ""]
     snapshots = [f"国内技术{_cell(_direction(domestic))}", f"国际技术{_cell(_direction(international))}"]
     for label, market in pairs:
@@ -231,13 +245,13 @@ def render_gold_markdown(payload: dict[str, Any]) -> str:
     rows = []
     for label, market in pairs:
         performance = _mapping(market.get("performance"))
-        rows.append([label, market.get("as_of"), *[_pct(_mapping(performance.get(window)).get("return_pct")) for window in ("5", "20", "60")], _status(market.get("status"))])
+        rows.append([label, market.get("as_of"), *[_pct(_mapping(performance.get(window)).get("return_pct")) for window in ("5", "20", "60")], _coverage_status(market.get("status"), market.get("result_state"))])
     lines += _table(["市场", "行情日期", "近5日", "近20日", "近60日", "状态"], rows)
     lines += ["各市场按各自观察日计算，日期不一致时不能视为同步比较。", "", "## 辅助分析", "", "### 当前技术状态", ""]
     for label, market in pairs:
         ind = _mapping(market.get("indicators"))
         reason = _mapping(market.get("short_term")).get("reason") if market.get("status") == "ok" else "行情过期或不可用"
-        lines += [f"**{label}**：{_cell(_direction(market))}；原因：{_cell(reason, '未提供')}；收盘价 {_cell(market.get('latest_close'))}，MA20 {_cell(ind.get('ma20'))}，MA60 {_cell(ind.get('ma60'))}，MA60 斜率 {_cell(_pct(ind.get('slope_pct')))}；数据状态：{_cell(_status(market.get('status')))}。", ""]
+        lines += [f"**{label}**：{_cell(_direction(market))}；原因：{_cell(reason, '未提供')}；收盘价 {_cell(market.get('latest_close'))}，MA20 {_cell(ind.get('ma20'))}，MA60 {_cell(ind.get('ma60'))}，MA60 斜率 {_cell(_pct(ind.get('slope_pct')))}；数据状态：{_cell(_coverage_status(market.get('status'), market.get('result_state')))}。", ""]
     lines += ["技术状态描述历史价格和均线关系，不代表已验证的预测或择时效果。", "", "### 宏观与需求观察", ""]
     observations = _records(data.get("observations"))
     if observations:
@@ -245,7 +259,8 @@ def render_gold_markdown(payload: dict[str, Any]) -> str:
             main = _mapping(obs.get("main"))
             marginal = _mapping(obs.get("marginal"))
             window_unit = "个月" if obs.get("key") in ("china_reserves", "global_reserves") else "个观察日"
-            lines += [f"- **{_cell(obs.get('name'))}**：最新值 {_cell(obs.get('latest_value'))} {_cell(obs.get('unit'), '')}；主窗口 {_cell(main.get('window'))} {window_unit}变化 {_cell(main.get('change'))} {_cell(main.get('unit'), '')}；边际窗口 {_cell(marginal.get('window'))} {window_unit}变化 {_cell(marginal.get('change'))} {_cell(marginal.get('unit'), '')}；观察日期 {_cell(obs.get('as_of'))}，状态 {_cell(obs.get('state'))}。"]
+            value_label = "历史参考值" if obs.get("source_status") == "stale" else "最新值"
+            lines += [f"- **{_cell(obs.get('name'))}**：{value_label} {_cell(obs.get('latest_value'))} {_cell(obs.get('unit'), '')}；主窗口 {_cell(main.get('window'))} {window_unit}变化 {_cell(main.get('change'))} {_cell(main.get('unit'), '')}；边际窗口 {_cell(marginal.get('window'))} {window_unit}变化 {_cell(marginal.get('change'))} {_cell(marginal.get('unit'), '')}；观察日期 {_cell(obs.get('as_of'))}，状态 {_cell(_observation_status(obs))}。"]
         lines.append("")
     else:
         lines += ["宏观和需求观察数据缺失。", ""]
@@ -266,7 +281,7 @@ def render_gold_markdown(payload: dict[str, Any]) -> str:
     for obs in observations:
         for window in ("main", "marginal"):
             part = _mapping(obs.get(window))
-            factor_rows.append([obs.get("name"), "主窗口" if window == "main" else "边际窗口", (str(part.get("window")) + ("个月" if obs.get("key") in ("china_reserves", "global_reserves") else "个观察日")) if part.get("window") is not None else None, part.get("change"), part.get("unit"), part.get("start"), part.get("end"), part.get("count"), part.get("percentile"), part.get("percentile_status"), part.get("rank_start"), part.get("rank_end"), part.get("rank_count"), obs.get("latest_value"), obs.get("unit"), obs.get("as_of"), obs.get("source"), obs.get("source_url"), obs.get("state")])
+            factor_rows.append([obs.get("name"), "主窗口" if window == "main" else "边际窗口", (str(part.get("window")) + ("个月" if obs.get("key") in ("china_reserves", "global_reserves") else "个观察日")) if part.get("window") is not None else None, part.get("change"), part.get("unit"), part.get("start"), part.get("end"), part.get("count"), part.get("percentile"), part.get("percentile_status"), part.get("rank_start"), part.get("rank_end"), part.get("rank_count"), obs.get("latest_value"), obs.get("unit"), obs.get("as_of"), obs.get("source"), obs.get("source_url"), _observation_status(obs)])
     lines += _table(["指标", "窗口", "窗口长度", "变化", "单位", "开始", "结束", "样本数", "历史分位", "分位状态", "分位开始", "分位结束", "分位样本数", "最新值", "最新值单位", "观察日期", "来源", "来源地址", "状态"], factor_rows)
     lines += ["分位仅描述历史位置，具体样本范围见上表；实际利率与美元变化的分位按变化取反计算，下降越大分位越高。缺失或过期数据不补零。", "", "## 附录 B：价格与技术数据", ""]
     for label, market in pairs:
@@ -283,7 +298,7 @@ def render_gold_markdown(payload: dict[str, Any]) -> str:
     for label, market in pairs:
         for risk in _records(market.get("risks")):
             active = risk.get("active")
-            risk_rows.append([label, _risk_name(risk.get("key")), risk.get("value"), risk.get("threshold"), "已触发" if active is True else "未触发" if active is False else "数据缺失", _status(market.get("status"))])
+            risk_rows.append([label, _risk_name(risk.get("key")), risk.get("value"), risk.get("threshold"), "已触发" if active is True else "未触发" if active is False else "数据缺失", _coverage_status(market.get("status"), market.get("result_state"))])
     lines += _table(["市场", "风险", "当前值", "参考门槛", "状态", "行情状态"], risk_rows)
     lines += ["门槛是未验证的描述规则；超卖可能伴随反弹，但不改变下跌趋势。", ""]
     fx_lines = _fx(_records(data.get("fx_decomposition")))
@@ -292,7 +307,8 @@ def render_gold_markdown(payload: dict[str, Any]) -> str:
     lines += ["## 附录 E：来源与局限", ""]
     source_rows = []
     for source in _records(data.get("sources")):
-        source_rows.append([source.get("name", source.get("key")), source.get("source"), source.get("url", source.get("source_url")), source.get("as_of"), _publication(source), source.get("fetched_at"), source.get("status"), source.get("error"), source.get("notes"), source.get("parser"), source.get("count")])
+        record = _mapping(source.get("collection_record"))
+        source_rows.append([source.get("name", source.get("key")), source.get("source"), source.get("url", source.get("source_url")), source.get("as_of"), _publication(source), source.get("fetched_at"), _coverage_status(source.get("status"), record.get("result_state")), source.get("error"), source.get("notes"), source.get("parser"), source.get("count")])
     lines += _table(["数据", "来源", "地址", "观察日期", "发布日期", "获取时间", "状态", "错误", "备注", "解析器", "样本数"], source_rows)
     rules = _mapping(data.get("rules_snapshot"))
     rule_keys = ("ma_fast", "ma_slow", "ma_slope_window", "flat_slope_pct", "rsi_period", "atr_period", "vol_window", "annual_days", "rsi_oversold", "vol_high_percentile", "price_high_percentile")

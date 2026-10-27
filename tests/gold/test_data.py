@@ -1,14 +1,21 @@
 """采集预算、独立缓存和失败旧值的集成回归。"""
+import json
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime, timedelta
 
+from data.schemas import DataCollectionRecord
 from gold.data import GoldCollector, SourceCalendar
-from gold.models import GoldObservation, GoldRules
+from gold.models import GoldObservation, GoldRules, GoldSeries
 from gold.sources import empty_series
 
 NOW = datetime(2026, 10, 26, 10, tzinfo=UTC)
+
+
+def record(series: GoldSeries) -> DataCollectionRecord:
+    assert series.collection_record is not None
+    return series.collection_record
 
 
 def good_executor(module, function, kwargs, *, timeout):
@@ -25,11 +32,16 @@ def test_cache_reuses_valid_and_refresh_bypasses(tmp_path):
         return good_executor(*args, **kwargs)
     collector = GoldCollector(tmp_path, request_executor=execute, sources=['dollar'])
     first = collector.collect(now=NOW)
-    second = collector.collect(now=NOW+timedelta(hours=1))
+    expires_at = json.loads(collector._snapshot_path('dollar', 'latest').read_text(encoding='utf-8'))['expires_at']
+    second = collector.collect(now=NOW+timedelta(minutes=20))
     assert len(calls) == 1
     assert second.series['dollar'].as_of == first.series['dollar'].as_of
-    collector.collect(now=NOW+timedelta(hours=2), refresh=True)
+    assert record(second.series['dollar']).result_state == 'partial'
+    assert json.loads(collector._snapshot_path('dollar', 'latest').read_text(encoding='utf-8'))['expires_at'] == expires_at
+    collector.collect(now=NOW+timedelta(minutes=31))
     assert len(calls) == 2
+    collector.collect(now=NOW+timedelta(minutes=32), refresh=True)
+    assert len(calls) == 3
     assert not (tmp_path/'radar').exists()
 
 
@@ -43,7 +55,8 @@ def test_expired_failure_keeps_observation_and_fetch_date(tmp_path):
     assert second.series['dollar'].status == 'stale'
     assert second.series['dollar'].as_of == date(2026,10,23)
     assert second.series['dollar'].fetched_at == first.series['dollar'].fetched_at
-    assert '网络失效' in (second.series['dollar'].error or '')
+    assert record(second.series['dollar']).error_kind == 'fetch_failed'
+    assert '网络失效' not in (second.series['dollar'].error or '')
 
 
 def test_no_cache_and_global_are_explicitly_unavailable(tmp_path):
@@ -62,6 +75,9 @@ def test_unknown_calendar_six_hours_and_verified_does_not_cross_update(tmp_path)
     assert collector.cache_expiry('domestic',NOW) == NOW+timedelta(hours=8)
     collector.calendars = {'domestic': lambda _: SourceCalendar(closed=True, next_update=NOW+timedelta(hours=2), evidence='日历')}
     assert collector.cache_expiry('domestic',NOW) == NOW+timedelta(hours=2)
+    capped = GoldCollector(tmp_path, GoldRules(closed_cache_seconds=172800))
+    capped.calendars = {'domestic': lambda _: SourceCalendar(closed=True, next_update=NOW+timedelta(hours=30), evidence='日历')}
+    assert capped.cache_expiry('domestic',NOW) == NOW+timedelta(hours=24)
     assert collector.cache_expiry('china_reserves',NOW) == NOW+timedelta(hours=24)
 
 
@@ -105,7 +121,8 @@ def test_future_and_wrong_identity_not_cached(tmp_path):
         return result
     result = GoldCollector(tmp_path,request_executor=wrong,sources=['dollar']).collect(now=NOW)
     assert result.series['dollar'].status == 'unavailable'
-    assert not list(tmp_path.rglob('*.json'))
+    assert not [path for path in tmp_path.rglob('*.json') if not path.name.endswith('-last_attempt.json')]
+    assert len(list(tmp_path.rglob('*-last_attempt.json'))) == 1
 
 
 def test_corrupt_cache_isolated(tmp_path):

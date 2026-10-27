@@ -16,12 +16,18 @@ from typing import Any, cast
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+from filelock import FileLock, Timeout
+
+from data.base import CollectionResult
+from data.collection_state import make_record, record_consistent
+from data.schemas import DataCollectionRecord
 from gold.models import GoldCollection, GoldRules, GoldSeries, SourceKey, local_now
-from gold.sources import SOURCE_INFO, SourceParseError, empty_series
+from gold.sources import SOURCE_INFO, empty_series
 from radar.provider_request import bounded_provider_call
 
 logger = logging.getLogger(__name__)
 _REQUEST_SLOTS = threading.BoundedSemaphore(3)
+_RETRY_SECONDS = 1800
 
 
 @dataclass(frozen=True)
@@ -78,21 +84,6 @@ class GoldCollector:
         digest = hashlib.sha256(identity.encode()).hexdigest()[:16]
         return self.directory / 'cache' / f'{key}-{digest}.json'
 
-    def _read_cache(self, key: SourceKey) -> tuple[GoldSeries, datetime] | None:
-        path = self._cache_path(key)
-        if not path.exists():
-            return None
-        try:
-            payload = json.loads(path.read_text(encoding='utf-8'))
-            series = GoldSeries.model_validate(payload['series'])
-            expiry = datetime.fromisoformat(payload['expires_at'])
-            if series.key != key or series.unit != SOURCE_INFO[key][3] or expiry.tzinfo is None:
-                raise ValueError('缓存系列、单位或时区不符合当前来源')
-            return series, expiry
-        except (OSError, KeyError, TypeError, ValueError) as exc:
-            logger.warning('黄金缓存损坏，重新请求 %s: %s', key, exc)
-            return None
-
     def cache_expiry(self, key: SourceKey, now: datetime) -> datetime:
         if 'reserves' in key:
             return now + timedelta(seconds=self.rules.monthly_cache_seconds)
@@ -109,104 +100,318 @@ class GoldCollector:
                 seconds = min(seconds, max(0, (next_update - now).total_seconds()))
         return now + timedelta(seconds=seconds)
 
-    def _write_cache(self, key: SourceKey, series: GoldSeries, now: datetime) -> None:
+    def _snapshot_path(self, key: SourceKey, kind: str) -> Path:
         path = self._cache_path(key)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(f'.{uuid4().hex}.tmp')
+        return path if kind == "latest" else path.with_name(f"{path.stem}-{kind}.json")
+
+    def _read_cache(self, key: SourceKey, now: datetime, kind: str = "latest") -> tuple[GoldSeries, datetime] | None:
+        from gold.policy import classify_gold
+
+        path = self._snapshot_path(key, kind)
         try:
-            payload = {'expires_at': self.cache_expiry(key, now).isoformat(), 'series': series.model_dump(mode='json')}
-            temporary.write_text(json.dumps(payload, ensure_ascii=False, allow_nan=False), encoding='utf-8')
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            series = GoldSeries.model_validate(payload["series"])
+            expiry = datetime.fromisoformat(payload["expires_at"])
+            stored_at = datetime.fromisoformat(payload["stored_at"]) if "stored_at" in payload else series.fetched_at
+            if (series.key != key or series.unit != SOURCE_INFO[key][3] or expiry.tzinfo is None
+                    or series.fetched_at > now or stored_at.utcoffset() is None or stored_at > now
+                    or series.status != "ok"):
+                raise ValueError("缓存系列、单位、时间或状态无效")
+            current_state = classify_gold(series, None, now, self.rules)
+            if current_state == "failed":
+                raise ValueError("缓存黄金数据未通过有效性校验")
+            record = series.collection_record
+            if record is None or record.result_state == "unknown":
+                record = make_record(series.source, current_state, collected_at=series.fetched_at)
+            elif not record_consistent(record) or record.result_state not in ("complete", "partial"):
+                raise ValueError("缓存采集状态不一致")
+            elif record.result_state == "complete" and current_state == "partial":
+                record = make_record(series.source, "partial", diagnostic=record,
+                                     collected_at=series.fetched_at, cache_status=record.cache_status)
+            if (record.collected_at is None or record.collected_at.utcoffset() is None
+                    or record.collected_at != series.fetched_at or record.source != series.source):
+                raise ValueError("缓存采集时间无效")
+            series.collection_record = record
+            if record.result_state == "partial":
+                expiry = min(expiry, stored_at + timedelta(seconds=_RETRY_SECONDS))
+            return series, expiry
+        except FileNotFoundError:
+            return None
+        except (OSError, KeyError, TypeError, ValueError) as exc:
+            logger.warning("黄金缓存不可用 %s/%s: %s", key, kind, exc)
+            return None
+
+    def _read_attempt(self, key: SourceKey, now: datetime) -> tuple[DataCollectionRecord, datetime] | None:
+        try:
+            payload = json.loads(self._snapshot_path(key, "last_attempt").read_text(encoding="utf-8"))
+            attempted = datetime.fromisoformat(payload["attempted_at"])
+            record = DataCollectionRecord.model_validate(payload["record"])
+            if (attempted.utcoffset() is None or not 0 <= (now - attempted).total_seconds() < _RETRY_SECONDS
+                    or not record_consistent(record) or record.result_state != "failed"
+                    or record.collected_at is not None):
+                return None
+            return record.model_copy(update={"cache_status": "cache"}), attempted
+        except FileNotFoundError:
+            return None
+        except (OSError, KeyError, TypeError, ValueError) as exc:
+            logger.warning("黄金失败尝试缓存不可用 %s: %s", key, exc)
+            return None
+
+    @staticmethod
+    def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(f".{uuid4().hex}.tmp")
+        try:
+            temporary.write_text(json.dumps(payload, ensure_ascii=False, allow_nan=False), encoding="utf-8")
             temporary.replace(path)
         finally:
             temporary.unlink(missing_ok=True)
 
-    def _request(self, key: SourceKey, now: datetime, deadline: float) -> GoldSeries:
+    def _write_cache(self, key: SourceKey, series: GoldSeries, now: datetime, kind: str = "latest",
+                     *, expires_at: datetime | None = None) -> None:
+        path = self._snapshot_path(key, kind)
+        prior = None
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+            prior = GoldSeries.model_validate(existing["series"])
+        except FileNotFoundError:
+            logger.debug("黄金快照尚不存在 %s/%s", key, kind)
+        except (OSError, KeyError, TypeError, ValueError) as exc:
+            logger.debug("忽略不可读取的旧黄金快照 %s: %s", key, exc)
+        if prior and prior.key == key and prior.unit == series.unit and prior.fetched_at > series.fetched_at:
+            raise ValueError("已有较新的采集快照，拒绝迟到写入")
+        expiry = expires_at or self.cache_expiry(key, now)
+        if series.collection_record and series.collection_record.result_state == "partial":
+            expiry = min(expiry, now + timedelta(seconds=_RETRY_SECONDS))
+        self._atomic_json(path, {
+            "expires_at": expiry.isoformat(), "stored_at": now.isoformat(),
+            "series": series.model_dump(mode="json"),
+        })
+
+    def _write_attempt(self, key: SourceKey, record: DataCollectionRecord, now: datetime) -> None:
+        stored_at = self._stored_at(key)
+        if stored_at is not None and stored_at > now:
+            logger.warning("黄金已有较新的成功记录，跳过迟到失败记录 %s", key)
+            return
+        path = self._snapshot_path(key, "last_attempt")
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            previous = datetime.fromisoformat(payload["attempted_at"])
+            if previous.utcoffset() is not None and previous > now:
+                logger.warning("黄金已有较新的失败记录，跳过迟到失败记录 %s", key)
+                return
+        except (OSError, KeyError, TypeError, ValueError) as exc:
+            logger.debug("黄金此前失败记录不可用 %s: %s", key, exc)
+        self._atomic_json(path, {
+            "attempted_at": now.isoformat(), "record": record.model_dump(mode="json"),
+        })
+
+    def _stored_at(self, key: SourceKey) -> datetime | None:
+        try:
+            payload = json.loads(self._snapshot_path(key, "latest").read_text(encoding="utf-8"))
+            stamp = datetime.fromisoformat(payload.get("stored_at") or payload["series"]["fetched_at"])
+            return stamp if stamp.utcoffset() is not None else None
+        except (OSError, KeyError, TypeError, ValueError) as exc:
+            logger.debug("黄金最近保存时间不可用 %s: %s", key, exc)
+            return None
+
+    def _reference(self, key: SourceKey, now: datetime, record: DataCollectionRecord,
+                   latest: tuple[GoldSeries, datetime] | None,
+                   complete: tuple[GoldSeries, datetime] | None) -> GoldSeries:
+        snapshot = latest or complete
+        if snapshot is None:
+            result = empty_series(key, now, record.error_message or "本次未取得有效数据")
+        else:
+            result = snapshot[0].model_copy(deep=True)
+            result.status = "stale"
+            result.error = record.error_message or "本次刷新失败"
+            result.notes.append("本次刷新失败，保留原观察日期和采集时间，仅作历史参考")
+        result.collection_record = record
+        return result
+
+    def _request(self, key: SourceKey, now: datetime, deadline: float) -> CollectionResult:
+        from gold.adapter import GoldSourceAdapter
+
         remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise TimeoutError('黄金采集总体预算已截止，未启动此来源')
-        if not _REQUEST_SLOTS.acquire(timeout=remaining):
-            raise TimeoutError('等待黄金共享请求槽位时已到总体截止')
+        if remaining <= 0 or not _REQUEST_SLOTS.acquire(timeout=max(0, remaining)):
+            raise TimeoutError("等待黄金共享请求槽位时已到总体截止")
         try:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise TimeoutError('黄金采集总体预算已截止，未启动此来源')
-            timeout = min(self.rules.source_timeout_seconds, 30, remaining)
-            result = self.request_executor(
-                'gold.sources', 'fetch_source',
-                {'key': key, 'now_iso': now.isoformat(), 'history_dir': str(self.directory / 'history'),
-                 'historical_cache_seconds': self.rules.historical_cache_seconds}, timeout=timeout,
-            )
+                raise TimeoutError("黄金采集总体预算已截止，未启动此来源")
+            adapter = GoldSourceAdapter(self.request_executor, self.directory / "history",
+                                        self.rules.historical_cache_seconds)
+            return adapter.fetch_result("GOLD", key=key, now=now,
+                                        timeout=min(self.rules.source_timeout_seconds, 30, remaining))
         finally:
             _REQUEST_SLOTS.release()
-        series = GoldSeries.model_validate(result)
-        if series.key != key or series.unit != SOURCE_INFO[key][3]:
-            raise SourceParseError('采集结果系列或单位与请求不一致')
-        if any(point.observation_date > now.date() for point in series.observations) or any(bar.trade_date > now.date() for bar in series.bars):
-            raise SourceParseError('采集结果包含未来日期')
-        if series.status != 'ok' or not (series.observations or series.bars):
-            raise SourceParseError(series.error or '来源未返回有效数据')
-        return series
+
+    @staticmethod
+    def _validate_result(result: CollectionResult, key: SourceKey) -> tuple[GoldSeries | None, DataCollectionRecord]:
+        if (not isinstance(result, CollectionResult) or result.record is None
+                or not record_consistent(result.record) or result.record.error_kind == "contract_error"):
+            raise TypeError("黄金来源返回的采集契约无效")
+        record = result.record
+        if not result.rows:
+            if record.result_state != "failed" or record.collected_at is not None:
+                raise TypeError("黄金失败诊断不符合契约")
+            return None, record
+        if (len(result.rows) != 1 or not isinstance(result.rows[0], GoldSeries)
+                or record.result_state not in ("complete", "partial")):
+            raise TypeError("黄金数据和诊断状态矛盾")
+        value = result.rows[0]
+        if (value.key != key or record.source != value.source or record.collected_at != value.fetched_at
+                or (record.result_state == "complete" and (record.error_kind or record.error_message))):
+            raise TypeError("黄金数据和来源诊断矛盾")
+        return value, record
+
+    def _collect_without_cache(self, key: SourceKey, now: datetime, deadline: float) -> GoldSeries:
+        from gold.policy import classify_gold
+
+        try:
+            value, record = self._validate_result(self._request(key, now, deadline), key)
+            if value is None:
+                return self._reference(key, now, record, None, None)
+            state = classify_gold(value, None, now, self.rules)
+            if state not in ("complete", "partial"):
+                raise ValueError("黄金数据未通过有效性校验")
+            value.collection_record = make_record(value.source, state, diagnostic=record,
+                                                  collected_at=value.fetched_at, cache_status="live")
+            value.notes.append("缓存不可用，本次数据仍可使用")
+            return value
+        except (TimeoutError, TypeError, ValueError) as exc:
+            logger.warning("黄金来源 %s 无缓存采集失败: %s", key, type(exc).__name__)
+            kind = "contract_error" if isinstance(exc, TypeError) else "timeout" if isinstance(exc, TimeoutError) else "invalid_data"
+            record = make_record(SOURCE_INFO[key][1], "failed", error_kind=kind, error_message="黄金来源采集失败")
+            return self._reference(key, now, record, None, None)
+
+    def _collect_source(self, key: SourceKey, now: datetime, deadline: float, refresh: bool) -> GoldSeries:
+        from gold.policy import classify_gold
+
+        requested_at = now
+        started = deadline - min(self.rules.total_timeout_seconds, 60)
+
+        def clock_now() -> datetime:
+            return requested_at + timedelta(seconds=max(0, time.monotonic() - started))
+
+        path = self._cache_path(key)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            remaining = max(0, deadline - time.monotonic())
+            with FileLock(str(path) + ".lock", timeout=remaining):
+                now = clock_now()
+                latest = self._read_cache(key, now)
+                complete = self._read_cache(key, now, "last_complete")
+                complete_from_latest = False
+                if complete is None and latest:
+                    latest_at_fetch = classify_gold(latest[0], None, latest[0].fetched_at, self.rules)
+                    if latest_at_fetch == "complete":
+                        preserved = latest[0].model_copy(deep=True)
+                        preserved.collection_record = make_record(preserved.source, "complete", collected_at=preserved.fetched_at)
+                        complete = (preserved, latest[1])
+                        complete_from_latest = True
+                if not refresh:
+                    attempt = self._read_attempt(key, now)
+                    if attempt is not None:
+                        failed, attempted = attempt
+                        stored_at = self._stored_at(key) if latest else None
+                        if stored_at is None or stored_at < attempted:
+                            return self._reference(key, now, failed, latest, complete)
+                    if latest and latest[1] > now:
+                        value = latest[0].model_copy(deep=True)
+                        assert value.collection_record is not None
+                        value.collection_record = value.collection_record.model_copy(update={"cache_status": "cache"})
+                        return value
+                try:
+                    value, record = self._validate_result(self._request(key, now, deadline), key)
+                    finished = clock_now()
+                    if value is None:
+                        if record.error_kind != "contract_error":
+                            try:
+                                self._write_attempt(key, record, finished)
+                            except (OSError, ValueError, TypeError) as exc:
+                                logger.warning("黄金失败状态保存失败 %s: %s", key, exc)
+                        return self._reference(key, now, record, latest, complete)
+                    previous = complete[0] if complete else None
+                    state = classify_gold(value, previous, finished, self.rules)
+                    if state not in ("complete", "partial"):
+                        raise ValueError("黄金数据未通过有效性校验")
+                    if latest and latest[0].as_of and value.as_of and value.as_of < latest[0].as_of:
+                        raise ValueError("来源观察日期早于已保存的最新日期")
+                    value.collection_record = make_record(value.source, state, diagnostic=record,
+                                                          collected_at=value.fetched_at, cache_status="live")
+                    calendar_info = self.calendars[key](now) if key in self.calendars else source_calendar(key, now)
+                    if calendar_info is not None and calendar_info.evidence:
+                        value.metadata["cache_calendar_evidence"] = calendar_info.evidence
+                        value.metadata["cache_calendar_timezone"] = str(calendar_info.next_update.tzinfo) if calendar_info.next_update else None
+                    try:
+                        if state == "partial" and complete_from_latest and complete is not None:
+                            self._write_cache(key, complete[0], complete[0].fetched_at, "last_complete", expires_at=complete[1])
+                        self._write_cache(key, value, finished)
+                        if state == "complete":
+                            self._write_cache(key, value, finished, "last_complete")
+                        self._snapshot_path(key, "last_attempt").unlink(missing_ok=True)
+                    except (OSError, ValueError, TypeError) as exc:
+                        logger.warning("黄金缓存保存失败 %s: %s", key, exc)
+                        value.notes.append("缓存保存失败，本次数据仍可使用")
+                    return value
+                except (TimeoutError, TypeError, ValueError) as exc:
+                    logger.warning("黄金来源 %s 采集失败: %s", key, exc)
+                    kind = "contract_error" if isinstance(exc, TypeError) else "invalid_data" if isinstance(exc, ValueError) else "timeout"
+                    record = make_record(SOURCE_INFO[key][1], "failed", error_kind=kind, error_message=f"黄金来源采集失败（{type(exc).__name__}）")
+                    if kind != "contract_error":
+                        try:
+                            self._write_attempt(key, record, clock_now())
+                        except (OSError, ValueError, TypeError) as cache_exc:
+                            logger.warning("黄金失败状态保存失败 %s: %s", key, cache_exc)
+                    return self._reference(key, now, record, latest, complete)
+        except Timeout as exc:
+            logger.warning("等待黄金来源缓存锁超时 %s: %s", key, type(exc).__name__)
+            record = make_record(SOURCE_INFO[key][1], "failed", error_kind="timeout", error_message="等待黄金数据时超时")
+            finished = clock_now()
+            return self._reference(key, finished, record, self._read_cache(key, finished), self._read_cache(key, finished, "last_complete"))
+        except OSError as exc:
+            logger.warning("黄金来源缓存锁不可用 %s: %s", key, type(exc).__name__)
+            return self._collect_without_cache(key, clock_now(), deadline)
 
     def collect(self, *, now: datetime | None = None, refresh: bool = False) -> GoldCollection:
         now = now or local_now()
-        if now.tzinfo is None:
-            raise ValueError('黄金采集时间必须含时区')
+        if now.utcoffset() is None:
+            raise ValueError("黄金采集时间必须含时区")
         deadline = time.monotonic() + min(self.rules.total_timeout_seconds, 60)
         result = GoldCollection(generated_at=now)
-        old: dict[SourceKey, GoldSeries] = {}
-        pending: list[SourceKey] = []
+        pending = []
         for key in self.sources:
-            if key == 'global_reserves':
-                result.series[key] = empty_series(key, now, 'IMF 全球数量序列尚未通过接入验收；不使用美元估值替代数量')
-                continue
-            cached = self._read_cache(key)
-            if cached:
-                series, expiry = cached
-                old[key] = series
-                if not refresh and expiry > now and series.fetched_at <= now:
-                    result.series[key] = series
-                    continue
-            pending.append(key)
-
-        def fail(key: SourceKey, reason: str) -> None:
-            if key in old:
-                previous = old[key].model_copy(deep=True)
-                previous.status, previous.error = 'stale', reason
-                previous.notes.append('本次更新失败，保留原观察日期和原采集时间的旧值')
-                result.series[key] = previous
+            if key == "global_reserves":
+                series = empty_series(key, now, "IMF 全球数量序列尚未通过接入验收；不使用美元估值替代数量")
+                series.collection_record = make_record(series.source, "failed", error_kind="unavailable", error_message=series.error or "不可用")
+                result.series[key] = series
             else:
-                result.series[key] = empty_series(key, now, reason)
-
-        # 调度线程仅等待可终止请求；每次请求超时取剩余总预算，退出时必须等所有边界清理。
-        with ThreadPoolExecutor(max_workers=self.rules.max_workers, thread_name_prefix='gold-source') as pool:
+                pending.append(key)
+        with ThreadPoolExecutor(max_workers=self.rules.max_workers, thread_name_prefix="gold-source") as pool:
             running: dict[Future[GoldSeries], SourceKey] = {}
             while pending or running:
                 while pending and len(running) < self.rules.max_workers and time.monotonic() < deadline:
                     key = pending.pop(0)
-                    running[pool.submit(self._request, key, now, deadline)] = key
+                    running[pool.submit(self._collect_source, key, now, deadline, refresh)] = key
                 if not running:
                     break
                 completed, _ = wait(running, return_when=FIRST_COMPLETED)
                 for future in completed:
                     key = running.pop(future)
                     try:
-                        series = future.result()
-                    except Exception as exc:  # noqa: BLE001 — 单来源隔离边界，不影响其他黄金证据
-                        logger.warning('黄金来源 %s 请求失败: %s', key, exc)
-                        fail(key, f'{type(exc).__name__}: {exc}')
-                        continue
-                    result.series[key] = series
-                    calendar_info = self.calendars[key](now) if key in self.calendars else source_calendar(key, now)
-                    if calendar_info is not None and calendar_info.evidence:
-                        series.metadata['cache_calendar_evidence'] = calendar_info.evidence
-                        series.metadata['cache_calendar_timezone'] = str(calendar_info.next_update.tzinfo) if calendar_info.next_update else None
-                    try:
-                        self._write_cache(key, series, now)
-                    except (OSError, ValueError) as exc:
-                        logger.warning('黄金来源已取得但缓存保存失败 %s: %s', key, exc)
-                        series.notes.append(f'缓存保存失败: {type(exc).__name__}')
+                        result.series[key] = future.result()
+                    except Exception as exc:  # noqa: BLE001 — 单来源隔离，不阻断整份黄金报告
+                        logger.warning("黄金来源 %s 未能完成: %s", key, type(exc).__name__)
+                        record = make_record(SOURCE_INFO[key][1], "failed", error_kind="unexpected", error_message="黄金来源未能完成")
+                        result.series[key] = self._reference(
+                            key, now, record,
+                            self._read_cache(key, now), self._read_cache(key, now, "last_complete"),
+                        )
             for key in pending:
-                fail(key, '黄金采集总体预算已截止，未启动此来源')
-        if any(series.status != 'ok' for series in result.series.values()):
-            result.notes.append('部分来源缺失或更新失败；旧值保留真实观察日期，不按抓取时间刷新数据期')
+                record = make_record(SOURCE_INFO[key][1], "failed", error_kind="timeout", error_message="黄金采集总体预算已截止")
+                result.series[key] = self._reference(key, now, record, self._read_cache(key, now), self._read_cache(key, now, "last_complete"))
+        if any(series.status != "ok" or (series.collection_record and series.collection_record.result_state != "complete") for series in result.series.values()):
+            result.notes.append("部分来源缺失、数据不完整或更新失败；旧值保留原观察和采集日期")
+        result.generated_at = now + timedelta(seconds=max(0, time.monotonic() - (deadline - min(self.rules.total_timeout_seconds, 60))))
         return result

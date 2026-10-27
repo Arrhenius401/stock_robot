@@ -22,7 +22,13 @@ DEDICATED_CAPABILITIES: frozenset[tuple[str, str]] = frozenset({
     ("a-shares", "industry"),
     ("hk", "industry"),
 })
-CONTRACT_CAPABILITIES = MIGRATED_CAPABILITIES | DEDICATED_CAPABILITIES
+GOLD_CAPABILITIES: frozenset[tuple[str, str]] = frozenset({
+    ("gold", key) for key in (
+        "domestic", "international", "real_yield", "dollar", "fx",
+        "china_reserves", "holdings", "global_reserves",
+    )
+})
+CONTRACT_CAPABILITIES = MIGRATED_CAPABILITIES | DEDICATED_CAPABILITIES | GOLD_CAPABILITIES
 
 
 @dataclass(frozen=True)
@@ -69,6 +75,7 @@ ALLOWED_FETCH_RESULT_CALLS: frozenset[tuple[str, str]] = frozenset({
     ("src/core/resilient_collection.py", "ResilientCollector._collect"),
     ("src/core/pipeline.py", "Pipeline.collect.fetch_one"),
     ("src/core/pipeline.py", "Pipeline._collect_hk_news"),
+    ("src/gold/data.py", "GoldCollector._request"),
 })
 
 
@@ -86,6 +93,12 @@ class _CallVisitor(ast.NodeVisitor):
         self._path = path
         self._stack: list[str] = []
         self.calls: list[_CallSite] = []
+        self._gold_fetch_names: set[str] = {"fetch_source"}
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        if node.module == "gold.sources":
+            self._gold_fetch_names.update(alias.asname or alias.name for alias in node.names if alias.name == "fetch_source")
+        self.generic_visit(node)
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         self._stack.append(node.name)
@@ -103,6 +116,21 @@ class _CallVisitor(ast.NodeVisitor):
         self._stack.pop()
 
     def visit_Call(self, node: ast.Call) -> None:
+        in_gold = self._path.startswith("src/gold/")
+        gold_provider = (
+            isinstance(node.func, ast.Attribute)
+            and (node.func.attr == "fetch_source" or (in_gold and node.func.attr == "request_executor"))
+            or isinstance(node.func, ast.Name)
+            and (
+                node.func.id in self._gold_fetch_names
+                or (in_gold and node.func.id == "bounded_provider_call")
+            )
+        )
+        if gold_provider:
+            self.calls.append(_CallSite(
+                path=self._path, function=".".join(self._stack) or "<module>",
+                line=node.lineno, method="gold_provider", data_type=None,
+            ))
         if isinstance(node.func, ast.Attribute) and node.func.attr in {"fetch", "fetch_result"}:
             data_type, has_data_type, has_kwargs = self._call_shape(node)
             if node.func.attr == "fetch_result" or has_data_type or has_kwargs:
@@ -150,6 +178,10 @@ def find_violations(root: Path, sites: tuple[FetchSite, ...] = LEGACY_FETCH_SITE
         visitor = _CallVisitor(relative)
         visitor.visit(tree)
         for call in visitor.calls:
+            if call.method == "gold_provider":
+                if (call.path, call.function) != ("src/gold/adapter.py", "GoldSourceAdapter._collect"):
+                    violations.append(f"{call.path}:{call.line} {call.function} 绕过黄金来源适配器")
+                continue
             if call.method == "fetch_result":
                 if (call.path, call.function) not in ALLOWED_FETCH_RESULT_CALLS:
                     violations.append(

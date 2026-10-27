@@ -8,6 +8,8 @@ from zoneinfo import ZoneInfo
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
+from data.schemas import DataCollectionRecord
+
 SourceKey = Literal[
     "domestic", "international", "real_yield", "dollar", "fx",
     "china_reserves", "holdings", "global_reserves",
@@ -58,6 +60,7 @@ class GoldSeries(BaseModel):
     parser: str | None = None
     notes: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    collection_record: DataCollectionRecord | None = None
 
     @property
     def as_of(self) -> date | None:

@@ -3008,3 +3008,14 @@ CLI 真实生成 A 股 600519 和港股 00700 Markdown，按用户要求跳过�
 - [ ] Phase 1 不新增 `DataReference`、数据源、依赖、评分公式或报告文案。
 - [ ] CLI A 股/港股 Markdown 验收完成，跳过浏览器；既有 Full 失败单独记录。
 - [ ] Phase 1 设计/计划仍为同一主题的一份设计＋一份计划。
+
+
+## 黄金专用采集实施计划（2026-10-27）
+
+以 dev 0c25d71 为基础，在隔离工作树带入黄金两笔已提交功能。契约为 DataSource.fetch_result 返回 CollectionResult；rows 为单个 GoldSeries，record 为统一 DataCollectionRecord；GoldSeries 增加可选 collection_record 用于缓存和报告透传。黄金来源由专用适配器包装现有可终止子进程，不扩大网络请求。
+
+1. 测试先行：适配器显式契约、合法/错误诊断，策略的单位、未来日期、覆盖与退步。策略接口 classify_gold(series, previous, now, rules)，返回 complete/partial/failed。
+2. 测试先行：黄金独立 latest/last_complete/last_attempt，旧缓存无记录兼容；失败或部分1800秒，缓存命中不续期，刷新绕过；同来源并发合并和迟到结果保护，保留30/60秒及3个共享请求槽位。
+3. 测试先行：历史参考仅在价格及来源说明出现，不进入技术方向、宏观窗口和汇率计算；历史快照/旧正文不变。
+4. 注册黄金专用入口和策略，静态门禁覆盖 GoldCollector 到适配器的唯一入口；扩展 verify.ps1 映射。
+5. 执行黄金、统一契约和 API/CLI 回归，审查规格、质量和修复复审；真实 CLI Markdown；运行变更范围门禁并按完整事项本地提交。

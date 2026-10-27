@@ -53,6 +53,50 @@ def test_fetch_result_outside_collector_is_rejected(tmp_path):
     assert any("fetch_result" in violation for violation in violations)
 
 
+def test_gold_provider_must_use_adapter_boundary(tmp_path):
+    write(tmp_path, "src/gold/bypass.py", """
+        def collect(source):
+            source.request_executor("gold.sources", "fetch_source", {})
+    """)
+    assert any("黄金来源" in message for message in find_violations(tmp_path, ()))
+
+
+def test_gold_direct_fetch_source_is_rejected_even_with_alias(tmp_path):
+    write(tmp_path, "src/gold/bypass.py", """
+        from gold.sources import fetch_source as direct
+        def collect():
+            direct(key="domestic")
+    """)
+    assert any("黄金来源" in message for message in find_violations(tmp_path, ()))
+
+
+def test_gold_direct_fetch_source_outside_gold_is_rejected(tmp_path):
+    write(tmp_path, "src/data/bypass.py", """
+        from gold.sources import fetch_source as direct
+        def collect():
+            direct(key="domestic")
+    """)
+    assert any("黄金来源" in message for message in find_violations(tmp_path, ()))
+
+
+def test_other_provider_boundaries_are_not_gold_violations(tmp_path):
+    write(tmp_path, "src/radar/data.py", """
+        from radar.provider_request import bounded_provider_call
+        def collect():
+            return bounded_provider_call("akshare", "fund_etf_hist_em")
+    """)
+    assert find_violations(tmp_path, ()) == []
+
+
+def test_gold_collector_contract_entry_is_allowed(tmp_path):
+    write(tmp_path, "src/gold/data.py", """
+        class GoldCollector:
+            def _request(self, source):
+                return source.fetch_result("GOLD")
+    """)
+    assert find_violations(tmp_path, ()) == []
+
+
 def test_stale_manifest_entry_is_rejected(tmp_path):
     write(tmp_path, "src/core/legacy.py", """
         def run():
