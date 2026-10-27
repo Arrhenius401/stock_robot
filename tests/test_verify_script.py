@@ -61,6 +61,20 @@ def test_shared_financial_validity_covers_report_and_cache():
     assert {"tests/core/test_financial_cache_facts.py", "tests/core/test_pipeline.py", "tests/report"} <= targets
 
 
+@pytest.mark.parametrize("path,expected", [
+    ("src/core/collection_contract.py", "tests/core"),
+    ("src/core/resilient_collection.py", "tests/report"),
+    ("src/data/collection_policies.py", "tests/core"),
+    ("src/data/akshare.py", "tests/core"),
+    ("scripts/check-data-entrypoints.py", "tests/test_data_entrypoints.py"),
+])
+def test_contract_changes_pull_related_tests(path, expected):
+    result = _run("-PlanOnly", "-Files", path)
+    assert result.returncode == 0, result.stderr
+    targets = [item.replace("\\", "/") for item in json.loads(result.stdout)["TestTargets"]]
+    assert expected in targets
+
+
 def test_version_only_change_checks_metadata_and_installed_distribution():
     result = _run("-PlanOnly", "-Files", "src/stock_robot/metadata.py")
     assert result.returncode == 0, result.stderr
