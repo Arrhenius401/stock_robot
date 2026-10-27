@@ -3008,3 +3008,786 @@ CLI 真实生成 A 股 600519 和港股 00700 Markdown，按用户要求跳过�
 - [ ] Phase 1 不新增 `DataReference`、数据源、依赖、评分公式或报告文案。
 - [ ] CLI A 股/港股 Markdown 验收完成，跳过浏览器；既有 Full 失败单独记录。
 - [ ] Phase 1 设计/计划仍为同一主题的一份设计＋一份计划。
+
+---
+
+# Phase 2 实施计划：辅助补取、指数/策略、静态刷新
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** 让 2A 辅助补取/名称解析、2B 指数/策略、2C 静态刷新使用统一结果/诊断记录，同时保留现有缓存、原子发布、旧快照回退和失败语义。
+
+**Architecture:** 2A 在函数边界返回 `CollectionResult`/`ValueResult`；2B 在 `IndexAnalysisContext` 增加内部 `collection_records`，由 `IndexDataCollector` 生成记录，策略提供器内部缓存不动；2C 使用独立 `RefreshRecord`，保留现有刷新/发布函数作为兼容包装。三者不进入 `ResilientCollector`，不新增 `DataReference`。
+
+**Tech Stack:** Python 3.11、Pydantic v2、SQLite、pytest、Ruff、Pyright、PowerShell。
+
+**依据设计：** `docs/superpowers/specs/2026-10/2026-10-26-unified-data-collection-design.md` 第 16 节。
+
+**执行约束：**
+
+- 在 `feat/unified-data-collection-phase2` 分支实施；不推送、不合并。
+- 只做 2A/2B/2C；不顺手改评分、报告文案、前端、依赖或数据源。
+- 保留现有缓存键/TTL、SQLite 策略缓存、原子发布、文件锁、旧快照保留和失败回退。
+- 2A/2B/2C 不生成 `DataReference`；不进入评分、信号或 AI 事实输入。
+- 静态刷新验收只用临时路径或离线 fixture，不覆盖仓库内正式数据。
+- `dev` 既有前端静态测试失败按基线记录；不能声称 Full 全绿。
+- 手动 pytest 前创建 `$run` 目录。
+
+---
+
+### Task 14: 共享结果类型扩展
+
+**Files:**
+- Modify: `src/data/base.py`
+- Modify: `src/data/collection_state.py`
+- Test: `tests/data/test_collection_state.py`
+
+- [ ] **Step 1: 写失败测试**
+
+在 `tests/data/test_collection_state.py` 增加：
+
+```python
+from datetime import datetime, timezone
+
+from data.base import CollectionResult
+from data.collection_state import (
+    RefreshRecord, ValueResult, make_refresh_record,
+)
+
+
+def test_collection_result_keeps_error_details():
+    result = CollectionResult(rows=[{"symbol": "000001"}], errors=["批次失败"])
+    assert result.rows == [{"symbol": "000001"}]
+    assert result.errors == ["批次失败"]
+
+
+def test_value_result_and_refresh_record():
+    value = ValueResult(value=1.0, record=make_refresh_record("测试源", "complete"))
+    assert value.value == 1.0
+    record = make_refresh_record("测试源", "partial", error_message="部分失败")
+    assert record.result_state == "partial"
+    assert record.published is False
+    assert isinstance(record, RefreshRecord)
+    assert record.attempted_at.tzinfo is not None
+```
+
+- [ ] **Step 2: 运行确认失败**
+
+```powershell
+$run = "tmp/pytest/phase2-task14-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/data/test_collection_state.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+```
+
+- [ ] **Step 3: 扩展 `CollectionResult`**
+
+在 `src/data/base.py`：
+
+```python
+from dataclasses import dataclass, field
+
+@dataclass(frozen=True)
+class CollectionResult:
+    rows: list[Any]
+    record: DataCollectionRecord | None = None
+    errors: list[str] = field(default_factory=list)
+```
+
+现有适配器调用不变，`errors` 默认空列表。
+
+- [ ] **Step 4: 增加 `ValueResult`、`RefreshRecord`、`make_refresh_record`**
+
+在 `src/data/collection_state.py`：
+
+```python
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Generic, TypeVar
+
+T = TypeVar("T")
+
+
+@dataclass(frozen=True)
+class ValueResult(Generic[T]):
+    value: T | None
+    record: DataCollectionRecord
+
+
+@dataclass(frozen=True)
+class RefreshRecord:
+    source: str
+    attempted_at: datetime
+    result_state: ResultState
+    error_kind: str = ""
+    error_message: str = ""
+    published: bool = False
+
+
+def make_refresh_record(source: str, state: ResultState, *,
+                        attempted_at: datetime | None = None,
+                        error_kind: str = "", error_message: str = "",
+                        published: bool = False) -> RefreshRecord:
+    if state not in ("complete", "partial", "failed"):
+        raise ValueError("静态刷新只允许 complete/partial/failed")
+    return RefreshRecord(
+        source=source,
+        attempted_at=attempted_at or datetime.now().astimezone(),
+        result_state=state,
+        error_kind=error_kind,
+        error_message=error_message,
+        published=published,
+    )
+```
+
+- [ ] **Step 5: 运行测试和静态检查**
+
+```powershell
+$run = "tmp/pytest/phase2-task14-reg-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/data/test_collection_state.py tests/core/test_resilient_collection.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+.\.venv\Scripts\ruff.exe check src/data/base.py src/data/collection_state.py tests/data/test_collection_state.py
+.\.venv\Scripts\pyright.exe src/data/base.py src/data/collection_state.py tests/data/test_collection_state.py
+```
+
+- [ ] **Step 6: 提交**
+
+```powershell
+git add src/data/base.py src/data/collection_state.py tests/data/test_collection_state.py
+git diff --cached --check
+git commit -m "feat(数据采集): 增加 Phase 2 结果与刷新记录类型"
+```
+
+---
+
+### Task 15: 2A 同行财务批量契约
+
+**Files:**
+- Modify: `src/data/peer_comparison_fetch.py`
+- Modify: `src/data/peer_comparison.py`
+- Modify: `src/data/financial_scoring_facts.py`
+- Test: `tests/data/test_peer_comparison_fetch.py`
+
+- [ ] **Step 1: 写失败测试**
+
+在 `tests/data/test_peer_comparison_fetch.py` 增加/更新：
+
+```python
+def test_fetch_financial_rows_returns_record_and_errors(monkeypatch, tmp_path):
+    cache = CacheManager(tmp_path / "cache.db")
+    # 复用现有分页/响应 fixture，让函数成功返回；按实际 fixture 调整。
+    result = fetch_financial_rows(
+        ["000001", "600519"], "a-shares", start="2025-01-01",
+        deadline=time.monotonic() + 60, cache=cache,
+    )
+    assert result.rows
+    assert result.errors == []
+    assert result.record is not None
+    assert result.record.result_state == "complete"
+    assert result.record.cache_status == "live"
+
+
+def test_fetch_financial_rows_failure_preserves_old_snapshot(monkeypatch, tmp_path):
+    # 先写入成功快照，再让请求失败；断言 rows 来自旧快照、cache_status="stale"、
+    # result_state="partial"、errors 保留失败原因。
+    ...
+```
+
+实际测试使用现有 `requests`/分页 mock；不要联网。
+
+- [ ] **Step 2: 运行确认失败**
+
+```powershell
+$run = "tmp/pytest/phase2-task15-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/data/test_peer_comparison_fetch.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+```
+
+- [ ] **Step 3: 增加带保存时间的快照读取**
+
+在 `src/data/peer_comparison_fetch.py`：
+
+```python
+def read_snapshot_entry(cache, category, key, ttl) -> tuple[Any, bool, float | None]:
+    if cache is None:
+        return None, False, None
+    raw = cache.get_stale(category, key, "v1")
+    if not raw:
+        return None, False, None
+    try:
+        envelope = json.loads(raw)
+        saved_at = float(envelope["saved_at"])
+        age = time.time() - saved_at
+        return envelope["payload"], 0 <= age < ttl, saved_at
+    except (ValueError, TypeError, KeyError):
+        logger.warning("同行比较缓存格式无效：%s", category)
+        return None, False, None
+
+
+def read_snapshot(cache, category, key, ttl) -> tuple[Any, bool]:
+    payload, fresh, _ = read_snapshot_entry(cache, category, key, ttl)
+    return payload, fresh
+```
+
+- [ ] **Step 4: `fetch_financial_rows` 返回 `CollectionResult`**
+
+- 使用 `read_snapshot_entry` 保留 `saved_at`。
+- 增加记录构造：
+
+```python
+from datetime import datetime, timezone
+from data.base import CollectionResult
+from data.collection_state import make_record
+
+SOURCE = "东财主要财务指标"
+
+def _collected_at(saved_at: float | None):
+    return (datetime.fromtimestamp(saved_at, tz=timezone.utc).astimezone()
+            if saved_at is not None else None)
+```
+
+- 新鲜缓存：`result_state="complete"`, `cache_status="cache"`, `collected_at=_collected_at(saved_at)`。
+- 新请求成功且无错误/覆盖完整：`complete`, `live`, `collected_at=now`。
+- 有行但覆盖不足/有错误：`partial`, `live` 或 `stale`。
+- 有旧快照且请求失败：`partial`, `stale`, `collected_at=_collected_at(saved_at)`, `errors` 保留原失败和“使用原报告期成功快照”。
+- 无行：`failed`, `live`, `error_kind="empty"`；`errors` 保留。
+- 返回 `CollectionResult(rows=rows, record=record, errors=errors)`。
+
+保持 `peer_financial` 21600 秒 TTL、预算、两并发、分页完整性。
+
+- [ ] **Step 5: 更新消费方**
+
+`src/data/peer_comparison.py`：
+
+```python
+financial = fetch_financial_rows(...)
+rows, errors = financial.rows, financial.errors
+ctx.collection_records["peer_financial"] = financial.record
+```
+
+`src/data/financial_scoring_facts.py`：
+
+```python
+financial = fetch_financial_rows(...)
+rows, errors = financial.rows, financial.errors
+ctx.collection_records["annual_roe"] = financial.record
+```
+
+现有 `comparison["errors"]` 和年度事实 `reason` 继续使用 `errors`；不把它们改为记录展示。
+
+- [ ] **Step 6: 运行回归和静态检查**
+
+```powershell
+$run = "tmp/pytest/phase2-task15-reg-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/data/test_peer_comparison_fetch.py tests/core/test_peer_commentary.py tests/core/test_peer_pipeline.py tests/data/test_financial_scoring_facts.py tests/report -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+.\.venv\Scripts\ruff.exe check src/data/peer_comparison_fetch.py src/data/peer_comparison.py src/data/financial_scoring_facts.py tests/data/test_peer_comparison_fetch.py
+.\.venv\Scripts\pyright.exe src/data/peer_comparison_fetch.py src/data/peer_comparison.py src/data/financial_scoring_facts.py tests/data/test_peer_comparison_fetch.py
+```
+
+- [ ] **Step 7: 提交**
+
+```powershell
+git add src/data/peer_comparison_fetch.py src/data/peer_comparison.py src/data/financial_scoring_facts.py tests/data/test_peer_comparison_fetch.py
+git diff --cached --check
+git commit -m "refactor(辅助补取): 同行财务接入统一结果记录"
+```
+
+---
+
+### Task 16: 2A 总股本与名称解析
+
+**Files:**
+- Modify: `src/data/akshare.py`
+- Modify: `src/utils/symbols.py`
+- Modify: `src/data/enrichers/valuation_enricher.py`
+- Test: `tests/data/test_akshare.py`、`tests/utils/test_symbols.py`（如存在）、`tests/data/enrichers/`
+
+- [ ] **Step 1: 写失败测试**
+
+- `get_total_shares_result` 成功时 `.value > 0`，`record.result_state=="complete"`，`record.source` 为实际来源。
+- 三步都失败时 `.value is None`，`record.result_state=="failed"`。
+- `resolve_name_result("600519")` 成功时 `.value` 非空；失败时 `.value is None`，记录 failed。
+- `get_total_shares`/`resolve_name` 兼容包装仍返回原类型。
+
+- [ ] **Step 2: 运行确认失败**
+
+```powershell
+$run = "tmp/pytest/phase2-task16-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/data/test_akshare.py tests/utils/test_symbols.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+```
+
+- [ ] **Step 3: 实现 `get_total_shares_result`**
+
+在 `src/data/akshare.py`：
+
+```python
+from data.collection_state import ValueResult, make_record
+
+def get_total_shares_result(symbol: str, financials: list | None = None) -> ValueResult[float]:
+    # 复用现有三步：东财轻量接口 → 新浪流通股本 → 财报反推。
+    # 成功：ValueResult(value, make_record(来源, "complete", collected_at=now))
+    # 失败：ValueResult(None, make_record("总股本", "failed",
+    #       error_kind="empty", error_message="总股本来源均不可用"))
+    ...
+
+def get_total_shares(symbol: str, financials: list | None = None) -> float | None:
+    return get_total_shares_result(symbol, financials).value
+```
+
+每一步的异常隔离和来源标签保持原有行为；不新增网络请求。
+
+- [ ] **Step 4: 实现 `resolve_name_result`**
+
+在 `src/utils/symbols.py`：
+
+```python
+from data.collection_state import ValueResult, make_record
+
+def resolve_name_result(symbol: str) -> ValueResult[str]:
+    # 现有 HK 东财快照/A 股 AkShare 代码名称逻辑不变。
+    # 成功：ValueResult(name, make_record(来源, "complete", collected_at=now))
+    # 失败：ValueResult("", make_record("名称解析", "failed", error_kind="fetch_failed", ...))
+    ...
+
+def resolve_name(symbol: str) -> str:
+    return resolve_name_result(symbol).value or ""
+```
+
+- [ ] **Step 5: 更新估值充实器**
+
+`ValuationEnricher._get_total_shares` 的最后兜底改为：
+
+```python
+return get_total_shares_result(ctx.symbol, ctx.financial_data).value
+```
+
+不要改变估值计算或报告文案。
+
+- [ ] **Step 6: 运行回归和静态检查**
+
+```powershell
+$run = "tmp/pytest/phase2-task16-reg-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/data/test_akshare.py tests/data/enrichers tests/core/test_pipeline.py tests/report -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+.\.venv\Scripts\ruff.exe check src/data/akshare.py src/utils/symbols.py src/data/enrichers/valuation_enricher.py tests/data/test_akshare.py
+.\.venv\Scripts\pyright.exe src/data/akshare.py src/utils/symbols.py src/data/enrichers/valuation_enricher.py tests/data/test_akshare.py
+```
+
+- [ ] **Step 7: 提交**
+
+```powershell
+git add src/data/akshare.py src/utils/symbols.py src/data/enrichers/valuation_enricher.py tests/data/test_akshare.py tests/utils
+git diff --cached --check
+git commit -m "refactor(辅助补取): 总股本与名称解析接入统一结果"
+```
+
+---
+
+### Task 17: 2B 普通指数采集记录
+
+**Files:**
+- Modify: `src/data/schemas.py`
+- Modify: `src/data/collection_policies.py`
+- Modify: `src/index/collector.py`
+- Test: `tests/index/test_collector.py`
+- Test: `tests/data/test_index_schemas.py`
+
+- [ ] **Step 1: 写失败测试**
+
+- `IndexAnalysisContext` 默认有 `collection_records == {}`。
+- 普通指数采集后，`ctx.collection_records` 包含本次执行的 `index_price`、`index_valuation`、`index_capital_flow`、`index_macro`、`index_sentiment` 中实际采集的键。
+- 成功数据 `result_state=="complete"`；空数据 `failed`；指数舆情空标题为 `empty`。
+- `IndexDataCollector` 通过 `AkShareAdapter.fetch_result`，不再调用 `fetch`（可用 spy/假适配器断言）。
+
+- [ ] **Step 2: 运行确认失败**
+
+```powershell
+$run = "tmp/pytest/phase2-task17-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/index/test_collector.py tests/data/test_index_schemas.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+```
+
+- [ ] **Step 3: 增加 `IndexAnalysisContext.collection_records`**
+
+在 `src/data/schemas.py` 的 `IndexAnalysisContext` 增加：
+
+```python
+collection_records: dict[str, DataCollectionRecord] = Field(default_factory=dict)
+```
+
+旧 JSON/缓存默认空；不改变报告字段。
+
+- [ ] **Step 4: 增加 `IndexPolicy`**
+
+在 `src/data/collection_policies.py`：
+
+```python
+class IndexPolicy(_Policy):
+    def __init__(self, kind: str):
+        self.kind = kind
+        self.ttl_key = "daily"
+        self.reference_age = 0
+        self.source_attempts = 1
+
+    def validate(self, symbol, rows, now):
+        return bool(rows)
+
+    def classify(self, symbol, rows, diagnostic, previous_rows, now):
+        if not rows:
+            return "failed"
+        if self.kind == "index_sentiment":
+            news = rows[0]
+            return "complete" if getattr(news, "headlines", []) else "empty"
+        return "complete"
+
+    def reference_rows(self, rows, now):
+        return None
+
+
+INDEX_POLICIES = {
+    kind: IndexPolicy(kind)
+    for kind in ("index_price", "index_valuation", "index_capital_flow",
+                 "index_macro", "index_sentiment")
+}
+
+
+def index_policy_for(kind: str) -> CollectionPolicy | None:
+    return INDEX_POLICIES.get(kind)
+```
+
+如果模型存在但关键字段全空，可在对应分支返回 `partial`；至少保持“有数据 complete、空 failed”。
+
+- [ ] **Step 5: 修改 `IndexDataCollector`**
+
+- 每个 `_fetch_*` 用 `self._adapter.fetch_result(...)`。
+- 统一记录：
+
+```python
+from data.base import CollectionResult
+from data.collection_state import make_record
+from data.collection_policies import index_policy_for
+
+def _index_record(ctx, data_type, collection, source="AkShare"):
+    policy = index_policy_for(data_type)
+    assert policy is not None
+    state = policy.classify(ctx.target.symbol, collection.rows or [], collection.record,
+                            None, datetime.now(HK_TZ))
+    ctx.collection_records[data_type] = make_record(
+        source, state, diagnostic=collection.record,
+        collected_at=datetime.now().astimezone(), cache_status="live",
+    )
+```
+
+- 每个闭包在成功/空结果时写记录；异常时写 `failed` 记录，保持现有 `try/except` 隔离。
+- `_collect_strategy` 的记录在 Task 18 处理。
+- 不改指数分析、报告字段或策略缓存。
+
+- [ ] **Step 6: 运行测试和静态检查**
+
+```powershell
+$run = "tmp/pytest/phase2-task17-reg-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/index tests/data/test_index_schemas.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+.\.venv\Scripts\ruff.exe check src/data/schemas.py src/data/collection_policies.py src/index/collector.py tests/index/test_collector.py
+.\.venv\Scripts\pyright.exe src/data/schemas.py src/data/collection_policies.py src/index/collector.py tests/index/test_collector.py
+```
+
+- [ ] **Step 7: 提交**
+
+```powershell
+git add src/data/schemas.py src/data/collection_policies.py src/index/collector.py tests/index/test_collector.py tests/data/test_index_schemas.py
+git diff --cached --check
+git commit -m "refactor(指数): 普通指数采集接入结果记录"
+```
+
+---
+
+### Task 18: 2B 策略指数记录与静态门禁
+
+**Files:**
+- Modify: `src/index/collector.py`
+- Modify: `src/core/collection_contract.py`
+- Modify: `tests/index/test_collector.py`
+- Modify: `tests/index/test_strategy_valuation_reports.py`（按实际测试名）
+- Modify: `tests/test_data_entrypoints.py`
+
+- [ ] **Step 1: 写失败测试**
+
+- 策略指数运行后，`ctx.collection_records` 至少有 `index_price`、`index_valuation`、`strategy_data`、`benchmark`、`etf` 中实际执行的键。
+- 有数据无错误 → `complete`；有数据但有 `strategy_data.errors` → `partial`；无数据/关键异常 → `failed`。
+- 策略提供器缓存/官方快照行为不变。
+- 静态检查清单不再包含 index 五个 `.fetch` 条目；允许五个 `fetch_result` 调用点。
+
+- [ ] **Step 2: 运行确认失败**
+
+```powershell
+$run = "tmp/pytest/phase2-task18-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/index/test_collector.py tests/test_data_entrypoints.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+```
+
+- [ ] **Step 3: 为 `_collect_strategy` 增加记录**
+
+在 `IndexDataCollector._collect_strategy`：
+
+- 价格成功后写 `index_price`（complete/failed）。
+- `strategy_data = provider.collect(ctx.target)` 后写 `strategy_data`：`errors` 非空 → `partial`，否则 `complete`；异常/空 → `failed`。
+- `valuation_data = provider.fetch(...)` 成功后写 `index_valuation`（complete/failed）；异常保留现有 risk flag 并写 failed。
+- benchmark/ETF 同理写 `benchmark`/`etf` 记录。
+- 不改变 provider 调用顺序、缓存、错误列表或 risk flags。
+
+- [ ] **Step 4: 更新静态清单**
+
+`src/core/collection_contract.py`：
+
+- 删除五条 `IndexDataCollector.collect._fetch_*` `.fetch` 条目。
+- 在 `ALLOWED_FETCH_RESULT_CALLS` 增加这五个方法。
+- 保留 base 兼容桥和回测条目。
+
+- [ ] **Step 5: 运行策略/门禁测试**
+
+```powershell
+$run = "tmp/pytest/phase2-task18-reg-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/index tests/test_data_entrypoints.py tests/core/test_collection_contract.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+.\.venv\Scripts\ruff.exe check src/index/collector.py src/core/collection_contract.py tests/index tests/test_data_entrypoints.py
+.\.venv\Scripts\pyright.exe src/index/collector.py src/core/collection_contract.py tests/index tests/test_data_entrypoints.py
+PYTHONPATH="$PWD/src;$PWD" .\.venv\Scripts\python.exe scripts\check-data-entrypoints.py
+```
+
+- [ ] **Step 6: 提交**
+
+```powershell
+git add src/index/collector.py src/core/collection_contract.py tests/index tests/test_data_entrypoints.py
+git diff --cached --check
+git commit -m "refactor(指数): 策略采集记录并收口静态门禁"
+```
+
+---
+
+### Task 19: 2C 港股通与 HSICS 刷新记录
+
+**Files:**
+- Modify: `src/data/hk_stock_connect.py`
+- Modify: `src/data/hk_hsics_industry.py`
+- Modify: `src/stock_robot/cli.py`（`hk-industry-refresh` 编排）
+- Test: `tests/data/test_hk_stock_connect.py`
+- Test: `tests/data/test_hk_hsics_industry.py`
+
+- [ ] **Step 1: 写失败测试**
+
+- `refresh_local_mapping_result` 成功返回 snapshot + `RefreshRecord(result_state="complete", published=True)`。
+- 请求失败返回 `None` + `failed`/`published=False`，旧快照文件不被覆盖。
+- `refresh_result` 成功/异常同理；部分步骤失败时记录 `partial`，旧文件保留。
+- 原 `refresh_local_mapping`/`refresh` 仍保持失败抛异常、成功返回 snapshot 的旧行为。
+
+- [ ] **Step 2: 运行确认失败**
+
+```powershell
+$run = "tmp/pytest/phase2-task19-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/data/test_hk_stock_connect.py tests/data/test_hk_hsics_industry.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+```
+
+- [ ] **Step 3: 港股通刷新结果包装**
+
+```python
+def refresh_local_mapping_result(snapshot_path: Path,
+                                 source: SnapshotSource = "sse"
+                                 ) -> tuple[HKStockConnectSnapshot | None, RefreshRecord]:
+    try:
+        snapshot = _fetch_snapshot_for(source)
+        publish_snapshot(snapshot, snapshot_path)
+        return snapshot, make_refresh_record(
+            snapshot.source, "complete", published=True)
+    except Exception as error:  # noqa: BLE001 — 第三方/文件发布边界
+        logger.warning("港股通刷新失败: %s", error)
+        return None, make_refresh_record(
+            source, "failed", error_kind="fetch_failed",
+            error_message="港股通刷新失败，保留旧快照")
+
+
+def refresh_local_mapping(snapshot_path: Path, source: SnapshotSource = "sse"):
+    snapshot, record = refresh_local_mapping_result(snapshot_path, source)
+    if snapshot is None:
+        raise HKStockConnectError(record.error_message)
+    return snapshot
+```
+
+`main` 改为使用 result 包装，输出/记录 summary；失败返回非零。
+
+- [ ] **Step 4: HSICS 刷新结果包装**
+
+```python
+def refresh_result(csv_path: Path, json_path: Path, *,
+                   connect_symbols: set[str],
+                   session: requests.Session | None = None,
+                   strict_counts: bool = True
+                   ) -> tuple[HsicsSnapshot | None, RefreshRecord]:
+    try:
+        snapshot = refresh(csv_path, json_path, connect_symbols=connect_symbols,
+                           session=session, strict_counts=strict_counts)
+        return snapshot, make_refresh_record(
+            "东财F10+HSCI", "complete", published=True)
+    except Exception as error:  # noqa: BLE001 — 第三方/发布边界
+        logger.warning("HSICS 刷新失败: %s", error)
+        return None, make_refresh_record(
+            "东财F10+HSCI", "failed", error_kind="fetch_failed",
+            error_message="HSICS 刷新失败，保留旧快照")
+```
+
+原 `refresh` 不变；CLI 编排先成员、后 HSICS。成员成功、HSICS 失败时，组合记录为 `partial`、`published=False`，保留新成员快照和旧 HSICS 文件，按现有 CLI 行为报错。
+
+- [ ] **Step 5: 运行测试**
+
+```powershell
+$run = "tmp/pytest/phase2-task19-reg-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/data/test_hk_stock_connect.py tests/data/test_hk_hsics_industry.py tests/test_cli.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+.\.venv\Scripts\ruff.exe check src/data/hk_stock_connect.py src/data/hk_hsics_industry.py src/stock_robot/cli.py tests/data/test_hk_stock_connect.py tests/data/test_hk_hsics_industry.py
+.\.venv\Scripts\pyright.exe src/data/hk_stock_connect.py src/data/hk_hsics_industry.py src/stock_robot/cli.py tests/data/test_hk_stock_connect.py tests/data/test_hk_hsics_industry.py
+```
+
+- [ ] **Step 6: 提交**
+
+```powershell
+git add src/data/hk_stock_connect.py src/data/hk_hsics_industry.py src/stock_robot/cli.py tests/data/test_hk_stock_connect.py tests/data/test_hk_hsics_industry.py
+git diff --cached --check
+git commit -m "refactor(静态刷新): 港股通与 HSICS 记录刷新结果"
+```
+
+---
+
+### Task 20: 2C A 股行业映射刷新记录
+
+**Files:**
+- Modify: `src/data/industry_mapping_builder.py`
+- Modify: `scripts/rebuild_industry_mapping_runner.py`
+- Test: `tests/data/test_industry_mapping_builder.py`
+
+- [ ] **Step 1: 写失败测试**
+
+- `rebuild_all` 成功返回结果 dict 包含 `refresh_record`，状态 `partial`、`published=False`（只生成候选）。
+- `publish_candidate` 成功后包含 `refresh_record`，状态 `complete`、`published=True`。
+- 校验失败/发布失败时记录 failed，不覆盖正式 CSV；原异常/返回键保持兼容。
+
+- [ ] **Step 2: 运行确认失败**
+
+```powershell
+$run = "tmp/pytest/phase2-task20-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/data/test_industry_mapping_builder.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+```
+
+- [ ] **Step 3: 在结果 dict 增加 `refresh_record`**
+
+- `rebuild_all` 的返回 dict 增加：
+  ```python
+  result["refresh_record"] = make_refresh_record(
+      "乐咕申万", "partial", published=False,
+      error_message="仅生成候选映射，尚未发布",
+  )
+  ```
+- `publish_candidate` 成功后增加：
+  ```python
+  result["refresh_record"] = make_refresh_record(
+      "乐咕申万", "complete", published=True)
+  ```
+- 失败路径保持现有异常；runner/CLI 捕获后打印 failed 记录，不覆盖正式 CSV。
+- 现有键、校验计数、候选/正式路径和 checkpoint 语义不变。
+
+- [ ] **Step 4: 更新 runner/CLI 输出**
+
+`scripts/rebuild_industry_mapping_runner.py` 打印 `refresh_record` 的字段（source、result_state、published、error_message）；不改变退出码语义。
+
+- [ ] **Step 5: 运行测试**
+
+```powershell
+$run = "tmp/pytest/phase2-task20-reg-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/data/test_industry_mapping_builder.py tests/data/test_industry_classifier.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+.\.venv\Scripts\ruff.exe check src/data/industry_mapping_builder.py scripts/rebuild_industry_mapping_runner.py tests/data/test_industry_mapping_builder.py
+.\.venv\Scripts\pyright.exe src/data/industry_mapping_builder.py scripts/rebuild_industry_mapping_runner.py tests/data/test_industry_mapping_builder.py
+```
+
+- [ ] **Step 6: 提交**
+
+```powershell
+git add src/data/industry_mapping_builder.py scripts/rebuild_industry_mapping_runner.py tests/data/test_industry_mapping_builder.py
+git diff --cached --check
+git commit -m "refactor(静态刷新): A 股行业映射记录刷新结果"
+```
+
+---
+
+### Task 21: Phase 2 门禁、回归与 CLI 验收
+
+**Files:**
+- Verify: 全部受影响测试与脚本
+- Record: `tmp/acceptance/unified-data-collection-phase2/`（本地，不提交）
+
+- [ ] **Step 1: 运行范围门禁**
+
+```powershell
+.\scripts\verify.ps1 -Files src/data/peer_comparison_fetch.py
+.\scripts\verify.ps1 -Files src/index/collector.py
+.\scripts\verify.ps1 -Files src/data/hk_stock_connect.py
+.\scripts\verify.ps1 -Files src/data/industry_mapping_builder.py
+```
+
+逐项记录结果；既有前端静态失败单独记录，不归因 Phase 2。
+
+- [ ] **Step 2: 运行完整受影响测试集**
+
+```powershell
+$run = "tmp/pytest/phase2-accept-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/core tests/data tests/index tests/report/test_reference_quality.py tests/agent/test_reference_isolation.py tests/backtest -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+```
+
+- [ ] **Step 3: CLI 验收**
+
+```powershell
+mkdir tmp\acceptance\unified-data-collection-phase2 -Force
+.\.venv\Scripts\stock-robot.exe analyze 600519 --no-llm --verbose 2>&1 | Tee-Object -FilePath tmp\acceptance\unified-data-collection-phase2\a-share-cli.log
+.\.venv\Scripts\stock-robot.exe analyze 00700 --no-llm --verbose 2>&1 | Tee-Object -FilePath tmp\acceptance\unified-data-collection-phase2\hk-cli.log
+.\.venv\Scripts\stock-robot.exe index 000300 --no-llm 2>&1 | Tee-Object -FilePath tmp\acceptance\unified-data-collection-phase2\index-cli.log
+```
+
+检查 A/HK Markdown、指数报告；静态刷新只用临时路径或离线 fixture，不覆盖仓库正式数据。跳过浏览器。
+
+- [ ] **Step 4: 记录与提交文档**
+
+在聊天中记录实际命令、报告路径、测试结果、既有失败和未覆盖风险。提交 Phase 2 设计/计划更新；不提交 `tmp/`、`reports/` 或正式静态数据。
+
+```powershell
+git add docs/superpowers/specs/2026-10/2026-10-26-unified-data-collection-design.md docs/superpowers/plans/2026-10/2026-10-26-unified-data-collection-plan.md
+git diff --cached --check
+git commit -m "docs(数据采集): 增加 Phase 2 设计与实施计划"
+```
+
+- [ ] **Step 5: 合并/发布前 Full**
+
+只有用户明确要求合并或发布时才运行：
+
+```powershell
+.\scripts\verify.ps1 -Scope Full
+```
+
+`dev` 既有前端静态测试失败必须在 Full 结果中单独说明；不能将 Phase 2 表述为 Full 全绿。
+
+---
+
+## Phase 2 自审清单
+
+- [ ] 2A 同行财务返回 `CollectionResult`，保留 `peer_financial` TTL、预算、分页和旧快照回退。
+- [ ] 2A 总股本/名称使用 `ValueResult`，旧包装仍返回原类型；无新增缓存。
+- [ ] 2B `IndexAnalysisContext` 增加内部记录，普通/策略指数都有 complete/partial/failed/empty 状态。
+- [ ] 2B 策略提供器缓存、官方快照、错误列表和 risk flags 不变。
+- [ ] 2C 三个刷新入口保留旧函数，新增结果包装；原子发布、文件锁和旧快照保留不变。
+- [ ] 2C 验收只用临时路径/离线 fixture，不覆盖正式静态数据。
+- [ ] 指数五个 `.fetch` 清单条目移除，允许对应 `fetch_result`；真实仓库检查通过。
+- [ ] 不新增 `DataReference`、数据源、依赖、评分公式或报告文案。
+- [ ] CLI A 股/港股/指数验收完成；静态刷新离线验证；跳过浏览器。
+- [ ] Phase 2 设计/计划仍为同一主题的一份设计＋一份计划。
