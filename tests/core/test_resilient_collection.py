@@ -5,7 +5,8 @@ import pytest
 
 from core.pipeline import Pipeline
 from core.registry import Registry
-from data.base import DataSource
+from data.base import CollectionResult, DataSource
+from data.collection_policies import NewsPolicy
 from data.schemas import (
     DataCollectionRecord,
     FinancialData,
@@ -57,6 +58,7 @@ def rows(kind, symbol, *, partial=False):
 @pytest.fixture(autouse=True)
 def no_network(mocker):
     mocker.patch("core.pipeline.time.sleep")
+    mocker.patch("core.resilient_collection.time.sleep")
     mocker.patch("requests.sessions.Session.request", side_effect=AssertionError("回归禁止联网"))
 
 
@@ -73,6 +75,31 @@ def collect(pipeline, symbol, kind, market="a-shares", refresh=False):
     return pipeline.collect(symbol, "测试", market=market, data_types=[kind], refresh_cache=refresh)
 
 
+class UnifiedSource(DataSource):
+    def __init__(self, rows):
+        self.rows = rows
+
+    def supports(self, market, data_type):
+        return True
+
+    def fetch(self, symbol, **kwargs):
+        raise AssertionError("五组能力不应调用 fetch")
+
+    def fetch_result(self, symbol, **kwargs):
+        return CollectionResult(rows=self.rows, record=None)
+
+
+def test_migrated_capability_uses_fetch_result_only(tmp_path):
+    symbol = "000001"
+    source = UnifiedSource(rows("price", symbol))
+    registry = Registry()
+    registry.register_data_source(source)
+    pipeline = Pipeline(registry, Config(config_dir=tmp_path), llm_enabled=False)
+    ctx = collect(pipeline, symbol, "price")
+    assert ctx.price_data
+    assert ctx.collection_records["price"].result_state == "complete"
+
+
 @pytest.mark.parametrize(("kind", "market"), [
     ("financial", "a-shares"), ("financial", "hk"), ("price", "a-shares"), ("price", "hk"), ("news", "a-shares")])
 def test_partial_retries_after_30_minutes_and_keeps_independent_complete_reference(tmp_path, mocker, kind, market):
@@ -85,6 +112,7 @@ def test_partial_retries_after_30_minutes_and_keeps_independent_complete_referen
     second = collect(pipeline, symbol, kind, market)
     assert len(source.calls) == 2
     assert second.collection_records[kind].cache_state == "degraded"
+    assert second.collection_records[kind].result_state == "partial"
     assert kind in first.reference_data and kind in second.reference_data
     reference = second.reference_data[kind]
     assert reference.record.collected_at == old.collection_records[kind].collected_at
@@ -151,7 +179,9 @@ def test_failed_without_previous_data_is_throttled_but_force_refresh_bypasses_wa
     pipeline, source, symbol = setup(tmp_path, "financial")
     source.rows = []
     for _ in range(2):
-        assert collect(pipeline, symbol, "financial").financial_data is None
+        ctx = collect(pipeline, symbol, "financial")
+        assert ctx.financial_data is None
+        assert ctx.collection_records["financial"].result_state == "failed"
     assert len(source.calls) == 2
     collect(pipeline, symbol, "financial", refresh=True)
     assert len(source.calls) == 4
@@ -169,6 +199,7 @@ def test_successful_empty_news_has_normal_ttl_and_is_not_a_network_failure(tmp_p
         ctx = collect(pipeline, symbol, "news")
         assert ctx.news_data and not ctx.news_data.headlines
         assert ctx.collection_records["news"].cache_state == "complete"
+        assert ctx.collection_records["news"].result_state == "empty"
     assert len(source.calls) == 1
     entry = pipeline._cache.get_entry("news", symbol, "latest")
     assert entry and entry.ttl_seconds == 21600
@@ -179,7 +210,8 @@ def test_explicit_normal_short_history_does_not_trigger_frequent_retry(tmp_path)
     source.rows = rows("price", symbol, partial=True)
     source.diagnostic = DataCollectionRecord(cache_state="not_applicable")
     for _ in range(2):
-        collect(pipeline, symbol, "price")
+        ctx = collect(pipeline, symbol, "price")
+        assert ctx.collection_records["price"].result_state == "not_applicable"
     assert len(source.calls) == 1
     entry = pipeline._cache.get_entry("price", symbol, "latest")
     assert entry and entry.ttl_seconds == 86400
@@ -202,14 +234,70 @@ def test_explicit_normal_empty_result_uses_normal_ttl(tmp_path, kind, ttl):
     for _ in range(2):
         ctx = collect(pipeline, symbol, kind)
         assert ctx.collection_records[kind].cache_state == "not_applicable"
+        assert ctx.collection_records[kind].result_state == "not_applicable"
         assert not ctx.reference_data
     assert len(source.calls) == 1
     entry = pipeline._cache.get_entry(kind, symbol, "latest")
     assert entry and entry.ttl_seconds == ttl
 
 
+def test_news_zero_items_with_error_is_failed_not_partial(tmp_path):
+    pipeline, source, symbol = setup(tmp_path, "news")
+    empty = NewsData(symbol=symbol, date=datetime.now().astimezone().date())
+    empty._raw_sentiment = RawSentimentData(
+        symbol=symbol, fetch_date=empty.date, items=[]
+    )
+    source.rows = [empty]
+    source.diagnostic = DataCollectionRecord(
+        error_kind="timeout", error_message="公告接口失败"
+    )
+    ctx = collect(pipeline, symbol, "news")
+    assert ctx.news_data is None
+    assert ctx.collection_records["news"].result_state == "failed"
+    assert pipeline._cache.get_entry("news", symbol, "latest") is None
+    assert pipeline._cache.get_entry("news", symbol, "last_attempt") is not None
+
+
+def test_failed_then_recovered_complete_updates_last_complete(tmp_path, mocker):
+    clock = mocker.patch("data.cache.time.time", return_value=1000)
+    pipeline, source, symbol = setup(tmp_path, "financial")
+    source.rows = []
+    failed = collect(pipeline, symbol, "financial")
+    assert failed.collection_records["financial"].result_state == "failed"
+    source.rows = rows("financial", symbol)
+    clock.return_value = 2801
+    recovered = collect(pipeline, symbol, "financial")
+    assert recovered.financial_data
+    assert recovered.collection_records["financial"].result_state == "complete"
+    assert pipeline._cache.get_entry("financial", symbol, "last_complete") is not None
+
+
+def test_inconsistent_record_does_not_pollute_cache(tmp_path):
+    pipeline, _, symbol = setup(tmp_path, "price")
+    record = DataCollectionRecord(
+        source="测试", cache_state="degraded", result_state="complete"
+    )
+    pipeline._resilient_collector._store(
+        "price", symbol, rows("price", symbol), record, "a-shares"
+    )
+    assert pipeline._cache.get_entry("price", symbol, "latest") is None
+
+
+def test_contradictory_cached_record_is_ignored(tmp_path):
+    pipeline, _, symbol = setup(tmp_path, "price")
+    record = DataCollectionRecord(
+        source="测试", cache_state="degraded", result_state="complete"
+    )
+    pipeline._cache.put(
+        "price", symbol, "latest", "[]", metadata=record.model_dump_json()
+    )
+    assert pipeline._resilient_collector._read(
+        "price", symbol, "latest", "a-shares"
+    ) is None
+
+
 def test_hk_business_date_is_used_on_a_utc_host(tmp_path, mocker):
-    from core.resilient_collection import ResilientCollector, Snapshot
+    from core.resilient_collection import Snapshot
     from data.cache import CacheEntry
     from data.hk_news import HK_TZ
 
@@ -225,11 +313,16 @@ def test_hk_business_date_is_used_on_a_utc_host(tmp_path, mocker):
     news = NewsData(symbol="000001", date=today, headlines=["当日消息"])
     news._raw_sentiment = RawSentimentData(symbol=news.symbol, fetch_date=today, items=[
         RawSentimentItem(title="当日消息", source="news", publish_date=today)])
-    assert ResilientCollector._valid("news", news.symbol, [news])
+    assert NewsPolicy().validate("000001", [news], instant)
     pipeline, _, _ = setup(tmp_path, "news")
-    snapshot = Snapshot([news], DataCollectionRecord(source="已验证来源", collected_at=instant-timedelta(minutes=15)),
-                        CacheEntry("[]", 1000, 21600, None))
-    reference = pipeline._resilient_collector._reference("news", snapshot, "刷新失败")
+    snapshot = Snapshot(
+        [news],
+        DataCollectionRecord(source="已验证来源", collected_at=instant-timedelta(minutes=15)),
+        CacheEntry("[]", 1000, 21600, None),
+    )
+    reference = pipeline._resilient_collector._reference(
+        "news", "a-shares", snapshot, "刷新失败"
+    )
     assert reference and reference.news_data and reference.news_data.headlines == ["当日消息"]
 
 
@@ -284,6 +377,7 @@ def test_failed_attempt_preserves_newer_partial_facts_as_reference(tmp_path):
     again = collect(pipeline, symbol, "financial")
     for ctx in (failed, again):
         assert ctx.financial_data is None
+        assert ctx.collection_records["financial"].result_state == "failed"
         assert ctx.reference_data["financial"].financial_data[0].revenue == 101
         assert ctx.reference_data["financial"].financial_data[0].total_assets is None
     complete = pipeline._resilient_collector._read("financial", symbol, "last_complete", "a-shares")
