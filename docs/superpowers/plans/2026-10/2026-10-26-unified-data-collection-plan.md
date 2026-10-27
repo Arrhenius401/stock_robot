@@ -2153,3 +2153,852 @@ Full 必须 Ruff、Pyright、pytest 全部通过。失败时保留首个完整�
 - [ ] 港股估值、港股新闻、行业、指数、雷达、回测和辅助补取的回归保持通过。
 - [ ] CLI A 股/港股 Markdown 验收完成，未用 Mock 报告替代；按用户要求跳过浏览器。
 - [ ] 设计与计划各一份，未追加到已收尾的 2026-10-22 港股多源项目。
+
+---
+
+# Phase 1 实施计划：港股新闻、A/HK 估值、A/HK 行业
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** 让港股新闻、A/HK 估值和 A/HK 行业使用统一 `fetch_result` 结果/诊断契约和 `result_state`，同时保留各自专用缓存、合并、资格复核、逐项日期和查询预算。
+
+**Architecture:** Phase 0 的五组能力继续由 `ResilientCollector` 管理；Phase 1 的五个能力走 `DEDICATED_CAPABILITIES`，在 `Pipeline` 的专用分支调用 `fetch_result`，由专用策略分类状态，`make_record` 构造记录；缓存和合并逻辑留在原位置。共享状态映射和记录校验放入 `src/data/collection_state.py`。
+
+**Tech Stack:** Python 3.11、Pydantic v2、SQLite、pytest、Ruff、Pyright、Windows PowerShell。
+
+**依据设计：** `docs/superpowers/specs/2026-10/2026-10-26-unified-data-collection-design.md` 第 15 节。
+
+**执行约束：**
+
+- 在 `feat/unified-data-collection-phase1` 分支实施；不推送、不合并。
+- Phase 1 只迁移港股新闻、A/HK 估值、A/HK 行业；同行财务/年度 ROE/总股本/名称解析/指数/雷达/回测不动。
+- 保留所有现有 TTL、缓存键、组件合并、非正值语义、资格复核、双查询预算和失败回退。
+- 不新增 `DataReference`；Phase 1 能力不生成历史参考。
+- 手动 pytest 前先创建 `$run` 目录；使用 `.venv/Scripts/python.exe`、`ruff.exe`、`pyright.exe`。
+- `dev` 上既有前端静态测试失败是基线问题；Phase 1 交付说明中必须明确记录，不能声称 Full 全绿。
+
+---
+
+### Task 7: 共享记录状态与专用策略
+
+**Files:**
+- Create: `src/data/collection_state.py`
+- Modify: `src/data/collection_policies.py`
+- Modify: `src/core/resilient_collection.py`
+- Test: `tests/data/test_collection_state.py`
+- Test: `tests/data/test_dedicated_policies.py`
+
+- [ ] **Step 1: 写共享状态测试**
+
+创建 `tests/data/test_collection_state.py`：
+
+```python
+from data.collection_state import CACHE_STATE, make_record, record_consistent
+from data.schemas import DataCollectionRecord
+
+
+def test_cache_state_projection_covers_all_result_states():
+    assert CACHE_STATE == {
+        "complete": "complete",
+        "partial": "degraded",
+        "empty": "complete",
+        "not_applicable": "not_applicable",
+        "failed": "degraded",
+        "unknown": "unknown",
+    }
+
+
+def test_make_record_sets_result_and_cache_state():
+    record = make_record("测试源", "partial", error_kind="incomplete", error_message="缺项")
+    assert record.source == "测试源"
+    assert record.result_state == "partial"
+    assert record.cache_state == "degraded"
+    assert record.error_kind == "incomplete"
+    assert record.error_message == "缺项"
+    assert record.collected_at is None
+
+
+def test_record_consistency_rejects_contradiction():
+    assert record_consistent(DataCollectionRecord(result_state="complete", cache_state="complete"))
+    assert not record_consistent(DataCollectionRecord(result_state="complete", cache_state="degraded"))
+    assert record_consistent(DataCollectionRecord(result_state="unknown", cache_state="complete"))
+```
+
+- [ ] **Step 2: 写专用策略测试**
+
+创建 `tests/data/test_dedicated_policies.py`，至少覆盖：
+
+```python
+from datetime import datetime
+
+from data.collection_policies import dedicated_policy_for
+from data.hk_news import HK_TZ
+from data.schemas import (
+    HKNewsItem, HKNewsLink, HKNewsSnapshot,
+    IndustryData, NewsData, ValuationData,
+)
+
+NOW = datetime(2026, 10, 27, 12, tzinfo=HK_TZ)
+
+
+def hk_news(rows=1, errors=False):
+    snapshot = HKNewsSnapshot(
+        fetched_at=NOW, queries=["00700"], query_errors=["名称查询失败"] if errors else [],
+        items=[HKNewsItem(title=f"消息{i}", published_at=NOW, links=[
+            HKNewsLink(media="测试", url="https://example.com/news")]) for i in range(rows)],
+    )
+    row = NewsData(symbol="00700.HK", date=NOW.date(), hk_news=snapshot,
+                   headlines=[item.title for item in snapshot.items])
+    return [row]
+
+
+def test_hk_news_policy_states():
+    policy = dedicated_policy_for("hk", "news")
+    assert policy is not None
+    assert policy.classify("00700.HK", hk_news(), None, None, NOW) == "complete"
+    assert policy.classify("00700.HK", hk_news(rows=0), None, None, NOW) == "empty"
+    assert policy.classify("00700.HK", hk_news(errors=True), None, None, NOW) == "partial"
+    assert policy.classify("00700.HK", [], None, None, NOW) == "failed"
+
+
+def test_valuation_policy_states():
+    a = dedicated_policy_for("a-shares", "valuation")
+    hk = dedicated_policy_for("hk", "valuation")
+    assert a is not None and hk is not None
+    assert a.classify("000001", [ValuationData(symbol="000001", date=NOW.date(), pe_ttm=10)], None, None, NOW) == "complete"
+    assert a.classify("000001", [ValuationData(symbol="000001", date=NOW.date())], None, None, NOW) == "failed"
+    assert hk.classify("00700.HK", [ValuationData(
+        symbol="00700.HK", date=NOW.date(), pe_ttm=-1, pb=-2)], None, None, NOW) == "partial"
+    assert hk.classify("00700.HK", [ValuationData(
+        symbol="00700.HK", date=NOW.date(), pe_ttm=10, cache_degraded=True)], None, None, NOW) == "partial"
+    assert hk.classify("00700.HK", [ValuationData(
+        symbol="00700.HK", date=NOW.date(), pe_ttm=10)], None, None, NOW) == "complete"
+
+
+def test_industry_policy_states():
+    a = dedicated_policy_for("a-shares", "industry")
+    assert a is not None
+    complete = IndustryData(symbol="000001", industry="银行", sector="金融",
+                            comparison_ready=True, comparison_snapshot={"errors": []})
+    partial = complete.model_copy(update={"comparison_snapshot": {"errors": ["同行报价失败"]}})
+    failed = IndustryData(symbol="000001", industry="未知", sector="")
+    assert a.classify("000001", [complete], None, None, NOW) == "complete"
+    assert a.classify("000001", [partial], None, None, NOW) == "partial"
+    assert a.classify("000001", [failed], None, None, NOW) == "failed"
+```
+
+- [ ] **Step 3: 运行测试确认失败**
+
+```powershell
+$run = "tmp/pytest/phase1-task7-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/data/test_collection_state.py tests/data/test_dedicated_policies.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+```
+
+预期：模块/策略不存在。
+
+- [ ] **Step 4: 创建 `src/data/collection_state.py`**
+
+```python
+"""共享结果状态与采集记录构造。"""
+from typing import Literal
+
+from data.schemas import DataCollectionRecord, ResultState
+
+State = Literal["complete", "degraded", "not_applicable", "unknown"]
+CACHE_STATE: dict[ResultState, State] = {
+    "complete": "complete",
+    "partial": "degraded",
+    "empty": "complete",
+    "not_applicable": "not_applicable",
+    "failed": "degraded",
+    "unknown": "unknown",
+}
+
+
+def make_record(source: str, state: ResultState, *,
+                diagnostic: DataCollectionRecord | None = None,
+                collected_at=None, cache_status: str = "live",
+                error_kind: str = "", error_message: str = "") -> DataCollectionRecord:
+    return DataCollectionRecord(
+        source=source,
+        collected_at=collected_at,
+        cache_status=cache_status,
+        error_kind=error_kind or (diagnostic.error_kind if diagnostic else ""),
+        error_message=error_message or (diagnostic.error_message if diagnostic else ""),
+        cache_state=CACHE_STATE[state],
+        result_state=state,
+    )
+
+
+def with_result_state(record: DataCollectionRecord, state: ResultState) -> DataCollectionRecord:
+    return record.model_copy(update={
+        "cache_state": CACHE_STATE[state],
+        "result_state": state,
+    })
+
+
+def record_consistent(record: DataCollectionRecord) -> bool:
+    return record.cache_state == CACHE_STATE.get(record.result_state)
+```
+
+- [ ] **Step 5: 在 `collection_policies.py` 增加专用策略**
+
+在现有 `_Policy` 后增加（并按现有文件导入 `IndustryData`、`ValuationData`）：
+
+```python
+class HKNewsPolicy(_Policy):
+    kind = "news"
+    ttl_key = "news"
+    reference_age = 0
+    source_attempts = 1
+
+    def validate(self, symbol: str, rows: list[Any], now: datetime) -> bool:
+        if len(rows) != 1:
+            return False
+        news = rows[0]
+        snapshot = getattr(news, "hk_news", None)
+        return (
+            isinstance(news, NewsData)
+            and news.symbol == symbol
+            and now.astimezone(HK_TZ).date() >= news.date
+            and snapshot is not None
+            and snapshot.fetched_at.utcoffset() is not None
+            and snapshot.fetched_at <= now
+        )
+
+    def classify(self, symbol, rows, diagnostic, previous_rows, now):
+        if not self.validate(symbol, rows, now):
+            return "failed"
+        snapshot = rows[0].hk_news
+        assert snapshot is not None
+        if snapshot.query_errors:
+            return "partial"
+        return "empty" if not snapshot.items else "complete"
+
+    def reference_rows(self, rows, now):
+        return None
+
+
+class ValuationPolicy(_Policy):
+    kind = "valuation"
+    ttl_key = "daily"
+    reference_age = 0
+    source_attempts = 2
+
+    def __init__(self, market: str):
+        self.market = market
+
+    def validate(self, symbol, rows, now):
+        return (len(rows) == 1 and isinstance(rows[0], ValuationData)
+                and rows[0].symbol == symbol)
+
+    def classify(self, symbol, rows, diagnostic, previous_rows, now):
+        if not self.validate(symbol, rows, now):
+            return "failed"
+        item = rows[0]
+        values = [value for value in (item.pe_ttm, item.pb, item.ps_ttm)
+                  if isinstance(value, (int, float)) and not isinstance(value, bool)
+                  and math.isfinite(value)]
+        if not values:
+            return "failed"
+        if self.market == "hk":
+            positive = any(value > 0 for value in values)
+            return "complete" if positive and not item.cache_degraded else "partial"
+        return "complete" if (item.pe_ttm is not None or item.pb is not None) else "failed"
+
+    def reference_rows(self, rows, now):
+        return None
+
+
+class IndustryPolicy(_Policy):
+    kind = "industry"
+    ttl_key = "quarterly"
+    reference_age = 0
+    source_attempts = 1
+
+    def __init__(self, market: str):
+        self.market = market
+
+    def validate(self, symbol, rows, now):
+        return (len(rows) == 1 and isinstance(rows[0], IndustryData)
+                and rows[0].symbol == symbol
+                and rows[0].industry not in ("", "未知"))
+
+    def classify(self, symbol, rows, diagnostic, previous_rows, now):
+        if not self.validate(symbol, rows, now):
+            return "failed"
+        item = rows[0]
+        errors = item.comparison_snapshot.get("errors") or []
+        if errors:
+            return "partial"
+        return "complete" if item.comparison_ready else "partial"
+
+    def reference_rows(self, rows, now):
+        return None
+
+
+DEDICATED_POLICIES: dict[tuple[str, str], CollectionPolicy] = {
+    ("hk", "news"): HKNewsPolicy(),
+    ("a-shares", "valuation"): ValuationPolicy("a-shares"),
+    ("hk", "valuation"): ValuationPolicy("hk"),
+    ("a-shares", "industry"): IndustryPolicy("a-shares"),
+    ("hk", "industry"): IndustryPolicy("hk"),
+}
+
+
+def dedicated_policy_for(market: str, kind: str) -> CollectionPolicy | None:
+    return DEDICATED_POLICIES.get((market, kind))
+```
+
+`POLICIES`、`policy_for` 保持五组收集器策略不变。
+
+- [ ] **Step 6: `resilient_collection.py` 复用共享状态**
+
+- 删除本地 `CACHE_STATE` 和 `_record_consistent`，改为从 `data.collection_state` 导入 `CACHE_STATE`、`record_consistent`、`with_result_state`。
+- `_read` 的矛盾检查改调 `record_consistent(record)`。
+- `_live_record` 可改为 `make_record(...)`，但必须保持现有 `source`、`collected_at`、`cache_status`、诊断字段行为。
+- 五组收集器测试必须全部通过。
+
+- [ ] **Step 7: 运行测试和静态检查**
+
+```powershell
+$run = "tmp/pytest/phase1-task7-reg-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/data/test_collection_state.py tests/data/test_dedicated_policies.py tests/core/test_resilient_collection.py tests/core/test_collection_contract.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+.\.venv\Scripts\ruff.exe check src/data/collection_state.py src/data/collection_policies.py src/core/resilient_collection.py tests/data/test_collection_state.py tests/data/test_dedicated_policies.py
+.\.venv\Scripts\pyright.exe src/data/collection_state.py src/data/collection_policies.py src/core/resilient_collection.py tests/data/test_collection_state.py tests/data/test_dedicated_policies.py
+```
+
+预期：通过。
+
+- [ ] **Step 8: 提交**
+
+```powershell
+git add src/data/collection_state.py src/data/collection_policies.py src/core/resilient_collection.py tests/data/test_collection_state.py tests/data/test_dedicated_policies.py
+git diff --cached --check
+git commit -m "feat(数据采集): 增加 Phase 1 共享状态与专用策略"
+```
+
+---
+
+### Task 8: 港股行业适配器统一入口与测试替身
+
+**Files:**
+- Modify: `src/data/hk_hsics_peers.py`
+- Modify: `tests/core/test_hk_news_pipeline.py`
+- Modify: `tests/core/test_peer_pipeline.py`
+- Test: `tests/data/test_hk_hsics_peers.py`
+
+- [ ] **Step 1: 写失败测试**
+
+在 `tests/data/test_hk_hsics_peers.py` 增加：
+
+```python
+def test_adapter_fetch_result_returns_rows_and_no_diagnostic(monkeypatch, mocker, tmp_path):
+    monkeypatch.setattr(peers, "load_hsics_members", lambda: MEMBERS)
+    monkeypatch.setattr(peers, "load_connect_symbols", lambda: {s.removesuffix(".HK") for s in CONNECT})
+    rows = [pool_row("00700.HK", "腾讯", 13, 2), pool_row("00268.HK", "金蝶", 30, 4)]
+    mocker.patch.object(peers, "fetch_sector_pool", return_value=(rows, "2026-10-23"))
+    result = peers.HKIndustryAdapter().fetch_result("00700.HK", comparison_cache=CacheManager(tmp_path / "cache.db"))
+    assert result.rows and result.rows[0].industry == "软件服务"
+    assert result.record is None
+```
+
+- [ ] **Step 2: 运行确认失败**
+
+```powershell
+$run = "tmp/pytest/phase1-task8-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/data/test_hk_hsics_peers.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+```
+
+预期：`fetch_result` 不存在。
+
+- [ ] **Step 3: 重构 `HKIndustryAdapter`**
+
+在 `src/data/hk_hsics_peers.py` 导入 `CollectionResult`：
+
+```python
+from data.base import CollectionResult, DataSource
+```
+
+把现有 `fetch` 主体改名为 `_fetch_impl`，并增加两个包装：
+
+```python
+    def fetch(self, symbol: str, **kwargs) -> list:
+        return self._fetch_impl(symbol, **kwargs)[0]
+
+    def fetch_result(self, symbol: str, **kwargs) -> CollectionResult:
+        rows, record = self._fetch_impl(symbol, **kwargs)
+        return CollectionResult(rows=rows, record=record)
+
+    def _fetch_impl(self, symbol: str, **kwargs) -> tuple[list, None]:
+        # 原 fetch 主体逐行保留；所有 return [] 改为 return [], None；
+        # 所有 return [data] 改为 return [data], None；异常继续抛出。
+```
+
+不要改变资格复核、`peer_hk_industry_v2`、3600 秒缓存、逐行日期、采集预算和错误快照行为。
+
+- [ ] **Step 4: 更新测试替身**
+
+- `tests/core/test_hk_news_pipeline.py::NewsSource` 改为 `class NewsSource(FetchResultMixin, DataSource)`，并导入 `tests.support.FetchResultMixin`。
+- `tests/core/test_peer_pipeline.py::CachedIndustrySource`、`PartialIndustrySource` 改为 `FetchResultMixin, DataSource`。
+- 其他支持 `("hk","industry")`、`("a-shares","industry")`、`("hk","news")`、`("a-shares","valuation")`、`("hk","valuation")` 且会构造 `Pipeline` 的测试假源，也必须显式实现 `fetch_result`。
+
+- [ ] **Step 5: 运行测试**
+
+```powershell
+$run = "tmp/pytest/phase1-task8-reg-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/data/test_hk_hsics_peers.py tests/core/test_peer_pipeline.py tests/core/test_hk_news_pipeline.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+.\.venv\Scripts\ruff.exe check src/data/hk_hsics_peers.py tests/data/test_hk_hsics_peers.py tests/core/test_hk_news_pipeline.py tests/core/test_peer_pipeline.py
+.\.venv\Scripts\pyright.exe src/data/hk_hsics_peers.py tests/data/test_hk_hsics_peers.py tests/core/test_hk_news_pipeline.py tests/core/test_peer_pipeline.py
+```
+
+预期：通过。
+
+- [ ] **Step 6: 提交**
+
+```powershell
+git add src/data/hk_hsics_peers.py tests/data/test_hk_hsics_peers.py tests/core/test_hk_news_pipeline.py tests/core/test_peer_pipeline.py
+git diff --cached --check
+git commit -m "refactor(港股行业): 增加统一 fetch_result 入口"
+```
+
+---
+
+### Task 9: 港股新闻接入统一结果契约
+
+**Files:**
+- Modify: `src/core/pipeline.py`
+- Modify: `tests/core/test_hk_news_pipeline.py`
+
+- [ ] **Step 1: 写/更新测试**
+
+在 `tests/core/test_hk_news_pipeline.py`：
+
+- `NewsSource` 已使用 `FetchResultMixin`（Task 8）。
+- 增加一个只实现 `fetch_result`、`fetch` 抛错的新闻源，验证 `_collect_hk_news` 不再调用 `fetch`。
+- 在现有成功/空/部分/失败测试中断言：
+  - 成功有条目 → `result_state=="complete"`。
+  - 成功零条 → `result_state=="empty"`。
+  - 部分查询错误 → `result_state=="partial"`。
+  - 双查询失败且无旧快照 → `result_state=="failed"`。
+  - 失败回退旧快照 → `cache_status=="stale"`，`result_state` 按旧快照内容为 `complete/empty/partial`。
+- 保留 3600 秒 TTL、单次调用预算、部分不覆盖完整、旧快照时间等断言。
+
+- [ ] **Step 2: 运行确认旧行为失败**
+
+```powershell
+$run = "tmp/pytest/phase1-task9-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/core/test_hk_news_pipeline.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+```
+
+预期：新断言失败（当前记录没有 `result_state` 或仍调用 `fetch`）。
+
+- [ ] **Step 3: 修改 `Pipeline._collect_hk_news`**
+
+- 导入 `DataSource`、`make_record`、`with_result_state`、`CACHE_STATE`、`dedicated_policy_for`。
+- 将 `result = sources[0].fetch(...)` 改为：
+
+```python
+source = sources[0]
+if type(source).fetch_result is DataSource.fetch_result:
+    return None, make_record(
+        SOURCE, "failed", cache_status="live",
+        error_kind="contract_error",
+        error_message="港股新闻来源未实现统一取数入口 fetch_result",
+    )
+collection = source.fetch_result(
+    symbol, market="hk", data_type="news", name=name
+)
+result = collection.rows or []
+diagnostic = collection.record
+```
+
+- 成功分支用 `dedicated_policy_for("hk", "news").classify(...)` 得到状态：
+
+```python
+snapshot = result[0].hk_news
+policy = dedicated_policy_for("hk", "news")
+assert policy is not None
+state = policy.classify(symbol, result, diagnostic, None, datetime.now(HK_TZ))
+record = make_record(
+    SOURCE, state, diagnostic=diagnostic,
+    collected_at=snapshot.fetched_at, cache_status="live",
+    error_kind="partial" if snapshot.query_errors else "",
+    error_message="部分关键词未成功检索，结果不完整" if snapshot.query_errors else "",
+)
+```
+
+- 缓存命中分支：若元数据记录 `result_state=="unknown"`，用缓存快照调用策略推导，再 `with_result_state(record, state)`；保留 `collected_at`。
+- 旧快照回退分支：若记录 `result_state=="unknown"`，用旧快照推导；设置 `cache_status="stale"`、`error_kind="live_unavailable"`、现有错误说明；保留旧 `collected_at`。
+- 双失败无旧快照：返回 `make_record(SOURCE, "failed", cache_status="live", error_kind="fetch_failed", error_message="新闻暂时获取失败")`；不写缓存。
+- `_set_cache`/`_store_cache` 不改；它们继续写 3600 秒 TTL、保护部分快照。
+
+- [ ] **Step 4: 运行测试**
+
+```powershell
+$run = "tmp/pytest/phase1-task9-reg-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/core/test_hk_news_pipeline.py tests/core/test_pipeline.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+.\.venv\Scripts\ruff.exe check src/core/pipeline.py tests/core/test_hk_news_pipeline.py
+.\.venv\Scripts\pyright.exe src/core/pipeline.py tests/core/test_hk_news_pipeline.py
+```
+
+预期：通过。
+
+- [ ] **Step 5: 提交**
+
+```powershell
+git add src/core/pipeline.py tests/core/test_hk_news_pipeline.py
+git diff --cached --check
+git commit -m "refactor(港股新闻): 接入统一取数结果与状态"
+```
+
+---
+
+### Task 10: A/HK 估值接入统一结果契约
+
+**Files:**
+- Modify: `src/core/pipeline.py`
+- Modify: `tests/core/test_pipeline_health.py`
+- Modify: `tests/core/test_pipeline.py`（如需补 A 股估值假源）
+- Test: `tests/data/test_hk_valuation_history.py`
+
+- [ ] **Step 1: 写/更新测试**
+
+在 `tests/core/test_pipeline_health.py`：
+
+- 确认 `FakeSource` 已使用 `FetchResultMixin`。
+- 给现有港股估值测试补充 `result_state` 断言：
+  - 正常估值 → `complete`。
+  - `cache_degraded` / 沿用旧组件 → `partial`。
+  - 负值-only → `partial`。
+  - 空结果/全缺失 → `failed`。
+- 新增 A 股估值成功缓存测试：`FakeSource({"valuation":[ValuationData(symbol="000001", date=..., pe_ttm=10)]})`，两次 collect，第二次 `cache_status=="cache"`、`result_state=="complete"`，源只调用一次。
+- 保留 `last_complete`、1800 秒、负值、PS、合并和断路器断言。
+
+- [ ] **Step 2: 运行确认失败**
+
+```powershell
+$run = "tmp/pytest/phase1-task10-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/core/test_pipeline_health.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+```
+
+预期：新增 `result_state`/A 股估值断言失败。
+
+- [ ] **Step 3: 修改 `Pipeline.collect.fetch_one`**
+
+- 导入 `CollectionResult`、`make_record`、`with_result_state`、`dedicated_policy_for`。
+- 将 `result = source.fetch(symbol, **fetch_kwargs)` 改为：
+
+```python
+collection = source.fetch_result(symbol, **fetch_kwargs)
+if not isinstance(collection, CollectionResult):
+    failure_record = make_record(
+        source.__class__.__name__, "failed", cache_status="live",
+        error_kind="contract_error", error_message="fetch_result 返回类型无效",
+    )
+    continue
+result = collection.rows or []
+diagnostic = collection.record
+```
+
+- 删除 `get_collection_error` 旁路读取；诊断来自 `collection.record`。
+- 在进入估值分支前初始化 `used_stale = False`（当前代码只在港股合并分支内赋值，避免静态分析报可能未绑定）。
+- 在估值结果合并、`_is_healthy` 判断之后、写缓存前计算状态：
+
+```python
+policy = dedicated_policy_for(market, data_type)
+if data_type in ("valuation", "industry") and policy is not None:
+    state = policy.classify(symbol, result, diagnostic, None, datetime.now(HK_TZ))
+    if data_type == "valuation" and market == "hk" and used_stale:
+        state = "partial"
+    record = with_result_state(record, state)
+```
+
+- 缓存命中分支：若 `record.result_state=="unknown"`，用 `dedicated_policy_for(...).classify(symbol, cached, None, None, now)` 推导并 `with_result_state`；保留 `collected_at`。
+- 过期缓存回退分支：同样推导，保留旧采集时间；设置 `cache_status="stale"`。
+- 估值 `_set_cache`/`_store_cache` 不改；港股 `last_complete`、1800 秒、非正值语义保持不变。
+
+- [ ] **Step 4: 运行估值回归**
+
+```powershell
+$run = "tmp/pytest/phase1-task10-reg-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/core/test_pipeline_health.py tests/data/test_hk_valuation_history.py tests/core/test_pipeline.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+.\.venv\Scripts\ruff.exe check src/core/pipeline.py tests/core/test_pipeline_health.py tests/data/test_hk_valuation_history.py
+.\.venv\Scripts\pyright.exe src/core/pipeline.py tests/core/test_pipeline_health.py tests/data/test_hk_valuation_history.py
+```
+
+预期：通过；港股专用回归保持。
+
+- [ ] **Step 5: 提交**
+
+```powershell
+git add src/core/pipeline.py tests/core/test_pipeline_health.py tests/core/test_pipeline.py tests/data/test_hk_valuation_history.py
+git diff --cached --check
+git commit -m "refactor(估值): A/HK 估值接入统一结果与状态"
+```
+
+---
+
+### Task 11: A/HK 行业接入统一结果契约
+
+**Files:**
+- Modify: `src/core/pipeline.py`
+- Modify: `tests/core/test_peer_pipeline.py`
+- Test: `tests/data/test_hk_hsics_peers.py`
+
+- [ ] **Step 1: 写/更新测试**
+
+- `CachedIndustrySource`、`PartialIndustrySource` 已使用 `FetchResultMixin`（Task 8）。
+- 在现有行业测试中断言：
+  - 正常 A 股行业 → `result_state=="complete"`。
+  - 有 `comparison_snapshot.errors` → `partial`。
+  - 行业未知/无数据 → `failed`。
+  - 港股行业缓存命中/刷新失败快照 → 状态与 `comparison_snapshot` 一致；`_cacheable` 仍为 False。
+- 增加港股行业 `fetch_result` 与 `fetch` 返回一致测试。
+
+- [ ] **Step 2: 运行确认失败**
+
+```powershell
+$run = "tmp/pytest/phase1-task11-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/core/test_peer_pipeline.py tests/data/test_hk_hsics_peers.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+```
+
+预期：新状态断言失败。
+
+- [ ] **Step 3: 修改 `Pipeline.collect.fetch_one` 行业分支**
+
+- 行业分支已经通过 `source.fetch_result` 取得 `result`/`diagnostic`（Task 10）。
+- 在行业返回前，用 `IndustryPolicy` 计算状态并写入记录：
+
+```python
+policy = dedicated_policy_for(market, "industry")
+if policy is not None:
+    state = policy.classify(symbol, result, diagnostic, None, datetime.now(HK_TZ))
+    record = with_result_state(record, state)
+```
+
+- 保留当前行业专用逻辑：
+  - `comparison_cache` / `refresh_cache` / `comparison_cache_only` 参数。
+  - `_cacheable("hk","industry") is False`、`_cacheable("a-shares","industry") is False`。
+  - 断路器：仅非缓存结果变化时记成功/失败。
+  - 即使 `result_state=="failed"` 也返回已有 `IndustryData`，不丢弃 `comparison_snapshot` 诊断。
+- 不修改 `HKIndustryAdapter` 的资格复核、缓存键/TTL、逐行日期和预算（Task 8 只加包装）。
+
+- [ ] **Step 4: 运行行业回归**
+
+```powershell
+$run = "tmp/pytest/phase1-task11-reg-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/core/test_peer_pipeline.py tests/core/test_pipeline_hk_industry_cache.py tests/data/test_hk_hsics_peers.py tests/data/test_peer_comparison.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+.\.venv\Scripts\ruff.exe check src/core/pipeline.py tests/core/test_peer_pipeline.py tests/data/test_hk_hsics_peers.py
+.\.venv\Scripts\pyright.exe src/core/pipeline.py tests/core/test_peer_pipeline.py tests/data/test_hk_hsics_peers.py
+```
+
+预期：通过。
+
+- [ ] **Step 5: 提交**
+
+```powershell
+git add src/core/pipeline.py tests/core/test_peer_pipeline.py tests/data/test_hk_hsics_peers.py
+git diff --cached --check
+git commit -m "refactor(行业): A/HK 行业接入统一结果与状态"
+```
+
+---
+
+### Task 12: Phase 1 运行时与静态门禁
+
+**Files:**
+- Modify: `src/core/collection_contract.py`
+- Modify: `src/core/pipeline.py`
+- Modify: `tests/core/test_collection_contract.py`
+- Modify: `tests/test_data_entrypoints.py`
+- Modify: `tests/test_verify_script.py`
+
+- [ ] **Step 1: 写门禁测试**
+
+- `DEDICATED_CAPABILITIES` 正好包含 5 个能力，`CONTRACT_CAPABILITIES` 为五组与专用能力的并集。
+- `LEGACY_FETCH_SITES` 不再包含 `Pipeline.collect.fetch_one`、`Pipeline._collect_hk_news`；仍包含 `src/data/base.py`、`src/index/collector.py`、`src/backtest/data.py`。
+- `ALLOWED_FETCH_RESULT_CALLS` 包含 `ResilientCollector._collect`、`Pipeline.collect.fetch_one`、`Pipeline._collect_hk_news`。
+- 构造只支持 `("hk","news")`、缺少显式 `fetch_result` 的假源 → `Pipeline` 构造失败。
+- 迟到注册的同类假源 → 采集返回 `contract_error`，不写缓存。
+- `tests/test_data_entrypoints.py::test_repository_entrypoints_are_clean` 继续通过。
+
+- [ ] **Step 2: 运行确认失败**
+
+```powershell
+$run = "tmp/pytest/phase1-task12-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/core/test_collection_contract.py tests/test_data_entrypoints.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+```
+
+预期：新常量/清单断言失败。
+
+- [ ] **Step 3: 修改 `collection_contract.py`**
+
+```python
+DEDICATED_CAPABILITIES: frozenset[tuple[str, str]] = frozenset({
+    ("hk", "news"),
+    ("a-shares", "valuation"),
+    ("hk", "valuation"),
+    ("a-shares", "industry"),
+    ("hk", "industry"),
+})
+CONTRACT_CAPABILITIES = MIGRATED_CAPABILITIES | DEDICATED_CAPABILITIES
+```
+
+- 从 `LEGACY_FETCH_SITES` 删除 `Pipeline.collect.fetch_one`、`Pipeline._collect_hk_news` 两项。
+- 在 `ALLOWED_FETCH_RESULT_CALLS` 增加 `Pipeline.collect.fetch_one`、`Pipeline._collect_hk_news`。
+- 保留 base 兼容桥、指数、回测条目。
+
+- [ ] **Step 4: `Pipeline` 增加专用能力契约检查**
+
+在 `Pipeline.__init__` 末尾：
+
+```python
+self._validate_dedicated_contract()
+```
+
+实现：
+
+```python
+def _validate_dedicated_contract(self) -> None:
+    for market, kind in DEDICATED_CAPABILITIES:
+        sources = self._registry.get_data_sources(market, kind)
+        if not isinstance(sources, list):
+            continue
+        for source in sources:
+            if type(source).fetch_result is DataSource.fetch_result:
+                raise ValueError(
+                    f"数据源 {source.__class__.__name__} 未实现统一取数入口 fetch_result"
+                )
+```
+
+- `Pipeline.fetch_one` 在调用 `fetch_result` 前再次检查来源；缺失时 `contract_error`，不写缓存。
+- `_collect_hk_news` 同样检查。
+- `Pipeline` 需要导入 `DataSource`、`DEDICATED_CAPABILITIES`。
+
+- [ ] **Step 5: 更新 verifier 映射/测试**
+
+- `tests/test_verify_script.py` 保持并补充：
+  - `src/core/pipeline.py` 仍拉取 `tests/core`、`tests/data`、`tests/report`、`tests/agent`。
+  - `src/data/collection_policies.py`、`src/data/collection_state.py`、`src/data/hk_hsics_peers.py` 拉取相关测试。
+- `scripts/verify.ps1` 必要时把 `src/data/collection_state.py`、`src/data/hk_hsics_peers.py` 映射到 `tests/data`、`tests/core`。
+- 静态检查实际运行：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\check-data-entrypoints.py
+```
+
+必须输出“数据取数入口检查通过”。
+
+- [ ] **Step 6: 运行门禁测试**
+
+```powershell
+$run = "tmp/pytest/phase1-task12-reg-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/core/test_collection_contract.py tests/test_data_entrypoints.py tests/test_verify_script.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+.\.venv\Scripts\ruff.exe check src/core/collection_contract.py src/core/pipeline.py tests/core/test_collection_contract.py tests/test_data_entrypoints.py tests/test_verify_script.py
+.\.venv\Scripts\pyright.exe src/core/collection_contract.py src/core/pipeline.py tests/core/test_collection_contract.py tests/test_data_entrypoints.py tests/test_verify_script.py
+```
+
+预期：通过。
+
+- [ ] **Step 7: 提交**
+
+```powershell
+git add src/core/collection_contract.py src/core/pipeline.py tests/core/test_collection_contract.py tests/test_data_entrypoints.py tests/test_verify_script.py scripts/verify.ps1
+git diff --cached --check
+git commit -m "chore(门禁): 覆盖 Phase 1 专用取数能力"
+```
+
+---
+
+### Task 13: Phase 1 回归与 CLI 验收
+
+**Files:**
+- Verify: 全部受影响测试与脚本
+- Record: `tmp/acceptance/unified-data-collection-phase1/`（本地，不提交）
+
+- [ ] **Step 1: 运行范围回归**
+
+```powershell
+.\scripts\verify.ps1 -Files src/core/pipeline.py
+.\scripts\verify.ps1 -Files src/data/hk_hsics_peers.py
+.\scripts\verify.ps1 -Files src/data/collection_policies.py
+.\scripts\verify.ps1 -Files src/core/collection_contract.py
+```
+
+记录每个命令的测试目录和结果；既有前端失败单独记录，不能算 Phase 1 失败或通过。
+
+- [ ] **Step 2: 运行完整受影响测试集**
+
+```powershell
+$run = "tmp/pytest/phase1-accept-$PID-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+.\.venv\Scripts\python.exe -m pytest tests/core tests/data tests/report/test_reference_quality.py tests/agent/test_reference_isolation.py tests/index/test_collector.py tests/backtest -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
+```
+
+预期：本轮相关测试通过；若出现 `dev` 既有前端静态测试失败，引用测试名并判定与 Phase 1 无关。
+
+- [ ] **Step 3: CLI 生成 A 股/港股 Markdown**
+
+```powershell
+mkdir tmp\acceptance\unified-data-collection-phase1 -Force
+.\.venv\Scripts\stock-robot.exe analyze 600519 --no-llm --verbose 2>&1 | Tee-Object -FilePath tmp\acceptance\unified-data-collection-phase1\a-share-cli.log
+.\.venv\Scripts\stock-robot.exe analyze 00700 --no-llm --verbose 2>&1 | Tee-Object -FilePath tmp\acceptance\unified-data-collection-phase1\hk-cli.log
+```
+
+检查：
+
+- 两条命令返回 0，`reports/stock/` 生成最新 Markdown。
+- A/HK 估值来源、日期、负值/组件补位、PS 展示无回归。
+- 港股新闻关键词检索、缓存和 30 天窗口无回归。
+- A/HK 行业同行池、资格复核和缓存无回归。
+- 不生成 Phase 1 历史参考；报告不因 `result_state` 增加新文案。
+- 跳过真实浏览器验收；CLI 走真实 Pipeline 和取数路径。
+
+- [ ] **Step 4: 记录和提交文档**
+
+在聊天中记录实际命令、报告路径、测试结果、既有失败和未覆盖风险。把 Phase 1 设计/计划更新提交到当前分支；不要提交 `tmp/`、`reports/` 或无关文件。
+
+```powershell
+git add docs/superpowers/specs/2026-10/2026-10-26-unified-data-collection-design.md docs/superpowers/plans/2026-10/2026-10-26-unified-data-collection-plan.md
+git diff --cached --check
+git commit -m "docs(数据采集): 增加 Phase 1 设计与实施计划"
+```
+
+- [ ] **Step 5: 合并/发布前门禁**
+
+只有用户明确要求合并或发布时，才运行：
+
+```powershell
+.\scripts\verify.ps1 -Scope Full
+```
+
+`dev` 既有前端静态测试失败需在 Full 结果中单独说明；不能将 Phase 1 表述为 Full 全绿。
+
+---
+
+## Phase 1 自审清单
+
+- [ ] `DEDICATED_CAPABILITIES` 与 `DEDICATED_POLICIES` 一一对应，五组 `POLICIES` 不变。
+- [ ] 港股新闻只调用一次 `fetch_result`，3600 秒缓存、部分保护和旧快照回退不变。
+- [ ] A/HK 估值 `fetch_result`、状态、`last_complete`、1800 秒、负值和 PS 语义不变。
+- [ ] A/HK 行业 `fetch_result`、专用缓存、资格复核、逐行日期和断路器不变。
+- [ ] `HKIndustryAdapter.fetch_result` 显式实现，`fetch` 兼容包装仍可用。
+- [ ] 旧缓存缺 `result_state` 时按策略推导，不迁移数据库。
+- [ ] `Pipeline` 构造和采集前检查专用来源显式 `fetch_result`；契约错误不写缓存。
+- [ ] 静态清单移除两个 Pipeline 遗留条目，允许三个 `fetch_result` 调用点；真实仓库检查通过。
+- [ ] Phase 1 不新增 `DataReference`、数据源、依赖、评分公式或报告文案。
+- [ ] CLI A 股/港股 Markdown 验收完成，跳过浏览器；既有 Full 失败单独记录。
+- [ ] Phase 1 设计/计划仍为同一主题的一份设计＋一份计划。

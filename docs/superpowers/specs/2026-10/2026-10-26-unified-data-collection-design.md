@@ -1,6 +1,6 @@
 # 统一数据获取规范设计（Phase 0：五组能力，长期覆盖全项目取数）
 
-状态：2026-10-26 用户确认首轮范围为“五组能力迁移＋公共机制＋入口门禁”，并确认长期目标是所有市场数据取数最终纳入同一规范。本文落实接口字段、旧缓存兼容、迁移路线和遗留清单；Phase 0 已于 2026-10-27 实现，并按用户要求用 CLI 生成 A 股/港股 Markdown 验收，跳过真实浏览器验收。本主题独立建文档，不追加到已收尾的 2026-10-22 港股多源项目。
+状态：2026-10-26 用户确认首轮范围为“五组能力迁移＋公共机制＋入口门禁”，并确认长期目标是所有市场数据取数最终纳入同一规范。Phase 0 已于 2026-10-27 实现，并按用户要求用 CLI 生成 A 股/港股 Markdown 验收，跳过真实浏览器验收。Phase 1（港股新闻、A/HK 估值、A/HK 行业）已完成范围与契约优先方案确认，待实现。本主题独立建文档，不追加到已收尾的 2026-10-22 港股多源项目。
 
 ## 1. 背景与目标
 
@@ -80,7 +80,7 @@
 | 阶段 | 范围 | 约束 |
 | --- | --- | --- |
 | Phase 0（本轮） | 五组能力、公共机制、契约测试、入口门禁 | 只改本轮范围；专用路径不动 |
-| Phase 1 | 港股新闻、港股估值、行业 | 先接入结果/诊断契约，保留专用缓存、合并、逐项日期和查询预算 |
+| Phase 1 | 港股新闻、估值（A/HK）、行业（A/HK） | 先接入结果/诊断契约，保留专用缓存、合并、逐项日期和查询预算 |
 | Phase 2 | 指数/策略、辅助补取、名称解析、静态数据刷新 | 指数缓存和发布语义保留；辅助补取逐步接入 |
 | Phase 3 | 雷达数据提供器、回测行情 | 雷达调度/队列继续独立；回测保留区间完整性、连续性和独立缓存 |
 
@@ -421,6 +421,8 @@ class CollectionPolicy(Protocol):
 | `src/index/collector.py` | `IndexDataCollector.collect._fetch_sentiment` | `index_sentiment` | 指数专用采集 | Phase 2 |
 | `src/backtest/data.py` | `HistoricalPriceProvider.fetch_stock` | `a-shares/price` | 回测自管区间、连续性和缓存语义，不共享报告缓存 | Phase 3 |
 
+上表是 Phase 0 历史清单；Phase 1 将移除 `Pipeline.collect.fetch_one` 和 `Pipeline._collect_hk_news` 两项，目标清单见 15.5。
+
 `scripts/check-data-entrypoints.py` 用 AST 扫描 `src/`：
 
 - 查找 `*.fetch(` 且带 `data_type=` 关键字或 `**` 关键字展开的调用；字面量类型按清单匹配，动态类型只允许清单中声明的动态条目。
@@ -522,6 +524,171 @@ class CollectionPolicy(Protocol):
 - 最大风险是测试假实现未实现 `fetch_result()` 导致构造期检查失败；实施计划需一次性更新相关测试替身，并用契约测试覆盖。
 - 第二风险是静态检查误报 provider 的同名 `fetch()`；检查器只处理带 `data_type` 关键字或 `**` 关键字展开的 `DataSource.fetch()`，并通过运行时测试补充覆盖。
 - 第三风险是旧缓存状态推导过宽或过窄；以“空列表不猜正常、无原始新闻对象不出参考、旧失败不占正常 TTL”为硬约束。
+
+## 15. Phase 1 设计：港股新闻、A/HK 估值、A/HK 行业
+
+状态：2026-10-27 用户确认 Phase 1 范围（A/HK 估值一起迁移）和“契约优先、保留专用缓存”方案；设计待实现。Phase 0 的 `MIGRATED_CAPABILITIES` 仍只代表五组通用收集器能力。
+
+### 15.1 范围与不变量
+
+本轮新增五个能力：
+
+- `("hk", "news")`：港股关键词新闻。
+- `("a-shares", "valuation")`、`("hk", "valuation")`：A 股与港股估值。
+- `("a-shares", "industry")`、`("hk", "industry")`：A 股与港股行业。
+
+本轮继续保留：
+
+- 港股新闻的单次双查询预算、3600 秒缓存、部分查询保护和失败快照回退。
+- 港股估值的组件级补位、逐项日期、非正值语义、`last_complete` 和 1800 秒降级 TTL。
+- A 股/港股行业的专用缓存（`peer_classification`、`peer_valuation`、`peer_hk_industry_v2`）、资格复核、逐行日期和采集预算。
+- A 股估值的独立缓存和失败/非正结果语义。
+
+本轮不做：
+
+- 同行财务、年度 ROE、总股本、名称解析等辅助补取（Phase 2）。
+- 指数/策略、静态数据刷新（Phase 2）。
+- 雷达数据提供器、回测行情（Phase 3）。
+- 不新增 `DataReference` 类型；Phase 1 能力不产生历史参考。
+- 不新增数据源、依赖、费用、模型调用；不改变评分公式、报告文案或前端。
+- 不修复 `dev` 上既有的前端静态测试失败；该失败按基线问题记录，不能表述为 Phase 1 通过。
+
+### 15.2 架构
+
+Phase 0 的 `ResilientCollector` 继续只管理五组能力。Phase 1 采用“契约优先、专用缓存保留”：
+
+```text
+DEDICATED_CAPABILITIES
+  ├─ hk/news        → Pipeline._collect_hk_news
+  ├─ a-shares/valuation、hk/valuation → Pipeline.collect.fetch_one 的估值分支
+  └─ a-shares/industry、hk/industry   → Pipeline.collect.fetch_one 的行业分支
+
+每个分支：
+  source.fetch_result() → CollectionResult(rows, diagnostic)
+  dedicated_policy.classify() → ResultState
+  make_record() → DataCollectionRecord
+  原有专用缓存/合并/资格/预算保持
+```
+
+新增 `src/data/collection_state.py` 作为共享记录层：
+
+- `CACHE_STATE`：`complete→complete`、`partial→degraded`、`empty→complete`、`not_applicable→not_applicable`、`failed→degraded`、`unknown→unknown`。
+- `make_record(source, state, *, diagnostic, collected_at, cache_status, error_kind, error_message)`：统一构造记录，自动写 `cache_state`/`result_state`。
+- `record_consistent(record)`：检查允许的 `(result_state, cache_state)` 组合。
+
+`ResilientCollector` 改为复用该模块的映射和记录校验；现有五组行为不变。
+
+### 15.3 专用策略
+
+在 `src/data/collection_policies.py` 增加专用策略，保留 `POLICIES` 作为五组收集器策略，新增 `DEDICATED_POLICIES` 和 `dedicated_policy_for(market, kind)`：
+
+| 能力 | source_attempts | 状态规则 |
+| --- | --- | --- |
+| `hk/news` | 1 | 无有效快照 → `failed`；`query_errors` → `partial`；零条无错误 → `empty`；有内容无错误 → `complete` |
+| `valuation` A 股 | 2 | 至少一个有效 PE/PB → `complete`；空/全缺失 → `failed` |
+| `valuation` 港股 | 2 | 有效事实且至少一个正估值倍数、无 `cache_degraded`/旧组件补位 → `complete`；只有非正值、组件降级或沿用旧组件 → `partial`；无有效事实 → `failed` |
+| `industry` A/HK | 1 | 无有效行业事实 → `failed`；`comparison_snapshot.errors` 非空 → `partial`；无错误且可比较 → `complete` |
+
+`HKNewsPolicy.reference_rows`、`ValuationPolicy.reference_rows`、`IndustryPolicy.reference_rows` 均返回 `None`；Phase 1 不扩展 `DataReference`。
+
+旧缓存没有 `result_state` 时，在缓存命中或失败回退分支用对应策略从数据推导；不批量改写缓存，不新增数据库迁移。
+
+### 15.4 专用路径
+
+#### 港股新闻
+
+- `_collect_hk_news` 改用 `sources[0].fetch_result()`；只调用一次，不增加外层重试。
+- 成功快照：`collected_at` 取 `HKNewsSnapshot.fetched_at`；`query_errors` 非空 → `partial`，零条且无错误 → `empty`，有条目 → `complete`。
+- 缓存继续使用 `news/latest` 和 3600 秒 TTL；部分结果不覆盖已有完整快照；失败优先回退旧快照并标 `cache_status="stale"`、`error_kind="live_unavailable"`；旧快照按原 `fetched_at` 展示。
+- 展示时继续按香港日期重过滤近 30 天；不生成历史参考。
+- 来源缺少显式 `fetch_result` → `contract_error`，不写缓存。
+
+#### 估值
+
+- `Pipeline.collect.fetch_one` 的估值分支改为 `source.fetch_result()`，保留现有两次尝试、断路器、A 股普通缓存和港股专用缓存。
+- A 股估值：`latest` 正常 daily TTL；至少一个有效 PE/PB 为 `complete`，否则 `failed`。
+- 港股估值：继续调用 `_merge_hk_valuation`；继续使用 `latest`/`last_complete`；正常 daily TTL，`cache_degraded` 时取 `min(TTL, 1800)`；`used_stale` 或组件降级 → `partial`；非正值是事实，但不单独构成成功估值缓存。
+- `record.source`、`collected_at`、`cache_status` 保持现有语义；缓存命中不重置原采集时间。
+- 旧 `latest` 记录没有 `result_state` 时，读取后按估值策略推导；不把空列表猜成正常结果。
+
+#### 行业
+
+- `Pipeline.collect.fetch_one` 的行业分支改为 `source.fetch_result()`；A 股继续调用 `fetch_a_industry`，港股继续调用 `HKIndustryAdapter`。
+- `HKIndustryAdapter` 增加显式 `fetch_result()`：现有 `fetch()` 保留为兼容包装，底层共用 `_fetch_impl()`；不改变资格复核、`peer_hk_industry_v2`、3600 秒缓存、逐行日期和采集预算。
+- `IndustryData` 的 `comparison_snapshot.errors` 非空 → `partial`；无错误且 `comparison_ready` → `complete`；行业为空/未知或无有效数据 → `failed`。
+- 行业继续 `_cacheable=False`，不写通用行业缓存；适配器专用缓存和断路器行为不变。
+- 返回错误状态时仍保留 `IndustryData` 供报告展示，不因 `result_state=failed` 丢弃可用诊断。
+
+#### 通用 `fetch_one`
+
+- 五组能力仍先进入 `ResilientCollector`。
+- 其余类型全部通过 `source.fetch_result()` 获取数据和诊断；不再调用 `source.fetch()`。
+- 未知数据类型继续走该分支，但使用统一入口；来源缺少显式 `fetch_result` 时按契约失败处理。
+- `Pipeline` 构造时检查 `DEDICATED_CAPABILITIES` 的来源显式实现 `fetch_result()`；采集前对迟到注册来源再次检查。
+
+### 15.5 门禁变化
+
+`src/core/collection_contract.py` 增加：
+
+```python
+DEDICATED_CAPABILITIES = frozenset({
+    ("hk", "news"),
+    ("a-shares", "valuation"),
+    ("hk", "valuation"),
+    ("a-shares", "industry"),
+    ("hk", "industry"),
+})
+CONTRACT_CAPABILITIES = MIGRATED_CAPABILITIES | DEDICATED_CAPABILITIES
+```
+
+静态清单目标：
+
+- 删除 `Pipeline.collect.fetch_one` 和 `Pipeline._collect_hk_news` 两个 `.fetch()` 条目；它们改用 `fetch_result`，不再属于未声明绕行。
+- `ALLOWED_FETCH_RESULT_CALLS` 增加：
+  - `("src/core/pipeline.py", "Pipeline.collect.fetch_one")`
+  - `("src/core/pipeline.py", "Pipeline._collect_hk_news")`
+- 保留 `src/data/base.py::DataSource.fetch_result` 兼容桥、指数采集、回测行情的 `.fetch()` 条目。
+- 测试假数据源（港股新闻、A/HK 行业、估值）使用 `tests/support.py::FetchResultMixin` 或显式 `fetch_result`。
+
+运行时检查：
+
+- `Pipeline` 构造时检查 `DEDICATED_CAPABILITIES` 的来源；缺少显式 `fetch_result` 立即失败。
+- `_collect_hk_news` 和 `fetch_one` 在调用前再次检查来源；契约错误返回 `failed`，不写 `latest`/`last_complete`/`last_attempt`。
+- 专用路径写入前检查 `(result_state, cache_state)` 一致性；矛盾视为未缓存，不污染旧快照。
+
+### 15.6 测试与验收
+
+新增/更新：
+
+- `tests/data/test_collection_state.py`：映射、`make_record`、矛盾组合。
+- `tests/data/test_dedicated_policies.py`：港股新闻、A/HK 估值、A/HK 行业状态规则。
+- `tests/core/test_hk_news_pipeline.py`：`fetch_result` 单次调用、3600 TTL、部分/空/失败/旧快照、`result_state`。
+- `tests/core/test_pipeline_health.py`：A/HK 估值缓存、合并、负值、`last_complete`、1800 秒、`result_state`。
+- `tests/core/test_peer_pipeline.py`：A/HK 行业专用缓存、断路器、`result_state`。
+- `tests/data/test_hk_hsics_peers.py`：`HKIndustryAdapter.fetch_result` 与 `fetch` 一致。
+- `tests/core/test_collection_contract.py`、`tests/test_data_entrypoints.py`、`tests/test_verify_script.py`：专用能力契约检查、清单更新、`verify.ps1` 门禁。
+- 回归：`tests/core`、`tests/data`、`tests/report/test_reference_quality.py`、`tests/agent/test_reference_isolation.py`、`tests/index/test_collector.py`、`tests/backtest`。
+
+验收命令与 Phase 0 相同：范围 Ruff/Pyright/pytest、`scripts/check-data-entrypoints.py`、`verify.ps1 -Files`；最终用 CLI 生成 A 股/港股 Markdown：
+
+```powershell
+./.venv/Scripts/stock-robot.exe analyze 600519 --no-llm --verbose
+./.venv/Scripts/stock-robot.exe analyze 00700 --no-llm --verbose
+```
+
+按用户要求跳过真实浏览器验收。`dev` 既有前端静态测试失败继续记录为基线问题；Phase 1 不以 Full 全绿作为通过条件，但必须在交付说明中明确该失败与 Phase 1 无关。
+
+### 15.7 迁移顺序与回退
+
+1. 共享 `collection_state` 与专用策略；补策略/记录测试。
+2. `HKIndustryAdapter.fetch_result` 与测试替身。
+3. 港股新闻契约迁移。
+4. A/HK 估值契约迁移。
+5. A/HK 行业契约迁移。
+6. 运行时/静态门禁更新与测试。
+7. 回归、CLI Markdown 验收、文档与提交。
+
+每阶段独立验证和提交；不推送、不合并。旧缓存无需迁移，`result_state` 缺失时按策略推导；回退只需回退对应提交，不涉及数据库或外部服务。
 
 ## 附录 A：遗留 `fetch()` 清单说明
 
