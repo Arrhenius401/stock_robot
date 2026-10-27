@@ -1,7 +1,7 @@
 // 完整研报右侧抽屉：管理焦点、局部错误与请求竞态。
 import { api } from "./api.js";
 import { el } from "./components.js";
-import { normalizeArtifactReport, renderStockReport } from "./report-renderer.js?v=20261026-gold-report-1";
+import { normalizeArtifactReport, renderStockReport } from "./report-renderer.js?v=20261027-gold-observation-2";
 import { store, switchView } from "./state.js";
 import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js";
 

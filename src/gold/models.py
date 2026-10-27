@@ -76,7 +76,7 @@ class GoldRules(BaseModel):
     """已确认的初始研究规则，配置变更必须保留版本。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
-    version: str = "gold-v1"
+    version: str = "gold-v2"
     source_timeout_seconds: float = Field(default=30, gt=0, le=30)
     total_timeout_seconds: float = Field(default=60, gt=0, le=60)
     max_workers: int = Field(default=3, ge=1, le=3)

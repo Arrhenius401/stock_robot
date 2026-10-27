@@ -6,6 +6,34 @@ from gold.report import render_gold_markdown
 from tests.api.test_static import _DOM_STUB, _module_url, _run_node
 
 
+def test_observation_report_prioritizes_archived_prices_and_chat_facts(tmp_path):
+    script = (
+        _DOM_STUB
+        + r"""
+const {renderStockReport,renderReportSummary}=await import(__RENDERER__);
+const payload={report_type:'gold',report_schema:'gold-observation-v2',symbol:'GOLD',name:'黄金市场观察简报',score:{final:10},
+ markets:{domestic:{latest_close:861.41,unit:'元/克',as_of:'2026-10-26',status:'ok',short_term:{direction:'偏空'}},
+ international:{latest_close:3997.79,unit:'美元/金衡盎司',as_of:'2026-10-23',status:'stale',short_term:{direction:'中性'}}},
+ markdown:'# 错误批次\n\n## 黄金价格\n\n错误价格'};
+const archived='# 黄金市场观察简报\n\n## 黄金价格\n\n| 项目 | 价格 |\n| --- | --- |\n| 国内 | 861.41 元/克 |\n\n快速快照：国内技术偏空\n\n## 近期价格变化\n\n价格变化正文\n\n## 附录：完整依据\n\n归档依据';
+const article=renderStockReport(payload,{sectionIdPrefix:'drawer-',archiveMarkdown:archived});
+const html=descendants(article).map(n=>n.innerHTML).join('\n');
+if(!article.children[0].textContent.includes('黄金市场观察简报')||!article.children[0].textContent.includes('黄金价格'))throw new Error('首屏缺少标题或价格');
+for(const text of ['861.41 元/克','快速快照','价格变化正文','归档依据'])if(!html.includes(text))throw new Error('正文缺失：'+text);
+if(html.includes('错误价格')||article.textContent.includes('长期：')||article.textContent.includes('投资摘要')||html.includes('暂无报告摘要'))throw new Error('混入旧结论或其他批次');
+const summary=renderReportSummary({payload});
+for(const text of ['861.41','元/克','2026-10-26','偏空','3,997.79','美元/金衡盎司','2026-10-23','无法判断','旧数据'])if(!summary.textContent.includes(text))throw new Error('摘要缺失：'+text);
+if(summary.textContent.includes('技术中性'))throw new Error('过期行情错误显示技术方向');
+if(summary.textContent.includes('长期：')||byClass(summary,'report-summary-score').length)throw new Error('误显示旧结论或股票评分');
+payload.markets.domestic={latest_close:0,short_term:{direction:'<script>伪造</script>'}};
+const missing=renderReportSummary({payload});
+if(!missing.textContent.includes('价格不可用')||!missing.textContent.includes('日期未记录'))throw new Error('缺失数据未明确展示');
+if(descendants(missing).some(n=>n.innerHTML.includes('<script>')))throw new Error('方向成为 HTML 结构');
+""".replace("__RENDERER__", json.dumps(_module_url("src/api/static/js/report-renderer.js")))
+    )
+    _run_node(tmp_path, script)
+
+
 def test_gold_renderer_uses_markdown_cards_and_plain_direction_summary(tmp_path):
     script = (
         _DOM_STUB
@@ -64,6 +92,11 @@ if(byClass(root,'report-library-metrics').length)throw new Error('黄金出现�
 const buttons=()=>descendants(root).filter(n=>n.tagName==='BUTTON');
 await buttons().find(n=>n.textContent==='Markdown 原文').click();
 if(!byClass(root,'report-library-markdown')[0].innerHTML.includes('归档正文'))throw new Error('原文入口丢失');
+await byClass(root,'report-library-back')[0].click();
+payload={report_type:'gold',report_schema:'gold-observation-v2',name:'黄金市场观察简报',markets:{},markdown:'# 错误批次正文'};
+await byClass(root,'report-library-open')[0].click();
+html=descendants(root).map(n=>n.innerHTML).join('\n');
+if(!html.includes('归档正文')||html.includes('错误批次正文')||root.textContent.includes('长期：'))throw new Error('新版未使用归档正文或混入旧结论');
 await byClass(root,'report-library-back')[0].click();payload=null;
 await byClass(root,'report-library-open')[0].click();
 html=descendants(root).map(n=>n.innerHTML).join('\n');

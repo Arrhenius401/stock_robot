@@ -316,13 +316,13 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
 @main.command()
 @click.option("--refresh", "--refresh-cache", "refresh_cache", is_flag=True,
               help="强制刷新黄金数据缓存")
-@click.option("--no-llm", is_flag=True, help="仅输出确定性研判，跳过 AI 解读")
+@click.option("--no-llm", is_flag=True, help="兼容旧用法；黄金简报使用确定性解释")
 @click.option("--output", "-o", type=click.Choice(["terminal", "markdown"]),
               default="terminal", show_default=True, help="输出格式；两种格式均归档完整报告")
 @click.option("--output-dir", type=click.Path(file_okay=False, path_type=Path),
               default=None, help="报告根目录（默认当前目录的 reports）")
 def gold(refresh_cache: bool, no_llm: bool, output: str, output_dir: Path | None) -> None:
-    """生成国内与国际黄金综合研报，分别展示长期配置和短期交易参考。"""
+    """生成以国内与国际金价为核心的黄金市场观察简报。"""
     from gold.service import GoldService
     from report.formatter import ReportFormatter
 
@@ -330,15 +330,9 @@ def gold(refresh_cache: bool, no_llm: bool, output: str, output_dir: Path | None
     if not _check_disclaimer(config):
         return
     report_root = output_dir or Path.cwd() / "reports"
-    llm_enabled = not no_llm and config.get("llm.enabled", True)
     try:
-        llm = None
-        if llm_enabled:
-            from api.bootstrap import build_llm
-
-            llm = build_llm(config)
-        payload = GoldService(config=config, llm=llm, output_dir=report_root).run(
-            refresh_cache=refresh_cache, no_llm=not llm_enabled,
+        payload = GoldService(config=config, output_dir=report_root).run(
+            refresh_cache=refresh_cache, no_llm=no_llm,
         )
     except (OSError, ValueError, RuntimeError) as exc:
         logger.warning("黄金 CLI 生成报告失败：%s", exc)

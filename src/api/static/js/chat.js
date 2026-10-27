@@ -5,10 +5,10 @@ import {
   markSessionDetailStale,
 } from "./state.js";
 import { api } from "./api.js";
-import { renderMarkdown } from "./markdown.js?v=20261026-gold-report-1";
+import { renderMarkdown } from "./markdown.js?v=20261027-gold-observation-2";
 import { el } from "./components.js";
-import { openReportDrawer, closeReportDrawer } from "./report-drawer.js?v=20261026-gold-report-1";
-import { renderReportSummary } from "./report-renderer.js?v=20261026-gold-report-1";
+import { openReportDrawer, closeReportDrawer } from "./report-drawer.js?v=20261027-gold-observation-2";
+import { renderReportSummary } from "./report-renderer.js?v=20261027-gold-observation-2";
 
 const scrollEl = () => document.getElementById("chatScroll");
 

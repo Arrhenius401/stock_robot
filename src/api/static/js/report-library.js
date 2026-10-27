@@ -1,8 +1,8 @@
 import { api } from "./api.js";
 import { el, errorCard, skeleton } from "./components.js";
-import { renderMarkdown } from "./markdown.js?v=20261026-gold-report-1";
+import { renderMarkdown } from "./markdown.js?v=20261027-gold-observation-2";
 import { bus } from "./state.js";
-import { localizeReportMarkdown, renderStockMarkdownReport, renderStockReport } from "./report-renderer.js?v=20261026-gold-report-1";
+import { localizeReportMarkdown, renderStockMarkdownReport, renderStockReport } from "./report-renderer.js?v=20261027-gold-observation-2";
 
 const TYPE_LABELS = {
   stock: "个股",

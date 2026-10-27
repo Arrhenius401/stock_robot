@@ -187,6 +187,8 @@ def _summary_for_markdown(
     kind = "个股" if report_type == "stock" else "指数"
     title = "黄金综合研报" if report_type == "gold" else f"{symbol} {kind}分析报告"
     heading = _first_heading(_read_text(path))
+    if report_type == "gold" and heading == "黄金市场观察简报":
+        title = heading
     return ReportSummary(
         id=_encode_id(relative),
         type=report_type,

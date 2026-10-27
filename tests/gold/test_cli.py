@@ -47,13 +47,13 @@ def test_gold_no_llm_reuses_service_and_passes_output_path(
     )
     assert result.exit_code == 0, result.output
     build.assert_not_called()
-    service.assert_called_once_with(config=configured, llm=None, output_dir=root)
+    service.assert_called_once_with(config=configured, output_dir=root)
     service.return_value.run.assert_called_once_with(refresh_cache=True, no_llm=True)
     assert "黄金事实报告" in result.output
     assert "report.md" in result.output
 
 
-def test_gold_builds_one_llm_but_no_agent_core(configured, mocker):
+def test_gold_does_not_build_llm_or_agent_core(configured, mocker):
     llm = object()
     build = mocker.patch("api.bootstrap.build_llm", return_value=llm)
     agent = mocker.patch("api.bootstrap.build_agent_core")
@@ -64,9 +64,8 @@ def test_gold_builds_one_llm_but_no_agent_core(configured, mocker):
     }
     result = CliRunner().invoke(main, ["gold", "--output", "markdown"])
     assert result.exit_code == 0, result.output
-    build.assert_called_once_with(configured)
+    build.assert_not_called()
     agent.assert_not_called()
-    assert service.call_args.kwargs["llm"] is llm
     service.return_value.run.assert_called_once_with(refresh_cache=False, no_llm=False)
     assert "黄金事实报告" not in result.output
     assert "report.md" in result.output
@@ -85,7 +84,7 @@ def test_gold_disabled_llm_configuration_skips_builder(configured, mocker):
     result = CliRunner().invoke(main, ["gold"])
     assert result.exit_code == 0, result.output
     build.assert_not_called()
-    service.return_value.run.assert_called_once_with(refresh_cache=False, no_llm=True)
+    service.return_value.run.assert_called_once_with(refresh_cache=False, no_llm=False)
 
 
 def test_gold_service_error_is_actionable_and_points_to_help(configured, mocker):
@@ -152,6 +151,6 @@ def test_gold_cli_real_service_analyzes_and_archives_same_facts(
     assert snapshot is not None
     assert snapshot["report_type"] == "gold"
     assert snapshot["markets"]["domestic"]["short_term"]["direction"] == "看多（强）"
-    assert snapshot["long_term"]["direction"] == "无法判断"
-    assert "黄金综合研报" in markdown
+    assert "long_term" not in snapshot
+    assert "黄金市场观察简报" in markdown
     assert len(results) == 1

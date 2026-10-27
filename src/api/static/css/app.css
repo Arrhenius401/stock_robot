@@ -609,6 +609,7 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .stock-report { display: grid; gap: var(--space-3); width: 100%; margin-inline: 0; }
 .panel, .llm { background: var(--surface); border-color: var(--border); box-shadow: none; }
 .report-content .panel, #reportDrawerContent .panel { overflow-x: auto; }
+.gold-report > .panel { min-width: 0; overflow-x: auto; }
 .report-content table, #reportDrawerContent table, .md table { min-width: max-content; }
 .md { overflow-wrap: anywhere; }
 @media (max-width: 520px) {

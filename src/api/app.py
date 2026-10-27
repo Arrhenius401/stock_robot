@@ -502,7 +502,7 @@ def create_app(
             if is_gold_request(message):
                 payload, _ = await _gold_chat(snapshot, sessions, sid, memory)
                 return JSONResponse({"response": payload["markdown"], "session_id": sid,
-                                     "plan": {"goal": "黄金综合研报", "mode": "plan", "steps": []},
+                                     "plan": {"goal": "黄金市场观察简报", "mode": "plan", "steps": []},
                                      "tool_results": [{"tool": "analyze_gold", "symbol": "GOLD",
                                                        "status": "done", "content": payload}]})
             planner, executor, chat_responder = _build_agent(memory, agent_core)
@@ -663,10 +663,10 @@ def create_app(
                         )
 
                     if is_gold_request(message):
-                        await queue.put({"type": "plan", "goal": "黄金综合研报",
+                        await queue.put({"type": "plan", "goal": "黄金市场观察简报",
                                          "mode": "gold", "steps": [], "session_id": sid})
                         await queue.put({"type": "progress", "stage": "gold", "current": 0,
-                                         "total": 1, "label": "采集金价与长期因子，生成研报"})
+                                         "total": 1, "label": "采集黄金价格与观察数据，生成简报"})
                         payload, artifacts = await _gold_chat(snapshot, manager, sid, memory)
                         await queue.put({"type": "text", "content": payload["markdown"]})
                         for artifact_event in artifacts:

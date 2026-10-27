@@ -133,7 +133,7 @@ def test_rules_version_has_separate_cache(tmp_path):
     def execute(*args, **kwargs):
         calls.append(True)
         return good_executor(*args, **kwargs)
-    GoldCollector(tmp_path,GoldRules(version='gold-v2'),request_executor=execute,sources=['dollar']).collect(now=NOW)
+    GoldCollector(tmp_path,GoldRules(version='gold-v3'),request_executor=execute,sources=['dollar']).collect(now=NOW)
     assert calls == [True]
     assert len(list(tmp_path.rglob('*.json'))) == 2
 

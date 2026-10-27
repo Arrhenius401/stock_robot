@@ -1,7 +1,5 @@
 # 黄金规则版本随计算口径变更更新，历史报告保留当时版本。
-version: gold-v1
-core_weight: 2
-reference_weight: 1
+version: gold-v2
 main_window: 120
 marginal_window: 60
 rate_threshold_bp: 25
