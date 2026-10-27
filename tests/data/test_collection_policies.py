@@ -1,5 +1,6 @@
 """五组能力的有效性、状态和参考窗口判断。"""
 from datetime import date, datetime, timedelta
+from typing import Literal
 
 from data.collection_policies import POLICIES, policy_for
 from data.hk_news import HK_TZ
@@ -40,7 +41,9 @@ def news(rows: list[RawSentimentItem], symbol: str = "000001") -> list[NewsData]
     return [row]
 
 
-def financial_rows(status: str = "complete", symbol: str = "000001") -> list[FinancialData]:
+def financial_rows(
+    status: Literal["complete", "partial"] = "complete", symbol: str = "000001"
+) -> list[FinancialData]:
     return [
         FinancialData(
             symbol=symbol,

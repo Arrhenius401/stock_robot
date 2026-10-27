@@ -13,7 +13,7 @@ from pandas import NaT
 # akshare 无完整类型标注，接口返回值形态随版本变化，统一按 Any 处理
 ak = cast(Any, ak)
 
-from data.base import DataSource
+from data.base import CollectionResult, DataSource
 from data.hk_alternatives import baidu_metric, tencent_history
 from data.hk_eastmoney import (
     daily_history,
@@ -336,38 +336,53 @@ class AkShareAdapter(DataSource):
         return False
 
     def fetch(self, symbol: str, **kwargs) -> list:
+        """遗留路径兼容包装；新路径使用 fetch_result。"""
+        return self._fetch_impl(symbol, **kwargs)[0]
+
+    def fetch_result(self, symbol: str, **kwargs) -> CollectionResult:
+        """统一取数入口：数据与诊断在同一次调用中返回。"""
+        rows, record = self._fetch_impl(symbol, **kwargs)
+        return CollectionResult(rows=rows, record=record)
+
+    def _fetch_impl(self, symbol: str, **kwargs) -> tuple[list, DataCollectionRecord | None]:
         data_type = kwargs.get("data_type", "price")
         self._collection_diagnostics.record = None
-        labels = {"financial": "同花顺财报", "valuation": "腾讯估值快照",
-                  "industry": "AkShare 行业与同行池", "news": "东方财富新闻与公告"}
+        labels = {
+            "financial": "同花顺财报", "valuation": "腾讯估值快照",
+            "industry": "AkShare 行业与同行池", "news": "东方财富新闻与公告",
+        }
         if kwargs.get("market") == "hk":
-            labels.update(price="东方财富港股行情（不复权）", financial="东方财富港股财报",
-                          valuation="东方财富港股估值快照", news="东方财富关键词新闻检索")
-        # 指数数据分发（需显式传入 index_style 默认值，故单独处理）
+            labels.update(
+                price="东方财富港股行情（不复权）",
+                financial="东方财富港股财报",
+                valuation="东方财富港股估值快照",
+                news="东方财富关键词新闻检索",
+            )
         if data_type == "index_price":
-            return self._fetch_index_price(symbol, kwargs.get("index_style", "broad"))
-        elif data_type == "index_valuation":
-            return self._fetch_index_valuation(symbol)
-        elif data_type == "index_capital_flow":
-            return self._fetch_capital_flow(symbol, kwargs.get("index_style", "broad"))
-        elif data_type == "index_macro":
-            return self._fetch_index_macro(symbol, kwargs.get("index_style", "broad"))
-        elif data_type == "index_sentiment":
-            return self._fetch_index_sentiment(symbol)
+            return self._fetch_index_price(symbol, kwargs.get("index_style", "broad")), self.get_collection_error()
+        if data_type == "index_valuation":
+            return self._fetch_index_valuation(symbol), self.get_collection_error()
+        if data_type == "index_capital_flow":
+            return self._fetch_capital_flow(symbol, kwargs.get("index_style", "broad")), self.get_collection_error()
+        if data_type == "index_macro":
+            return self._fetch_index_macro(symbol, kwargs.get("index_style", "broad")), self.get_collection_error()
+        if data_type == "index_sentiment":
+            return self._fetch_index_sentiment(symbol), self.get_collection_error()
         try:
             method = getattr(self, f"_fetch_{data_type}", None)
             if method is None:
                 logger.warning(f"AkShare 不支持数据类型: {data_type}")
-                return []
+                return [], self.get_collection_error()
             results = method(symbol, **kwargs)
             for item in results:
                 if not getattr(item, "_data_source", ""):
                     item._data_source = labels.get(data_type, "AkShare")
-            return results
+            return results, self.get_collection_error()
         except Exception as e:
             logger.error(f"AkShare 数据获取失败 {symbol}/{data_type}: {e}")
             self._record_collection_error(labels.get(data_type, "AkShare"), e)
-            return []
+            return [], self.get_collection_error()
+
 
     def _fetch_price(self, symbol: str, **kwargs) -> list[PriceData]:
         if kwargs.get("market") == "hk":

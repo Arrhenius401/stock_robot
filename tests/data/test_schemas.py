@@ -6,12 +6,12 @@ from pydantic import ValidationError
 from data.schemas import (
     AnalysisContext,
     AnalysisResult,
+    DataCollectionRecord,
     FinancialData,
     IndustryData,
     NewsData,
     PriceData,
     ValuationData,
-    DataCollectionRecord,
 )
 
 

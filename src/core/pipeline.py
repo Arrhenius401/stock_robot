@@ -11,6 +11,7 @@ from threading import Lock
 from typing import Any
 
 from core.circuit_breaker import CircuitBreaker
+from core.collection_contract import MIGRATED_CAPABILITIES
 from core.registry import Registry
 from data.cache import CacheManager
 from data.schemas import (
@@ -152,6 +153,13 @@ class Pipeline:
 
                 outcome = self._resilient_collector.collect(symbol, market, cast(Kind, data_type), refresh_cache)
                 return data_type, outcome.rows, outcome.record, outcome.reference
+            if (market, data_type) in MIGRATED_CAPABILITIES:
+                logger.error("已迁移能力不得走旧取数路径 %s/%s", market, data_type)
+                return data_type, None, DataCollectionRecord(
+                    cache_status="live", cache_state="degraded", result_state="failed",
+                    error_kind="contract_error",
+                    error_message="已迁移能力不得走旧取数路径",
+                )
             if market == "hk" and data_type == "news":
                 result, record = self._collect_hk_news(symbol, name, refresh_cache)
                 return data_type, result, record
