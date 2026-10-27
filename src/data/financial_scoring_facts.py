@@ -119,8 +119,11 @@ class FinancialScoringFactsService:
             original_deadline = ctx.industry_data._comparison_deadline if ctx.industry_data else None
             deadline = original_deadline if original_deadline is not None else time.monotonic() + COLLECTION_BUDGET
             try:
-                rows, errors = fetch_financial_rows([ctx.symbol], ctx.market, start=start,
+                financial = fetch_financial_rows([ctx.symbol], ctx.market, start=start,
                     deadline=deadline, cache=self.cache, refresh=refresh)
+                rows, errors = financial.rows, financial.errors
+                if financial.record is not None:
+                    ctx.collection_records["annual_roe"] = financial.record
                 candidates = [r for r in rows if r.get("symbol") == ctx.symbol and r.get("annual")
                               and r.get("period_basis") == "cumulative"
                               and complete_year(r.get("start"), r.get("end"))]

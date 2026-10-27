@@ -88,7 +88,7 @@ def test_hk_name_never_queries_a_share_universe(mocker):
 
 
 def test_hk_enrichment_keeps_measured_snapshot_without_price_or_ttm(mocker):
-    shares = mocker.patch("data.enrichers.valuation_enricher.get_total_shares", side_effect=AssertionError)
+    shares = mocker.patch("data.enrichers.valuation_enricher.get_total_shares_result", side_effect=AssertionError)
     ctx = AnalysisContext(symbol="00700.HK", name="腾讯控股", market="hk", valuation_data=ValuationData(
         symbol="00700.HK", date=date(2026, 10, 16), pe_ttm=14.23, pb=2.9))
     ValuationEnricher().enrich(ctx)
@@ -148,7 +148,7 @@ def test_hk_network_failure_diagnostic_identifies_real_provider(mocker):
 
 
 def test_hk_absent_snapshot_does_not_derive_from_financials(mocker):
-    shares = mocker.patch("data.enrichers.valuation_enricher.get_total_shares", side_effect=AssertionError)
+    shares = mocker.patch("data.enrichers.valuation_enricher.get_total_shares_result", side_effect=AssertionError)
     ctx = AnalysisContext(symbol="00700.HK", name="腾讯控股", market="hk")
     ValuationEnricher().enrich(ctx)
     assert ctx.sufficiency.valuation.level == SufficiencyLevel.INSUFFICIENT

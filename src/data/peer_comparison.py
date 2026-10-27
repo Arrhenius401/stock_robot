@@ -77,8 +77,11 @@ class PeerComparisonService:
         latest = known.fiscal_quarter.isoformat() if known else ""
         start = str((known.fiscal_quarter.year if known else datetime.now().astimezone().year) - 2) + "-01-01"
         deadline = data._comparison_deadline or time.monotonic() + COLLECTION_BUDGET
-        rows, errors = fetch_financial_rows([ctx.symbol, *symbols], ctx.market, start=start,
+        financial = fetch_financial_rows([ctx.symbol, *symbols], ctx.market, start=start,
                                              deadline=deadline, cache=self.cache, refresh=refresh)
+        rows, errors = financial.rows, financial.errors
+        if financial.record is not None:
+            ctx.collection_records["peer_financial"] = financial.record
         # 金融企业的通用净利率适用性未经验证，保留原值并明确不参与比较。
         financial_sector = any(word in data.industry + data.sector for word in ("银行", "保险"))
         if financial_sector:

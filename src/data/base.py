@@ -1,9 +1,8 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from data.schemas import DataCollectionRecord
-from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)

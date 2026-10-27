@@ -1,11 +1,9 @@
 """共享结果状态与采集记录构造。"""
-from datetime import datetime
-from typing import Literal
-
-from data.schemas import DataCollectionRecord, ResultState
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Generic, TypeVar
+from typing import Generic, Literal, TypeVar
+
+from data.schemas import DataCollectionRecord, ResultState
 
 T = TypeVar("T")
 
