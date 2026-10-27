@@ -2045,11 +2045,11 @@ git commit -m "chore(门禁): 增加数据取数入口检查与迁移台账"
 
 ---
 
-## Task 6: 综合回归、真实浏览器验收与交付记录
+## Task 6: 综合回归、CLI Markdown 验收与交付记录
 
 **Files:**
 - Verify: 全部受影响测试与脚本
-- Record: `tmp/acceptance/unified-data-collection/`（本地验收产物，不提交）
+- Record: `tmp/acceptance/unified-data-collection/`（本地验收日志，不提交）
 
 - [ ] **Step 1: 运行受影响范围回归**
 
@@ -2071,58 +2071,50 @@ New-Item -ItemType Directory -Path $run -Force | Out-Null
 
 预期：通过。若 `tests/backtest` 耗时或网络受限，保留失败/跳过原因，记录覆盖范围。
 
-- [ ] **Step 3: 启动真实服务**
+- [ ] **Step 3: 用 CLI 生成 A 股 Markdown**
 
 ```powershell
 mkdir tmp\acceptance\unified-data-collection -Force
-$log = "tmp\acceptance\unified-data-collection\service.log"
-$exe = (Resolve-Path .\.venv\Scripts\stock-robot.exe).Path
-Start-Process -FilePath $exe -ArgumentList @("run","--host","127.0.0.1","--port","8765") -RedirectStandardOutput $log -RedirectStandardError "$log.err" -NoNewWindow
-for ($i = 0; $i -lt 60; $i++) {
-    try {
-        Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:8765/" -TimeoutSec 2 | Out-Null
-        break
-    } catch {
-        Start-Sleep -Seconds 1
-    }
-}
+.\.venv\Scripts\stock-robot.exe analyze 600519 --no-llm --verbose 2>&1 | Tee-Object -FilePath tmp\acceptance\unified-data-collection\a-share-cli.log
 ```
 
-上述 `Start-Process` 实际执行的就是 `./.venv/Scripts/stock-robot.exe run --host 127.0.0.1 --port 8765`。若启动失败，先确认 `.venv`、端口和日志，不要改用 Mock 页面。
+检查命令返回 0，并在 `reports/stock/` 下确认生成了 A 股 Markdown。若 CLI 返回非零，先查日志和配置，不要改用 Mock 页面或伪造报告。
 
-- [ ] **Step 4: A 股真实浏览器验收**
+- [ ] **Step 4: 用 CLI 生成港股 Markdown**
 
-在真实浏览器中打开 `http://127.0.0.1:8765`，输入 `600519`，发送并等待报告完成。检查：
+```powershell
+.\.venv\Scripts\stock-robot.exe analyze 00700 --no-llm --verbose 2>&1 | Tee-Object -FilePath tmp\acceptance\unified-data-collection\hk-cli.log
+```
 
-- 报告成功生成，财务/技术/估值/行业/舆情没有因本轮改动静默缺失。
-- 数据覆盖、来源、采集时间和历史参考区域正常展示；参考不进入评分和 AI 事实。
-- 手动刷新一次，确认刷新后报告仍能生成，来源/时间更新符合预期。
-- 浏览器控制台和网络面板没有本轮引入的异常请求或 500。
+检查命令返回 0，并在 `reports/stock/` 下确认生成了港股 Markdown。
 
-将关键截图和网络摘要放入 `tmp/acceptance/unified-data-collection/a-share/`，不提交。
+- [ ] **Step 5: 检查两份 Markdown**
 
-- [ ] **Step 5: 港股真实浏览器验收**
+```powershell
+Get-ChildItem reports\stock\*.md | Sort-Object LastWriteTime -Descending | Select-Object -First 5 FullName,LastWriteTime
+```
 
-在真实浏览器中输入 `00700`，发送并等待报告完成。检查：
+打开最新的 A 股和港股 Markdown，检查：
 
-- 港股财务、行情、估值、关键词新闻和行业专用路径仍正常。
-- 估值组件失败补位、负值语义、逐项日期没有退化。
-- 关键词新闻的专用缓存和 30 天窗口没有本轮引入的回归。
-- 历史参考只在预期场景出现，且不进入评分/信号/AI 事实。
+- 报告成功生成，数据覆盖、来源和采集时间可见。
+- 历史参考只在预期场景出现，且不进入评分、信号或 AI 事实。
+- 港股财务、行情、估值、关键词新闻和行业专用路径没有回归。
+- 估值组件失败补位、负值语义、逐项日期没有退化；关键词新闻的专用缓存和 30 天窗口没有回归。
+- 不使用 Mock 报告替代真实 CLI 生成结果。
 
-将关键截图和网络摘要放入 `tmp/acceptance/unified-data-collection/hk/`，不提交。
+本轮按用户要求跳过真实浏览器发送/响应验收；CLI 仍走真实 Pipeline 和取数路径。关键报告路径和检查结论记录在聊天和 `tmp/acceptance/unified-data-collection/` 日志中，不提交。
 
 - [ ] **Step 6: 记录验收结果**
 
 在聊天中记录：
 
-- 实际启动命令、端口和日志路径。
-- A 股/港股标的、报告生成结果、关键检查项。
-- 运行过的验证命令及结果，明确未覆盖的路径。
+- 实际 CLI 命令、A 股/港股 Markdown 路径和生成时间。
+- 报告生成结果、关键检查项和未覆盖路径。
+- 运行过的验证命令及结果，明确区分本轮失败与既有失败。
 - 是否存在既有失败；如果有，引用首个异常和失败清单。
 - 确认未推送、未合并、未发布。
 
-不要把验收日志、截图或完整响应提交到仓库；`tmp/` 保持本地。
+不要把验收日志或完整报告复制进仓库；`tmp/` 保持本地，报告保留在 `reports/stock/`（按项目既有忽略规则处理）。
 
 - [ ] **Step 7: 提交设计与计划文档**
 
@@ -2159,5 +2151,5 @@ Full 必须 Ruff、Pyright、pytest 全部通过。失败时保留首个完整�
 - [ ] 静态检查覆盖 `fetch` 的 `data_type` 字面量、动态 `**kwargs`、`fetch_result` 越权调用和清单失效。
 - [ ] `verify.ps1` 在 Changed（有 Python 改动）和 Full 时执行静态检查；PlanOnly 不执行。
 - [ ] 港股估值、港股新闻、行业、指数、雷达、回测和辅助补取的回归保持通过。
-- [ ] 真实浏览器 A 股/港股验收完成，未用 Mock 页面替代。
+- [ ] CLI A 股/港股 Markdown 验收完成，未用 Mock 报告替代；按用户要求跳过浏览器。
 - [ ] 设计与计划各一份，未追加到已收尾的 2026-10-22 港股多源项目。
