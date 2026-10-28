@@ -78,3 +78,29 @@ def test_official_exchange_opens_circuit_after_network_failure():
         with pytest.raises(ProviderCircuitOpenError):
             provider.fetch_daily("510500", date(2024, 1, 1), date(2024, 1, 3))
         assert calls == 1
+
+
+def test_official_exchange_result_reports_source_and_failure():
+    with TemporaryDirectory(dir=Path.cwd()) as tmp_dir:
+        config = Path(tmp_dir) / "sources.yaml"
+        _config(config, "https://query.sse.com.cn/etf/{symbol}")
+        provider = OfficialExchangeETFDataProvider(
+            config_path=config,
+            downloader=lambda url: "日期,开盘,最高,最低,收盘,成交额\n2024-01-02,1,2,0.5,1.5,100\n".encode(),
+        )
+
+        result = provider.fetch_daily_result("510300", date(2024, 1, 1), date(2024, 1, 3))
+
+        assert result.record.source == "OfficialExchangeETFDataProvider"
+        assert result.record.result_state == "complete"
+        assert result.value is not None
+        assert result.value.iloc[0].close == 1.5
+
+        unavailable = OfficialExchangeETFDataProvider(
+            config_path=config,
+            downloader=lambda url: (_ for _ in ()).throw(URLError("offline")),
+        )
+        failed = unavailable.fetch_daily_result("510300", date(2024, 1, 1), date(2024, 1, 3))
+        assert failed.value is None
+        assert failed.record.result_state == "failed"
+        assert "offline" not in failed.record.error_message
