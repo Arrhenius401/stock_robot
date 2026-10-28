@@ -10,6 +10,7 @@ from typing import Any
 
 from radar.stocks import admission, style
 from radar.stocks.financial_source import load_financial_source
+from radar.stocks.market_value_registry import load_market_value_source
 from radar.stocks.research_store import (
     StockResearchError,
     StockResearchStore,
@@ -155,6 +156,12 @@ class StockEvaluationStore:
                 if (not isinstance(financial, dict) or financial.get('symbol') != symbol
                         or financial.get('evaluation_as_of') != financial_as_of):
                     raise StockResearchError('公司财务来源的身份或评估截点无效')
+            if 'market_value_source' in entry or 'market_value_as_of' in entry:
+                market = entry.get('market_value_source')
+                market_as_of = self.research._date(entry.get('market_value_as_of'))
+                if (not isinstance(market, dict) or market.get('symbol') != symbol
+                        or market.get('evaluation_as_of') != market_as_of):
+                    raise StockResearchError('公司市值来源的身份或评估截点无效')
             evidence_ids: set[str] = set()
             for row in entry['evidence']:
                 if not isinstance(row, dict) or row.get('symbol') != symbol or not isinstance(row.get('payload'), dict):
@@ -187,6 +194,11 @@ class StockEvaluationStore:
                 live_financial = load_financial_source(self.research.db_path, symbol, cutoff)
                 if _json(live_financial) != _json(entry['financial_source']):
                     raise StockRevisionConflict(f'公司财务来源已变化：{symbol}')
+            if 'market_value_source' in entry:
+                cutoff = date.fromisoformat(entry['market_value_as_of'])
+                live_market = load_market_value_source(self.research.db_path.parent, symbol, cutoff)
+                if _json(live_market) != _json(entry['market_value_source']):
+                    raise StockRevisionConflict(f'公司市值来源已变化：{symbol}')
             if full:
                 live['admission_status'] = 'pending_verification'
                 if _json(live) != _json(expected):
@@ -223,6 +235,9 @@ class StockEvaluationStore:
             if item.get('as_of') != as_of or item.get('rule_version') != admission.RULE_VERSION or item.get('style_rule_version') != style.STYLE_RULE_VERSION:
                 raise StockResearchError('公司截点或规则版本不匹配')
             source = next(entry for entry in inputs['companies'] if entry['company']['symbol'] == symbol)
+            if ('market_value_source' in item or 'market_value_source' in source) and (
+                    source.get('market_value_as_of') != as_of or _json(source.get('market_value_source')) != _json(item.get('market_value_source'))):
+                raise StockResearchError('报告市值来源与归档输入不匹配')
             if ('financial_source' in source or 'financial_source' in item) and (
                     source.get('financial_as_of') != as_of or _json(source.get('financial_source')) != _json(item.get('financial_source'))):
                 raise StockResearchError('报告财务来源与归档输入不匹配')
@@ -264,6 +279,14 @@ class StockEvaluationStore:
             window = [self.research._date(day) for day in market_window]
             if len(window) != 60 or len(set(window)) != 60 or window != sorted(window) or window[-1] > prepared['as_of']:
                 raise StockResearchError('市场窗口须为递增唯一且不晚于研究截点的60日')
+        trace = prepared.get('market_window_source')
+        calendar = trace.get('calendar') if isinstance(trace, dict) else None
+        for entry in manifest['companies']:
+            source = entry.get('market_value_source')
+            if (isinstance(source, dict) and source.get('status') == 'current'
+                    and (window is None or source.get('window_days') != window or not isinstance(calendar, dict)
+                         or source.get('calendar_sha256') != calendar.get('snapshot_sha256'))):
+                raise StockResearchError('市值来源与评估日历不一致')
         context = {'market_window': window, 'market_window_role': 'research_context_only',
                    'market_window_source': prepared.get('market_window_source')}
         identity_inputs = {key: value for key, value in manifest.items() if key != 'captured_at'}

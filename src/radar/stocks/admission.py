@@ -10,7 +10,7 @@ from decimal import Decimal, InvalidOperation, localcontext
 from typing import Any
 from urllib.parse import urlsplit
 
-RULE_VERSION = 'common-approved-2026-10-15-v1'
+RULE_VERSION = 'common-approved-2026-10-27-v2'
 _KINDS = ('security', 'capitalization', 'profitability', 'audit', 'governance', 'leadership', 'financial_quality')
 _BJ = timezone(timedelta(hours=8))
 _CAPITALIZATION_FLOOR = Decimal(20000000000)

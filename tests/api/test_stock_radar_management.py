@@ -106,6 +106,53 @@ def test_current_detail_uses_recomputed_eight_conditions(tmp_path, monkeypatch):
         assert item['common_status'] == 'pending_verification' and item['formal_screening_enabled'] is False
 
 
+def test_detail_and_draft_bind_same_historical_market_source(tmp_path, monkeypatch):
+    import api.stock_radar as routes
+    import radar.stocks.evaluation_store as evaluations
+
+    store = seed(tmp_path)
+    company = store.get_company('600000')
+    assert company is not None
+    revision = company['revision']
+    def loader(_state, symbol, cutoff):
+        return {'symbol': symbol, 'evaluation_as_of': cutoff.isoformat(), 'as_of': '2026-10-18',
+                'status': 'historical', 'manifest_sha256': 'c' * 64, 'checks': [
+                    {'code': code, 'outcome': 'passed'} for code in
+                    ('capitalization_current', 'capitalization_average_60d')]}
+    monkeypatch.setattr(routes, 'load_market_value_source', loader)
+    monkeypatch.setattr(evaluations, 'load_market_value_source', loader)
+    with client(tmp_path) as web:
+        base = '/api/v1/radar/stocks/companies/600000'
+        item = web.get(base).json()['evaluation']['items'][0]
+        checks = [row for row in item['checks'] if row.get('channel') == 'supplier_market_value']
+        assert len(checks) == 2 and all(row['outcome'] == 'pending_verification' for row in checks)
+        assert all(row['reference_as_of'] == '2026-10-18' for row in checks)
+        response = web.post(base + '/draft', json={'expected_revision': revision, 'request_id': 'market-value',
+                            'actor': '测试', 'reason': '历史市值参考', 'pool_id': 'growth_trend'})
+        assert response.status_code == 200, response.text
+        archive = evaluations.StockEvaluationStore(store)
+        record = archive.list_evaluations(symbol='600000')['items'][0]
+        saved = archive.get(record['evaluation_id'])
+        assert saved is not None
+        assert saved['inputs']['companies'][0]['market_value_source'] == item['market_value_source']
+        assert saved['report']['items'][0]['market_value_source'] == item['market_value_source']
+
+
+def test_current_market_source_rejects_changed_calendar():
+    import pytest
+
+    from api.stock_radar import _check_market_window
+    from radar.stocks.research_store import StockRevisionConflict
+
+    window = [date(2026, 10, 16)]
+    source = {'status': 'current', 'window_days': ['2026-10-16'], 'calendar_sha256': 'a' * 64}
+    _check_market_window(source, window, {'calendar': {'snapshot_sha256': 'a' * 64}})
+    with pytest.raises(StockRevisionConflict, match='市场日历'):
+        _check_market_window(source, window, {'calendar': {'snapshot_sha256': 'b' * 64}})
+    with pytest.raises(StockRevisionConflict, match='市场日历'):
+        _check_market_window(source, None, {})
+
+
 def test_candidates_details_and_review_conflict(tmp_path):
     state = tmp_path / 'state'
     store = seed(state)

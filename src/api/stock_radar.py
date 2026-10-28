@@ -19,6 +19,7 @@ from radar.stocks.admission import RULE_VERSION
 from radar.stocks.evaluation_store import StockEvaluationStore
 from radar.stocks.financial_source import load_financial_source
 from radar.stocks.financial_task import financial_results
+from radar.stocks.market_value_registry import load_market_value_source
 from radar.stocks.membership_drafts import StockMembershipDraftStore
 from radar.stocks.membership_store import StockMembershipStore
 from radar.stocks.pools import StockPoolConfigError, StockPoolRepository
@@ -45,6 +46,16 @@ from stock_robot.stock_admission import evaluate_store
 logger = logging.getLogger(__name__)
 Revision = Annotated[StrictInt, Field(ge=0, lt=2**63 - 1)]
 Text = Annotated[str, Field(min_length=1, max_length=2000)]
+
+
+def _check_market_window(source: dict[str, Any], window: list[date] | None, trace: Any) -> None:
+    """当前市值与评估必须引用同一交易日历快照。"""
+    if source.get('status') != 'current':
+        return
+    calendar = trace.get('calendar') if isinstance(trace, dict) else None
+    if (window is None or source.get('window_days') != [day.isoformat() for day in window]
+            or not isinstance(calendar, dict) or source.get('calendar_sha256') != calendar.get('snapshot_sha256')):
+        raise StockRevisionConflict('市场日历来源已变化，请重新评估')
 
 
 class Input(BaseModel):
@@ -208,14 +219,18 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
         cutoff = datetime.now().astimezone().date()
         window, trace = load_market_window(state, cutoff)
         financial = load_financial_source(db, symbol, cutoff)
+        market_value = load_market_value_source(state, symbol, cutoff)
+        _check_market_window(market_value, window, trace)
         report = evaluate_store(store, cutoff, symbol=symbol, market_window=window, include_styles=True,
-                                financial_sources={symbol: financial})
+                                financial_sources={symbol: financial}, market_value_sources={symbol: market_value})
         report['market_window_source'] = trace
         evidence, reviews = store.list_evidence(symbol), store.review_history(symbol)
         if company(store, symbol)['revision'] != row['revision']:
             raise StockRevisionConflict('读取详情期间公司资料变化，请重新读取')
         if load_financial_source(db, symbol, cutoff) != financial:
             raise StockRevisionConflict('读取详情期间财务来源变化，请重新读取')
+        if load_market_value_source(state, symbol, cutoff) != market_value:
+            raise StockRevisionConflict('读取详情期间市值来源变化，请重新读取')
         return {'company': row, 'evidence': evidence, 'reviews': reviews, 'evaluation': report, 'publication_enabled': False}
 
     @router.post('/companies/{symbol}/reviews')
@@ -262,9 +277,12 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
         cutoff = datetime.now().astimezone().date()
         window, trace = load_market_window(state, cutoff)
         financial = load_financial_source(db, symbol, cutoff)
+        market_value = load_market_value_source(state, symbol, cutoff)
+        _check_market_window(market_value, window, trace)
         inputs['companies'][0].update(financial_source=financial, financial_as_of=cutoff.isoformat())
+        inputs['companies'][0].update(market_value_source=market_value, market_value_as_of=cutoff.isoformat())
         report = evaluate_store(store, cutoff, symbol=symbol, market_window=window, include_styles=True,
-                                financial_sources={symbol: financial})
+                                financial_sources={symbol: financial}, market_value_sources={symbol: market_value})
         report['market_window_source'] = trace
         saved = evaluations.save_evaluation(report, inputs, market_window=window)
         drafts = StockMembershipDraftStore(evaluations, pools)

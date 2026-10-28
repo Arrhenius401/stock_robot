@@ -43,7 +43,7 @@ def test_all_common_passed_is_not_admission():
     assert result['common_status'] == 'passed'
     assert result['formal_screening_enabled'] is False
     assert result['admission_status'] == 'pending_verification'
-    assert result['rule_version'] == 'common-approved-2026-10-15-v1'
+    assert result['rule_version'] == 'common-approved-2026-10-27-v2'
     assert checks(result)['capitalization_current']['values']['amount_yuan'] == '20000000000'
 
 
