@@ -1,5 +1,4 @@
 """港股恒生二级同行池单元测试。"""
-
 import threading
 import time
 
@@ -7,6 +6,7 @@ import pytest
 import requests
 
 from data import hk_hsics_peers as peers
+from data.base import CollectionResult
 from data.cache import CacheManager
 from data.hk_hsics_industry import HsicsMember
 
@@ -208,7 +208,7 @@ def test_hk_rows_keep_individual_dates_and_exclude_other_days(monkeypatch):
     rows[-1]["REPORT_DATE"] = ""
     data = peers.build_industry_data("00001.HK", rows, members, set(members))
     assert data is not None
-    monkeypatch.setattr("data.peer_comparison.fetch_financial_rows", lambda *a, **k: ([], []))
+    monkeypatch.setattr("data.peer_comparison.fetch_financial_rows", lambda *a, **k: CollectionResult([]))
     ctx = PeerComparisonService().enrich(AnalysisContext(symbol="00001.HK", name="目标", market="hk", industry_data=data))
     assert ctx.enriched_industry is not None
     valuation = ctx.enriched_industry.comparison["valuation"]
@@ -248,7 +248,7 @@ def test_hk_invalid_target_date_disables_valuation_statistics(monkeypatch):
     rows[0]["REPORT_DATE"] = "bad-date"
     data = peers.build_industry_data("00001.HK", rows, members, set(members))
     assert data is not None
-    monkeypatch.setattr("data.peer_comparison.fetch_financial_rows", lambda *a, **k: ([], []))
+    monkeypatch.setattr("data.peer_comparison.fetch_financial_rows", lambda *a, **k: CollectionResult([]))
     ctx = PeerComparisonService().enrich(AnalysisContext(symbol="00001.HK", name="目标", market="hk", industry_data=data))
     assert ctx.enriched_industry is not None
     assert ctx.enriched_industry.industry_median_pe is None
@@ -365,7 +365,7 @@ def test_hk_future_target_cannot_replace_real_target_or_rank(monkeypatch):
         row["REPORT_DATE"] = "2099-12-31"
     data = peers.build_industry_data("00001.HK", rows, members, set(members))
     assert data is not None
-    monkeypatch.setattr("data.peer_comparison.fetch_financial_rows", lambda *a, **k: ([], []))
+    monkeypatch.setattr("data.peer_comparison.fetch_financial_rows", lambda *a, **k: CollectionResult([]))
     ctx = PeerComparisonService().enrich(AnalysisContext(symbol="00001.HK", name="目标", market="hk", industry_data=data))
     assert ctx.enriched_industry is not None
     assert ctx.enriched_industry.industry_median_pe is None

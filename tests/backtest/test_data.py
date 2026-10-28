@@ -11,6 +11,8 @@ from backtest.data import (
     validate_price_history,
 )
 from backtest.models import BenchmarkSpec
+from data.base import CollectionResult
+from data.collection_state import ValueResult, make_record
 from data.schemas import PriceData
 
 # 全局配置 backtest.benchmarks.<key> 仅有 {name, symbol} 无 id；
@@ -41,19 +43,28 @@ def _benchmark_rows(start: date, end: date) -> pd.DataFrame:
     )
 
 
-def test_stock_history_passes_requested_dates_to_adapter(mocker):
+def test_stock_history_result_passes_requested_dates_to_adapter(mocker):
     adapter = mocker.Mock()
+    adapter.fetch_result.return_value = CollectionResult(
+        rows=[_price(date(2022, 1, 4))], record=None
+    )
     provider = HistoricalPriceProvider(adapter)
-    provider.fetch_stock("000001", date(2022, 1, 1), date(2022, 12, 31))
-    adapter.fetch.assert_called_once_with(
+
+    result = provider.fetch_stock_result("000001", date(2022, 1, 1), date(2022, 12, 31))
+
+    adapter.fetch_result.assert_called_once_with(
         "000001", data_type="price", start_date="20220101", end_date="20221231"
     )
+    assert result.value == [_price(date(2022, 1, 4))]
+    assert result.record.source == "AkShare"
+    assert result.record.result_state == "complete"
+    assert provider.fetch_stock("000001", date(2022, 1, 1), date(2022, 12, 31)) == result.value
 
 
 def test_benchmark_close_only_series_is_normalized(mocker):
     # H11025/H11001 的中证接口只有日期和收盘价，也必须形成 date→close 序列。
     raw = _benchmark_rows(START, END)
-    mocker.patch("backtest.data._ak_csindex", return_value=raw)
+    mocker.patch("backtest.data.fetch_index_history_result", return_value=ValueResult(raw, make_record("中证指数官网", "complete")))
     provider = HistoricalPriceProvider(mocker.Mock())
     series = provider.fetch_benchmark(MONEY_FUND, START, END)
     assert series.index.name == "trade_date"
@@ -71,7 +82,7 @@ def test_missing_trading_days_raise_clear_error():
 def test_benchmark_english_columns_normalized(mocker):
     # 中证接口英文列名（date/close）同样必须归一化
     raw = _benchmark_rows(START, END).rename(columns={"日期": "date", "收盘": "close"})
-    mocker.patch("backtest.data._ak_csindex", return_value=raw)
+    mocker.patch("backtest.data.fetch_index_history_result", return_value=ValueResult(raw, make_record("中证指数官网", "complete")))
     series = HistoricalPriceProvider(mocker.Mock()).fetch_benchmark(MONEY_FUND, START, END)
     assert series.index.name == "trade_date"
     assert series.index[0] == date(2022, 1, 3)
@@ -84,7 +95,7 @@ def test_benchmark_gap_raises_error_with_benchmark_id(mocker):
     raw = pd.DataFrame(
         {"日期": ["2022-01-04", "2022-06-01", "2022-12-30"], "收盘": ["100.0", "101.0", "102.0"]}
     )
-    mocker.patch("backtest.data._ak_csindex", return_value=raw)
+    mocker.patch("backtest.data.fetch_index_history_result", return_value=ValueResult(raw, make_record("中证指数官网", "complete")))
     provider = HistoricalPriceProvider(mocker.Mock())
     with pytest.raises(BacktestDataError, match="money_fund"):
         provider.fetch_benchmark(MONEY_FUND, START, END)
@@ -93,7 +104,7 @@ def test_benchmark_gap_raises_error_with_benchmark_id(mocker):
 def test_benchmark_first_day_beyond_tolerance_raises(mocker):
     # 基准序列首日比 start 晚 10 天（超出 7 天容差）→ 区间起点数据缺失
     raw = _benchmark_rows(date(2022, 1, 11), END)
-    mocker.patch("backtest.data._ak_csindex", return_value=raw)
+    mocker.patch("backtest.data.fetch_index_history_result", return_value=ValueResult(raw, make_record("中证指数官网", "complete")))
     provider = HistoricalPriceProvider(mocker.Mock())
     with pytest.raises(BacktestDataError, match="money_fund"):
         provider.fetch_benchmark(MONEY_FUND, START, END)
@@ -102,7 +113,7 @@ def test_benchmark_first_day_beyond_tolerance_raises(mocker):
 def test_benchmark_last_day_beyond_tolerance_raises(mocker):
     # 基准序列末日比 end 早 10 天（超出 7 天容差）→ 区间终点数据缺失
     raw = _benchmark_rows(START, date(2022, 12, 21))
-    mocker.patch("backtest.data._ak_csindex", return_value=raw)
+    mocker.patch("backtest.data.fetch_index_history_result", return_value=ValueResult(raw, make_record("中证指数官网", "complete")))
     provider = HistoricalPriceProvider(mocker.Mock())
     with pytest.raises(BacktestDataError, match="money_fund"):
         provider.fetch_benchmark(MONEY_FUND, START, END)
@@ -111,7 +122,7 @@ def test_benchmark_last_day_beyond_tolerance_raises(mocker):
 def test_benchmark_first_day_within_weekend_tolerance_ok(mocker):
     # 首日比 start 晚 3 天（周末容差内）→ 正常返回
     raw = _benchmark_rows(START, END).iloc[1:]  # 去掉首个工作日，序列首日变为 01-04
-    mocker.patch("backtest.data._ak_csindex", return_value=raw)
+    mocker.patch("backtest.data.fetch_index_history_result", return_value=ValueResult(raw, make_record("中证指数官网", "complete")))
     provider = HistoricalPriceProvider(mocker.Mock())
     series = provider.fetch_benchmark(MONEY_FUND, START, END)
     assert series.index[0] == date(2022, 1, 4)
@@ -123,7 +134,7 @@ def test_benchmark_bad_rows_logged_before_dropped(mocker, caplog):
     raw = _benchmark_rows(START, END)
     raw.loc[raw.index[5], "日期"] = "not-a-date"
     raw.loc[raw.index[10], "收盘"] = "oops"
-    mocker.patch("backtest.data._ak_csindex", return_value=raw)
+    mocker.patch("backtest.data.fetch_index_history_result", return_value=ValueResult(raw, make_record("中证指数官网", "complete")))
     provider = HistoricalPriceProvider(mocker.Mock())
     series = provider.fetch_benchmark(MONEY_FUND, START, END)
     assert len(series) == len(_benchmark_rows(START, END)) - 2
@@ -131,8 +142,7 @@ def test_benchmark_bad_rows_logged_before_dropped(mocker, caplog):
 
 
 def test_benchmark_empty_data_raises(mocker):
-    raw = pd.DataFrame({"日期": [], "收盘": []})
-    mocker.patch("backtest.data._ak_csindex", return_value=raw)
+    mocker.patch("backtest.data.fetch_index_history_result", return_value=ValueResult(None, make_record("中证指数官网", "empty")))
     provider = HistoricalPriceProvider(mocker.Mock())
     with pytest.raises(BacktestDataError, match="money_fund"):
         provider.fetch_benchmark(MONEY_FUND, START, END)
@@ -153,3 +163,19 @@ def test_duplicate_prices_raise_clear_error():
 def test_empty_prices_raise_clear_error():
     with pytest.raises(BacktestDataError, match="连续净值"):
         validate_price_history([], START, END)
+
+
+def test_benchmark_result_reports_record(mocker):
+    raw = _benchmark_rows(START, END)
+    mocker.patch(
+        "backtest.data.fetch_index_history_result",
+        return_value=ValueResult(raw, make_record("中证指数官网", "complete")),
+    )
+    provider = HistoricalPriceProvider(mocker.Mock())
+
+    result = provider.fetch_benchmark_result(MONEY_FUND, START, END)
+
+    assert result.record.source == "中证指数官网"
+    assert result.record.result_state == "complete"
+    assert result.value is not None
+    assert result.value.index[0] == date(2022, 1, 3)

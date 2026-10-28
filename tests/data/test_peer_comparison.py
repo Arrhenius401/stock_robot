@@ -4,6 +4,8 @@ from datetime import date
 
 import pytest
 
+from data.base import CollectionResult
+from data.collection_state import make_record
 from data.peer_comparison import PeerComparisonService
 from data.peer_comparison_rules import (
     metric_summary,
@@ -104,9 +106,9 @@ def test_invalid_report_date_does_not_become_comparable():
 
 def test_latest_does_not_claim_annual_when_newer_financial_is_known(monkeypatch):
     from data.schemas import FinancialData
-    monkeypatch.setattr("data.peer_comparison.fetch_financial_rows", lambda *a, **k: ([{
+    monkeypatch.setattr("data.peer_comparison.fetch_financial_rows", lambda *a, **k: CollectionResult([{
         "symbol": "600519", "start": "2025-01-01", "end": "2025-12-31",
-        "basis": "累计·加权ROE", "annual": True, "roe": 20}], []))
+        "basis": "累计·加权ROE", "annual": True, "roe": 20}]))
     ctx = AnalysisContext(symbol="600519", name="贵州茅台", financial_data=[
         FinancialData(symbol="600519", fiscal_quarter=date(2026, 6, 30))],
         industry_data=IndustryData(symbol="600519", industry="白酒Ⅲ", sector="食品饮料",
@@ -122,8 +124,9 @@ def test_service_uses_full_pool_same_snapshot_for_valuation_and_compatibility(mo
                         comparison_ready=True, peers=[p["symbol"] for p in peers] + ["600519"],
                         comparison_snapshot={"target": {"symbol": "600519", "pe_ttm": 17, "pb": -1, "as_of": "2026-10-23"},
                                              "as_of": "2026-10-23", "peers": peers})
-    monkeypatch.setattr("data.peer_comparison.fetch_financial_rows", lambda *a, **k: ([], ["经营源失败"]))
+    monkeypatch.setattr("data.peer_comparison.fetch_financial_rows", lambda *a, **k: CollectionResult([], record=make_record("测试源", "failed"), errors=["经营源失败"]))
     ctx = PeerComparisonService().enrich(AnalysisContext(symbol="600519", name="目标", industry_data=data))
+    assert ctx.collection_records["peer_financial"].source == "测试源"
     result = ctx.enriched_industry
     assert result is not None
     assert result.peer_count == 8
@@ -142,7 +145,7 @@ def test_bank_net_margin_keeps_raw_values_but_does_not_compare(monkeypatch):
         {"SECUCODE": symbol, "START_DATE": "2025-01-01", "REPORT_DATE": "2025-12-31",
          "DATE_TYPE_CODE": "001", "NET_PROFIT_RATIO": 25, "ROE_AVG": 12, "OPERATE_INCOME_YOY": 4}
         for symbol in symbols], "hk")
-    monkeypatch.setattr("data.peer_comparison.fetch_financial_rows", lambda *a, **k: (rows, []))
+    monkeypatch.setattr("data.peer_comparison.fetch_financial_rows", lambda *a, **k: CollectionResult(rows))
     data = IndustryData(symbol=symbols[0], industry="银行", sector="Financials", peer_scope="港股通·恒生HSICS二级",
                         comparison_ready=True, peers=symbols[1:])
     ctx = PeerComparisonService().enrich(AnalysisContext(symbol=symbols[0], name="银行", market="hk", industry_data=data))
@@ -163,7 +166,7 @@ def test_single_quarter_cannot_be_replaced_with_cumulative_peer_ratios():
 
 
 def test_service_checks_target_identity_and_per_row_dates_even_for_ready_snapshots(monkeypatch):
-    monkeypatch.setattr("data.peer_comparison.fetch_financial_rows", lambda *a, **k: ([], []))
+    monkeypatch.setattr("data.peer_comparison.fetch_financial_rows", lambda *a, **k: CollectionResult([]))
     peers = [{"symbol": str(i), "pe_ttm": i + 5, "pb": i + 1, "as_of": "2026-10-23"} for i in range(5)]
     data = IndustryData(symbol="600519", industry="白酒Ⅲ", sector="食品饮料", peer_scope="申万三级",
                         comparison_ready=True, peers=[p["symbol"] for p in peers],
@@ -183,7 +186,7 @@ def test_service_checks_target_identity_and_per_row_dates_even_for_ready_snapsho
 
 
 def test_service_rejects_future_valuation_from_preexisting_public_cache(monkeypatch):
-    monkeypatch.setattr("data.peer_comparison.fetch_financial_rows", lambda *a, **k: ([], []))
+    monkeypatch.setattr("data.peer_comparison.fetch_financial_rows", lambda *a, **k: CollectionResult([]))
     peers = [{"symbol": str(i), "pe_ttm": i + 5, "pb": i + 1, "as_of": "2099-12-31"} for i in range(5)]
     data = IndustryData(symbol="600519", industry="白酒Ⅲ", sector="食品饮料", peer_scope="申万三级",
                         comparison_ready=True, peers=[p["symbol"] for p in peers],

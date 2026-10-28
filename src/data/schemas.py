@@ -504,6 +504,7 @@ class StrategySnapshot(BaseModel):
 class IndexAnalysisContext(BaseModel):
     """指数分析上下文 — 管道的核心数据容器"""
     target: AnalysisTarget
+    collection_records: dict[str, DataCollectionRecord] = Field(default_factory=dict)
     price_data: list[IndexPriceData] = Field(default_factory=list)
     valuation_data: IndexValuationData | None = None
     capital_flow: CapitalFlowData | None = None

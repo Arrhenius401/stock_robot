@@ -220,6 +220,22 @@ def test_refresh_aborts_on_crosswalk_conflict_and_preserves_files(tmp_path, mock
     assert json_path.read_text(encoding="utf-8") == "old-json"
 
 
+def test_refresh_result_preserves_failure_and_records_success(tmp_path, mocker):
+    csv_path, json_path = tmp_path / "industry.csv", tmp_path / "industry.json"
+    csv_path.write_text("old-csv", encoding="utf-8")
+    json_path.write_text("old-json", encoding="utf-8")
+    refresh = mocker.patch.object(hsics, "refresh", side_effect=hsics.HsicsIndustryError("失败"))
+    result, record = hsics.refresh_result(csv_path, json_path, connect_symbols={"00001"})
+    assert result is None and (record.result_state, record.published) == ("failed", False)
+    assert csv_path.read_text(encoding="utf-8") == "old-csv"
+    assert json_path.read_text(encoding="utf-8") == "old-json"
+    expected = mocker.Mock()
+    refresh.side_effect = None
+    refresh.return_value = expected
+    result, record = hsics.refresh_result(csv_path, json_path, connect_symbols={"00001"})
+    assert result is expected and (record.result_state, record.published) == ("complete", True)
+
+
 def test_refresh_publishes_mapping(tmp_path, mocker):
     mocker.patch.object(hsics, "fetch_f10_sectors", return_value={
         "00001": profile("00001", "综合企业"),
@@ -238,11 +254,13 @@ def test_refresh_publishes_mapping(tmp_path, mocker):
     csv_path = tmp_path / "hk_hsics_industry.csv"
     json_path = tmp_path / "hk_hsics_industry.snapshot.json"
 
-    snapshot = hsics.refresh(
+    snapshot, record = hsics.refresh_result(
         csv_path, json_path, connect_symbols={"00001", "00005", "00700"},
         strict_counts=False,
     )
 
+    assert snapshot is not None
+    assert (record.result_state, record.published) == ("complete", True)
     assert snapshot.total == 3
     assert snapshot.sector_count == 3
     assert snapshot.industry_count == 3
@@ -402,6 +420,32 @@ def test_publish_rolls_back_on_json_failure(tmp_path, mocker):
         hsics.publish_snapshot(snapshot, rows, csv_path, json_path)
     assert csv_path.read_text(encoding="utf-8") == "old-csv"
     assert json_path.read_text(encoding="utf-8") == "old-json"
+
+
+def test_refresh_result_does_not_claim_rollback_success_when_rollback_fails(tmp_path, mocker):
+    rows = rows_for_test()
+    crosswalk = {"综合企业": "Conglomerates", "银行": "Financials",
+                 "软件服务": "Information Technology", "专业零售": "Consumer Discretionary",
+                 "工业工程": "Industrials"}
+    snapshot = hsics.build_snapshot(rows, crosswalk, data_date=date(2026, 10, 23),
+                                   fetched_at=FETCHED_AT, source_urls={"f10": "x", "hsci": "y"})
+    csv_path, json_path = tmp_path / "industry.csv", tmp_path / "industry.json"
+    csv_path.write_text("old-csv", encoding="utf-8")
+    json_path.write_text("old-json", encoding="utf-8")
+    atomic = hsics._atomic_write
+
+    def fail_publish_and_rollback(path, data):
+        if path == json_path or data == b"old-csv":
+            raise OSError("模拟发布和回滚失败")
+        atomic(path, data)
+
+    mocker.patch.object(hsics, "_atomic_write", side_effect=fail_publish_and_rollback)
+    mocker.patch.object(hsics, "refresh", side_effect=lambda *a, **kw: hsics.publish_snapshot(
+        snapshot, rows, csv_path, json_path))
+    result, record = hsics.refresh_result(csv_path, json_path, connect_symbols={"00001"})
+    assert result is None and (record.result_state, record.published) == ("failed", False)
+    assert csv_path.read_text(encoding="utf-8") != "old-csv"
+    assert "保留旧快照" not in record.error_message
 
 
 def test_production_hsics_snapshot_has_expected_shape():

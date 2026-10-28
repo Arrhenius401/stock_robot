@@ -267,6 +267,20 @@ def test_refresh_local_mapping_defaults_to_official_source(files, mocker):
     assert mapping.exists()
 
 
+def test_refresh_result_success_and_failure_keep_old_snapshot(files, mocker):
+    _, saved = files
+    mocker.patch.object(connect, "fetch_sse_snapshot", return_value=sse_snapshot())
+    result, record = connect.refresh_local_mapping_result(saved)
+    assert result is not None and record.source == result.source
+    assert (record.result_state, record.published) == ("complete", True)
+    before = saved.read_bytes()
+    mocker.patch.object(connect, "fetch_sse_snapshot", side_effect=connect.HKStockConnectError("失败"))
+    result, record = connect.refresh_local_mapping_result(saved)
+    assert result is None
+    assert (record.result_state, record.published) == ("failed", False)
+    assert saved.read_bytes() == before
+
+
 def test_fetch_failure_leaves_both_files_untouched(files, mocker):
     mapping, saved = files
     saved.write_text("old successful snapshot", encoding="utf-8")

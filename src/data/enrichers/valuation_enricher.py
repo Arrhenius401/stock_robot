@@ -3,7 +3,7 @@ import itertools
 import logging
 from statistics import median
 
-from data.akshare import get_total_shares
+from data.akshare import get_total_shares_result
 from data.enricher import DataEnricher
 from data.schemas import (
     AnalysisContext,
@@ -295,4 +295,4 @@ class ValuationEnricher(DataEnricher):
             if sorted_prices and sorted_prices[-1].close > 0:
                 return measured_pb * ttm_equity / sorted_prices[-1].close
         # 无实测 PE（快照失败）：三级链估算
-        return get_total_shares(ctx.symbol, ctx.financial_data)
+        return get_total_shares_result(ctx.symbol, ctx.financial_data).value

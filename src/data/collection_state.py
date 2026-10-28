@@ -1,15 +1,50 @@
 """共享结果状态与采集记录构造。"""
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Literal
+from typing import Generic, Literal, TypeVar
 
 from data.schemas import DataCollectionRecord, ResultState
 
+T = TypeVar("T")
+
+
+@dataclass(frozen=True)
+class ValueResult(Generic[T]):
+    value: T | None
+    record: DataCollectionRecord
+    errors: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class RefreshRecord:
+    source: str
+    attempted_at: datetime
+    result_state: ResultState
+    error_kind: str = ""
+    error_message: str = ""
+    published: bool = False
 State = Literal["complete", "degraded", "not_applicable", "unknown"]
 CacheStatus = Literal["live", "cache", "stale", "unknown"]
 CACHE_STATE: dict[ResultState, State] = {
     "complete": "complete", "partial": "degraded", "empty": "complete",
     "not_applicable": "not_applicable", "failed": "degraded", "unknown": "unknown",
 }
+
+
+def make_refresh_record(source: str, state: ResultState, *,
+                        attempted_at: datetime | None = None,
+                        error_kind: str = "", error_message: str = "",
+                        published: bool = False) -> RefreshRecord:
+    if state not in ("complete", "partial", "failed"):
+        raise ValueError("静态刷新只允许 complete/partial/failed")
+    return RefreshRecord(
+        source=source,
+        attempted_at=attempted_at or datetime.now().astimezone(),
+        result_state=state,
+        error_kind=error_kind,
+        error_message=error_message,
+        published=published,
+    )
 
 
 def make_record(

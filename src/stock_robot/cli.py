@@ -555,6 +555,7 @@ def industry_mapping(action_or_symbol, resume, delay, verbose):
     migrate-placeholders → 将旧占位分类迁移为显式缺失；
     股票代码 → 单只秒级更新。
     """
+    from data.collection_state import make_refresh_record
     from data.industry_mapping_builder import (
         IndustryMappingError,
         migrate_placeholder_rows,
@@ -570,8 +571,8 @@ def industry_mapping(action_or_symbol, resume, delay, verbose):
     if not _check_disclaimer(config):
         return
 
+    action = action_or_symbol or "rebuild"
     try:
-        action = action_or_symbol or "rebuild"
         if action == "validate":
             result = validate_sample()
             console.print(
@@ -584,6 +585,9 @@ def industry_mapping(action_or_symbol, resume, delay, verbose):
                 f"[green]✓ 候选映射已发布：{result['stock_count']} 只股票，"
                 f"有效分类率 {result['valid_classification_rate']}%[/green]"
             )
+            record = result.get("refresh_record")
+            if record is not None:
+                console.print(f"刷新记录: {record.source} {record.result_state} published={record.published} {record.error_message}")
         elif action == "migrate-placeholders":
             result = migrate_placeholder_rows()
             console.print(
@@ -627,6 +631,9 @@ def industry_mapping(action_or_symbol, resume, delay, verbose):
                 f"覆盖率 {coverage}%，有效分类率 {result['valid_classification_rate']}%[/green]"
             )
             console.print(f"[dim]候选文件：{result['candidate_path']}；确认后执行 industry-mapping publish[/dim]")
+            record = result.get("refresh_record")
+            if record is not None:
+                console.print(f"刷新记录: {record.source} {record.result_state} published={record.published} {record.error_message}")
             if result["failed_industries"]:
                 console.print(
                     f"[yellow]⚠ 失败行业 {len(result['failed_industries'])} 个: "
@@ -635,15 +642,28 @@ def industry_mapping(action_or_symbol, resume, delay, verbose):
             if verbose:
                 console.print(f"[dim]遍历行业 {result['total_industries']} 个[/dim]")
     except IndustryMappingError as e:
+        if action in ("rebuild", "publish"):
+            record = make_refresh_record("乐咕申万", "failed", error_kind="refresh_failed",
+                                         error_message="行业映射操作失败")
+            console.print(f"刷新记录: {record.source} {record.result_state} published={record.published} {record.error_message}")
         console.print(f"[red]✗ 行业映射操作失败: {e}[/red]")
         sys.exit(1)
+    except OSError:
+        if action in ("rebuild", "publish"):
+            record = make_refresh_record("乐咕申万", "failed", error_kind="refresh_failed",
+                                         error_message="行业映射文件操作失败")
+            console.print(f"刷新记录: {record.source} {record.result_state} published={record.published} {record.error_message}")
+        raise
 
 
 @main.command("hk-industry-refresh")
 def hk_industry_refresh() -> None:
     """依次刷新港股通成员资格和恒生 HSICS 行业快照。"""
+    from datetime import datetime
+
     from filelock import Timeout
 
+    from data.collection_state import make_refresh_record
     from data.hk_hsics_industry import HsicsIndustryError, load_connect_symbols, refresh
     from data.hk_stock_connect import (
         HKStockConnectError,
@@ -656,11 +676,15 @@ def hk_industry_refresh() -> None:
         hk_stock_connect_path,
     )
 
+    attempted_at = datetime.now().astimezone()
     connect_path = hk_stock_connect_path(writable=True)
     try:
         connect_snapshot = fetch_sse_snapshot()
         publish_snapshot(connect_snapshot, connect_path)
     except (HKStockConnectError, OSError, ValueError, Timeout) as exc:
+        record = make_refresh_record("上交所港股通+东财F10+HSCI", "failed", attempted_at=attempted_at,
+                                     error_kind="fetch_failed", error_message="港股通刷新失败")
+        click.echo(f"刷新记录: {record.source} {record.result_state} published={record.published}")
         raise click.ClickException(f"港股通成员快照刷新失败：{exc}") from exc
 
     try:
@@ -671,6 +695,9 @@ def hk_industry_refresh() -> None:
             connect_symbols=symbols,
         )
     except (HsicsIndustryError, OSError, ValueError, Timeout) as exc:
+        record = make_refresh_record("上交所港股通+东财F10+HSCI", "partial", attempted_at=attempted_at,
+                                     error_kind="fetch_failed", error_message="HSICS 刷新失败")
+        click.echo(f"刷新记录: {record.source} {record.result_state} published={record.published}")
         raise click.ClickException(
             f"港股通成员快照已更新（{connect_snapshot.total} 只）；HSICS 行业快照刷新失败：{exc}"
         ) from exc
@@ -680,6 +707,9 @@ def hk_industry_refresh() -> None:
         f"二级 {hsics_snapshot.sector_count}，一级 {hsics_snapshot.industry_count}，"
         f"数据日期 {hsics_snapshot.data_date.isoformat()}"
     )
+    record = make_refresh_record("上交所港股通+东财F10+HSCI", "complete", attempted_at=attempted_at,
+                                 published=True)
+    click.echo(f"刷新记录: {record.source} {record.result_state} published={record.published}")
 
 
 @main.group()

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from data.schemas import DataCollectionRecord
@@ -10,6 +10,7 @@ class CollectionResult:
     """统一取数结果：数据和诊断在同一次调用中返回。"""
     rows: list[Any]
     record: DataCollectionRecord | None = None
+    errors: list[str] = field(default_factory=list)
 
 
 class DataSource(ABC):

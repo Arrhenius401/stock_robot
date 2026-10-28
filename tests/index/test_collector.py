@@ -4,6 +4,7 @@ from datetime import date
 
 import pytest
 
+from data.base import CollectionResult
 from data.schemas import (
     AnalysisTarget,
     CapitalFlowData,
@@ -56,9 +57,9 @@ def collector(mocker):
     }
 
     def fetch(_symbol, *, data_type, **_kwargs):
-        return responses[data_type]
+        return CollectionResult(responses[data_type])
 
-    mocker.patch.object(instance._adapter, "fetch", side_effect=fetch)
+    mocker.patch.object(instance._adapter, "fetch_result", side_effect=fetch)
     return instance
 
 

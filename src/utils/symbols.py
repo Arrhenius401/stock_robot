@@ -1,8 +1,10 @@
 """股票代码工具 — 标准化、校验、名称解析"""
 import logging
 import re
+from datetime import datetime
 from typing import Any
 
+from data.collection_state import ValueResult, make_record
 from utils.retry import retry_on_network_error
 
 logger = logging.getLogger(__name__)
@@ -71,21 +73,30 @@ def validate_symbol(symbol: str) -> bool:
     return True
 
 
-def resolve_name(symbol: str) -> str:
-    """解析股票代码对应的公司名称"""
+def resolve_name_result(symbol: str) -> ValueResult[str]:
+    """解析名称并保留来源和安全诊断。"""
+    source = "东财港股快照" if symbol_market(symbol) == "hk" else "AkShare A股代码名称"
     try:
         if symbol_market(symbol) == "hk":
             from data.hk_eastmoney import stock_snapshot
 
             snapshot = stock_snapshot(normalize_symbol(symbol).removesuffix(".HK"))
-            return str(snapshot.get("f58") or "").strip()
-        df: Any = _ak_code_name()
-        row = df[df["code"] == normalize_symbol(symbol)]
-        if not row.empty:
-            return str(row["name"].iloc[0])
-    except Exception as e:  # noqa: BLE001 — 第三方接口异常类型不可预测，降级返回空名
-        logger.warning(f"股票名称解析失败 {symbol}: {e}")
-    return ""
+            name = str(snapshot.get("f58") or "").strip()
+        else:
+            df: Any = _ak_code_name()
+            row = df[df["code"] == normalize_symbol(symbol)]
+            name = str(row["name"].iloc[0]) if not row.empty else ""
+        if name:
+            return ValueResult(name, make_record(source, "complete", collected_at=datetime.now().astimezone()))
+    except Exception as e:  # noqa: BLE001 — 第三方接口边界，返回安全诊断
+        logger.warning("股票名称解析失败 %s: %s", symbol, type(e).__name__)
+    return ValueResult(None, make_record(source, "failed", error_kind="fetch_failed",
+                                         error_message="股票名称解析失败"))
+
+
+def resolve_name(symbol: str) -> str:
+    """兼容旧调用方，未取得名称时返回空字符串。"""
+    return resolve_name_result(symbol).value or ""
 
 
 def validate_index_symbol(symbol: str) -> bool:

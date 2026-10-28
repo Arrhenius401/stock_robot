@@ -14,6 +14,7 @@ from pandas import NaT
 ak = cast(Any, ak)
 
 from data.base import CollectionResult, DataSource
+from data.collection_state import ValueResult, make_record
 from data.hk_alternatives import baidu_metric, tencent_history
 from data.hk_eastmoney import (
     daily_history,
@@ -90,7 +91,7 @@ def _row_get_any(row: Any, *keys: str, default: Any = None) -> Any:
     return default
 
 
-def get_total_shares(symbol: str, financials: list | None = None) -> float | None:
+def get_total_shares_result(symbol: str, financials: list | None = None) -> ValueResult[float]:
     """总股本三级链：东财轻量接口 → 新浪流通股本 → 财报反推（离线兜底）
 
     财报反推口径：累计净利润 ÷ 累计基本每股收益，禁止单季/累计混用。
@@ -102,7 +103,7 @@ def get_total_shares(symbol: str, financials: list | None = None) -> float | Non
             info = dict(zip(df["item"], df["value"]))
             shares = parse_cn_number(str(info.get("总股本", "")))
             if shares is not None and shares > 0:
-                return shares
+                return ValueResult(shares, make_record("东财总股本", "complete", collected_at=datetime.now().astimezone()))
     except Exception:
         logger.debug("东财总股本获取失败，切换新浪源")
     # 2. 新浪流通股本（在线）
@@ -113,7 +114,7 @@ def get_total_shares(symbol: str, financials: list | None = None) -> float | Non
         if df is not None and "outstanding_share" in df.columns and len(df) > 0:
             last = df["outstanding_share"].iloc[-1]
             if last is not None and str(last) not in ("nan", "None") and float(last) > 0:
-                return float(last)
+                return ValueResult(float(last), make_record("新浪流通股本", "complete", collected_at=datetime.now().astimezone()))
     except Exception:
         logger.debug("新浪流通股本获取失败，切换财报反推")
     # 3. 财报反推（离线兜底）
@@ -122,8 +123,15 @@ def get_total_shares(symbol: str, financials: list | None = None) -> float | Non
         latest = fin[-1]
         # >0 判断统一口径，避免 NaN 真值通过
         if latest.net_profit is not None and latest.basic_eps is not None and latest.net_profit > 0 and latest.basic_eps > 0:
-            return latest.net_profit / latest.basic_eps
-    return None
+            return ValueResult(latest.net_profit / latest.basic_eps, make_record(
+                "财报反推", "complete", collected_at=datetime.now().astimezone()))
+    return ValueResult(None, make_record("总股本", "failed", error_kind="empty",
+                                         error_message="总股本来源均不可用"))
+
+
+def get_total_shares(symbol: str, financials: list | None = None) -> float | None:
+    """兼容旧调用方，仅返回股本数值。"""
+    return get_total_shares_result(symbol, financials).value
 
 
 def _get_industry_name(symbol: str) -> str:
@@ -172,6 +180,25 @@ def _ak_csindex(symbol, start_date, end_date):
     """中证指数公司日线接口（H11025/H11001/000300 等基准指数，返回日期与收盘）"""
     return ak.stock_zh_index_hist_csindex(symbol=symbol, start_date=start_date, end_date=end_date)
 
+
+def _index_error_kind(error: Exception) -> str:
+    if isinstance(error, TimeoutError) or "Timeout" in type(error).__name__ or "超时" in str(error):
+        return "timeout"
+    return "fetch_failed"
+
+
+def fetch_index_history_result(symbol: str, start_date: str, end_date: str) -> ValueResult[Any]:
+    """中证指数日线的统一结果入口；失败只暴露安全诊断。"""
+    try:
+        frame = _ak_csindex(symbol=symbol, start_date=start_date, end_date=end_date)
+    except Exception as error:  # 第三方网络与响应边界
+        kind = _index_error_kind(error)
+        logger.warning("中证指数行情请求失败，类型：%s", kind)
+        message = "中证指数行情请求超时" if kind == "timeout" else "中证指数行情请求失败"
+        return ValueResult(None, make_record("中证指数官网", "failed", error_kind=kind, error_message=message))
+    if frame is None or len(frame) == 0:
+        return ValueResult(None, make_record("中证指数官网", "empty", error_message="中证指数在请求区间没有数据"))
+    return ValueResult(frame, make_record("中证指数官网", "complete", collected_at=datetime.now().astimezone()))
 
 @retry_on_network_error()
 def _fetch_overseas_index_sina(symbol: str):
@@ -1423,4 +1450,5 @@ class AkShareAdapter(DataSource):
             return [result]
         except Exception as e:
             logger.warning(f"获取指数舆情失败: {e}")
+            self._record_collection_error("指数舆情", e)
             return [NewsData(symbol=symbol, date=datetime.now().astimezone().date(), headlines=[])]

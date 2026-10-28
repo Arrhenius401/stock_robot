@@ -80,7 +80,8 @@ def test_financial_paginates_and_checks_count(monkeypatch):
         return Response([a_row(end="2025-12-31" if page == 1 else "2024-12-31")], 2, 2)
 
     monkeypatch.setattr(fetch, "_response", response)
-    rows, errors = fetch.fetch_financial_rows(["600519"], "a-shares", start="2024-01-01", deadline=time.monotonic() + 5)
+    result = fetch.fetch_financial_rows(["600519"], "a-shares", start="2024-01-01", deadline=time.monotonic() + 5)
+    rows, errors = result.rows, result.errors
     assert len(rows) == 2
     assert calls == [1, 2]
     assert not errors
@@ -89,35 +90,41 @@ def test_financial_paginates_and_checks_count(monkeypatch):
 @pytest.mark.parametrize("response", [Response([a_row()], 2), Response([a_row("000858")])])
 def test_incomplete_or_foreign_batch_is_rejected(monkeypatch, response):
     monkeypatch.setattr(fetch, "_response", lambda *a, **k: response)
-    rows, errors = fetch.fetch_financial_rows(["600519"], "a-shares", start="2024-01-01", deadline=time.monotonic() + 5)
+    result = fetch.fetch_financial_rows(["600519"], "a-shares", start="2024-01-01", deadline=time.monotonic() + 5)
+    rows, errors = result.rows, result.errors
     assert rows == []
     assert errors
 
 
 def test_partial_coverage_is_reported_without_zero_filling(monkeypatch):
     monkeypatch.setattr(fetch, "_response", lambda *a, **k: Response([a_row()]))
-    rows, errors = fetch.fetch_financial_rows(["600519", "000858"], "a-shares", start="2024-01-01", deadline=time.monotonic() + 5)
+    result = fetch.fetch_financial_rows(["600519", "000858"], "a-shares", start="2024-01-01", deadline=time.monotonic() + 5)
+    rows, errors = result.rows, result.errors
     assert len(rows) == 1
     assert any("1/2" in e for e in errors)
+    assert result.record is not None
+    assert (result.record.result_state, result.record.cache_status) == ("partial", "live")
 
 
 def test_cache_hit_no_request_refresh_failure_preserves_success(monkeypatch, tmp_path):
     cache = CacheManager(tmp_path / "cache.db")
     monkeypatch.setattr(fetch, "_response", lambda *a, **k: Response([a_row()]))
     args = {"market": "a-shares", "start": "2024-01-01", "deadline": time.monotonic() + 5, "cache": cache}
-    expected, errors = fetch.fetch_financial_rows(["600519"], **args)
+    result = fetch.fetch_financial_rows(["600519"], **args)
+    expected, errors = result.rows, result.errors
     assert not errors
     monkeypatch.setattr(fetch, "_response", lambda *a, **k: pytest.fail("新鲜缓存不应联网"))
-    assert fetch.fetch_financial_rows(["600519"], **args) == (expected, [])
+    assert fetch.fetch_financial_rows(["600519"], **args).rows == expected
 
     def fail(*args, **kwargs):
         raise requests.Timeout("模拟超时")
 
     monkeypatch.setattr(fetch, "_response", fail)
-    restored, errors = fetch.fetch_financial_rows(["600519"], **args, refresh=True)
+    result = fetch.fetch_financial_rows(["600519"], **args, refresh=True)
+    restored, errors = result.rows, result.errors
     assert restored == expected
     assert any("原报告期" in e for e in errors)
-    assert fetch.fetch_financial_rows(["600519"], **args) == (expected, [])
+    assert fetch.fetch_financial_rows(["600519"], **args).rows == expected
 
 
 def test_batch_size_and_maximum_concurrency(monkeypatch):
@@ -140,7 +147,8 @@ def test_batch_size_and_maximum_concurrency(monkeypatch):
         return Response([a_row(s) for s in codes])
 
     monkeypatch.setattr(fetch, "_response", response)
-    rows, errors = fetch.fetch_financial_rows(symbols, "a-shares", start="2024-01-01", deadline=time.monotonic() + 5)
+    result = fetch.fetch_financial_rows(symbols, "a-shares", start="2024-01-01", deadline=time.monotonic() + 5)
+    rows, errors = result.rows, result.errors
     assert len(rows) == 101
     assert not errors
     assert sorted(sizes) == [1, 50, 50]
@@ -149,7 +157,8 @@ def test_batch_size_and_maximum_concurrency(monkeypatch):
 
 def test_budget_exhaustion_stops_new_requests(monkeypatch):
     monkeypatch.setattr(fetch, "_response", lambda *a, **k: pytest.fail("预算到期不得发请求"))
-    rows, errors = fetch.fetch_financial_rows(["600519"], "a-shares", start="2024-01-01", deadline=time.monotonic() - 1)
+    result = fetch.fetch_financial_rows(["600519"], "a-shares", start="2024-01-01", deadline=time.monotonic() - 1)
+    rows, errors = result.rows, result.errors
     assert not rows
     assert errors
 
@@ -288,11 +297,13 @@ def test_invalid_json_shapes_become_fetch_errors_and_keep_success_cache(monkeypa
     cache = CacheManager(tmp_path / "cache.db")
     monkeypatch.setattr(fetch, "_response", lambda *a, **k: Response([a_row()]))
     args = {"market": "a-shares", "start": "2024-01-01", "deadline": time.monotonic() + 5, "cache": cache}
-    expected, _ = fetch.fetch_financial_rows(["600519"], **args)
+    result = fetch.fetch_financial_rows(["600519"], **args)
+    expected, _ = result.rows, result.errors
     bad = Response([])
     bad.payload = payload
     monkeypatch.setattr(fetch, "_response", lambda *a, **k: bad)
-    restored, errors = fetch.fetch_financial_rows(["600519"], **args, refresh=True)
+    result = fetch.fetch_financial_rows(["600519"], **args, refresh=True)
+    restored, errors = result.rows, result.errors
     assert restored == expected
     assert errors
 
@@ -303,9 +314,11 @@ def test_unknown_or_future_period_does_not_replace_success_cache(monkeypatch, tm
     cache = CacheManager(tmp_path / "cache.db")
     monkeypatch.setattr(fetch, "_response", lambda *a, **k: Response([a_row()]))
     args = {"market": "a-shares", "start": "2024-01-01", "deadline": time.monotonic() + 5, "cache": cache}
-    expected, _ = fetch.fetch_financial_rows(["600519"], **args)
+    result = fetch.fetch_financial_rows(["600519"], **args)
+    expected, _ = result.rows, result.errors
     monkeypatch.setattr(fetch, "_response", lambda *a, **k: Response([bad_row]))
-    restored, errors = fetch.fetch_financial_rows(["600519"], **args, refresh=True)
+    result = fetch.fetch_financial_rows(["600519"], **args, refresh=True)
+    restored, errors = result.rows, result.errors
     assert restored == expected
     assert errors
 
@@ -346,3 +359,35 @@ def test_a_classification_wall_deadline_does_not_wait_for_socket_idle_or_cache_l
         release.set()
     assert finished.wait(1)
     assert cache.stats()["total_entries"] == 0
+
+
+def test_financial_result_records_cache_and_failed_refresh(monkeypatch, tmp_path):
+    cache = CacheManager(tmp_path / "cache.db")
+    monkeypatch.setattr(fetch, "_response", lambda *a, **k: Response([a_row()]))
+    args = {"market": "a-shares", "start": "2024-01-01", "deadline": time.monotonic() + 5, "cache": cache}
+    live = fetch.fetch_financial_rows(["600519"], **args)
+    assert live.record is not None
+    assert live.record.result_state == "complete"
+    assert live.record.cache_status == "live"
+    cached = fetch.fetch_financial_rows(["600519"], **args)
+    assert cached.record is not None
+    assert cached.record.cache_status == "cache"
+    assert cached.record.collected_at is not None
+    monkeypatch.setattr(fetch, "_response", lambda *a, **k: (_ for _ in ()).throw(requests.Timeout()))
+    stale = fetch.fetch_financial_rows(["600519"], **args, refresh=True)
+    assert stale.rows == live.rows
+    assert stale.errors
+    assert stale.record is not None
+    assert stale.record.result_state == "partial"
+    assert stale.record.cache_status == "stale"
+    assert stale.record.collected_at == cached.record.collected_at
+
+
+def test_financial_result_empty_is_failed(monkeypatch):
+    monkeypatch.setattr(fetch, "_response", lambda *a, **k: Response([]))
+    result = fetch.fetch_financial_rows(["600519"], "a-shares", start="2024-01-01", deadline=time.monotonic() + 5)
+    assert not result.rows
+    assert result.errors
+    assert result.record is not None
+    assert result.record.result_state == "failed"
+    assert result.record.error_kind == "empty"
