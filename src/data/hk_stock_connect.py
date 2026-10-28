@@ -23,6 +23,7 @@ from pydantic import (
     model_validator,
 )
 
+from data.collection_state import RefreshRecord, make_refresh_record
 from utils.paths import hk_stock_connect_path
 
 logger = logging.getLogger(__name__)
@@ -312,6 +313,21 @@ def refresh_local_mapping(snapshot_path: Path, source: SnapshotSource = "sse") -
     return snapshot
 
 
+def refresh_local_mapping_result(
+    snapshot_path: Path, source: SnapshotSource = "sse",
+) -> tuple[HKStockConnectSnapshot | None, RefreshRecord]:
+    """刷新并记录结果，原入口仍保留原有异常。"""
+    attempted_at = datetime.now().astimezone()
+    try:
+        snapshot = refresh_local_mapping(snapshot_path, source)
+    except Exception as error:  # noqa: BLE001 — 第三方和文件发布边界
+        logger.warning("港股通刷新失败: %s", error)
+        label = SSE_SOURCE if source == "sse" else SOURCE
+        return None, make_refresh_record(label, "failed", attempted_at=attempted_at,
+                                         error_kind="fetch_failed", error_message="港股通刷新失败，保留旧快照")
+    return snapshot, make_refresh_record(snapshot.source, "complete", attempted_at=attempted_at, published=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="手动更新港股通成员资格快照，不涉及申万分类")
     parser.add_argument("--collect", action="store_true", help=argparse.SUPPRESS)
@@ -319,6 +335,7 @@ def main() -> int:
                         help="名单来源：sse=上交所官方；eastmoney=AkShare东财")
     parser.add_argument("--snapshot", type=Path, help="成员资格 JSON 路径")
     args = parser.parse_args()
+    attempted_at = datetime.now().astimezone()
     try:
         if args.collect:
             print(_collect_in_worker().model_dump_json())
@@ -326,12 +343,20 @@ def main() -> int:
             snapshot = _fetch_snapshot_for(cast(SnapshotSource, args.source))
             target = args.snapshot or hk_stock_connect_path(writable=True)
             publish_snapshot(snapshot, target)
+            record = make_refresh_record(snapshot.source, "complete", attempted_at=attempted_at, published=True)
             print(json.dumps({"members": snapshot.total, "source": snapshot.source,
                               "data_date": snapshot.data_date.isoformat() if snapshot.data_date else None,
                               "fetched_at": snapshot.fetched_at.isoformat(),
-                              "snapshot": str(target)}, ensure_ascii=False))
+                              "snapshot": str(target), "refresh_record": {"source": record.source,
+                              "result_state": record.result_state, "published": record.published}}, ensure_ascii=False))
     except (HKStockConnectError, OSError, ValueError, Timeout, ValidationError):
         logger.exception("港股通名单更新未完成，不能当作空名单或全部调出")
+        if not args.collect:
+            record = make_refresh_record(SSE_SOURCE if args.source == "sse" else SOURCE, "failed",
+                                         attempted_at=attempted_at, error_kind="fetch_failed",
+                                         error_message="港股通刷新失败，保留旧快照")
+            print(json.dumps({"refresh_record": {"source": record.source, "result_state": record.result_state,
+                                                  "published": record.published}}, ensure_ascii=False))
         return 1
     return 0
 
