@@ -26,13 +26,8 @@ def test_migrated_capabilities_are_the_five_expected_pairs():
     })
 
 
-def test_legacy_fetch_sites_declare_current_migration_ledger():
-    paths = {site.path for site in LEGACY_FETCH_SITES}
-    assert {
-        "src/data/base.py",
-        "src/backtest/data.py",
-    } <= paths
-    assert "src/index/collector.py" not in paths
+def test_legacy_fetch_sites_contain_only_compatibility_bridge():
+    assert {site.path for site in LEGACY_FETCH_SITES} == {"src/data/base.py"}
     assert all(site.phase for site in LEGACY_FETCH_SITES)
 
 
@@ -62,6 +57,7 @@ def test_dedicated_capabilities_and_entrypoint_ledger():
     )
     from data.collection_policies import DEDICATED_POLICIES
 
+    assert ("src/backtest/data.py", "HistoricalPriceProvider.fetch_stock_result") in ALLOWED_FETCH_RESULT_CALLS
     assert DEDICATED_CAPABILITIES == {
         ("hk", "news"), ("a-shares", "valuation"), ("hk", "valuation"),
         ("a-shares", "industry"), ("hk", "industry"),

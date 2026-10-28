@@ -39,13 +39,10 @@ LEGACY_FETCH_SITES: tuple[FetchSite, ...] = (
         "src/data/base.py", "DataSource.fetch_result", (None,),
         "遗留适配器兼容桥；五组能力必须显式覆盖", "随来源迁移逐步淘汰",
     ),
-    FetchSite(
-        "src/backtest/data.py", "HistoricalPriceProvider.fetch_stock", ("price",),
-        "回测自管区间、连续性和缓存语义，不共享报告缓存", "Phase 3",
-    ),
 )
 
 ALLOWED_FETCH_RESULT_CALLS: frozenset[tuple[str, str]] = frozenset({
+    ("src/backtest/data.py", "HistoricalPriceProvider.fetch_stock_result"),
     ("src/core/resilient_collection.py", "ResilientCollector._collect"),
     ("src/core/pipeline.py", "Pipeline.collect.fetch_one"),
     ("src/core/pipeline.py", "Pipeline._collect_hk_news"),
