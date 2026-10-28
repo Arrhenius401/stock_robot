@@ -15,6 +15,7 @@ from backtest.data import HistoricalPriceProvider
 from backtest.models import BacktestRequest
 from backtest.runner import BacktestRunner
 from backtest.strategy import StrategyRepository
+from data.collection_state import ValueResult, make_record
 from data.schemas import PriceData
 from utils.config import Config
 
@@ -78,6 +79,14 @@ class _FixedProvider(HistoricalPriceProvider):
         series = self._benchmark.loc[pd.Timestamp(start):pd.Timestamp(end)]
         series.index.name = "trade_date"
         return series
+
+
+    def fetch_stock_result(self, symbol: str, start: date, end: date):
+        rows = self.fetch_stock(symbol, start, end)
+        return ValueResult(rows, make_record("测试行情", "complete" if rows else "empty"))
+
+    def fetch_benchmark_result(self, benchmark, start: date, end: date):
+        return ValueResult(self.fetch_benchmark(benchmark, start, end), make_record("测试基准", "complete"))
 
 
 @pytest.fixture

@@ -14,6 +14,7 @@ from backtest.models import (
     BenchmarkSpec,
 )
 from backtest.strategy import strategy_fingerprint
+from data.collection_state import make_record
 
 
 def test_publish_directory_retries_transient_windows_lock(tmp_path, monkeypatch):
@@ -129,6 +130,7 @@ def _build_result() -> BacktestResult:
         },
         data_start=date(2023, 9, 1),
         data_end=date(2024, 1, 4),
+        collection_records={"price": make_record("AkShare", "complete"), "benchmark": make_record("中证指数官网", "complete")},
     )
 
 
@@ -152,6 +154,8 @@ def test_manifest_snapshot_captures_run_context(tmp_path, result):
     output = write_backtest_artifacts(result, tmp_path)
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
 
+    assert manifest["collection_records"]["price"]["source"] == "AkShare"
+    assert manifest["collection_records"]["benchmark"]["result_state"] == "complete"
     assert manifest["request"]["symbol"] == "000001"
     assert manifest["request"]["benchmark_id"] == "money_fund"
     assert manifest["request"]["start_date"] == "2024-01-02"
