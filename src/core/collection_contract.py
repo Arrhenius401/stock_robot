@@ -40,26 +40,6 @@ LEGACY_FETCH_SITES: tuple[FetchSite, ...] = (
         "遗留适配器兼容桥；五组能力必须显式覆盖", "随来源迁移逐步淘汰",
     ),
     FetchSite(
-        "src/index/collector.py", "IndexDataCollector.collect._fetch_price", ("index_price",),
-        "指数专用采集", "Phase 2",
-    ),
-    FetchSite(
-        "src/index/collector.py", "IndexDataCollector.collect._fetch_valuation", ("index_valuation",),
-        "指数专用采集", "Phase 2",
-    ),
-    FetchSite(
-        "src/index/collector.py", "IndexDataCollector.collect._fetch_capital_flow", ("index_capital_flow",),
-        "指数专用采集", "Phase 2",
-    ),
-    FetchSite(
-        "src/index/collector.py", "IndexDataCollector.collect._fetch_macro", ("index_macro",),
-        "指数专用采集", "Phase 2",
-    ),
-    FetchSite(
-        "src/index/collector.py", "IndexDataCollector.collect._fetch_sentiment", ("index_sentiment",),
-        "指数专用采集", "Phase 2",
-    ),
-    FetchSite(
         "src/backtest/data.py", "HistoricalPriceProvider.fetch_stock", ("price",),
         "回测自管区间、连续性和缓存语义，不共享报告缓存", "Phase 3",
     ),
@@ -69,6 +49,11 @@ ALLOWED_FETCH_RESULT_CALLS: frozenset[tuple[str, str]] = frozenset({
     ("src/core/resilient_collection.py", "ResilientCollector._collect"),
     ("src/core/pipeline.py", "Pipeline.collect.fetch_one"),
     ("src/core/pipeline.py", "Pipeline._collect_hk_news"),
+    ("src/index/collector.py", "IndexDataCollector.collect._fetch_price"),
+    ("src/index/collector.py", "IndexDataCollector.collect._fetch_valuation"),
+    ("src/index/collector.py", "IndexDataCollector.collect._fetch_capital_flow"),
+    ("src/index/collector.py", "IndexDataCollector.collect._fetch_macro"),
+    ("src/index/collector.py", "IndexDataCollector.collect._fetch_sentiment"),
 })
 
 

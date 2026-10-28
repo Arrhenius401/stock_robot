@@ -50,6 +50,56 @@ class _Policy:
         return diagnostic is not None and diagnostic.cache_state == "not_applicable"
 
 
+class IndexPolicy(_Policy):
+    """指数维度只判断采集内容，不参与缓存或参考数据。"""
+    ttl_key = "daily"
+    reference_age = 0
+    source_attempts = 1
+
+    def __init__(self, kind: str):
+        self.kind = kind
+
+    def validate(self, symbol: str, rows: list[Any], now: datetime) -> bool:
+        return bool(rows)
+
+    def classify(self, symbol: str, rows: list[Any], diagnostic: DataCollectionRecord | None,
+                 previous_rows: list[Any] | None, now: datetime) -> ResultState:
+        if not rows:
+            return "failed"
+        if self.kind == "index_sentiment":
+            if any(title.strip() for title in getattr(rows[0], "headlines", []) if isinstance(title, str)):
+                return "partial" if diagnostic and diagnostic.error_kind else "complete"
+            return "failed" if diagnostic and diagnostic.error_kind else "empty"
+        if self.kind == "index_price":
+            valid = [row for row in rows if getattr(row, "symbol", None) == symbol
+                     and isinstance(getattr(row, "close", None), (int, float))
+                     and math.isfinite(row.close) and row.close > 0]
+            return "failed" if not valid else "partial" if len(valid) < len(rows) or diagnostic and diagnostic.error_kind else "complete"
+        fields = {
+            "index_valuation": ("pe_ttm", "pb", "dividend_yield"),
+            "index_capital_flow": ("north_bound", "main_net_inflow", "margin_balance"),
+            "index_macro": ("shibor_3m", "cpi_yoy", "pmi", "usd_cny"),
+        }[self.kind]
+        values = [getattr(rows[0], name, None) for name in fields]
+        count = sum(isinstance(v, (int, float)) and math.isfinite(v) for v in values)
+        if not count:
+            return "failed"
+        return "partial" if count < len(fields) or diagnostic and diagnostic.error_kind else "complete"
+
+    def reference_rows(self, rows: list[Any], now: datetime) -> list[Any] | None:
+        return None
+
+
+INDEX_POLICIES: dict[str, CollectionPolicy] = {
+    kind: IndexPolicy(kind) for kind in (
+        "index_price", "index_valuation", "index_capital_flow", "index_macro", "index_sentiment")
+}
+
+
+def index_policy_for(kind: str) -> CollectionPolicy | None:
+    return INDEX_POLICIES.get(kind)
+
+
 class FinancialPolicy(_Policy):
     kind = "financial"
     ttl_key = "quarterly"

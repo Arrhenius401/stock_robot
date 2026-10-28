@@ -7,6 +7,7 @@ import pytest
 
 from data.schemas import (
     AnalysisTarget,
+    ConstituentSnapshot,
     IndexAnalysisContext,
     IndexPriceData,
     IndexValuationData,
@@ -19,6 +20,41 @@ from index.collector import IndexDataCollector
 
 def target():
     return AnalysisTarget(target_type="index", symbol="980092", name="国证自由现金流", index_style="strategy")
+
+
+def test_strategy_partial_record_keeps_provider_errors(monkeypatch):
+    from index.valuation_data import StrategyValuationProvider
+
+    price = IndexPriceData(symbol="980092", trade_date=date(2026, 9, 30), open=100, high=100,
+                           low=100, close=100, volume=0)
+    snapshot = StrategySnapshot(source="官方", as_of=date(2026, 9, 30),
+                                members=[ConstituentSnapshot(symbol="600519", weight=1)], errors=["部分缺失"])
+    monkeypatch.setattr(StrategyValuationProvider, "fetch_prices", lambda *_a, **_k: [price])
+    monkeypatch.setattr(StrategyValuationProvider, "collect", lambda *_a, **_k: snapshot)
+    monkeypatch.setattr(StrategyValuationProvider, "fetch", lambda *_a, **_k: None)
+    ctx = IndexDataCollector().collect(target())
+    assert ctx.collection_records["strategy_data"].result_state == "partial"
+    assert "部分缺失" in ctx.collection_records["strategy_data"].error_message
+    assert "部分缺失" in ctx.risk_flags
+
+
+@pytest.mark.parametrize(("values", "expected"), [
+    ({}, "failed"),
+    ({"pe_snapshot": 12.0}, "complete"),
+    ({"pb": 1.5, "valuation_notes": ["官方日频滚动 PE 请求失败，请稍后重试"]}, "partial"),
+])
+def test_strategy_valuation_record_checks_values_and_degradation(monkeypatch, values, expected):
+    from index.valuation_data import StrategyValuationProvider
+
+    price = IndexPriceData(symbol="980092", trade_date=date(2026, 9, 30), open=100, high=100,
+                           low=100, close=100, volume=0)
+    monkeypatch.setattr(StrategyValuationProvider, "fetch_prices", lambda *_a, **_k: [price])
+    monkeypatch.setattr(StrategyValuationProvider, "collect", lambda *_a, **_k: StrategySnapshot(
+        source="官方", as_of=date(2026, 9, 30), members=[ConstituentSnapshot(symbol="600519", weight=1)]))
+    monkeypatch.setattr(StrategyValuationProvider, "fetch", lambda *_a, **_k: IndexValuationData(
+        symbol="980092", date=date(2026, 9, 30), **values))
+    ctx = IndexDataCollector().collect(target())
+    assert ctx.collection_records["index_valuation"].result_state == expected
 
 
 def context(**kwargs):
@@ -88,6 +124,12 @@ def test_strategy_collector_isolates_valuation_and_counts_progress(monkeypatch, 
     assert calls == [("980092","cni")]
     assert ctx.strategy_data is not None
     assert ctx.benchmark_prices
+    assert ctx.collection_records["index_price"].result_state == "complete"
+    assert ctx.collection_records["strategy_data"].result_state == "failed"
+    assert ctx.collection_records["benchmark"].result_state == "complete"
+    if etf:
+        assert ctx.collection_records["etf"].result_state == "complete"
+    assert ctx.collection_records["index_valuation"].result_state == ("failed" if fails else "complete")
     assert [p[1] for p in progress] == list(range(1, 6 if etf else 5))
     assert all(p[2] == (5 if etf else 4) for p in progress)
     if fails:

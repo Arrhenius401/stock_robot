@@ -30,9 +30,9 @@ def test_legacy_fetch_sites_declare_current_migration_ledger():
     paths = {site.path for site in LEGACY_FETCH_SITES}
     assert {
         "src/data/base.py",
-        "src/index/collector.py",
         "src/backtest/data.py",
     } <= paths
+    assert "src/index/collector.py" not in paths
     assert all(site.phase for site in LEGACY_FETCH_SITES)
 
 

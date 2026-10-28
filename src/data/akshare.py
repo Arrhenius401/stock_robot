@@ -1431,4 +1431,5 @@ class AkShareAdapter(DataSource):
             return [result]
         except Exception as e:
             logger.warning(f"获取指数舆情失败: {e}")
+            self._record_collection_error("指数舆情", e)
             return [NewsData(symbol=symbol, date=datetime.now().astimezone().date(), headlines=[])]
