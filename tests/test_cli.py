@@ -35,6 +35,7 @@ def test_hk_industry_refresh_runs_connect_before_hsics(mocker, tmp_path):
     assert refresh.call_args.kwargs["connect_symbols"] == {"00700"}
     assert "港股通成员 666 只" in result.output
     assert "HSICS 总数 666，二级 31，一级 12，数据日期 2026-10-23" in result.output
+    assert "complete" in result.output and "published=True" in result.output
 
 
 def test_hk_industry_refresh_reports_hsics_failure_without_rolling_back_connect(mocker, tmp_path):
@@ -56,6 +57,7 @@ def test_hk_industry_refresh_reports_hsics_failure_without_rolling_back_connect(
     assert result.exit_code == 1
     assert published == [True]
     assert "港股通成员快照已更新（666 只）" in result.output
+    assert "partial" in result.output and "published=False" in result.output
 
 
 @pytest.mark.parametrize("path", [[], ["index"], ["radar"], ["config", "set"]])
@@ -558,6 +560,46 @@ class TestSubscribe:
 
 
 class TestIndustryMappingCommand:
+    @pytest.mark.parametrize("action, function", [("rebuild", "rebuild_all"), ("publish", "publish_candidate")])
+    def test_file_error_records_failure_and_preserves_exception(self, mocker, tmp_path, action, function):
+        mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
+        error = OSError(f"临时文件失败: {tmp_path}")
+        mocker.patch(f"data.industry_mapping_builder.{function}", side_effect=error)
+        result = CliRunner().invoke(main, ["industry-mapping", action])
+        assert result.exception is error
+        assert result.exit_code != 0
+        assert "failed" in result.output and "published=False" in result.output
+
+    def test_refresh_record_summary_and_failure(self, mocker):
+        from data.collection_state import make_refresh_record
+        from data.industry_mapping_builder import IndustryMappingError
+
+        mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
+        publish = mocker.patch("data.industry_mapping_builder.publish_candidate", return_value={
+            "stock_count": 1, "valid_classification_rate": 100,
+            "refresh_record": make_refresh_record("乐咕申万", "complete", published=True),
+        })
+        result = CliRunner().invoke(main, ["industry-mapping", "publish"])
+        assert result.exit_code == 0
+        assert "乐咕申万" in result.output and "complete" in result.output and "published=True" in result.output
+        publish.side_effect = IndustryMappingError("验证失败")
+        result = CliRunner().invoke(main, ["industry-mapping", "publish"])
+        assert result.exit_code == 1
+        assert "failed" in result.output and "published=False" in result.output
+
+    def test_rebuild_refresh_record_summary(self, mocker):
+        from data.collection_state import make_refresh_record
+
+        mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
+        mocker.patch("data.industry_mapping_builder.rebuild_all", return_value={
+            "total_industries": 1, "failed_industries": [], "stock_count": 1,
+            "coverage_pct": 100, "valid_classification_rate": 100, "candidate_path": "candidate.csv",
+            "refresh_record": make_refresh_record("乐咕申万", "partial", published=False),
+        })
+        result = CliRunner().invoke(main, ["industry-mapping", "rebuild"])
+        assert result.exit_code == 0
+        assert "partial" in result.output and "published=False" in result.output
+
     def test_update_symbol(self, mocker):
         from click.testing import CliRunner
 

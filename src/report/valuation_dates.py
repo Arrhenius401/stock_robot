@@ -3,6 +3,7 @@ import re
 from datetime import date, datetime
 from typing import Any
 
+from analysis.valuation_rules import valuation_snapshot_dates
 from data.schemas import AnalysisContext, IndexValuationData
 from report.formatter import format_metric_value, format_metrics, metric_display_name
 from utils.numbers import is_finite_number
@@ -58,12 +59,8 @@ def date_presentation(metrics: dict[str, Any], dates: dict[str, Any], summary: s
 
 
 def stock_date_presentation(ctx: AnalysisContext, metrics: dict[str, Any], summary: str = "") -> dict[str, Any]:
-    val, enriched = ctx.valuation_data, ctx.enriched_valuation
-    dates: dict[str, Any] = {}
-    if val:
-        # 旧港股 date 来自接口行情日期；旧 A 股 date 只是采集日，不能沿用。
-        fallback = val.date if ctx.market == "hk" else None
-        dates.update(pe_ttm=val.pe_as_of or fallback, pb=val.pb_as_of or fallback, ps_ttm=val.ps_as_of)
+    enriched = ctx.enriched_valuation
+    dates: dict[str, Any] = dict(valuation_snapshot_dates(ctx))
     if enriched:
         for key in ("pe", "pb"):
             if ctx.market == "hk":

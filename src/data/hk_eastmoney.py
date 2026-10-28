@@ -93,7 +93,7 @@ def valuation_comparison_snapshot(code: str) -> dict[str, Any]:
     """复用东财估值对比，仅请求目标自身一行，保留指标日期。"""
     response = requests.get("https://datacenter.eastmoney.com/securities/api/data/v1/get", params={
         "reportName": "RPT_PCF10_INDUSTRY_HKCVALUE",
-        "columns": "SECUCODE,CORRE_SECUCODE,REPORT_DATE,PS_TTM",
+        "columns": "SECUCODE,CORRE_SECUCODE,REPORT_DATE,PE_TTM,PB_MQR,PS_TTM",
         "filter": f'(SECUCODE="{code}.HK")(CORRE_SECUCODE="{code}.HK")',
         "pageNumber": "1", "pageSize": "1", "source": "F10", "client": "PC",
     }, timeout=10)

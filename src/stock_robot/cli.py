@@ -313,6 +313,35 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
     console.print(f"\n[dim]报告已保存至: {saved_path}[/dim]")
 
 
+@main.command()
+@click.option("--refresh", "--refresh-cache", "refresh_cache", is_flag=True,
+              help="强制刷新黄金数据缓存")
+@click.option("--no-llm", is_flag=True, help="兼容旧用法；黄金简报使用确定性解释")
+@click.option("--output", "-o", type=click.Choice(["terminal", "markdown"]),
+              default="terminal", show_default=True, help="输出格式；两种格式均归档完整报告")
+@click.option("--output-dir", type=click.Path(file_okay=False, path_type=Path),
+              default=None, help="报告根目录（默认当前目录的 reports）")
+def gold(refresh_cache: bool, no_llm: bool, output: str, output_dir: Path | None) -> None:
+    """生成以国内与国际金价为核心的黄金市场观察简报。"""
+    from gold.service import GoldService
+    from report.formatter import ReportFormatter
+
+    config = Config()
+    if not _check_disclaimer(config):
+        return
+    report_root = output_dir or Path.cwd() / "reports"
+    try:
+        payload = GoldService(config=config, output_dir=report_root).run(
+            refresh_cache=refresh_cache, no_llm=no_llm,
+        )
+    except (OSError, ValueError, RuntimeError) as exc:
+        logger.warning("黄金 CLI 生成报告失败：%s", exc)
+        raise click.ClickException(f"黄金研报生成失败：{exc}") from exc
+    if output == "terminal":
+        console.print(ReportFormatter.to_rich_markdown(payload["markdown"]))
+    click.echo("\n报告已保存至: " + str(report_root / payload["report_path"]))
+
+
 def _render_index_report(report):
     """终端与下载报告复用同一渲染入口。"""
     from rich.markdown import Markdown
@@ -526,6 +555,7 @@ def industry_mapping(action_or_symbol, resume, delay, verbose):
     migrate-placeholders → 将旧占位分类迁移为显式缺失；
     股票代码 → 单只秒级更新。
     """
+    from data.collection_state import make_refresh_record
     from data.industry_mapping_builder import (
         IndustryMappingError,
         migrate_placeholder_rows,
@@ -541,8 +571,8 @@ def industry_mapping(action_or_symbol, resume, delay, verbose):
     if not _check_disclaimer(config):
         return
 
+    action = action_or_symbol or "rebuild"
     try:
-        action = action_or_symbol or "rebuild"
         if action == "validate":
             result = validate_sample()
             console.print(
@@ -555,6 +585,9 @@ def industry_mapping(action_or_symbol, resume, delay, verbose):
                 f"[green]✓ 候选映射已发布：{result['stock_count']} 只股票，"
                 f"有效分类率 {result['valid_classification_rate']}%[/green]"
             )
+            record = result.get("refresh_record")
+            if record is not None:
+                console.print(f"刷新记录: {record.source} {record.result_state} published={record.published} {record.error_message}")
         elif action == "migrate-placeholders":
             result = migrate_placeholder_rows()
             console.print(
@@ -598,6 +631,9 @@ def industry_mapping(action_or_symbol, resume, delay, verbose):
                 f"覆盖率 {coverage}%，有效分类率 {result['valid_classification_rate']}%[/green]"
             )
             console.print(f"[dim]候选文件：{result['candidate_path']}；确认后执行 industry-mapping publish[/dim]")
+            record = result.get("refresh_record")
+            if record is not None:
+                console.print(f"刷新记录: {record.source} {record.result_state} published={record.published} {record.error_message}")
             if result["failed_industries"]:
                 console.print(
                     f"[yellow]⚠ 失败行业 {len(result['failed_industries'])} 个: "
@@ -606,15 +642,28 @@ def industry_mapping(action_or_symbol, resume, delay, verbose):
             if verbose:
                 console.print(f"[dim]遍历行业 {result['total_industries']} 个[/dim]")
     except IndustryMappingError as e:
+        if action in ("rebuild", "publish"):
+            record = make_refresh_record("乐咕申万", "failed", error_kind="refresh_failed",
+                                         error_message="行业映射操作失败")
+            console.print(f"刷新记录: {record.source} {record.result_state} published={record.published} {record.error_message}")
         console.print(f"[red]✗ 行业映射操作失败: {e}[/red]")
         sys.exit(1)
+    except OSError:
+        if action in ("rebuild", "publish"):
+            record = make_refresh_record("乐咕申万", "failed", error_kind="refresh_failed",
+                                         error_message="行业映射文件操作失败")
+            console.print(f"刷新记录: {record.source} {record.result_state} published={record.published} {record.error_message}")
+        raise
 
 
 @main.command("hk-industry-refresh")
 def hk_industry_refresh() -> None:
     """依次刷新港股通成员资格和恒生 HSICS 行业快照。"""
+    from datetime import datetime
+
     from filelock import Timeout
 
+    from data.collection_state import make_refresh_record
     from data.hk_hsics_industry import HsicsIndustryError, load_connect_symbols, refresh
     from data.hk_stock_connect import (
         HKStockConnectError,
@@ -627,11 +676,15 @@ def hk_industry_refresh() -> None:
         hk_stock_connect_path,
     )
 
+    attempted_at = datetime.now().astimezone()
     connect_path = hk_stock_connect_path(writable=True)
     try:
         connect_snapshot = fetch_sse_snapshot()
         publish_snapshot(connect_snapshot, connect_path)
     except (HKStockConnectError, OSError, ValueError, Timeout) as exc:
+        record = make_refresh_record("上交所港股通+东财F10+HSCI", "failed", attempted_at=attempted_at,
+                                     error_kind="fetch_failed", error_message="港股通刷新失败")
+        click.echo(f"刷新记录: {record.source} {record.result_state} published={record.published}")
         raise click.ClickException(f"港股通成员快照刷新失败：{exc}") from exc
 
     try:
@@ -642,6 +695,9 @@ def hk_industry_refresh() -> None:
             connect_symbols=symbols,
         )
     except (HsicsIndustryError, OSError, ValueError, Timeout) as exc:
+        record = make_refresh_record("上交所港股通+东财F10+HSCI", "partial", attempted_at=attempted_at,
+                                     error_kind="fetch_failed", error_message="HSICS 刷新失败")
+        click.echo(f"刷新记录: {record.source} {record.result_state} published={record.published}")
         raise click.ClickException(
             f"港股通成员快照已更新（{connect_snapshot.total} 只）；HSICS 行业快照刷新失败：{exc}"
         ) from exc
@@ -651,6 +707,9 @@ def hk_industry_refresh() -> None:
         f"二级 {hsics_snapshot.sector_count}，一级 {hsics_snapshot.industry_count}，"
         f"数据日期 {hsics_snapshot.data_date.isoformat()}"
     )
+    record = make_refresh_record("上交所港股通+东财F10+HSCI", "complete", attempted_at=attempted_at,
+                                 published=True)
+    click.echo(f"刷新记录: {record.source} {record.result_state} published={record.published}")
 
 
 @main.group()

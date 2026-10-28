@@ -23,6 +23,7 @@ from filelock import FileLock
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 from pypdf import PdfReader
 
+from data.collection_state import RefreshRecord, make_refresh_record
 from utils.paths import (
     hk_hsics_industry_path,
     hk_hsics_snapshot_path,
@@ -404,6 +405,21 @@ def refresh(csv_path: Path, json_path: Path, *,
     return publish_snapshot(snapshot, rows, csv_path, json_path)
 
 
+def refresh_result(csv_path: Path, json_path: Path, *, connect_symbols: set[str],
+                   session: requests.Session | None = None,
+                   strict_counts: bool = True) -> tuple[HsicsSnapshot | None, RefreshRecord]:
+    """返回刷新诊断，原 refresh 保持失败抛异常。"""
+    attempted_at = datetime.now().astimezone()
+    try:
+        snapshot = refresh(csv_path, json_path, connect_symbols=connect_symbols,
+                           session=session, strict_counts=strict_counts)
+    except Exception as error:  # noqa: BLE001 — 第三方和文件发布边界
+        logger.warning("HSICS 刷新失败: %s", error)
+        return None, make_refresh_record("东财F10+HSCI", "failed", attempted_at=attempted_at,
+                                         error_kind="fetch_failed", error_message="HSICS 刷新失败，请检查快照")
+    return snapshot, make_refresh_record("东财F10+HSCI", "complete", attempted_at=attempted_at, published=True)
+
+
 def load_hsics_members(csv_path: Path | None = None,
                        json_path: Path | None = None) -> dict[str, HsicsMember]:
     csv_path = csv_path or hk_hsics_industry_path()
@@ -438,13 +454,18 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     csv_path = args.csv or hk_hsics_industry_path(writable=True)
     json_path = args.json or hk_hsics_snapshot_path(writable=True)
+    attempted_at = datetime.now().astimezone()
     try:
         symbols = load_connect_symbols()
         snapshot = refresh(csv_path, json_path, connect_symbols=symbols)
     except (HsicsIndustryError, OSError, ValueError) as exc:
         logger.exception("恒生 HSICS 快照更新失败，旧文件保留")
         print(f"更新失败: {exc}")
+        record = make_refresh_record("东财F10+HSCI", "failed", attempted_at=attempted_at,
+                                     error_kind="fetch_failed", error_message="HSICS 刷新失败，保留旧快照")
+        print(f"刷新记录: {record.source} {record.result_state} published={record.published}")
         return 1
+    record = make_refresh_record("东财F10+HSCI", "complete", attempted_at=attempted_at, published=True)
     print(json.dumps({
         "total": snapshot.total,
         "sectors": snapshot.sector_count,
@@ -453,6 +474,8 @@ def main(argv: list[str] | None = None) -> int:
         "fetched_at": snapshot.fetched_at.isoformat(),
         "csv": str(csv_path),
         "json": str(json_path),
+        "refresh_record": {"source": record.source, "result_state": record.result_state,
+                           "published": record.published},
     }, ensure_ascii=False))
     return 0
 

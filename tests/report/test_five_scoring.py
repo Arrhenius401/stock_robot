@@ -63,6 +63,32 @@ def test_partial_status_does_not_multiply_a_valid_score():
     assert compute_score_summary([result("financial", 8, status="partial")]).final_score == 8
 
 
+@pytest.mark.parametrize("reason", ["估值不适用，不计分", "估值维度数据不足，跳过打分"])
+def test_unscored_valuation_explains_weight_renormalization_without_relabeling_reason(reason):
+    missing = result("valuation", None, status="unavailable")
+    missing.score_detail = reason
+    summary = compute_score_summary([
+        result("financial", 8), result("technical", 6), missing, result("industry", 7.2)])
+    row = next(row for row in summary.score_rows if row["label"] == "估值合理")
+    assert reason in row["detail"]
+    assert "25%" in row["detail"] and "重新归一" in row["detail"]
+    assert summary.final_score == round((8 * 30 + 6 * 20 + 7.2 * 20) / 70, 1)
+
+
+def test_no_composite_does_not_claim_valuation_weight_was_distributed():
+    summary = compute_score_summary([
+        result("valuation", None, status="unavailable"), result("sentiment", 0)])
+    assert summary.final_score is None
+    assert "重新归一" not in summary.score_rows[0]["detail"]
+
+
+def test_valid_zero_composite_still_explains_valuation_weight_renormalization():
+    summary = compute_score_summary([
+        result("valuation", None, status="unavailable"), result("financial", 0)])
+    assert summary.final_score == 0
+    assert "重新归一" in next(row for row in summary.score_rows if row["label"] == "估值合理")["detail"]
+
+
 def test_actual_scorers_keep_precision_until_final_composite_display():
     from datetime import date, timedelta
 

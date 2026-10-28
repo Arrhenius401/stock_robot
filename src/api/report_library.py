@@ -7,6 +7,7 @@ import csv
 import hashlib
 import json
 import logging
+import re
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -14,7 +15,7 @@ from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
-ReportType = Literal["stock", "index", "backtest"]
+ReportType = Literal["stock", "index", "backtest", "gold"]
 MAX_TRADE_ROWS = 1000
 
 
@@ -56,6 +57,7 @@ class ReportDetail:
     trades: dict[str, Any] | None = None
     missing_artifacts: list[str] | None = None
     stock_payload: dict[str, Any] | None = None
+    gold_payload: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -171,15 +173,22 @@ def _generated_at_from_path(
 
 
 def _summary_for_markdown(
-        reports_root: Path, path: Path, report_type: Literal["stock", "index"],
+        reports_root: Path, path: Path, report_type: Literal["stock", "index", "gold"],
         *, legacy: bool = False) -> ReportSummary | None:
     relative = _safe_relative(reports_root, path)
     if relative is None or path.suffix.lower() != ".md":
         return None
+    if report_type == "gold" and (
+        len(relative.parts) != 4 or relative.parts[:2] != ("gold", "GOLD")
+        or not re.fullmatch(r"\d{4}-(?:0[1-9]|1[0-2])", relative.parts[2])
+    ):
+        return None
     symbol = relative.parts[1] if not legacy else relative.parts[0]
     kind = "个股" if report_type == "stock" else "指数"
-    title = f"{symbol} {kind}分析报告"
+    title = "黄金综合研报" if report_type == "gold" else f"{symbol} {kind}分析报告"
     heading = _first_heading(_read_text(path))
+    if report_type == "gold" and heading == "黄金市场观察简报":
+        title = heading
     return ReportSummary(
         id=_encode_id(relative),
         type=report_type,
@@ -294,6 +303,11 @@ def list_reports(
             summary = _radar_backtest_summary(reports_root, path)
             if summary is not None:
                 items.append(summary)
+    if report_type in (None, "gold"):
+        for path in sorted((reports_root / "gold" / "GOLD").glob("*/*.md")):
+            summary = _summary_for_markdown(reports_root, path, "gold")
+            if summary is not None:
+                items.append(summary)
     if report_type in (None, "stock"):
         for path in sorted(reports_root.glob("[0-9][0-9][0-9][0-9][0-9][0-9]/*/*.md")):
             summary = _summary_for_markdown(reports_root, path, "stock", legacy=True)
@@ -301,7 +315,7 @@ def list_reports(
                 items.append(summary)
 
     filtered = [item for item in items if _matches(item, query)]
-    type_order = {"stock": 0, "index": 1, "backtest": 2}
+    type_order = {"stock": 0, "index": 1, "backtest": 2, "gold": 3}
     return sorted(
         filtered,
         key=lambda item: (item.legacy, type_order[item.type], -item.generated_at, item.path),
@@ -310,7 +324,9 @@ def list_reports(
 
 def _summary_from_relative(reports_root: Path, relative: Path) -> ReportSummary:
     path = reports_root / relative
-    if len(relative.parts) >= 4 and relative.parts[0] in ("stock", "index"):
+    if len(relative.parts) == 4 and relative.parts[0] == "gold":
+        summary = _summary_for_markdown(reports_root, path, "gold")
+    elif len(relative.parts) >= 4 and relative.parts[0] in ("stock", "index"):
         report_type: Literal["stock", "index"] = (
             "stock" if relative.parts[0] == "stock" else "index")
         summary = _summary_for_markdown(reports_root, path, report_type)
@@ -369,6 +385,16 @@ def get_report_detail(
         raise ReportLibraryError("报告不存在", 404)
     summary = _summary_from_relative(reports_root, relative)
     markdown = _read_text(path)
+    if summary.type == "gold":
+        from gold.service import load_gold_snapshot
+
+        snapshot = path.with_suffix(".report.json")
+        if _safe_relative(reports_root, snapshot) is None:
+            logger.warning("黄金报告快照路径越界，回退 Markdown：%s", path.name)
+            gold_payload = None
+        else:
+            gold_payload = load_gold_snapshot(path, markdown)
+        return ReportDetail(report=summary, markdown=markdown, gold_payload=gold_payload)
     if summary.type != "backtest":
         return ReportDetail(report=summary, markdown=markdown,
                             stock_payload=_load_stock_snapshot(reports_root, path, summary.symbol, markdown)

@@ -22,27 +22,23 @@ logger = logging.getLogger(__name__)
 
 def format_hk_news_markdown(metrics: dict[str, Any]) -> str:
     """沿用普通新闻项目列表，只展示标题、时间和媒体，不输出链接。"""
-    def text(value: Any) -> str:
-        clean = html.escape(str(value), quote=False).replace("\n", " ").replace("\r", " ")
-        return re.sub(r"([\\`*_{}\[\]()#+.!|>~-])", r"\\\1", clean)
-
     def stamp(value: Any) -> str:
         try:
             return datetime.fromisoformat(str(value)).strftime("%Y-%m-%d %H:%M")
         except ValueError:
             return str(value)
 
-    lines = [f"> {text(metrics.get('news_disclaimer', ''))}"]
+    lines = [f"> {_news_text(metrics.get('news_disclaimer', ''))}"]
     for item in metrics.get("news_items", [])[:20]:
         media = "、".join(dict.fromkeys(str(link.get("media") or "来源未标注") for link in item.get("links", []))) or "来源未标注"
-        lines.append(f"\n- {text(item.get('title', ''))}（{text(stamp(item.get('published_at', '')))} · {text(media)}）")
+        lines.append(f"\n- {_news_text(item.get('title', ''))}（{_news_text(stamp(item.get('published_at', '')))} · {_news_text(media)}）")
     return "\n".join(lines)
 
 
 def _news_text(value: Any) -> str:
-    """外部资讯作为纯文本转义，避免 Markdown 注入。"""
+    """用字符实体保护资讯纯文本，兼容标准 Markdown 和本地字生图解码。"""
     clean = html.escape(str(value), quote=False).replace("\n", " ").replace("\r", " ")
-    return re.sub(r"([\\`*_{}\[\]()#+.!|>~-])", r"\\\1", clean)
+    return re.sub(r"([\\`*_{}\[\]()#+.!|>~-])", lambda match: f"&#{ord(match[0])};", clean)
 
 
 def _news_url(value: Any) -> str | None:
@@ -219,6 +215,7 @@ METRIC_DISPLAY_NAMES = {
 }
 
 RISK_DISPLAY_NAMES = {
+    "negative_equity": "净资产为负（资不抵债风险）",
     "roe_low": "净资产收益率偏低",
     "high_debt": "资产负债率偏高",
     "cash_flow_mismatch": "经营现金流与净利润不匹配",
@@ -494,14 +491,15 @@ def update_stock_snapshot(markdown: str, path: Path, payload: dict[str, Any]) ->
 class ReportFormatter:
     @staticmethod
     def save(report: str, symbol: str, output_dir: Path | None = None,
-             category: Literal["stock", "index"] = "stock",
+             category: Literal["stock", "index", "gold"] = "stock",
              stock_payload: dict[str, Any] | None = None) -> Path:
         if output_dir is None:
             output_dir = Path.cwd() / "reports"
         output_dir = Path(output_dir)
-        if (category not in ("stock", "index")
+        if (category not in ("stock", "index", "gold")
                 or not re.fullmatch(
                     _STOCK_SYMBOL_PATTERN if category == "stock"
+                    else r"GOLD" if category == "gold"
                     else r"[A-Za-z0-9][A-Za-z0-9._-]*", symbol)):
             raise ValueError("报告分类或标的无效")
         generated_at = datetime.now().astimezone()
@@ -509,7 +507,8 @@ class ReportFormatter:
         if not report_dir.resolve().is_relative_to(output_dir.resolve()):
             raise ValueError("报告路径超出保存目录")
         report_dir.mkdir(parents=True, exist_ok=True)
-        filename = f"{symbol}_{generated_at.strftime('%Y%m%d_%H%M%S')}.md"
+        suffix = f"_{uuid.uuid4().hex}" if category == "gold" else ""
+        filename = f"{symbol}_{generated_at.strftime('%Y%m%d_%H%M%S')}{suffix}.md"
         filepath = report_dir / filename
         if category == "stock" and stock_payload is not None:
             try:

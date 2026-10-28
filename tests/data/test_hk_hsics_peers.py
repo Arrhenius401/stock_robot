@@ -1,5 +1,4 @@
 """港股恒生二级同行池单元测试。"""
-
 import threading
 import time
 
@@ -7,6 +6,7 @@ import pytest
 import requests
 
 from data import hk_hsics_peers as peers
+from data.base import CollectionResult
 from data.cache import CacheManager
 from data.hk_hsics_industry import HsicsMember
 
@@ -208,7 +208,7 @@ def test_hk_rows_keep_individual_dates_and_exclude_other_days(monkeypatch):
     rows[-1]["REPORT_DATE"] = ""
     data = peers.build_industry_data("00001.HK", rows, members, set(members))
     assert data is not None
-    monkeypatch.setattr("data.peer_comparison.fetch_financial_rows", lambda *a, **k: ([], []))
+    monkeypatch.setattr("data.peer_comparison.fetch_financial_rows", lambda *a, **k: CollectionResult([]))
     ctx = PeerComparisonService().enrich(AnalysisContext(symbol="00001.HK", name="目标", market="hk", industry_data=data))
     assert ctx.enriched_industry is not None
     valuation = ctx.enriched_industry.comparison["valuation"]
@@ -248,7 +248,7 @@ def test_hk_invalid_target_date_disables_valuation_statistics(monkeypatch):
     rows[0]["REPORT_DATE"] = "bad-date"
     data = peers.build_industry_data("00001.HK", rows, members, set(members))
     assert data is not None
-    monkeypatch.setattr("data.peer_comparison.fetch_financial_rows", lambda *a, **k: ([], []))
+    monkeypatch.setattr("data.peer_comparison.fetch_financial_rows", lambda *a, **k: CollectionResult([]))
     ctx = PeerComparisonService().enrich(AnalysisContext(symbol="00001.HK", name="目标", market="hk", industry_data=data))
     assert ctx.enriched_industry is not None
     assert ctx.enriched_industry.industry_median_pe is None
@@ -365,7 +365,7 @@ def test_hk_future_target_cannot_replace_real_target_or_rank(monkeypatch):
         row["REPORT_DATE"] = "2099-12-31"
     data = peers.build_industry_data("00001.HK", rows, members, set(members))
     assert data is not None
-    monkeypatch.setattr("data.peer_comparison.fetch_financial_rows", lambda *a, **k: ([], []))
+    monkeypatch.setattr("data.peer_comparison.fetch_financial_rows", lambda *a, **k: CollectionResult([]))
     ctx = PeerComparisonService().enrich(AnalysisContext(symbol="00001.HK", name="目标", market="hk", industry_data=data))
     assert ctx.enriched_industry is not None
     assert ctx.enriched_industry.industry_median_pe is None
@@ -395,3 +395,17 @@ def test_hk_invalid_date_refresh_keeps_previous_success_cache(monkeypatch, mocke
     assert refreshed.comparison_snapshot["cache_status"] == "stale"
     assert refreshed.comparison_snapshot["errors"]
     assert refreshed.comparison_snapshot["peers"] == first.comparison_snapshot["peers"]
+
+
+def test_adapter_fetch_result_explicitly_uses_same_collection(monkeypatch, mocker, tmp_path):
+    monkeypatch.setattr(peers, "load_hsics_members", lambda: MEMBERS)
+    monkeypatch.setattr(peers, "load_connect_symbols", lambda: {s.removesuffix(".HK") for s in CONNECT})
+    rows = [pool_row("00700.HK", "腾讯", 13, 2), pool_row("00268.HK", "金蝶", 30, 4)]
+    mocker.patch.object(peers, "fetch_sector_pool", return_value=(rows, "2026-10-23"))
+    adapter = peers.HKIndustryAdapter()
+    assert type(adapter).fetch_result is not peers.DataSource.fetch_result
+    result = adapter.fetch_result("00700.HK", comparison_cache=CacheManager(tmp_path / "cache.db"))
+    assert result.rows and result.rows[0].industry == "软件服务"
+    assert result.record is None
+    legacy = adapter.fetch("00700.HK", comparison_cache=CacheManager(tmp_path / "other.db"))
+    assert [row.model_dump() for row in result.rows] == [row.model_dump() for row in legacy]

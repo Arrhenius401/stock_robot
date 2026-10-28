@@ -72,13 +72,13 @@ class RadarRefresher:
             for instrument in universe.instruments:
                 self._check_cancel(should_cancel)
                 try:
-                    history, source = self.history.prepare(
+                    history, source, record = self.history.prepare_result(
                         instrument.symbol, instrument.market, start, target_date,
                         reuse=retry_symbols is not None and instrument.symbol not in retry_symbols,
                         trading_days=trading_days,
                     )
                     histories[instrument.symbol] = history
-                    data_sources[instrument.symbol] = source
+                    data_sources[instrument.symbol] = record.source or source
                 except Exception as exc:  # noqa: BLE001 — 单标的网络或 SDK 失败不阻断其他项
                     logger.warning("标的 %s 行情准备失败: %s", instrument.symbol, exc)
                     failures[instrument.symbol] = str(exc)

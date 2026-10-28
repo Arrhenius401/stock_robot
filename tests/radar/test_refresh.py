@@ -171,3 +171,24 @@ def test_publishing_callback_cancellation_does_not_publish(tmp_path):
     latest = store.latest_completed("test_etf")
     assert latest is not None
     assert latest["run_id"] == first
+
+
+def test_refresh_uses_record_source_for_snapshot_item(tmp_path):
+    from data.collection_state import ValueResult, make_record
+
+    class _RecordProvider(_DailyProvider):
+        def fetch_daily_result(self, symbol, start, end):
+            return ValueResult(
+                self.fetch_daily(symbol, start, end),
+                make_record("自定义行情源", "complete"),
+            )
+
+    provider = _RecordProvider()
+    store = RadarStore(tmp_path / "radar.db")
+    refresher = RadarRefresher(_Repository(_universe()), provider, store)
+
+    run_id = refresher.refresh("test_etf", as_of=date(2026, 9, 30))
+
+    snapshot = store.get_snapshot(run_id)
+    assert snapshot is not None
+    assert {item["data_source"] for item in snapshot["items"]} == {"自定义行情源"}

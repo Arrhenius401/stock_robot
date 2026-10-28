@@ -24,6 +24,9 @@ def _run(*arguments: str):
 @pytest.mark.parametrize("path,expected", [
     ("src/stock_robot/cli.py", "tests/test_cli.py"),
     ("config/default.yaml", "tests/utils"),
+    ("config/gold.yaml", "tests/gold"),
+    ("src/gold/analysis.py", "tests/gold"),
+    ("tests/resources/gold/sge-au9999-daily.json", "tests/gold"),
     ("scripts/verify.ps1", "tests/test_verify_script.py"),
     ("tests/resources/hk/eastmoney-00005-financial-20261022.json", "tests/data/test_hk_bank_currency.py"),
     ("src/radar/calendar.py", "tests/radar"),
@@ -59,6 +62,20 @@ def test_shared_financial_validity_covers_report_and_cache():
     assert result.returncode == 0, result.stderr
     targets = {item.replace("\\", "/") for item in json.loads(result.stdout)["TestTargets"]}
     assert {"tests/core/test_financial_cache_facts.py", "tests/core/test_pipeline.py", "tests/report"} <= targets
+
+
+@pytest.mark.parametrize("path,expected", [
+    ("src/core/collection_contract.py", "tests/core"),
+    ("src/core/resilient_collection.py", "tests/report"),
+    ("src/data/collection_policies.py", "tests/core"),
+    ("src/data/akshare.py", "tests/core"),
+    ("scripts/check-data-entrypoints.py", "tests/test_data_entrypoints.py"),
+])
+def test_contract_changes_pull_related_tests(path, expected):
+    result = _run("-PlanOnly", "-Files", path)
+    assert result.returncode == 0, result.stderr
+    targets = [item.replace("\\", "/") for item in json.loads(result.stdout)["TestTargets"]]
+    assert expected in targets
 
 
 def test_version_only_change_checks_metadata_and_installed_distribution():
@@ -154,3 +171,16 @@ def test_directory_failure_restores_callers_pythonpath():
     outcome = json.loads(result.stdout.splitlines()[-1])
     assert outcome["Failure"] == "injected-directory-failure"
     assert outcome["Restored"] == "caller-sentinel"
+
+
+@pytest.mark.parametrize("path,expected", [
+    ("src/core/pipeline.py", {"tests/core", "tests/data", "tests/report", "tests/agent"}),
+    ("src/data/collection_policies.py", {"tests/core", "tests/data"}),
+    ("src/data/collection_state.py", {"tests/core", "tests/data"}),
+    ("src/data/hk_hsics_peers.py", {"tests/core", "tests/data"}),
+])
+def test_phase1_paths_cover_related_tests(path, expected):
+    result = _run("-PlanOnly", "-Files", path)
+    assert result.returncode == 0, result.stderr
+    targets = {item.replace("\\", "/") for item in json.loads(result.stdout)["TestTargets"]}
+    assert expected <= targets

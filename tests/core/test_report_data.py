@@ -8,6 +8,7 @@ from core.registry import Registry
 from data.cache import CacheManager
 from data.enrichers.price_enricher import PriceEnricher
 from data.schemas import AnalysisContext, AnalysisResult, PriceData
+from tests.support import FetchResultMixin
 from utils.config import Config
 
 
@@ -101,7 +102,7 @@ def test_mutated_invalid_price_rejected(tmp_path, field, value):
 def test_collection_source_roundtrip(tmp_path, monkeypatch):
     from data.base import DataSource
 
-    class ShortSource(DataSource):
+    class ShortSource(FetchResultMixin, DataSource):
         def supports(self, market, data_type):
             return data_type == "price"
 
@@ -138,14 +139,19 @@ def test_expiry_removes_metadata(tmp_path, monkeypatch):
 
 def test_stale_retains_original_source(tmp_path):
     from data.base import DataSource
-    from data.schemas import DataCollectionRecord, NewsData
+    from data.schemas import (
+        DataCollectionRecord,
+        NewsData,
+        RawSentimentData,
+        RawSentimentItem,
+    )
 
-    class EmptySource(DataSource):
+    class EmptySource(FetchResultMixin, DataSource):
         def supports(self, market, data_type):
             return data_type == "news"
 
         def fetch(self, symbol, **kwargs):
-            return [NewsData(symbol=symbol, date=date(2026, 1, 2), headlines=[])]
+            return []
 
     reg = Registry()
     reg.register_data_source(EmptySource())
@@ -160,21 +166,24 @@ def test_stale_retains_original_source(tmp_path):
             headlines=["旧新闻1", "旧新闻2", "旧新闻3"],
         )
     ]
+    today = datetime.now().astimezone().date()
+    data[0]._raw_sentiment = RawSentimentData(symbol="000001", fetch_date=today, items=[
+        RawSentimentItem(title=title, source="news", publish_date=today) for title in data[0].headlines])
     pipe._set_cache("000001", "news", data, original)
     with pipe._cache._get_conn() as conn:
         conn.execute("UPDATE cache SET created_at=0")
     ctx = pipe.collect("000001", "测试", data_types=["news"])
-    record = ctx.collection_records["news"]
-    assert record.cache_status == "stale"
+    assert ctx.news_data is None and ctx.raw_sentiment is None
+    record = ctx.reference_data["news"].record
     assert record.source == "原数据源"
     assert record.collected_at == original.collected_at
-    assert record.error_kind == "live_unavailable"
+    assert ctx.collection_records["news"].cache_state == "degraded"
 
 
 def test_failed_source_summary_safe(tmp_path, monkeypatch):
     from data.base import DataSource
 
-    class FailedSource(DataSource):
+    class FailedSource(FetchResultMixin, DataSource):
         def supports(self, market, data_type):
             return data_type == "price"
 

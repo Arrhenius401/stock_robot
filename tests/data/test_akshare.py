@@ -628,3 +628,36 @@ class TestFetchSwPeers:
         mocker.patch("data.industry_mapping_builder.fetch_taxonomy_codes",
                      return_value=({"农林牧渔": "801010.SI"}, {"种植业": "801011.SI"}))
         assert _fetch_sw_peers("量子计算", "食品饮料") == ([], "")
+
+
+def test_fetch_result_returns_rows_and_diagnostic(monkeypatch):
+    from data.akshare import AkShareAdapter
+
+    adapter = AkShareAdapter()
+
+    def broken(*args, **kwargs):
+        raise TimeoutError("timeout")
+
+    monkeypatch.setattr(adapter, "_fetch_price", broken)
+    result = adapter.fetch_result("000001", data_type="price", market="a-shares")
+    assert result.rows == []
+    assert result.record is not None
+    assert result.record.error_kind == "timeout"
+
+
+def test_fetch_wrapper_still_returns_rows(monkeypatch):
+    from datetime import date
+
+    from data.akshare import AkShareAdapter
+    from data.schemas import PriceData
+
+    adapter = AkShareAdapter()
+    monkeypatch.setattr(
+        adapter, "_fetch_price",
+        lambda *args, **kwargs: [PriceData(
+            symbol="000001", trade_date=date(2026, 10, 20),
+            open=10, high=11, low=9, close=10, volume=100,
+        )],
+    )
+    rows = adapter.fetch("000001", data_type="price", market="a-shares")
+    assert rows[0].symbol == "000001"

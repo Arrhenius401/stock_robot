@@ -208,3 +208,28 @@ def test_earlier_adjustment_revision_keeps_latest_tail_and_failed_rebuild_keeps_
     latest, _ = sync.prepare("510300", "cn", date(2026, 9, 1), date(2026, 9, 30), reuse=True)
     assert latest.iloc[-1]["date"] == date(2026, 9, 30)
     assert len(provider.calls) == before
+
+
+def test_prepare_result_exposes_provider_and_cache_records(tmp_path):
+    from data.collection_state import ValueResult, make_record
+
+    class ResultProvider(Provider):
+        def fetch_daily_result(self, symbol, start, end):
+            return ValueResult(
+                self.fetch_daily(symbol, start, end),
+                make_record("自定义源", "complete"),
+            )
+
+    sync = HistorySynchronizer(HistoryStore(tmp_path / "radar.db"), ResultProvider(frame(28, 29, 30)))
+    result, source, record = sync.prepare_result("510300", "cn", date(2026, 9, 28), date(2026, 9, 30))
+    assert result.iloc[-1]["date"] == date(2026, 9, 30)
+    assert source == "自定义源"
+    assert record.result_state == "complete"
+    assert record.cache_status == "live"
+
+    cached_result, cached_source, cached_record = sync.prepare_result(
+        "510300", "cn", date(2026, 9, 28), date(2026, 9, 30), reuse=True
+    )
+    assert cached_result.iloc[-1]["date"] == date(2026, 9, 30)
+    assert cached_source == "自定义源"
+    assert cached_record.cache_status == "cache"

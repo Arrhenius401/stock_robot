@@ -4,7 +4,7 @@
 
 <h1 align="center">Stock Robot</h1>
 
-<p align="center"><strong>AI 驱动的股票与指数分析研报助手</strong></p>
+<p align="center"><strong>股票、指数与黄金市场分析助手</strong></p>
 <p align="center">Web · CLI · HTTP API · MCP · AstrBot</p>
 
 <p align="center">
@@ -14,12 +14,13 @@
   <a href="https://github.com/Arrhenius401/astrbot_plugin_stock_robot">AstrBot 插件</a>
 </p>
 
- 数据采集与指标计算由代码完成，LLM 只负责把结果整理成自然语言解读。
+数据采集与指标计算由代码完成。个股与指数报告可由 LLM 生成自然语言解读，黄金简报使用确定性数据与规则说明。
 
 ## 它能做什么
 
 - **A 股 / 港股个股研报**：财务、技术、估值、行业、舆情与综合评分。
 - **指数与 ETF 分析**：宽基、行业、海外及红利低波、自由现金流等策略指数。
+- **黄金市场观察简报**：优先展示国内 Au99.99 与国际 XAU 价格、行情日期和涨跌，辅助呈现技术状态、宏观及需求数据。
 - **对话式投研与报告库**：用自然语言提问，浏览和下载历史报告。
 - **配置雷达与订阅推送**：研究 ETF 标的池、比较历史表现，按需配置推送。
 - **多端接入**：Web、CLI、HTTP API；MCP 见[使用指南](docs/使用指南.md#mcp-集成)，AstrBot 见[插件仓库](https://github.com/Arrhenius401/astrbot_plugin_stock_robot)。
@@ -78,10 +79,14 @@ python3 -m venv .venv
 .\scripts\stock-robot.ps1 analyze 000001          # 个股研报
 .\scripts\stock-robot.ps1 index 000300 000905    # 指数对比
 .\scripts\stock-robot.ps1 index 515300           # ETF 会解析为跟踪指数
+.\scripts\stock-robot.ps1 gold --no-llm           # 黄金市场观察简报，无需配置模型
+.\scripts\stock-robot.ps1 gold --refresh -o markdown --output-dir reports  # 刷新并归档
 .\scripts\stock-robot.ps1 chat                   # 交互式投研
 ```
 
-股票报告保存到 `reports/stock/`，指数报告保存到 `reports/index/`，回测产物保存到 `reports/backtests/`。配置与缓存位于当前目录的 `./.stock_robot/`。新个股报告同时保存 Markdown 和 `.report.json` 生成时快照，指数报告保存 Markdown；报告库可浏览和下载。完整命令与参数见[使用指南](docs/使用指南.md)。
+股票报告保存到 `reports/stock/`，指数报告保存到 `reports/index/`，黄金报告保存到 `reports/gold/GOLD/`，回测产物保存到 `reports/backtests/`。配置与缓存位于当前目录的 `./.stock_robot/`。新个股与黄金报告同时保存 Markdown 和 `.report.json` 生成时快照，指数报告保存 Markdown；报告库可浏览和下载。完整命令与参数见[使用指南](docs/使用指南.md)。
+
+Web 或聊天中输入“黄金”“国内黄金”“国际黄金”“Au99.99”或“XAU”可生成同一份黄金市场观察简报。黄金报告使用确定性说明，不提供买卖建议；来源缺失和过期会单独说明，历史价格分位只表示位置，不是估值或胜率。黄金不提供首饰金店牌价，也不分析单只黄金 ETF。
 
 ## 数据与使用边界
 

@@ -1,12 +1,13 @@
 import { api } from "./api.js";
 import { el, errorCard, skeleton } from "./components.js";
-import { renderMarkdown } from "./markdown.js";
+import { renderMarkdown } from "./markdown.js?v=20261027-gold-observation-2";
 import { bus } from "./state.js";
-import { localizeReportMarkdown, renderStockMarkdownReport, renderStockReport } from "./report-renderer.js?v=20261025-signal-placeholder-1";
+import { localizeReportMarkdown, renderStockMarkdownReport, renderStockReport } from "./report-renderer.js?v=20261027-gold-observation-2";
 
 const TYPE_LABELS = {
   stock: "个股",
   index: "指数",
+  gold: "黄金",
   backtest: "回测",
 };
 
@@ -81,6 +82,7 @@ function renderHeader() {
   const tools = el("div", "report-library-heading-tools");
   tools.appendChild(el("span", "pill", "个股分析"));
   tools.appendChild(el("span", "pill", "指数分析"));
+  tools.appendChild(el("span", "pill", "黄金研报"));
   tools.appendChild(el("span", "pill", "回测复盘"));
 
   heading.appendChild(copy);
@@ -92,7 +94,7 @@ function renderToolbar() {
   const toolbar = el("section", "report-library-toolbar");
   const input = el("input");
   input.type = "search";
-  input.placeholder = "搜索股票、指数、策略或文件名";
+  input.placeholder = "搜索股票、指数、黄金、策略或文件名";
   input.value = state.query;
   input.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
@@ -106,6 +108,7 @@ function renderToolbar() {
     ["", "全部"],
     ["stock", "个股"],
     ["index", "指数"],
+    ["gold", "黄金"],
     ["backtest", "回测"],
   ].forEach(([value, label]) => {
     const button = el("button", value === state.type ? "on" : "", label);
@@ -215,7 +218,7 @@ function tabButton(value, label) {
 
 function renderTabs(report, detail) {
   const tabs = el("nav", "report-library-tabs");
-  if (report.type === "stock" && detail.stock_payload) {
+  if ((report.type === "stock" && detail.stock_payload) || (report.type === "gold" && detail.gold_payload)) {
     tabs.appendChild(tabButton("report", "研报视图"));
     tabs.appendChild(tabButton("markdown", "Markdown 原文"));
   } else {
@@ -329,6 +332,14 @@ function renderMarkdownTab(detail) {
 function renderActiveTab(detail) {
   if (state.tab === "curve") return renderEquityCurve(detail.equity_curve);
   if (state.tab === "trades") return renderTrades(detail.trades);
+  if (detail.report?.type === "gold") {
+    if (detail.gold_payload && state.tab === "report") {
+      return renderStockReport(detail.gold_payload, {
+        sectionIdPrefix: "library-", readOnly: true, archiveMarkdown: detail.markdown,
+      });
+    }
+    return renderMarkdownTab(detail);
+  }
   if (detail.report?.type === "stock") {
     if (detail.stock_payload) {
       if (state.tab === "report") {
@@ -376,7 +387,7 @@ function renderDetail() {
 
   const panel = el("section", "panel report-library-detail-panel");
   if (report.type === "backtest") panel.appendChild(renderMetrics(detail));
-  if (report.type === "stock") panel.classList.add("report-library-stock-panel");
+  if (report.type === "stock" || report.type === "gold") panel.classList.add("report-library-stock-panel");
   panel.appendChild(renderTabs(report, detail));
 
   const body = el("div", "report-library-detail-body");
@@ -393,7 +404,8 @@ async function openDetail(id) {
   target.replaceChildren(skeleton("正在打开报告详情…"));
   try {
     state.selected = await api.getReport(id);
-    state.tab = state.selected.report?.type === "stock" && state.selected.stock_payload ? "report" : "markdown";
+    state.tab = ((state.selected.report?.type === "stock" && state.selected.stock_payload)
+      || (state.selected.report?.type === "gold" && state.selected.gold_payload)) ? "report" : "markdown";
     renderDetail();
   } catch (error) {
     target.replaceChildren(errorCard("报告已不存在或无法读取", error.message || String(error)));

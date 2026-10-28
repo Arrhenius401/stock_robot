@@ -100,6 +100,7 @@ def _write_manifest(
         "costs": result.costs,
         "benchmark": result.benchmark.model_dump(mode="json"),
         "warnings": result.warnings,
+        "collection_records": {key: record.model_dump(mode="json") for key, record in result.collection_records.items()},
         "version": version,
     }
     path.write_text(

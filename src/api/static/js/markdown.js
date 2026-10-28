@@ -18,7 +18,10 @@ function inline(s) {
       isSafeLink(url)
         ? `<a href="${url}" target="_blank" rel="noopener">${label}</a>`
         : label
-    ));
+    ))
+    // 在语法识别后恢复正文实体，避免外部文本被当成 Markdown；代码保留字面值。
+    .replace(/<code>[\s\S]*?<\/code>|&amp;((?:#\d+|#x[0-9a-f]+|amp|lt|gt|quot|apos);)/gi,
+      (match, entity) => entity ? `&${entity}` : match);
 }
 
 function isUnorderedList(line) {

@@ -18,7 +18,7 @@ from langgraph.errors import GraphRecursionError  # noqa: F401  # 重新导出�
 from langgraph.prebuilt import create_react_agent
 
 from agent.memory import Memory
-from agent.tools import ToolProtocol, ToolRegistry
+from agent.tools import ToolProtocol, ToolRegistry, model_tool_data
 from api.message_content import (
     encode_message_content,
     normalize_message_content,
@@ -75,19 +75,19 @@ def _as_lc_tool(t: ToolProtocol) -> Any:
                 **{k: v for k, v in kwargs.items() if v is not None})
         except Exception as e:  # noqa: BLE001 — 工具异常隔离，转为错误文本回注模型
             logger.error("工具 %s 执行异常: %s", t.name, e)
-            return f"错误: {e}"
+            return f"错误: {e}", None
         if result.status == "error":
-            return f"错误: {result.error}"
+            return f"错误: {result.error}", None
         try:
-            return json.dumps(result.data, ensure_ascii=False, default=str)
-        except (TypeError, ValueError) as e:
+            return json.dumps(model_tool_data(result.data), ensure_ascii=False, default=str), result.data
+        except (TypeError, ValueError, RecursionError) as e:
             # 序列化失败（如循环引用），同样回注错误而非误判 success
             logger.warning("工具 %s 结果序列化失败: %s", t.name, e)
-            return f"错误: 结果序列化失败: {e}"
+            return f"错误: 结果序列化失败: {e}", None
 
     return StructuredTool.from_function(
         coroutine=_run, name=t.name, description=t.description,
-        args_schema=_schema_to_model(t.name, t.parameters))
+        args_schema=_schema_to_model(t.name, t.parameters), response_format="content_and_artifact")
 
 
 def _role_to_message(role: str, content: str) -> BaseMessage:
@@ -190,6 +190,9 @@ class ReActExecutor:
                     # langgraph 1.x 的 output 为 ToolMessage，取其 content 再判状态
                     raw_output = data.get("output", "") or ""
                     output = str(getattr(raw_output, "content", raw_output))
+                    artifact = getattr(raw_output, "artifact", None)
+                    # 工具正文供模型/记忆使用；完整归档数据只交给用户成果持久化。
+                    user_output = json.dumps(artifact, ensure_ascii=False, default=str) if artifact is not None else output
                     entry = pending_tools.pop(run_id, None)
                     name = entry["tool"] if entry else event.get("name", "tool")
                     status = "error" if output.startswith("错误:") else "success"
@@ -199,7 +202,7 @@ class ReActExecutor:
                     tool_calls.append({"tool": name,
                                        "args": entry["args"] if entry else {},
                                        "status": status, "summary": summary,
-                                       "raw_output": output,
+                                       "raw_output": user_output,
                                        "message_id": message_id})
                     if on_event:
                         on_event({"type": "tool_result", "run_id": run_id,

@@ -243,6 +243,9 @@ class ValuationData(BaseModel):
     pb_history: dict[DateType, float] = Field(default_factory=dict)
     history_source: str = ""
     valuation_notes: list[str] = Field(default_factory=list)
+    cache_degraded: bool = False  # 请求失败导致的残缺结果，仅短 TTL 缓存
+    failed_components: list[Literal["snapshot", "comparison", "pe_history", "pb_history"]] = Field(
+        default_factory=list)  # 区分接口故障和来源明确无值，避免错误复活旧指标
 
 
 class PeerBasicInfo(BaseModel):
@@ -337,6 +340,9 @@ class AnalysisResult(BaseModel):
     industry_note: str = ""
 
 
+ResultState = Literal["complete", "partial", "empty", "not_applicable", "failed", "unknown"]
+
+
 class DataCollectionRecord(BaseModel):
     """采集出处与时效，旧缓存未知值保持空缺。"""
     source: str = ""
@@ -344,6 +350,18 @@ class DataCollectionRecord(BaseModel):
     cache_status: Literal["live", "cache", "stale", "unknown"] = "unknown"
     error_kind: str = ""
     error_message: str = ""
+    cache_state: Literal["complete", "degraded", "not_applicable", "unknown"] = "unknown"
+    result_state: ResultState = "unknown"
+
+
+class DataReference(BaseModel):
+    """独立历史参考，不回填当前事实，不进入充实器、评分或交易信号。"""
+    data_type: Literal["financial", "price", "news"]
+    record: DataCollectionRecord
+    financial_data: list[FinancialData] = Field(default_factory=list)
+    price_data: list[PriceData] = Field(default_factory=list)
+    news_data: NewsData | None = None
+    reason: str = ""
 
 
 class AnalysisContext(BaseModel):
@@ -358,6 +376,7 @@ class AnalysisContext(BaseModel):
     news_data: NewsData | None = None
     collected_at: datetime = Field(default_factory=lambda: datetime.now().astimezone())
     collection_records: dict[str, DataCollectionRecord] = Field(default_factory=dict)
+    reference_data: dict[str, DataReference] = Field(default_factory=dict)
 
     # 采集层 — 舆情原始数据
     raw_sentiment: RawSentimentData | None = None
@@ -485,6 +504,7 @@ class StrategySnapshot(BaseModel):
 class IndexAnalysisContext(BaseModel):
     """指数分析上下文 — 管道的核心数据容器"""
     target: AnalysisTarget
+    collection_records: dict[str, DataCollectionRecord] = Field(default_factory=dict)
     price_data: list[IndexPriceData] = Field(default_factory=list)
     valuation_data: IndexValuationData | None = None
     capital_flow: CapitalFlowData | None = None

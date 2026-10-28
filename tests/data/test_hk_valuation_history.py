@@ -192,3 +192,158 @@ def test_ps_request_rejects_mismatched_or_incomplete_data(mocker, alter):
     mocker.patch("requests.get").return_value.json.return_value = {"success": True, "result": result}
     with pytest.raises(ValueError):
         valuation_comparison_snapshot("00700")
+
+
+def test_push2_failure_uses_valuation_comparison_for_all_metrics(mocker):
+    mocker.patch("data.akshare.stock_snapshot", side_effect=TimeoutError)
+    mocker.patch("data.akshare.valuation_comparison_snapshot", return_value={
+        "SECUCODE": "09888.HK", "CORRE_SECUCODE": "09888.HK",
+        "REPORT_DATE": "2026-10-23 00:00:00",
+        "PE_TTM": -56.62, "PB_MQR": 0.66, "PS_TTM": 1.44,
+    })
+    mocker.patch("data.akshare.baidu_metric", side_effect=TimeoutError)
+    row = AkShareAdapter().fetch("09888.HK", market="hk", data_type="valuation")[0]
+    assert (row.pe_ttm, row.pb, row.ps_ttm) == (-56.62, 0.66, 1.44)
+    assert row.pe_as_of == row.pb_as_of == row.ps_as_of == date(2026, 10, 23)
+    # 降级来自 primary_failed（快照超时）和 history_failed（两条曲线失败），不是负值本身。
+    assert row.cache_degraded is True
+    assert any("估值对比补位" in note for note in row.valuation_notes)
+
+
+def test_negative_pe_is_preserved_and_not_replaced_by_baidu_history(mocker):
+    mocker.patch("data.akshare.stock_snapshot", return_value={
+        "f57": "09888", "f86": 1792742888, "f164": -56.62, "f167": 0.66,
+    })
+    mocker.patch("data.akshare.valuation_comparison_snapshot", return_value={
+        "SECUCODE": "09888.HK", "CORRE_SECUCODE": "09888.HK",
+        "REPORT_DATE": "2026-10-23 00:00:00",
+        "PE_TTM": -56.62, "PB_MQR": 0.66, "PS_TTM": 1.44,
+    })
+    mocker.patch("data.akshare.baidu_metric", side_effect=lambda _code, metric: (
+        {date(2026, 8, 17): 183.04} if metric == "市盈率(TTM)"
+        else {date(2026, 10, 23): 0.66}))
+    row = AkShareAdapter().fetch("09888.HK", market="hk", data_type="valuation")[0]
+    assert row.pe_ttm == -56.62
+    assert row.pb == 0.66
+    assert row.pe_history == {date(2026, 8, 17): 183.04}
+    assert row.date == date(2026, 10, 23)
+    assert row.pe_as_of == date(2026, 10, 23)
+    assert row.cache_degraded is False
+
+
+def test_primary_snapshot_date_survives_older_curve_when_comparison_fills_pb(mocker):
+    mocker.patch("data.akshare.stock_snapshot", return_value={
+        "f57": "09888", "f86": 1792742888, "f164": -56.62,
+    })
+    mocker.patch("data.akshare.valuation_comparison_snapshot", return_value={
+        "SECUCODE": "09888.HK", "CORRE_SECUCODE": "09888.HK",
+        "REPORT_DATE": "2026-10-23 00:00:00",
+        "PE_TTM": -56.62, "PB_MQR": 0.66, "PS_TTM": 1.44,
+    })
+    mocker.patch("data.akshare.baidu_metric", side_effect=lambda _code, metric: (
+        {date(2026, 8, 17): 183.04} if metric == "市盈率(TTM)"
+        else {date(2026, 8, 17): 0.5}))
+    row = AkShareAdapter().fetch("09888.HK", market="hk", data_type="valuation")[0]
+    assert row.pb == 0.66
+    assert row.pb_as_of == date(2026, 10, 23)
+    assert row.date == date(2026, 10, 23)
+    assert "+估值对比" in row._data_source
+
+
+def test_curve_fallback_uses_curve_date_and_marks_degraded(mocker):
+    mocker.patch("data.akshare.stock_snapshot", side_effect=TimeoutError)
+    mocker.patch("data.akshare.valuation_comparison_snapshot", return_value={
+        "SECUCODE": "09888.HK", "CORRE_SECUCODE": "09888.HK",
+        "REPORT_DATE": "2026-10-20 00:00:00",
+        "PE_TTM": None, "PB_MQR": None, "PS_TTM": 1.44,
+    })
+    mocker.patch("data.akshare.baidu_metric", side_effect=lambda _code, metric: (
+        {} if metric == "市盈率(TTM)" else {date(2026, 8, 17): 0.8}))
+    row = AkShareAdapter().fetch("09888.HK", market="hk", data_type="valuation")[0]
+    assert row.pe_ttm is None and row.pb == 0.8
+    assert row.pb_as_of == date(2026, 8, 17)
+    assert row.ps_as_of == date(2026, 10, 20)
+    assert row.date == date(2026, 8, 17)
+    assert row.cache_degraded is True
+    assert "曲线末值" in row._data_source
+    assert any("曲线末值" in note for note in row.valuation_notes)
+
+
+def test_invalid_snapshot_timestamp_falls_back_to_curves(mocker):
+    mocker.patch("data.akshare.stock_snapshot", return_value={
+        "f57": "00700", "f86": None, "f164": 10, "f167": 2})
+    mocker.patch("data.akshare.valuation_comparison_snapshot", side_effect=TimeoutError)
+    mocker.patch("data.akshare.baidu_metric", side_effect=lambda _code, metric: (
+        {date(2026, 10, 23): 13.0} if metric == "市盈率(TTM)"
+        else {date(2026, 10, 23): 2.7}))
+    row = AkShareAdapter().fetch("00700.HK", market="hk", data_type="valuation")[0]
+    assert (row.pe_ttm, row.pb) == (13.0, 2.7)
+    assert row.pe_as_of == row.pb_as_of == date(2026, 10, 23)
+    assert row.date == date(2026, 10, 23)
+    assert "曲线末值" in row._data_source
+    assert row.cache_degraded is True
+
+
+def test_snapshot_values_win_over_comparison(mocker):
+    mocker.patch("data.akshare.stock_snapshot", return_value={
+        "f57": "00700", "f86": 1767225600, "f164": 10, "f167": 2})
+    mocker.patch("data.akshare.valuation_comparison_snapshot", return_value={
+        "SECUCODE": "00700.HK", "CORRE_SECUCODE": "00700.HK",
+        "REPORT_DATE": "2026-10-23 00:00:00",
+        "PE_TTM": 11, "PB_MQR": 3, "PS_TTM": 1.5,
+    })
+    mocker.patch("data.akshare.baidu_metric", return_value={date(2026, 10, 23): 12.0})
+    row = AkShareAdapter().fetch("00700.HK", market="hk", data_type="valuation")[0]
+    assert (row.pe_ttm, row.pb) == (10, 2)
+    assert row.pe_as_of == row.pb_as_of == date(2026, 1, 1)
+    assert row.date == date(2026, 1, 1)
+    assert row.ps_as_of == date(2026, 10, 23)
+    assert row._data_source == "东方财富港股估值快照"
+
+
+def test_ps_only_path_keeps_ps_date_and_source(mocker):
+    mocker.patch("data.akshare.stock_snapshot", side_effect=TimeoutError)
+    mocker.patch("data.akshare.valuation_comparison_snapshot", return_value={
+        "SECUCODE": "09888.HK", "CORRE_SECUCODE": "09888.HK",
+        "REPORT_DATE": "2026-10-20 00:00:00",
+        "PE_TTM": None, "PB_MQR": None, "PS_TTM": 1.44,
+    })
+    mocker.patch("data.akshare.baidu_metric", side_effect=TimeoutError)
+    row = AkShareAdapter().fetch("09888.HK", market="hk", data_type="valuation")[0]
+    assert row.pe_ttm is None and row.pb is None
+    assert row.ps_ttm == 1.44
+    assert row.ps_as_of == date(2026, 10, 20)
+    assert row.ps_source == "东方财富港股估值对比"
+    assert row.date == date(2026, 10, 20)
+    assert row._data_source == "仅 PS"
+    # 降级来自两次请求失败，而不是“没有正指标”。
+    assert row.cache_degraded is True
+    assert any("采集失败" in note for note in row.valuation_notes)
+
+
+def test_comparison_structural_ps_missing_is_not_degraded(mocker):
+    mocker.patch("data.akshare.stock_snapshot", return_value={
+        "f57": "00700", "f86": 1792742888, "f164": 13.15, "f167": 2.68,
+    })
+    mocker.patch("data.akshare.valuation_comparison_snapshot", return_value={
+        "SECUCODE": "00700.HK", "CORRE_SECUCODE": "00700.HK",
+        "REPORT_DATE": "2026-10-23 00:00:00",
+        "PE_TTM": 13.15, "PB_MQR": 2.68, "PS_TTM": None,
+    })
+    mocker.patch("data.akshare.baidu_metric", return_value={date(2026, 10, 23): 13.0})
+    row = AkShareAdapter().fetch("00700.HK", market="hk", data_type="valuation")[0]
+    assert row.ps_ttm is None
+    assert row.cache_degraded is False
+    assert any("未提供有效数值" in note for note in row.valuation_notes)
+
+
+def test_comparison_request_includes_pe_pb_ps(mocker):
+    row = {"SECUCODE": "09888.HK", "CORRE_SECUCODE": "09888.HK",
+           "REPORT_DATE": "2026-10-23 00:00:00",
+           "PE_TTM": -56.62, "PB_MQR": 0.66, "PS_TTM": 1.44}
+    request = mocker.patch("requests.get")
+    request.return_value.json.return_value = {
+        "success": True, "result": {"count": 1, "pages": 1, "data": [row]}}
+    valuation_comparison_snapshot("09888")
+    columns = request.call_args.kwargs["params"]["columns"]
+    assert {"PE_TTM", "PB_MQR", "PS_TTM"} <= set(columns.split(","))

@@ -3,16 +3,19 @@ import hashlib
 import html
 import json
 import logging
+import math
 import re
 import time
 from collections.abc import Callable
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import requests
 
+from data.base import CollectionResult
 from data.cache import CacheManager
+from data.collection_state import make_record
 from data.industry_mapping_builder import _HEADERS
 from data.peer_comparison_rules import finite, iso_date, normalize_financial_rows
 from data.schemas import IndustryData, PeerBasicInfo
@@ -33,21 +36,31 @@ def _key(*parts: str) -> str:
     return hashlib.sha256("|".join(parts).encode()).hexdigest()
 
 
-def read_snapshot(cache: CacheManager | None, category: str, key: str,
-                  ttl: int) -> tuple[Any, bool]:
+def read_snapshot_entry(cache: CacheManager | None, category: str, key: str,
+                        ttl: int) -> tuple[Any, bool, float | None]:
     """用显式时间验证新鲜度，保留 TTL 到期的成功快照供失败回退。"""
     if cache is None:
-        return None, False
+        return None, False, None
     raw = cache.get_stale(category, key, "v1")
     if not raw:
-        return None, False
+        return None, False, None
     try:
         envelope = json.loads(raw)
-        age = time.time() - float(envelope["saved_at"])
-        return envelope["payload"], 0 <= age < ttl
-    except (ValueError, TypeError, KeyError):
+        saved_at = float(envelope["saved_at"])
+        if not math.isfinite(saved_at):
+            raise ValueError("缓存时间无效")
+        datetime.fromtimestamp(saved_at, tz=UTC)
+        age = time.time() - saved_at
+        return envelope["payload"], 0 <= age < ttl, saved_at
+    except (ValueError, TypeError, KeyError, OverflowError, OSError):
         logger.warning("同行比较缓存格式无效：%s", category)
-        return None, False
+        return None, False, None
+
+
+def read_snapshot(cache: CacheManager | None, category: str, key: str,
+                  ttl: int) -> tuple[Any, bool]:
+    payload, fresh, _ = read_snapshot_entry(cache, category, key, ttl)
+    return payload, fresh
 
 
 def write_snapshot(cache: CacheManager | None, category: str, key: str,
@@ -276,12 +289,15 @@ def fetch_a_industry(symbol: str, *, cache: CacheManager | None = None,
 
 def fetch_financial_rows(symbols: list[str], market: str, *, start: str,
                          deadline: float, cache: CacheManager | None = None,
-                         refresh: bool = False) -> tuple[list[dict], list[str]]:
+                         refresh: bool = False) -> CollectionResult:
     symbols = sorted(set(symbols))
     key = _key(market, "main-indicator-v1", start, *symbols)
-    old, fresh = read_snapshot(cache, "peer_financial", key, 21600)
+    old, fresh, saved_at = read_snapshot_entry(cache, "peer_financial", key, 21600)
+    snapshot_at = datetime.fromtimestamp(saved_at, tz=UTC).astimezone() if saved_at is not None else None
     if old is not None and fresh and not refresh:
-        return old, []
+        state = "complete" if old else "failed"
+        return CollectionResult(old, make_record("东财主要财务指标", state,
+            collected_at=snapshot_at, cache_status="cache"))
     jobs = [symbols[i:i + MAX_BATCH] for i in range(0, len(symbols), MAX_BATCH)]
     hk = market == "hk"
 
@@ -329,7 +345,13 @@ def fetch_financial_rows(symbols: list[str], market: str, *, start: str,
     if coverage < len(symbols):
         errors.append(f"经营指标代码覆盖 {coverage}/{len(symbols)}，未取到的公司保留缺失")
     if errors and old is not None:
-        return old, [*errors, "经营指标刷新失败，使用原报告期成功快照"]
+        errors.append("经营指标刷新失败，使用原报告期成功快照")
+        state = "partial" if old else "failed"
+        return CollectionResult(old, make_record("东财主要财务指标", state,
+            collected_at=snapshot_at, cache_status="stale", error_kind="empty" if not old else ""), errors)
     if not errors and rows and time.monotonic() < deadline:
         write_snapshot(cache, "peer_financial", key, rows, 21600)
-    return rows, errors
+    state = "failed" if not rows else "partial" if errors else "complete"
+    record = make_record("东财主要财务指标", state, collected_at=datetime.now().astimezone(),
+                         error_kind="empty" if not rows else "")
+    return CollectionResult(rows, record, errors)

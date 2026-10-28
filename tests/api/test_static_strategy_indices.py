@@ -95,8 +95,8 @@ if(analyzed.at(-1)!=="159998") throw new Error("目录失败阻断原入口");
 """
     script = script.replace("__API__", json.dumps(_module_url("src/api/static/js/api.js")))
     script = script.replace("__REPORT__", json.dumps(_module_url("src/api/static/js/report.js")))
-    script = script.replace("__REPORT_API__", json.dumps(_module_url("src/api/static/js/api.js") + "?v=20261025-signal-placeholder-1"))
-    script = script.replace("__INDEX__", json.dumps(_module_url("src/api/static/js/indexview.js") + "?v=20261025-signal-placeholder-1"))
+    script = script.replace("__REPORT_API__", json.dumps(_module_url("src/api/static/js/api.js") + "?v=20261027-gold-observation-2"))
+    script = script.replace("__INDEX__", json.dumps(_module_url("src/api/static/js/indexview.js") + "?v=20261027-gold-observation-2"))
     _run_node(tmp_path, script)
 
 

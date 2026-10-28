@@ -140,3 +140,34 @@ def test_fetch_overseas_index_unknown_symbol_returns_empty(mocker):
     adapter = AkShareAdapter()
     results = adapter.fetch("UNKNOWN_INDEX", data_type="index_price", index_style="overseas")
     assert results == []
+
+
+def test_index_history_result_reports_source_and_state(monkeypatch):
+    frame = pd.DataFrame({"date": ["2024-01-02"], "close": [3500.0]})
+    monkeypatch.setattr("data.akshare._ak_csindex", lambda **_: frame)
+    from data.akshare import fetch_index_history_result
+
+    result = fetch_index_history_result("000300", "20240101", "20240131")
+    assert result.value is frame
+    assert result.record.source == "中证指数官网"
+    assert result.record.result_state == "complete"
+    assert result.record.collected_at is not None
+
+
+def test_index_history_result_empty_and_safe_failure(monkeypatch):
+    from data.akshare import fetch_index_history_result
+
+    monkeypatch.setattr("data.akshare._ak_csindex", lambda **_: None)
+    empty = fetch_index_history_result("000300", "20240101", "20240131")
+    assert empty.value is None
+    assert empty.record.result_state == "empty"
+
+    def fail(**kwargs):
+        raise TimeoutError("敏感的上游细节")
+
+    monkeypatch.setattr("data.akshare._ak_csindex", fail)
+    failed = fetch_index_history_result("000300", "20240101", "20240131")
+    assert failed.value is None
+    assert failed.record.result_state == "failed"
+    assert failed.record.error_kind == "timeout"
+    assert "敏感的上游细节" not in failed.record.error_message

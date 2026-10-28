@@ -7,6 +7,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from data.schemas import AnalysisResult
 from report.formatter import (
+    _news_text,
     format_hk_news_markdown,
     format_metric_value,
     format_metrics,
@@ -81,6 +82,8 @@ def _md_table(data, headers=None):
             row = []
             for key in data_keys:
                 val = item.get(key, "")
+                if key == "value" and item.get("plain_text"):
+                    val = _news_text(val)
                 row.append(str(format_metric_value(key, val)))
             rows.append(row)
         headers = display_headers

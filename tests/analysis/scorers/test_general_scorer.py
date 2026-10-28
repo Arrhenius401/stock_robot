@@ -67,6 +67,49 @@ class TestGeneralScorerFinancial:
         assert score is None
         assert "数据不可用" in detail
 
+    @pytest.mark.parametrize("field", ["common_equity", "total_equity"])
+    def test_negative_equity_is_sourced_latest_fact_without_extra_score_penalty(self, config, ctx, field):
+        config["financial"]["debt_ratio"]["enabled"] = False
+        baseline = GeneralScorer(config, {}).score_financial(ctx)[0]
+        assert ctx.financial_data is not None
+        latest = ctx.financial_data[0]
+        latest.financial_source = "同源财报"
+        setattr(latest, field, -10)
+        score, detail, risks = GeneralScorer(config, {}).score_financial(ctx)
+        assert "negative_equity" in risks
+        assert "2025-12-31" in detail and "-10" in detail and "不扣分" in detail
+        assert score == baseline
+
+    def test_negative_equity_without_source_does_not_create_risk(self, config, ctx):
+        assert ctx.financial_data is not None
+        ctx.financial_data[0].total_equity = -10
+        assert "negative_equity" not in GeneralScorer(config, {}).score_financial(ctx)[2]
+
+    def test_equity_field_source_is_sufficient_for_risk(self, config, ctx):
+        assert ctx.financial_data is not None
+        ctx.financial_data[0].common_equity = -10
+        ctx.financial_data[0].field_sources["common_equity"] = "直接披露的资产负债表"
+        assert "negative_equity" in GeneralScorer(config, {}).score_financial(ctx)[2]
+
+    def test_older_negative_equity_and_negative_pb_do_not_override_latest_financials(self, config, ctx):
+        assert ctx.financial_data is not None and ctx.valuation_data is not None
+        ctx.financial_data[1].total_equity = -10
+        ctx.financial_data[1].financial_source = "同源财报"
+        ctx.valuation_data.pb = -2
+        assert "negative_equity" not in GeneralScorer(config, {}).score_financial(ctx)[2]
+
+    @pytest.mark.parametrize("invalid", ["wrong_symbol", "future", "conflict"])
+    def test_untrusted_negative_equity_does_not_create_risk(self, config, ctx, invalid):
+        assert ctx.financial_data is not None
+        negative = ctx.financial_data[0].model_copy(update={
+            "total_equity": -10, "financial_source": "同源财报"})
+        if invalid == "wrong_symbol":
+            negative.symbol = "000001"
+        elif invalid == "future":
+            negative.fiscal_quarter = date(2099, 12, 31)
+        ctx.financial_data.append(negative)
+        assert "negative_equity" not in GeneralScorer(config, {}).score_financial(ctx)[2]
+
 
 class TestGeneralScorerValuation:
     @pytest.fixture

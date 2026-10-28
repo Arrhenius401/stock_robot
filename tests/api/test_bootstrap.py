@@ -22,6 +22,8 @@ class TestBuildAgentCore:
         snapshot_tool = core.registry.get("get_snapshot")
         assert index_tool is not None and getattr(index_tool, "_pipeline", None) is core.index_pipeline
         assert snapshot_tool is not None and getattr(snapshot_tool, "_pipeline", None) is core.index_pipeline
+        gold_tool = core.registry.get("analyze_gold")
+        assert gold_tool is not None and getattr(gold_tool, "_service", None) is not None
 
     def test_rag_unavailable_skipped(self, config, mocker):
         mocker.patch("rag.engine.RAGEngine", side_effect=RuntimeError("无 ChromaDB"))

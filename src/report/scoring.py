@@ -57,12 +57,16 @@ def compute_score_summary(results: list[AnalysisResult]) -> ScoreSummary:
         if result is None:
             continue
         value = scores[key]
+        detail = result.score_detail or ""
+        if key == "valuation" and value is None and total is not None:
+            note = f"估值维度未计分，原 {DIM_WEIGHT_LABELS[key]} 权重已由其余有效维度按原比例重新归一"
+            detail = f"{detail}；{note}" if detail else note
         rows.append({"label": label, "score": f"{value:.1f}" if value is not None else "N/A",
                      "raw_score": result.score if value is not None else None,
                      "direction": "risk" if key == "sentiment" else "higher_better",
                      "weight": DIM_WEIGHT_LABELS[key],
                      "sufficiency": SUFFICIENCY_LABEL.get(result.status, result.status),
-                     "detail": result.score_detail or ""})
+                     "detail": detail})
         flags.extend(result.risk_flags)
     return ScoreSummary(score_rows=rows, base_score=total, final_score=total,
                         risk_deduction=0, risk_flags=list(dict.fromkeys(flags)))

@@ -1,5 +1,5 @@
 // 结构化股票报告共享渲染器：不读取业务状态，也不发起网络请求。
-import { renderMarkdown } from "./markdown.js";
+import { renderMarkdown } from "./markdown.js?v=20261027-gold-observation-2";
 import { el, kv, priceBar, statusBadge } from "./components.js";
 
 const DIMENSIONS = [
@@ -76,6 +76,7 @@ Object.assign(METRIC_LABELS, {
 
 const RISK_LABELS = {
   roe_low: "净资产收益率偏低",
+  negative_equity: "净资产为负（资不抵债风险）",
   high_debt: "资产负债率偏高",
   cash_flow_mismatch: "经营现金流与净利润不匹配",
   high_pe_premium: "市盈率分位偏高",
@@ -302,7 +303,7 @@ const REPORT_TOKEN_LABELS = {
 
 export function localizeReportMarkdown(markdown) {
   const text = String(markdown || "");
-  return text.replace(/\b(?:roe_low|high_debt|cash_flow_mismatch|high_pe_premium|industry_weak_margin|bearish_ma|volume_bearish|major_negative_news|bull|shake|bear|undervalued|overvalued|invalid|positive|negative|neutral|na)\b/g,
+  return text.replace(/\b(?:roe_low|negative_equity|high_debt|cash_flow_mismatch|high_pe_premium|industry_weak_margin|bearish_ma|volume_bearish|major_negative_news|bull|shake|bear|undervalued|overvalued|invalid|positive|negative|neutral|na)\b/g,
     (token) => REPORT_TOKEN_LABELS[token] || token);
 }
 
@@ -965,8 +966,67 @@ function archivedCommentaryBody(part) {
     !/已包含在上方|本次未生成模型观察视角|该摘要不包含模型主观推演/.test(line)).join("\n").trim();
 }
 
+function goldDirectionSummary(report) {
+  if (report.report_schema === "gold-observation-v2") {
+    const markets = record(report.markets ?? record(report.facts).markets);
+    const marketSummary = (label, value) => {
+      const market = record(value);
+      const price = market.latest_close;
+      const validPrice = typeof price === "number" && Number.isFinite(price) && price > 0;
+      const formatted = validPrice
+        ? `${price.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${readable(market.unit, "单位未记录")}`
+        : "价格不可用";
+      const date = readable(market.as_of, "日期未记录");
+      const stale = market.status === "stale" ? "，旧数据" : "";
+      const direction = market.status === "ok" ? readable(record(market.short_term).direction, "无法判断") : "无法判断";
+      return `${label}：${formatted}（${date}${stale}），技术${direction}`;
+    };
+    return `${marketSummary("国内", markets.domestic)}；${marketSummary("国际", markets.international)}`;
+  }
+  const markets = record(report.markets);
+  const direction = value => readable(record(value).direction, "无法判断");
+  return `长期：${direction(report.long_term)}；国内短期：${direction(record(markets.domestic).short_term)}；国际短期：${direction(record(markets.international).short_term)}`;
+}
+
+function renderGoldObservationMarkdown(markdown, options) {
+  // 新版正文按归档顺序展示，不从快照重新生成研判。
+  const article = el("article", "stock-report gold-report");
+  if (options.className) article.classList.add(String(options.className));
+  const prefix = options.sectionIdPrefix || "";
+  const source = String(markdown || "").trim();
+  const title = source.match(/^#\s+(.+)$/m)?.[1] || "黄金市场观察简报";
+  const parts = source.replace(/^#\s+.+\n?/, "").split(/\n(?=##\s+)/);
+  const introduction = parts.shift().trim();
+  const first = section("gold-observation", title, "panel", prefix);
+  if (introduction) first.appendChild(markdownBlock(introduction, "md"));
+  article.appendChild(first);
+  parts.forEach((part, index) => {
+    const match = part.match(/^##\s+(.+)$/m);
+    const label = match?.[1] || `报告章节 ${index + 1}`;
+    const body = part.replace(/^##\s+.+\n?/, "");
+    const card = index === 0 ? first : section(`gold-observation-${index}`, label, "panel", prefix);
+    if (index === 0) card.appendChild(el("h3", "", label));
+    card.appendChild(markdownBlock(body, "md"));
+    if (index !== 0) article.appendChild(card);
+  });
+  return article;
+}
+
+function renderGoldReport(report, options) {
+  // 黄金复用已有 Markdown 章节卡片，不经过股票评分和维度空态。
+  const markdown = options.archiveMarkdown || report.markdown || "# 黄金综合研报\n\n报告正文缺失，请重新生成。";
+  if (report.report_schema === "gold-observation-v2") return renderGoldObservationMarkdown(markdown, options);
+  const article = renderStockMarkdownReport(markdown, options);
+  article.classList.add("gold-report");
+  const summary = article.children[0];
+  summary.children[0].textContent = "黄金研判摘要";
+  summary.appendChild(el("p", "report-investment-summary", goldDirectionSummary(report)));
+  return article;
+}
+
 export function renderStockReport(report, options = {}) {
   const data = record(report);
+  if (data.report_type === "gold") return renderGoldReport(data, options);
   const sectionIdPrefix = options.sectionIdPrefix || "";
   const article = el("article", "stock-report");
   if (options.className) article.classList.add(String(options.className));
@@ -1102,15 +1162,17 @@ export function renderReportSummary(artifact) {
     readable(report.name, reportSymbol(report))));
   header.appendChild(el("span", "report-summary-code", reportSymbol(report)));
   const score = record(report.score);
-  if (score.final !== null && score.final !== undefined && score.final !== "") {
+  if (report.report_type !== "gold" && score.final !== null && score.final !== undefined && score.final !== "") {
     header.appendChild(el("span", "report-summary-score", `${scoreText(score.final)}/10`));
   }
   card.appendChild(header);
 
-  card.appendChild(markdownBlock(summaryConclusion(report),
-    "report-summary-conclusion md"));
+  card.appendChild(report.report_type === "gold"
+    ? el("p", "report-summary-conclusion md", goldDirectionSummary(report))
+    : markdownBlock(summaryConclusion(report), "report-summary-conclusion md"));
   const meta = el("div", "report-summary-meta");
-  meta.appendChild(el("span", "report-summary-risks", `${riskFlags(report).length} 项风险`));
+  meta.appendChild(el("span", "report-summary-risks", report.report_type === "gold"
+    ? (report.report_schema === "gold-observation-v2" ? "行情日期与风险见正文" : "风险与量化重估见正文") : `${riskFlags(report).length} 项风险`));
   meta.appendChild(el("span", "report-summary-time", artifactTime(item, report)));
   card.appendChild(meta);
 

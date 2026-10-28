@@ -5,7 +5,9 @@ from unittest.mock import Mock
 
 import pytest
 
+from data.base import CollectionResult
 from data.cache import CacheManager
+from data.collection_state import make_record
 from data.financial_scoring_facts import FinancialScoringFactsService
 from data.schemas import AnalysisContext, EnrichedIndustry, FinancialData, IndustryData
 
@@ -50,7 +52,7 @@ def test_comparison_annual_target_reuses_percent_units_without_peer_requirement(
     {"period_start": date(2025, 10, 1)}, {"fiscal_quarter": date(2030, 3, 31)},
     {"financial_source": "", "reporting_basis": ""}])
 def test_unknown_future_and_nonannual_not_accepted(mocker, values):
-    mocker.patch("data.financial_scoring_facts.fetch_financial_rows", return_value=([], []))
+    mocker.patch("data.financial_scoring_facts.fetch_financial_rows", return_value=CollectionResult([]))
     ctx = context(roe=.12, **values)
     FinancialScoringFactsService().enrich(ctx)
     assert ctx.financial_scoring_facts["annual_roe"]["value"] is None
@@ -58,7 +60,7 @@ def test_unknown_future_and_nonannual_not_accepted(mocker, values):
 
 
 def test_conflicting_duplicate_year_skipped(mocker):
-    mocker.patch("data.financial_scoring_facts.fetch_financial_rows", return_value=([], []))
+    mocker.patch("data.financial_scoring_facts.fetch_financial_rows", return_value=CollectionResult([]))
     ctx = context(roe=.12)
     financials(ctx).append(financials(ctx)[0].model_copy(update={"roe": .2}))
     FinancialScoringFactsService().enrich(ctx)
@@ -66,15 +68,17 @@ def test_conflicting_duplicate_year_skipped(mocker):
 
 
 def test_fallback_keeps_cache_refresh_and_original_deadline(mocker):
-    fetch = mocker.patch("data.financial_scoring_facts.fetch_financial_rows", return_value=([
+    fetch = mocker.patch("data.financial_scoring_facts.fetch_financial_rows", return_value=CollectionResult([
         {"symbol": "09988.HK", "start": "2025-04-01", "end": "2026-03-31", "annual": True,
-             "period_basis": "cumulative", "basis": "累计·平均权益ROE（未年化）", "roe": 12, "reason": ""}], []))
+             "period_basis": "cumulative", "basis": "累计·平均权益ROE（未年化）", "roe": 12, "reason": ""}], record=make_record("测试源", "complete")))
     ctx = context()
     ctx.industry_data = IndustryData(symbol=ctx.symbol, industry="软件服务", sector="Information Technology")
     ctx.industry_data._comparison_deadline = time.monotonic() - 1
     cache = Mock()
     FinancialScoringFactsService(cache).enrich(ctx, refresh=True)
     assert ctx.financial_scoring_facts["annual_roe"]["value"] == .12
+    assert ctx.collection_records["annual_roe"].source == "测试源"
+    assert "record" not in ctx.financial_scoring_facts["annual_roe"]
     assert fetch.call_args.args == ([ctx.symbol], "hk")
     assert fetch.call_args.kwargs["cache"] is cache
     assert fetch.call_args.kwargs["refresh"] is True
@@ -108,7 +112,7 @@ def test_target_only_main_indicator_cache_reused_even_after_deadline(mocker, tmp
 
 
 def test_latest_complete_year_selected_and_interim_never_annualized(mocker):
-    mocker.patch("data.financial_scoring_facts.fetch_financial_rows", return_value=([], []))
+    mocker.patch("data.financial_scoring_facts.fetch_financial_rows", return_value=CollectionResult([]))
     ctx = context(roe=.12)
     financials(ctx).extend([
         financials(ctx)[0].model_copy(update={"period_start": date(2024, 4, 1),
@@ -129,7 +133,7 @@ def test_target_fetch_failure_is_isolated_without_fake_zero(mocker, caplog):
 
 
 def test_same_end_with_conflicting_fiscal_year_starts_is_not_arbitrarily_selected(mocker):
-    mocker.patch("data.financial_scoring_facts.fetch_financial_rows", return_value=([], []))
+    mocker.patch("data.financial_scoring_facts.fetch_financial_rows", return_value=CollectionResult([]))
     ctx = context(roe=.12)
     financials(ctx).append(financials(ctx)[0].model_copy(update={"period_start": date(2025, 3, 31), "roe": .3}))
     FinancialScoringFactsService().enrich(ctx)
@@ -165,7 +169,7 @@ def test_same_year_reported_roe_retains_source_priority(mocker):
 @pytest.mark.parametrize("newer_source", ["reported", "comparison", "fetched"])
 def test_known_newer_year_without_roe_does_not_score_an_older_year(mocker, newer_source):
     rows = []
-    fetch = mocker.patch("data.financial_scoring_facts.fetch_financial_rows", return_value=(rows, []))
+    fetch = mocker.patch("data.financial_scoring_facts.fetch_financial_rows", return_value=CollectionResult(rows))
     ctx = context(roe=.03, period_start=date(2024, 1, 1), fiscal_quarter=date(2024, 12, 31))
     if newer_source == "reported":
         financials(ctx).append(financials(ctx)[0].model_copy(update={

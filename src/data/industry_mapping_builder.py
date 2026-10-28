@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ import requests
 import yaml
 from filelock import FileLock, Timeout
 
+from data.collection_state import make_refresh_record
 from utils.paths import industry_mapping_path
 
 logger = logging.getLogger(__name__)
@@ -382,6 +384,7 @@ def validate_sample(sample_size: int = 5, delay: float = DEFAULT_DELAY) -> dict:
 
 def rebuild_all(delay: float = DEFAULT_DELAY, on_progress=None, resume: bool = False) -> dict:
     """构建并校验候选映射表；调用 publish_candidate 后才会替换正式表。"""
+    attempted_at = datetime.now().astimezone()
     level2_map, level3_map = fetch_taxonomy(refresh=True)
     style_map = _load_style_mapping()
 
@@ -455,6 +458,9 @@ def rebuild_all(delay: float = DEFAULT_DELAY, on_progress=None, resume: bool = F
         "failed_industries": sorted(failed),
         "level2_fallback_count": fallback_count,
         "candidate_path": str(candidate),
+        "refresh_record": make_refresh_record(
+            "乐咕申万", "partial", attempted_at=attempted_at,
+            published=False, error_message="仅生成候选映射，尚未发布"),
         **validation,
     }
     logger.info("行业映射候选构建完成: %d 只股票，有效分类率 %.1f%%，失败行业 %d",
@@ -464,6 +470,7 @@ def rebuild_all(delay: float = DEFAULT_DELAY, on_progress=None, resume: bool = F
 
 def publish_candidate() -> dict:
     """通过质量门槛后，将候选映射原子发布为正式映射表，并保留非 A 股行。"""
+    attempted_at = datetime.now().astimezone()
     candidate = _candidate_path()
     rows = _read_rows(candidate)
     state = _read_checkpoint()
@@ -489,7 +496,9 @@ def publish_candidate() -> dict:
             _write_csv([*rows, *extras])
     except Timeout as e:
         raise IndustryMappingError("行业映射表正被其他任务更新，请稍后重试") from e
-    return {**validation, "published_path": str(_csv_path())}
+    return {**validation, "published_path": str(_csv_path()),
+            "refresh_record": make_refresh_record("乐咕申万", "complete",
+                                                  attempted_at=attempted_at, published=True)}
 
 
 def _parse_stock_industry(html: str) -> tuple[str, str]:
