@@ -28,6 +28,12 @@ def tech_ctx():
 
 
 class TestIndexTechnicalAnalyzer:
+    def test_summary_includes_price_data_date(self, tech_ctx):
+        result = IndexTechnicalAnalyzer().analyze(tech_ctx)
+        assert result.summary.startswith(
+            f"行情数据截至 {tech_ctx.price_data[-1].trade_date.isoformat()}；最新价 "
+        )
+
     def test_dimension(self):
         analyzer = IndexTechnicalAnalyzer()
         assert analyzer.dimension == "index_technical"

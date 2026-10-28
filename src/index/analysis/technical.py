@@ -49,7 +49,8 @@ class IndexTechnicalAnalyzer(AnalysisModule):
                                   summary="行情数据不足", metrics=metrics)
 
         status = "partial" if len(closes) < 20 else "ok"
-        summary = f"最新价 {latest_close:.2f}，趋势：{index_tag_label(trend_tag)}"
+        summary = (f"行情数据截至 {sorted_prices[-1].trade_date.isoformat()}；"
+                   f"最新价 {latest_close:.2f}，趋势：{index_tag_label(trend_tag)}")
 
         return AnalysisResult(dimension=self.dimension, status=status,
                               summary=summary, metrics=metrics)

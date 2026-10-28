@@ -1288,6 +1288,8 @@ class AkShareAdapter(DataSource):
 
     @retry_on_network_error()
     def _fetch_index_valuation(self, symbol: str) -> list[IndexValuationData]:
+        import pandas as pd
+
         from data.schemas import IndexValuationData
 
         try:
@@ -1304,7 +1306,11 @@ class AkShareAdapter(DataSource):
             if df is None or df.empty:
                 return []
 
-            latest = df.iloc[-1]
+            dates = pd.to_datetime(df["日期"], errors="coerce")
+            valid = dates.notna()
+            if not valid.any():
+                return []
+            latest = df.loc[valid].iloc[dates[valid].argmax()]
             return [IndexValuationData(
                 symbol=symbol,
                 date=_parse_date(str(latest["日期"])),

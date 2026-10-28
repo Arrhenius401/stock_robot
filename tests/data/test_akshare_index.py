@@ -1,9 +1,38 @@
 """AkShare 指数数据采集测试"""
+from datetime import date
+
 import pandas as pd
 import pytest
 
 from data.akshare import AkShareAdapter
 from data.schemas import IndexPriceData
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_index_valuation_uses_latest_date_from_csindex(mocker, reverse):
+    mocker.patch("akshare.index_value_hist_funddb", side_effect=AttributeError, create=True)
+    rows = [
+        {"日期": "2024-01-01", "市盈率1": 10.0, "股息率1": 2.0},
+        {"日期": "2024-01-02", "市盈率1": 20.0, "股息率1": 3.0},
+    ]
+    if reverse:
+        rows.reverse()
+    rows.insert(1, {"日期": "invalid", "市盈率1": 99.0, "股息率1": 1.0})
+    mocker.patch("akshare.stock_zh_index_value_csindex", return_value=pd.DataFrame(rows))
+
+    result = AkShareAdapter().fetch("000300", data_type="index_valuation")
+
+    assert result[0].date == date(2024, 1, 2)
+    assert result[0].pe_ttm == 20.0
+
+
+def test_index_valuation_returns_empty_when_dates_invalid(mocker):
+    mocker.patch("akshare.index_value_hist_funddb", side_effect=AttributeError, create=True)
+    mocker.patch("akshare.stock_zh_index_value_csindex", return_value=pd.DataFrame([
+        {"日期": "invalid", "市盈率1": 10.0, "股息率1": 2.0},
+    ]))
+
+    assert AkShareAdapter().fetch("000300", data_type="index_valuation") == []
 
 
 class TestAkShareIndexAdapter:
