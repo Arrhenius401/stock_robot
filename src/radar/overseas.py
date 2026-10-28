@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 import requests
 import yaml
 
+from data.collection_state import ValueResult, make_record
 from radar.models import RadarUniverse
 from utils.paths import resource_root
 
@@ -115,8 +116,12 @@ class OverseasService:
             for candidate in self._candidates(mapping):
                 key = self._key(candidate)
                 previous = self._cached(key)
+                result = self._fetch_result(candidate)
+                if result.value is None:
+                    self._save(key, now, previous['rows'], result.record.error_message)
+                    continue
                 try:
-                    rows = parse_daily(candidate, self._fetch(candidate), now)
+                    rows = parse_daily(candidate, result.value, now)
                     # 只在同一来源缓存中合并，不拼接跨源收盘。
                     merged = {row['date']: row for row in previous['rows']}
                     merged.update({row['date']: row for row in rows})
@@ -126,13 +131,7 @@ class OverseasService:
                         break
                 except Exception as exc:  # noqa: BLE001 — 第三方网络及响应隔离，不影响其他指数
                     logger.warning('海外指数 %s 更新失败: %s', candidate['code'], exc)
-                    if isinstance(exc, (requests.RequestException, OSError)):
-                        reason = '海外行情源连接失败，请稍后重试'
-                    elif isinstance(exc, (ValueError, KeyError, TypeError, IndexError)):
-                        reason = '海外行情源返回的数据未通过日期或指数口径校验'
-                    else:
-                        reason = '海外行情源暂不可用，请稍后重试'
-                    self._save(key, now, previous['rows'], reason)
+                    self._save(key, now, previous['rows'], self._reason(exc))
         return self.view(universe, snapshot, now)
 
     def view(self, universe: RadarUniverse, snapshot: dict[str, Any] | None, now: datetime) -> dict[str, Any]:
@@ -217,6 +216,42 @@ class OverseasService:
             return None
         # observed_at 是采集时间；stale 必须使用来源行情日期，不能使用本次目标日期。
         return datetime.combine(day, time(15), tzinfo=ZoneInfo('Asia/Shanghai'))
+
+    @staticmethod
+    def _source_label(mapping: dict[str, Any]) -> str:
+        return "东方财富海外指数" if mapping.get("source") == "eastmoney" else "Yahoo Finance"
+
+    def _fetch_result(self, mapping: dict[str, Any]) -> ValueResult[dict[str, Any]]:
+        label = self._source_label(mapping)
+        try:
+            payload = self._fetch(mapping)
+        except Exception as exc:  # noqa: BLE001 — 第三方网络/响应隔离
+            reason = self._reason(exc)
+            return ValueResult(
+                None,
+                make_record(label, "failed", error_kind=self._error_kind(exc), error_message=reason),
+                [reason],
+            )
+        return ValueResult(
+            payload,
+            make_record(label, "complete", collected_at=datetime.now().astimezone()),
+        )
+
+    @staticmethod
+    def _error_kind(error: Exception) -> str:
+        if isinstance(error, TimeoutError) or "超时" in str(error) or "Timeout" in type(error).__name__:
+            return "timeout"
+        if isinstance(error, (ValueError, KeyError, TypeError, IndexError)):
+            return "invalid_data"
+        return "fetch_failed"
+
+    @staticmethod
+    def _reason(error: Exception) -> str:
+        if isinstance(error, (requests.RequestException, OSError)):
+            return '海外行情源连接失败，请稍后重试'
+        if isinstance(error, (ValueError, KeyError, TypeError, IndexError)):
+            return '海外行情源返回的数据未通过日期或指数口径校验'
+        return '海外行情源暂不可用，请稍后重试'
 
     def _fetch(self, mapping: dict[str, Any]) -> dict[str, Any]:
         if mapping['source'] == 'eastmoney':

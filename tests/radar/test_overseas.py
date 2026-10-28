@@ -325,3 +325,27 @@ def test_newer_complete_fallback_cache_does_not_regress_to_healthy_primary(tmp_p
     assert row['as_of_date'] == '2026-10-02'
     assert row['status'] == 'stale'
     assert row['daily_change'] == pytest.approx(backup_rows[-1]['close'] / backup_rows[-2]['close'] - 1)
+
+
+def test_fetch_result_reports_source_and_safe_failure(tmp_path, monkeypatch):
+    service = OverseasService(tmp_path / 'radar.db')
+    mapping = service.mappings['513100']
+    monkeypatch.setattr(
+        service, '_fetch',
+        lambda _: sample(mapping['source'], mapping['code'].lstrip('^')),
+    )
+
+    result = service._fetch_result(mapping)
+
+    assert result.record.result_state == 'complete'
+    assert result.record.source in {'东方财富海外指数', 'Yahoo Finance'}
+    assert result.value is not None
+
+    def fail(_):
+        raise OSError('offline')
+
+    monkeypatch.setattr(service, '_fetch', fail)
+    failed = service._fetch_result(mapping)
+    assert failed.value is None
+    assert failed.record.result_state == 'failed'
+    assert 'offline' not in failed.record.error_message

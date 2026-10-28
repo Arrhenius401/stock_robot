@@ -26,7 +26,14 @@ def test_local_benchmark_is_used_when_network_is_unavailable(tmp_path, monkeypat
     pd.DataFrame({"日期": ["2024-01-02", "2024-01-03"], "收盘": [3500.0, 3510.0]}).to_csv(source, index=False, encoding="utf-8-sig")
     directory = tmp_path / "local"
     LocalBenchmarkStore(directory).import_csv("csi_300", source)
-    monkeypatch.setattr("radar.benchmarks._ak_csindex", lambda **_: (_ for _ in ()).throw(ConnectionError("offline")))
+    from data.collection_state import ValueResult, make_record
+
+    monkeypatch.setattr(
+        "radar.benchmarks.fetch_index_history_result",
+        lambda *args, **kwargs: ValueResult(None, make_record(
+            "中证指数官网", "failed", error_kind="fetch_failed", error_message="中证指数行情请求失败"
+        )),
+    )
     benchmark = RadarBenchmark(id="csi_300", name="沪深300", symbol="000300")
 
     result = fetch_benchmark_closes(
@@ -35,5 +42,20 @@ def test_local_benchmark_is_used_when_network_is_unavailable(tmp_path, monkeypat
         date(2024, 1, 31),
         local_directory=directory,
     )
+
+    assert result.tolist() == [3500.0, 3510.0]
+
+
+def test_network_benchmark_uses_shared_result_entry(monkeypatch):
+    from data.collection_state import ValueResult, make_record
+
+    raw = pd.DataFrame({"date": ["2024-01-02", "2024-01-03"], "close": [3500.0, 3510.0]})
+    monkeypatch.setattr(
+        "radar.benchmarks.fetch_index_history_result",
+        lambda *args, **kwargs: ValueResult(raw, make_record("中证指数官网", "complete")),
+    )
+    benchmark = RadarBenchmark(id="csi_300", name="沪深300", symbol="000300")
+
+    result = fetch_benchmark_closes(benchmark, date(2024, 1, 1), date(2024, 1, 31))
 
     assert result.tolist() == [3500.0, 3510.0]
