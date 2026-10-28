@@ -181,6 +181,25 @@ def _ak_csindex(symbol, start_date, end_date):
     return ak.stock_zh_index_hist_csindex(symbol=symbol, start_date=start_date, end_date=end_date)
 
 
+def _index_error_kind(error: Exception) -> str:
+    if isinstance(error, TimeoutError) or "Timeout" in type(error).__name__ or "超时" in str(error):
+        return "timeout"
+    return "fetch_failed"
+
+
+def fetch_index_history_result(symbol: str, start_date: str, end_date: str) -> ValueResult[Any]:
+    """中证指数日线的统一结果入口；失败只暴露安全诊断。"""
+    try:
+        frame = _ak_csindex(symbol=symbol, start_date=start_date, end_date=end_date)
+    except Exception as error:  # 第三方网络与响应边界
+        kind = _index_error_kind(error)
+        logger.warning("中证指数行情请求失败，类型：%s", kind)
+        message = "中证指数行情请求超时" if kind == "timeout" else "中证指数行情请求失败"
+        return ValueResult(None, make_record("中证指数官网", "failed", error_kind=kind, error_message=message))
+    if frame is None or len(frame) == 0:
+        return ValueResult(None, make_record("中证指数官网", "empty", error_message="中证指数在请求区间没有数据"))
+    return ValueResult(frame, make_record("中证指数官网", "complete", collected_at=datetime.now().astimezone()))
+
 @retry_on_network_error()
 def _fetch_overseas_index_sina(symbol: str):
     """海外指数新浪源回退：东财全球指数接口失效时的替代日线源。

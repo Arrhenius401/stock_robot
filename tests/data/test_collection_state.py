@@ -46,3 +46,10 @@ def test_value_result_and_refresh_record():
     assert record.published is False
     assert isinstance(record, RefreshRecord)
     assert record.attempted_at.tzinfo is not None
+
+
+def test_value_result_keeps_multi_source_errors():
+    value = ValueResult(value="ok", record=make_record("测试源", "partial"))
+    assert value.errors == []
+    failed = ValueResult(value=None, record=make_record("测试源", "failed", error_message="源A失败"), errors=["源A失败"])
+    assert failed.errors == ["源A失败"]

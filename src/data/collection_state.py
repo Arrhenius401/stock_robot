@@ -1,5 +1,5 @@
 """共享结果状态与采集记录构造。"""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Generic, Literal, TypeVar
 
@@ -12,6 +12,7 @@ T = TypeVar("T")
 class ValueResult(Generic[T]):
     value: T | None
     record: DataCollectionRecord
+    errors: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
