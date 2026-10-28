@@ -3849,7 +3849,7 @@ git commit -m "docs(数据采集): 增加 Phase 2 设计与实施计划"
 - Test: `tests/data/test_collection_state.py`
 - Test: `tests/data/test_akshare_index.py`
 
-- [ ] **Step 1: 写失败测试 — `ValueResult` 保留多源错误**
+- [x] **Step 1: 写失败测试 — `ValueResult` 保留多源错误**
 
 在 `tests/data/test_collection_state.py` 末尾追加：
 
@@ -3866,7 +3866,7 @@ def test_value_result_keeps_multi_source_errors():
     assert failed.errors == ["源A失败"]
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```powershell
 $run = "tmp/pytest/phase3-task1-$PID-$([guid]::NewGuid().ToString('N'))"
@@ -3876,7 +3876,7 @@ New-Item -ItemType Directory -Path $run -Force | Out-Null
 
 Expected: FAIL，`ValueResult` 没有 `errors` 属性。
 
-- [ ] **Step 3: 实现最小改动**
+- [x] **Step 3: 实现最小改动**
 
 把 `src/data/collection_state.py` 顶部导入改为：
 
@@ -3894,7 +3894,7 @@ class ValueResult(Generic[T]):
     errors: list[str] = field(default_factory=list)
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests/data/test_collection_state.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
@@ -3902,7 +3902,7 @@ class ValueResult(Generic[T]):
 
 Expected: PASS。
 
-- [ ] **Step 5: 写失败测试 — 中证基准结果入口**
+- [x] **Step 5: 写失败测试 — 中证基准结果入口**
 
 在 `tests/data/test_akshare_index.py` 末尾追加：
 
@@ -3939,7 +3939,7 @@ def test_index_history_result_empty_and_safe_failure(monkeypatch):
     assert "敏感的上游细节" not in failed.record.error_message
 ```
 
-- [ ] **Step 6: 运行测试确认失败**
+- [x] **Step 6: 运行测试确认失败**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests/data/test_akshare_index.py::test_index_history_result_reports_source_and_state tests/data/test_akshare_index.py::test_index_history_result_empty_and_safe_failure -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
@@ -3947,7 +3947,7 @@ def test_index_history_result_empty_and_safe_failure(monkeypatch):
 
 Expected: FAIL，`fetch_index_history_result` 不存在。
 
-- [ ] **Step 7: 实现共享中证基准入口**
+- [x] **Step 7: 实现共享中证基准入口**
 
 在 `src/data/akshare.py` 的 `_ak_csindex` 之后加入：
 
@@ -3982,7 +3982,7 @@ def fetch_index_history_result(symbol: str, start_date: str, end_date: str) -> V
 
 `ValueResult` 与 `make_record` 已在 `src/data/akshare.py` 导入，无需新增导入。
 
-- [ ] **Step 8: 运行测试确认通过**
+- [x] **Step 8: 运行测试确认通过**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests/data/test_collection_state.py tests/data/test_akshare_index.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
@@ -4010,7 +4010,7 @@ git commit -m "feat(数据契约): 增加多源错误与中证基准结果"
 - Test: `tests/radar/test_data.py`
 - Test: `tests/radar/test_tencent_data.py`
 
-- [ ] **Step 1: 写失败测试 — AkShare 结果入口**
+- [x] **Step 1: 写失败测试 — AkShare 结果入口**
 
 在 `tests/radar/test_data.py` 末尾追加：
 
@@ -4047,7 +4047,7 @@ def test_akshare_daily_result_keeps_safe_failure_and_compatibility():
         provider.fetch_daily("510500", date(2024, 1, 1), date(2024, 1, 31))
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```powershell
 $run = "tmp/pytest/phase3-task2-$PID-$([guid]::NewGuid().ToString('N'))"
@@ -4057,7 +4057,7 @@ New-Item -ItemType Directory -Path $run -Force | Out-Null
 
 Expected: FAIL，`fetch_daily_result` 不存在。
 
-- [ ] **Step 3: 加入公共辅助**
+- [x] **Step 3: 加入公共辅助**
 
 在 `src/radar/data.py` 顶部加入：
 
@@ -4116,7 +4116,7 @@ def fetch_daily_result(self, symbol: str, start: date, end: date) -> ValueResult
     raise NotImplementedError
 ```
 
-- [ ] **Step 4: 实现 AkShare 结果入口**
+- [x] **Step 4: 实现 AkShare 结果入口**
 
 把 `AkShareETFDataProvider.fetch_daily` 替换为：
 
@@ -4152,7 +4152,7 @@ def fetch_daily_result(self, symbol: str, start: date, end: date) -> ValueResult
     return frame_result(source, "complete", value=frame)
 ```
 
-- [ ] **Step 5: 运行 AkShare 测试确认通过**
+- [x] **Step 5: 运行 AkShare 测试确认通过**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests/radar/test_data.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
@@ -4160,7 +4160,7 @@ def fetch_daily_result(self, symbol: str, start: date, end: date) -> ValueResult
 
 Expected: PASS，含原有熔断/校验测试。
 
-- [ ] **Step 6: 写失败测试 — 新浪空区间与兼容包装**
+- [x] **Step 6: 写失败测试 — 新浪空区间与兼容包装**
 
 在 `tests/radar/test_data.py` 追加：
 
@@ -4187,7 +4187,7 @@ def test_sina_daily_result_reports_empty_and_wrapper_raises():
 
 Expected: FAIL。
 
-- [ ] **Step 7: 实现新浪结果入口**
+- [x] **Step 7: 实现新浪结果入口**
 
 把 `SinaETFDataProvider.fetch_daily` 替换为：
 
@@ -4244,7 +4244,7 @@ def fetch_daily_result(self, symbol: str, start: date, end: date) -> ValueResult
     )
 ```
 
-- [ ] **Step 8: 运行新浪相关测试确认通过**
+- [x] **Step 8: 运行新浪相关测试确认通过**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests/radar/test_data.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
@@ -4252,7 +4252,7 @@ def fetch_daily_result(self, symbol: str, start: date, end: date) -> ValueResult
 
 Expected: PASS。
 
-- [ ] **Step 9: 写失败测试 — 腾讯结果入口**
+- [x] **Step 9: 写失败测试 — 腾讯结果入口**
 
 在 `tests/radar/test_tencent_data.py` 追加：
 
@@ -4283,7 +4283,7 @@ import requests
 
 Expected: FAIL。
 
-- [ ] **Step 10: 实现腾讯结果入口**
+- [x] **Step 10: 实现腾讯结果入口**
 
 把 `TencentETFDataProvider.fetch_daily` 替换为：
 
@@ -4339,7 +4339,7 @@ def fetch_daily_result(self, symbol: str, start: date, end: date) -> ValueResult
     )
 ```
 
-- [ ] **Step 11: 运行全部 ETF 提供器测试**
+- [x] **Step 11: 运行全部 ETF 提供器测试**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests/radar/test_data.py tests/radar/test_tencent_data.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
@@ -4365,7 +4365,7 @@ git commit -m "feat(雷达数据): 统一 ETF 提供器取数结果"
 - Test: `tests/radar/test_local_data.py`
 - Test: `tests/radar/test_data.py`
 
-- [ ] **Step 1: 写失败测试 — 交易所结果入口**
+- [x] **Step 1: 写失败测试 — 交易所结果入口**
 
 在 `tests/radar/test_exchange_data.py` 末尾追加：
 
@@ -4402,7 +4402,7 @@ def test_official_exchange_result_reports_source_and_failure():
 
 Expected: FAIL。
 
-- [ ] **Step 2: 实现交易所结果入口**
+- [x] **Step 2: 实现交易所结果入口**
 
 把 `OfficialExchangeETFDataProvider.fetch_daily` 替换为：
 
@@ -4451,7 +4451,7 @@ def fetch_daily_result(self, symbol: str, start: date, end: date) -> ValueResult
     )
 ```
 
-- [ ] **Step 3: 运行交易所测试确认通过**
+- [x] **Step 3: 运行交易所测试确认通过**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests/radar/test_exchange_data.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
@@ -4459,7 +4459,7 @@ def fetch_daily_result(self, symbol: str, start: date, end: date) -> ValueResult
 
 Expected: PASS。
 
-- [ ] **Step 4: 写失败测试 — 本地提供器结果**
+- [x] **Step 4: 写失败测试 — 本地提供器结果**
 
 在 `tests/radar/test_local_data.py` 追加：
 
@@ -4482,7 +4482,7 @@ def test_local_provider_result_reports_missing_file(tmp_path):
 
 Expected: FAIL。
 
-- [ ] **Step 5: 实现本地结果入口**
+- [x] **Step 5: 实现本地结果入口**
 
 把 `LocalETFDataProvider.fetch_daily` 替换为：
 
@@ -4512,7 +4512,7 @@ def fetch_daily_result(self, symbol: str, start: date, end: date) -> ValueResult
     return frame_result(source, "complete", value=cast(pd.DataFrame, result))
 ```
 
-- [ ] **Step 6: 运行本地测试确认通过**
+- [x] **Step 6: 运行本地测试确认通过**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests/radar/test_local_data.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
@@ -4520,7 +4520,7 @@ def fetch_daily_result(self, symbol: str, start: date, end: date) -> ValueResult
 
 Expected: PASS。
 
-- [ ] **Step 7: 写失败测试 — Fallback 结果链**
+- [x] **Step 7: 写失败测试 — Fallback 结果链**
 
 在 `tests/radar/test_data.py` 追加：
 
@@ -4568,7 +4568,7 @@ def test_fallback_result_reports_failed_and_empty():
 
 Expected: FAIL。
 
-- [ ] **Step 8: 实现 Fallback 结果链**
+- [x] **Step 8: 实现 Fallback 结果链**
 
 把 `FallbackETFDataProvider.fetch_daily` 与 `fetch_daily_with_source` 替换为：
 
@@ -4645,7 +4645,7 @@ def fetch_daily_result(
     return ValueResult(None, make_record("FallbackETFDataProvider", state, error_message=message), errors)
 ```
 
-- [ ] **Step 9: 运行 Fallback/本地/交易所测试**
+- [x] **Step 9: 运行 Fallback/本地/交易所测试**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests/radar/test_data.py tests/radar/test_local_data.py tests/radar/test_exchange_data.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
@@ -4671,7 +4671,7 @@ git commit -m "feat(雷达数据): 统一交易所、本地与备用链结果"
 - Test: `tests/radar/test_history.py`
 - Test: `tests/radar/test_refresh.py`
 
-- [ ] **Step 1: 写失败测试 — `prepare_result` 返回来源和记录**
+- [x] **Step 1: 写失败测试 — `prepare_result` 返回来源和记录**
 
 在 `tests/radar/test_history.py` 末尾追加：
 
@@ -4709,7 +4709,7 @@ New-Item -ItemType Directory -Path $run -Force | Out-Null
 
 Expected: FAIL，`prepare_result` 不存在。
 
-- [ ] **Step 2: 实现同步层结果入口**
+- [x] **Step 2: 实现同步层结果入口**
 
 在 `src/radar/history.py` 顶部加入：
 
@@ -4833,7 +4833,7 @@ def _fetch_result(
 from radar.data import FallbackETFDataProvider, RadarDataError, RadarDataProvider, provider_label
 ```
 
-- [ ] **Step 3: 运行历史测试确认通过**
+- [x] **Step 3: 运行历史测试确认通过**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests/radar/test_history.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
@@ -4873,7 +4873,7 @@ def test_refresh_uses_record_source_for_snapshot_item(tmp_path):
 
 Expected: FAIL，快照来源仍是 `_RecordProvider`。
 
-- [ ] **Step 5: 刷新层使用 record.source**
+- [x] **Step 5: 刷新层使用 record.source**
 
 把 `src/radar/refresh.py` 中：
 
@@ -4899,7 +4899,7 @@ histories[instrument.symbol] = history
 data_sources[instrument.symbol] = record.source or source
 ```
 
-- [ ] **Step 6: 运行刷新测试确认通过**
+- [x] **Step 6: 运行刷新测试确认通过**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests/radar/test_refresh.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
@@ -4925,7 +4925,7 @@ git commit -m "feat(雷达刷新): 使用采集记录推导行情状态"
 - Test: `tests/radar/test_overseas.py`
 - Test: `tests/radar/test_benchmarks.py`
 
-- [ ] **Step 1: 写失败测试 — 海外结果记录**
+- [x] **Step 1: 写失败测试 — 海外结果记录**
 
 在 `tests/radar/test_overseas.py` 末尾追加：
 
@@ -4962,7 +4962,7 @@ New-Item -ItemType Directory -Path $run -Force | Out-Null
 
 Expected: FAIL，`_fetch_result` 不存在。
 
-- [ ] **Step 2: 实现海外结果入口并接入 refresh**
+- [x] **Step 2: 实现海外结果入口并接入 refresh**
 
 在 `src/radar/overseas.py` 顶部加入：
 
@@ -5060,7 +5060,7 @@ for candidate in self._candidates(mapping):
         self._save(key, now, previous['rows'], self._reason(exc))
 ```
 
-- [ ] **Step 3: 运行海外测试确认通过**
+- [x] **Step 3: 运行海外测试确认通过**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests/radar/test_overseas.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
@@ -5068,7 +5068,7 @@ for candidate in self._candidates(mapping):
 
 Expected: PASS，含缓存失败保留与展示字段不变测试。
 
-- [ ] **Step 4: 更新雷达基准测试并写失败测试**
+- [x] **Step 4: 更新雷达基准测试并写失败测试**
 
 把 `tests/radar/test_benchmarks.py` 中 `test_local_benchmark_is_used_when_network_is_unavailable` 的 patch 改为：
 
@@ -5107,7 +5107,7 @@ def test_network_benchmark_uses_shared_result_entry(monkeypatch):
 
 Expected: FAIL，`radar.benchmarks.fetch_index_history_result` 不存在。
 
-- [ ] **Step 5: 接入共享结果入口**
+- [x] **Step 5: 接入共享结果入口**
 
 把 `src/radar/benchmarks.py` 的导入：
 
@@ -5151,7 +5151,7 @@ if result.value is None:
 raw = result.value
 ```
 
-- [ ] **Step 6: 运行雷达基准测试确认通过**
+- [x] **Step 6: 运行雷达基准测试确认通过**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests/radar/test_benchmarks.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
@@ -5181,7 +5181,7 @@ git commit -m "feat(雷达海外): 统一海外与基准取数结果"
 - Test: `tests/backtest/test_backtest_integration.py`
 - Test: `tests/backtest/test_artifacts.py`
 
-- [ ] **Step 1: 写失败测试 — 回测行情结果入口**
+- [x] **Step 1: 写失败测试 — 回测行情结果入口**
 
 把 `tests/backtest/test_data.py` 的 `test_stock_history_passes_requested_dates_to_adapter` 替换为：
 
@@ -5218,7 +5218,7 @@ New-Item -ItemType Directory -Path $run -Force | Out-Null
 
 Expected: FAIL，`fetch_stock_result` 不存在。
 
-- [ ] **Step 2: 实现回测结果入口**
+- [x] **Step 2: 实现回测结果入口**
 
 把 `src/backtest/data.py` 顶部导入改为：
 
@@ -5265,7 +5265,7 @@ def fetch_stock_result(self, symbol: str, start: date, end: date) -> ValueResult
     return ValueResult(rows, record, list(result.errors))
 ```
 
-- [ ] **Step 3: 更新基准测试并运行**
+- [x] **Step 3: 更新基准测试并运行**
 
 把 `tests/backtest/test_data.py` 中所有：
 
@@ -5316,7 +5316,7 @@ def test_benchmark_result_reports_record(mocker):
     assert result.value.index[0] == date(2022, 1, 3)
 ```
 
-- [ ] **Step 4: 运行测试确认失败**
+- [x] **Step 4: 运行测试确认失败**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests/backtest/test_data.py::test_benchmark_result_reports_record -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
@@ -5324,7 +5324,7 @@ def test_benchmark_result_reports_record(mocker):
 
 Expected: FAIL，`fetch_benchmark_result` 不存在。
 
-- [ ] **Step 5: 实现基准结果入口**
+- [x] **Step 5: 实现基准结果入口**
 
 把 `HistoricalPriceProvider.fetch_benchmark` 替换为：
 
@@ -5403,7 +5403,7 @@ def fetch_benchmark_result(self, benchmark: BenchmarkSpec, start: date, end: dat
     return ValueResult(series, result.record)
 ```
 
-- [ ] **Step 6: 运行回测数据测试确认通过**
+- [x] **Step 6: 运行回测数据测试确认通过**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests/backtest/test_data.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
@@ -5456,7 +5456,7 @@ def test_runner_exposes_collection_records(tmp_path):
 
 Expected: FAIL，`BacktestResult` 没有 `collection_records` 且 runner 调用旧方法。
 
-- [ ] **Step 8: 实现 runner、模型与 manifest**
+- [x] **Step 8: 实现 runner、模型与 manifest**
 
 `src/backtest/models.py` 顶部：
 
@@ -5544,7 +5544,7 @@ def _align_benchmark(
 
 放在 `"warnings"` 之后、`"version"` 之前。
 
-- [ ] **Step 9: 更新产物测试**
+- [x] **Step 9: 更新产物测试**
 
 在 `tests/backtest/test_artifacts.py` 的 `_build_result` 返回的 `BacktestResult(...)` 中加入：
 
@@ -5568,7 +5568,7 @@ assert manifest["collection_records"]["price"]["source"] == "AkShare"
 assert manifest["collection_records"]["benchmark"]["result_state"] == "complete"
 ```
 
-- [ ] **Step 10: 运行回测相关测试**
+- [x] **Step 10: 运行回测相关测试**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests/backtest -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
@@ -5593,7 +5593,7 @@ git commit -m "feat(回测数据): 记录回测行情与基准取数结果"
 - Test: `tests/core/test_collection_contract.py`
 - Test: `tests/test_data_entrypoints.py`
 
-- [ ] **Step 1: 写失败测试 — 清单只剩兼容桥**
+- [x] **Step 1: 写失败测试 — 清单只剩兼容桥**
 
 把 `tests/core/test_collection_contract.py` 的 `test_legacy_fetch_sites_declare_current_migration_ledger` 替换为：
 
@@ -5617,7 +5617,7 @@ New-Item -ItemType Directory -Path $run -Force | Out-Null
 
 Expected: FAIL。
 
-- [ ] **Step 2: 更新门禁清单**
+- [x] **Step 2: 更新门禁清单**
 
 把 `src/core/collection_contract.py` 的 `LEGACY_FETCH_SITES` 改为：
 
@@ -5636,7 +5636,7 @@ LEGACY_FETCH_SITES: tuple[FetchSite, ...] = (
 ("src/backtest/data.py", "HistoricalPriceProvider.fetch_stock_result"),
 ```
 
-- [ ] **Step 3: 运行门禁测试**
+- [x] **Step 3: 运行门禁测试**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests/core/test_collection_contract.py tests/test_data_entrypoints.py -q "--basetemp=$run/basetemp" -o "cache_dir=$run/cache"
@@ -5661,7 +5661,7 @@ git commit -m "chore(门禁): 移除回测行情遗留入口"
 - Modify: `docs/superpowers/specs/2026-10/2026-10-26-unified-data-collection-design.md:3`、第 17 节状态
 - Modify: `docs/superpowers/plans/2026-10/2026-10-26-unified-data-collection-plan.md`（勾选完成项、记录结果）
 
-- [ ] **Step 1: 运行受影响测试集**
+- [x] **Step 1: 运行受影响测试集**
 
 ```powershell
 $run = "tmp/pytest/phase3-accept-$PID-$([guid]::NewGuid().ToString('N'))"
@@ -5671,7 +5671,7 @@ New-Item -ItemType Directory -Path $run -Force | Out-Null
 
 Expected: PASS。记录 pass/fail/skip 数量；任何既有失败必须单独说明，不能归因于 Phase 3。
 
-- [ ] **Step 2: 运行 Changed/Staged 质量门禁**
+- [x] **Step 2: 运行 Changed/Staged 质量门禁**
 
 ```powershell
 .\scripts\verify.ps1 -Files src/data/collection_state.py
@@ -5718,7 +5718,7 @@ mkdir tmp\acceptance\unified-data-collection-phase3 -Force
 - 失败时旧快照仍可读、`HistoryStore` 未被失败结果污染。
 - 不启动常驻队列、不触发浏览器验收。
 
-- [ ] **Step 5: 更新设计状态与计划勾选**
+- [x] **Step 5: 更新设计状态与计划勾选**
 
 把设计文档顶部状态和第 17 节状态的“待实现”改为“已于 2026-10-28 实现并完成范围验收”，并在计划文档勾选实际完成的步骤、补充验收记录（命令、报告路径、测试数量、既有失败）。
 
@@ -5757,3 +5757,13 @@ git commit -m "docs(数据采集): 记录 Phase 3 实施与验收"
 - [ ] 未新增雷达持久化表/列、数据源、依赖、评分公式或报告文案。
 - [ ] 真实回测与雷达刷新验收完成；失败路径不冒充通过；跳过浏览器。
 - [ ] Phase 3 设计/计划仍为同一主题的一份设计＋一份计划。
+
+
+### 2026-10-28 Phase 3 实施与验收记录
+
+- Task 1–5 相关测试依次为 18、19、27、16+7、23+3 passed；Task 6 `tests/backtest` 为 46 passed；Task 7 门禁测试为 17 passed，入口脚本通过。Task 4 刷新测试在实现前已通过，Task 6 runner 红灯未取得结果。
+- 范围集合 `tests/radar tests/backtest tests/data tests/core tests/api tests/test_cli.py`：1664 passed、1 skipped、3 failed。失败为雷达 daemon 子进程提前退出、管道评分用例上游连接受限，以及静态页面股票入口用例。完整日志位于本地 `tmp/phase3-accept-final.log`。
+- 受限环境中 Numba 默认缓存位于不可写的主仓库虚拟环境；验证时以 `NUMBA_CACHE_DIR` 指向 worktree 的 `tmp/phase3-numba`。
+- 真实回测与雷达刷新均被首次使用免责声明拦截；刷新前后 status 均显示尚无完成快照，worktree 内没有本次 manifest。需由用户确认免责声明后重试，不能将 CLI 退出码 0 当作成功。
+- 逐文件 verify：12 个文件的 Ruff 与 Pyright 均通过。`src/backtest/data.py`、`runner.py`、`models.py`、`artifacts.py` 各 46 passed；`src/data/collection_state.py` 为 918 passed、1 failed，`src/data/akshare.py` 为 1185 passed、1 failed，`src/core/collection_contract.py` 为 926 passed、1 failed，均为管道评分用例；五个雷达文件各 220 passed、1 skipped、1 failed，均为 daemon 用例。失败日志保留于 `tmp/phase3-verify-final-*.log`。
+- 暂不运行 Full，不做浏览器验收。
