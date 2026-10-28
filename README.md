@@ -4,7 +4,7 @@
 
 <h1 align="center">Stock Robot</h1>
 
-<p align="center"><strong>AI 驱动的股票与指数分析研报助手</strong></p>
+<p align="center"><strong>股票、指数与黄金市场分析助手</strong></p>
 <p align="center">Web · CLI · HTTP API · MCP · AstrBot</p>
 
 <p align="center">
@@ -14,7 +14,7 @@
   <a href="https://github.com/Arrhenius401/astrbot_plugin_stock_robot">AstrBot 插件</a>
 </p>
 
- 数据采集与指标计算由代码完成，LLM 只负责把结果整理成自然语言解读。
+数据采集与指标计算由代码完成。个股与指数报告可由 LLM 生成自然语言解读，黄金简报使用确定性数据与规则说明。
 
 ## 它能做什么
 
