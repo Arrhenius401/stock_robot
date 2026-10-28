@@ -5764,6 +5764,14 @@ git commit -m "docs(数据采集): 记录 Phase 3 实施与验收"
 - Task 1–5 相关测试依次为 18、19、27、16+7、23+3 passed；Task 6 `tests/backtest` 为 46 passed；Task 7 门禁测试为 17 passed，入口脚本通过。Task 4 刷新测试在实现前已通过，Task 6 runner 红灯未取得结果。
 - 范围集合 `tests/radar tests/backtest tests/data tests/core tests/api tests/test_cli.py`：1664 passed、1 skipped、3 failed。失败为雷达 daemon 子进程提前退出、管道评分用例上游连接受限，以及静态页面股票入口用例。完整日志位于本地 `tmp/phase3-accept-final.log`。
 - 受限环境中 Numba 默认缓存位于不可写的主仓库虚拟环境；验证时以 `NUMBA_CACHE_DIR` 指向 worktree 的 `tmp/phase3-numba`。
-- 真实回测与雷达刷新均被首次使用免责声明拦截；刷新前后 status 均显示尚无完成快照，worktree 内没有本次 manifest。需由用户确认免责声明后重试，不能将 CLI 退出码 0 当作成功。
+- 首次真实 CLI 被免责声明拦截；经用户授权仅修改 worktree 本地配置后重试，结果见下方补充验收。
 - 逐文件 verify：12 个文件的 Ruff 与 Pyright 均通过。`src/backtest/data.py`、`runner.py`、`models.py`、`artifacts.py` 各 46 passed；`src/data/collection_state.py` 为 918 passed、1 failed，`src/data/akshare.py` 为 1185 passed、1 failed，`src/core/collection_contract.py` 为 926 passed、1 failed，均为管道评分用例；五个雷达文件各 220 passed、1 skipped、1 failed，均为 daemon 用例。失败日志保留于 `tmp/phase3-verify-final-*.log`。
 - 暂不运行 Full，不做浏览器验收。
+
+
+### 2026-10-28 真实取数与基线补充验收
+
+- 使用指定解释器、当前 worktree 的 `PYTHONPATH` 和本地 `NUMBA_CACHE_DIR`。`backtest 600519 --start 2025-01-01 --end 2025-12-31` 在允许网络后成功，累计收益 -0.0538、最大回撤 -0.1005。产物 `reports/backtests/report_technical/600519/2026-10/20261028_134904_v1_ccbe91b0/manifest.json` 中，`price` 为 AkShare、`benchmark` 为中证指数官网，均为 `complete`、`live`，采集时间分别为 2026-10-28T13:49:02.729700+08:00 和 2026-10-28T13:49:04.263061+08:00。
+- 指定的 `radar refresh --universe cn_hk_etf_v1` 失败：配置文件名为 `cn_hk_etf_v1.yaml`，实际池 ID 为 `cn_hk_etf`。用实际 ID 重试后，运行 `0d68f1ab14b042c2b5231bb05887c734` 状态为 `failed`，东方财富代理失败，备用行情未更新到目标日，所有标的失败且未发布快照。运行前后均无完成快照；数据库中 `snapshot_items` 为 0，因而无 `data_source` 可报告，也没有旧快照可复核。
+- 在 `5d253ea` 的临时 detached worktree 与当前版本使用相同解释器、各自的 `PYTHONPATH` 和 Numba 缓存，并在相同网络权限下运行三个失败用例：两者均为 2 passed、1 failed。daemon 和管道评分用例均通过；静态页面股票入口用例均以“未知股票被目录识别阻断”失败，属于基线既有失败。基线日志复制到 `tmp/phase3-baseline-comparison.log`，临时 worktree 已移除。
+- 未发现所列三个用例的 Phase 3 回归；未更改测试或伪造雷达验收通过。
