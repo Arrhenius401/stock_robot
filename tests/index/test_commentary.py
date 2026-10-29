@@ -186,6 +186,7 @@ def test_session_write_failure_recovers_without_second_model_call(tmp_path, monk
 
     from api.app import create_app
     from api.sessions import SessionManager, SessionStore
+    from index import archives
     from index.archives import save_index_report
     from index.build_single import IndexReportBuilder
 
@@ -205,6 +206,13 @@ def test_session_write_failure_recovers_without_second_model_call(tmp_path, monk
     llm=Mock()
     llm.generate.return_value='### 核心判断\n事实\n### 关键依据与分歧\n限制\n### 后续观察重点\n跟踪'
     original=manager.update_artifact_payload
+    original_load=archives.load_index_snapshot
+    def load_with_reordered_sections(*args):
+        payload = original_load(*args)
+        if payload is not None:
+            payload['visible_sections'] = list(reversed(payload['visible_sections']))
+        return payload
+    monkeypatch.setattr(archives,'load_index_snapshot',load_with_reordered_sections)
     def fail_once(*args):
         if fail_once.pending:
             fail_once.pending=False

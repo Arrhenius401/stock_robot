@@ -34,7 +34,8 @@ def update_index_report(report: IndexReport, path: Path, expected_token: str) ->
     old_markdown = path.read_bytes()
     previous = load_index_snapshot(path, old_markdown.decode("utf-8"), report.code)
     # 同一冻结报告上次已写盘而会话写入失败时，允许幂等完成，不再覆盖或调用模型。
-    if report.commentary_status == "ready" and report.commentary_retry_id is None and previous == report.model_dump(mode="json"):
+    if (report.commentary_status == "ready" and report.commentary_retry_id is None
+            and previous is not None and IndexReport.model_validate(previous) == report):
         return
     if previous is None or previous.get("commentary_retry_id") != expected_token:
         raise ValueError("原存档已被其他批次替换，禁止覆盖")
