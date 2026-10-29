@@ -155,7 +155,7 @@ def test_web_existing_quality_fields_keep_reference_news_plain_text(tmp_path):
     script += r'''
 const report=renderStockReport(payload);
 const nodes=descendants(report);
-if(!nodes.some(node=>node.tagName==='DD'&&node.textContent.includes(__TITLE__)))throw new Error('参考标题原文丢失');
+if(!nodes.some(node=>node.tagName==='LI'&&node.textContent.includes(__TITLE__)))throw new Error('参考标题原文丢失');
 if(nodes.some(node=>['IMG','SCRIPT','A','EM','CODE'].includes(node.tagName)))throw new Error('参考纯文本被当成HTML');
 if(!report.textContent.includes('历史参考（不计分）'))throw new Error('没有参考状态');
 '''.replace("__TITLE__", json.dumps(title, ensure_ascii=False))

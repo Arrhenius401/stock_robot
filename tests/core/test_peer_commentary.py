@@ -55,8 +55,17 @@ def test_actual_prompt_keeps_comparison_units_and_industry_availability(tmp_path
     assert Pipeline(registry, config)._generate_commentary(ctx.symbol, ctx.name, [financial, industry], context=ctx) == {"bulk": "事实解读"}
     prompt = backend.prompt
     assert backend.calls == 1
-    assert "## 3.多风格观察视角" in prompt
-    assert "## 4.综合" in prompt
+    assert "## 1.核心判断" in prompt
+    assert "## 2.关键依据与分歧" in prompt
+    assert "## 3.后续观察重点" in prompt
+    assert "## 3.多风格观察视角" not in prompt
+    assert "## 4.综合" not in prompt
+    assert "事实" in prompt and "数值" in prompt
+    assert "不重新计算分数" in prompt
+    assert "不编造" in prompt
+    if market == "hk":
+        assert "金额币种未核实" in prompt
+        assert "恒生HSICS" in prompt
     start = prompt.index('[{"dimension"')
     facts, _ = json.JSONDecoder().raw_decode(prompt[start:])
     assert facts[0]["metrics"]["roe"] == "12.50%"

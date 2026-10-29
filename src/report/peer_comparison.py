@@ -6,10 +6,14 @@ from utils.numbers import is_finite_number
 
 COMPARISON_METHOD = (
     "每项指标独立筛选，至少 5 家有效同行才给出中位数和数值分位；目标公司不计入样本。",
-    "PE、PB 仅正有限值参与统计；经营指标保留负值，缺失不填 0。",
-    "经营指标只对同一起止日期、累计或单期及计算口径一致的数据进行统计；不同期间仅供参考。",
-    "分位越低表示数值越低，不直接表示经营优劣；相对折价不直接等同于低估。",
+    "PE、PB 仅正有限值参与统计；经营指标保留负值，缺失不填 0；只比较相同期间、累计或单期及计算口径的数据。",
+    "分位采用低于目标比例加相等值比例的一半，表示数值位置，不直接表示经营优劣；相对折价不直接等同于低估。",
 )
+_REDUNDANT_COMPARISON_NOTES = {
+    "分位表示数值位置，采用低于目标比例加相等值比例的一半，不直接等同经营优劣。",
+    "各指标独立统计，至少 5 家有效同行；目标不计入分母。",
+}
+
 
 
 def _text(value: Any, fallback: str = "未记录") -> str:
@@ -37,7 +41,9 @@ def _block(block: dict[str, Any], *, operating: bool = False) -> list[str]:
     metrics = [item for item in block.get("metrics", []) if isinstance(item, dict)]
     lines = [f"数据来源：{_text(block.get('source'))}"]
     if operating:
-        lines.append(f"报告期：{_text(block.get('label'))}；{_text(block.get('start'))} 至 {_text(block.get('end'))}；口径：{_text(block.get('basis'))}")
+        label = _text(block.get("label"))
+        period = f"{_text(block.get('start'))} 至 {_text(block.get('end'))}"
+        lines.append(f"报告期：{label if period in label else label + '；' + period}；口径：{_text(block.get('basis'))}")
     else:
         lines.append(f"估值日期：{_text(block.get('as_of'))}")
     if block.get("reason"):
@@ -53,7 +59,11 @@ def _block(block: dict[str, Any], *, operating: bool = False) -> list[str]:
                 comparison_value(metric.get("percentile"), "percent") if enough else "—",
                 f"{metric.get('sample_count', 0)} 家", metric.get("reason", ""),
             ])
-        lines += ["", _table(["指标", "目标公司", "同行中位数", "数值分位", "有效同行", "说明"], rows)]
+        headers = ["指标", "目标公司", "同行中位数", "数值分位", "有效同行", "说明"]
+        if not any(row[-1] for row in rows):
+            headers = headers[:-1]
+            rows = [row[:-1] for row in rows]
+        lines += ["", _table(headers, rows)]
     elif not block.get("reason"):
         lines += ["", "暂无可比较指标"]
     for key in ("notes", "errors"):
@@ -73,6 +83,11 @@ def format_peer_comparison_markdown(comparison: dict[str, Any], scoring_method: 
         lines += ["", f"#### 经营表现 · {label}", ""]
         lines += _block(periods.get(key) or {}, operating=True)
     lines += ["", "#### 数据来源与统计口径", ""]
-    for note in [*COMPARISON_METHOD, *comparison.get("notes", []), *comparison.get("errors", [])]:
+    notes = [*COMPARISON_METHOD, *comparison.get("notes", []), *comparison.get("errors", [])]
+    seen = set()
+    for note in notes:
+        if note in seen or note in _REDUNDANT_COMPARISON_NOTES:
+            continue
+        seen.add(note)
         lines.append(f"- {_text(note)}")
     return "\n".join(lines)

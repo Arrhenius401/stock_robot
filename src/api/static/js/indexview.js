@@ -1,8 +1,8 @@
 // 指数分析视图：多指数对比表 + 逐指数纵向研报
 import { store, switchView } from "./state.js";
 import { api } from "./api.js";
-import { renderMarkdown } from "./markdown.js?v=20261027-gold-observation-2";
-import { appendReadableMetric, riskText, formatMetricValue } from "./report-renderer.js?v=20261027-gold-observation-2";
+import { renderMarkdown } from "./markdown.js?v=20261028-stock-report-refinement";
+import { appendReadableMetric, riskText, formatMetricValue } from "./report-renderer.js?v=20261028-stock-report-refinement";
 import { el, kv, tagChip, priceBar, errorCard, skeleton,
          showEntryError, clearEntryError } from "./components.js";
 

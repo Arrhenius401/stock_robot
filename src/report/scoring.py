@@ -3,7 +3,8 @@ from dataclasses import dataclass, field
 
 from data.schemas import AnalysisContext, AnalysisResult
 from report.formatter import format_metric_value
-from report.signal import SIGNAL_LABELS, SignalConfig, derive_signal
+from report.presentation import signal_presentation
+from report.signal import SignalConfig
 from utils.numbers import is_finite_number
 
 SCORING_METHOD = "five-dimension-v1"
@@ -91,41 +92,18 @@ def compute_price_info(ctx: AnalysisContext) -> dict:
             "price_end": price_data[-1].trade_date.isoformat() if price_data else None}
 
 
-def _fallback_neutral_commentary(summary: ScoreSummary) -> str:
-    """LLM 不可用时的确定性中性解读，避免报告关键章节空白。"""
-    available = [row["label"] for row in summary.score_rows if row.get("score") != "N/A"]
-    missing = [row["label"] for row in summary.score_rows if row.get("score") == "N/A"]
-    available_text = "、".join(available) if available else "暂无"
-    missing_text = "、".join(missing) if missing else "无"
-
+def quantitative_commentary(summary: ScoreSummary, state: str = "failed") -> str:
+    """AI 不可用时只陈述程序结果，不补造经营解释或模型评级。"""
+    reasons = {"disabled": "未启用 AI 解读", "config": "AI 解读尚未配置", "failed": "AI 解读当前不可用"}
+    lines = [f"> {reasons.get(state, reasons['failed'])}，以下为程序生成的量化摘要。", ""]
     if summary.final_score is None:
-        tendency = "信息不足"
-    elif summary.final_score >= 7:
-        tendency = "偏正面"
-    elif summary.final_score >= 4:
-        tendency = "中性"
-    elif summary.final_score > 0:
-        tendency = "偏谨慎"
+        lines.append("暂无综合得分，不形成综合判断。")
     else:
-        tendency = "信息不足"
-
-    lines = [
-        "> AI 解读当前不可用，以下为基于量化结果自动生成的中性摘要。",
-        "",
-        (
-            f"1. 综合数据表现{tendency}。当前可用维度：{available_text}；"
-            f"缺失或未计分维度：{missing_text}。"
-            + (f"最终综合得分为 {summary.final_score:.1f}/10。" if summary.final_score is not None else "暂无综合得分。")
-        ),
-    ]
-    if summary.risk_deduction > 0:
-        lines.append(
-            f"2. 风险汇总：本次识别到 {len(summary.risk_flags)} 个风险标签，"
-            f"风险扣分 {summary.risk_deduction} 分，需优先核对风险标签对应的数据来源与口径。"
-        )
-    else:
-        lines.append("2. 风险汇总：本次未触发明确风险扣分，仍需结合数据时效性和接口完整性复核。")
-    lines.append("本次未生成多风格观察和综合评价。")
+        lines.append(f"最终综合得分为 {summary.final_score:.1f}/10。")
+    for row in summary.score_rows:
+        value = f"{row['score']}/10" if row.get("score") != "N/A" else "未计分"
+        lines.append(f"- {row['label']}：{value}。")
+    lines.append("本摘要仅陈述可用量化结果，具体经营趋势、风险与数据限制见对应章节。")
     return "\n".join(lines)
 
 
@@ -136,13 +114,13 @@ def with_commentary_fallback(
     *, unscored: bool = False,
 ) -> dict[str, str]:
     if no_llm:
-        return commentary
+        return {**commentary, "bulk": quantitative_commentary(summary, "disabled")}
     bulk = (commentary.get("bulk") or "").strip()
     if bulk and not bulk.startswith(LLM_UNAVAILABLE_PREFIXES):
         return commentary
     if unscored:
         return {**commentary, "bulk": "AI 解读当前不可用，可用分析指标已保留；港股综合评分与交易信号不适用，行业对比使用恒生 HSICS 口径。"}
-    return {**commentary, "bulk": _fallback_neutral_commentary(summary)}
+    return {**commentary, "bulk": quantitative_commentary(summary)}
 
 
 def build_report(symbol: str, name: str, results: list[AnalysisResult],
@@ -174,10 +152,7 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
 
     signal = None
     if signal_cfg is not None and quality["signal_allowed"] and summary.final_score is not None:
-        level = derive_signal(summary.final_score, signal_cfg.thresholds)
-        action = signal_cfg.actions[level]
-        signal = {"level": level, "label": SIGNAL_LABELS[level],
-                  "action": action.action, "position": action.position}
+        signal = signal_presentation(summary.final_score, signal_cfg)
 
     builder = ReportBuilder()
     from report.valuation_dates import stock_date_presentation

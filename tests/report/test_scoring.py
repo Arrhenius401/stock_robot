@@ -152,7 +152,7 @@ class TestBuildReport:
 
         assert mock_builder.build.call_args.kwargs["commentary"]["bulk"] == "真实 AI 解读"
 
-    def test_build_report_no_llm_does_not_add_fallback(self, mocker):
+    def test_build_report_no_llm_adds_quantitative_summary(self, mocker):
         mock_builder_cls = mocker.patch("report.builder.ReportBuilder")
         mock_builder = mock_builder_cls.return_value
         mock_builder.build.return_value = "RENDERED_REPORT"
@@ -160,7 +160,7 @@ class TestBuildReport:
         build_report("000001", "平安银行", [_result("financial", 8.0)], {}, _ctx(),
                      no_llm=True)
 
-        assert mock_builder.build.call_args.kwargs["commentary"] == {}
+        assert "量化摘要" in mock_builder.build.call_args.kwargs["commentary"]["bulk"]
 
 
 def test_new_runtime_industry_score_and_risks_enter_summary():

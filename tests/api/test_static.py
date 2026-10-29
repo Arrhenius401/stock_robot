@@ -188,7 +188,7 @@ def _module_url(path: str) -> str:
     url = Path(path).resolve().as_uri()
     # 与聊天模块的正式导入保持同一 URL，避免产生两份抽屉状态单例。
     if path.endswith("/report-drawer.js"):
-        url += "?v=20261027-gold-observation-2"
+        url += "?v=20261028-stock-report-refinement"
     return url
 
 
@@ -224,9 +224,10 @@ const article = renderStockReport({symbol: "00001.HK", market: "hk", dimensions:
 if (article.textContent.includes("negative_equity") || !article.textContent.includes(expected)) {
   throw new Error("结构化报告暴露风险代码");
 }
-const risks = byClass(article, "report-risk-item");
-if (risks.length !== 1 || !risks[0].textContent.includes(expected)) {
-  throw new Error("汇总风险没有使用中文标签或没有去重");
+const financial = article.children.find(section => section.id === "report-financial");
+const flags = financial ? byClass(financial, "flag") : [];
+if (flags.length !== 1 || !flags[0].textContent.includes(expected)) {
+  throw new Error("维度风险没有使用中文标签或没有去重");
 }
 """
         _run_node(tmp_path, script.replace("__RENDERER__", json.dumps(_module_url("src/api/static/js/report-renderer.js"))))
@@ -411,7 +412,7 @@ if (calls.length !== beforeA + 1 || !calls.at(-1).refresh_cache) throw new Error
         app_js = (await client.get("/js/app.js")).text
         api_js = (await client.get("/js/api.js")).text
 
-        assert 'import { initReportLibrary } from "./report-library.js?v=20261027-gold-observation-2";' in app_js
+        assert 'import { initReportLibrary } from "./report-library.js?v=20261028-stock-report-refinement";' in app_js
         assert "initReportLibrary();" in app_js
         assert "listReports(" in api_js
         assert "getReport(" in api_js
@@ -448,7 +449,7 @@ if (calls.length !== beforeA + 1 || !calls.at(-1).refresh_cache) throw new Error
     async def test_app_initializes_report_drawer(self, client):
         resp = await client.get("/js/app.js")
 
-        assert 'import { initReportDrawer } from "./report-drawer.js?v=20261027-gold-observation-2";' in resp.text
+        assert 'import { initReportDrawer } from "./report-drawer.js?v=20261028-stock-report-refinement";' in resp.text
         assert "initReportDrawer();" in resp.text
 
     def test_markdown_renderer_escapes_untrusted_input_and_formats_safe_blocks(self):
@@ -600,7 +601,7 @@ if (article.tagName !== "ARTICLE" || !article.classList.contains("stock-report")
 const sectionIds = article.querySelectorAll("section[id]").map((section) => section.id);
 const expectedIds = [
   "report-summary", "report-score", "report-financial", "report-technical",
-  "report-valuation", "report-industry", "report-sentiment", "report-risks",
+  "report-valuation", "report-industry", "report-sentiment",
   "report-commentary",
 ];
 for (const id of expectedIds) {
@@ -646,17 +647,15 @@ if (!headlines || headlines.children.length !== 2
     || !headlines.textContent.includes("机构上调目标价")) {
   throw new Error("舆情标题必须逐条纵向展示");
 }
-const riskRows = byClass(article, "report-risk-item");
-if (riskRows.length !== 3 || !riskRows.every((row) =>
-    row.classList.contains("report-detail-row"))
-    || !article.textContent.includes("风险 01")) {
-  throw new Error("风险应跨维度去重并使用统一字段行布局");
+const riskFlags = byClass(article, "flag").map((node) => node.textContent);
+if (riskFlags.length !== 3 || new Set(riskFlags).size !== 3
+    || !["净资产收益率偏低", "均线呈空头排列", "舆情波动"].every(
+      (text) => riskFlags.some((value) => value.includes(text)))) {
+  throw new Error("风险应在对应维度跨维度去重展示");
 }
-const commentaryRows = byClass(article, "report-commentary-item");
-if (commentaryRows.length !== 2 || !commentaryRows.every((row) =>
-    row.classList.contains("report-detail-row"))
-    || !article.textContent.includes("要点 01")) {
-  throw new Error("AI 解读分点应使用统一字段行布局");
+const commentary = byClass(article, "report-commentary-intro")[0];
+if (!commentary || !commentary.innerHTML.includes("第一段结论") || !commentary.innerHTML.includes("第二段")) {
+  throw new Error("综合研判应保留原解读段落");
 }
 const legacyMarkdown = localizeReportMarkdown("- roe_low\n趋势：bear\n估值：undervalued");
 if (legacyMarkdown.includes("roe_low") || legacyMarkdown.includes("bear")
@@ -2269,7 +2268,7 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         assert 'id="subName"' not in html
         assert 'id="subChannel"' not in html
         assert "企业微信" not in html
-        assert 'href="/css/app.css?v=20261027-gold-observation-2"' in html
+        assert 'href="/css/app.css?v=20261028-stock-report-refinement"' in html
         script = (await client.get("/js/subscriptions.js")).text
         assert "searchPushSymbols" in script
         assert "批量添加" not in script

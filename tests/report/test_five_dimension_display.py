@@ -66,7 +66,7 @@ for (const market of ['a-shares','hk']) {
  if(!score.textContent.includes('7.2')||!score.textContent.includes('综合参与分'))throw new Error('评分语义缺失');
  if(score.textContent.includes('风险扣分')||article.textContent.includes('评分不适用'))throw new Error('新口径仍有旧限制');
  const industry=descendants(article).find(n=>n.id==='report-industry');
- if(!industry.textContent.includes('7.2')||!industry.textContent.includes('完整年度与最新一期合成')||industry.textContent.includes('不计分'))throw new Error('行业无新分数依据');
+ if(!industry.textContent.includes('7.2')||!score.textContent.includes('完整年度与最新一期合成')||industry.textContent.includes('不计分'))throw new Error('行业无新分数依据');
  const news=descendants(article).find(n=>n.id==='report-sentiment');
  for(const value of ['2.0','越高风险越大','综合参与分 8.0','来源甲','2026-09-26','已评估2条','与目标无直接关联'])if(!news.textContent.includes(value))throw new Error('舆情缺少 '+value);
  const links=descendants(news).filter(n=>n.tagName==='A');
@@ -146,20 +146,18 @@ const base={scoring_method:'five-dimension-v1',score:{final:8},score_rows:[],
  signal:{label:'积极观察',action:'保持关注',position:'20%'},dimensions:{}};
 const article=renderStockReport({...base,market:'a-shares'});
 const summary=descendants(article).find(n=>n.id==='report-summary');
-if(summary.textContent.includes('暂无操作信号'))throw new Error('有效信号被partial文案否定');
 if(!byClass(summary,'badge')[0].textContent.includes('数据不完整'))throw new Error('掩盖维度缺失');
-if(!byClass(summary,'report-investment-summary')[0].innerHTML.includes('积极观察'))throw new Error('有效信号缺失');
-if(byClass(summary,'report-signal-placeholder').length)throw new Error('已有信号却显示占位');
+const signal=byClass(article,'report-signal')[0];
+if(!signal.textContent.includes('积极观察')||!signal.textContent.includes('生成依据'))throw new Error('有效信号或依据缺失');
+if(signal.textContent.includes('20%')||signal.textContent.includes('保持关注'))throw new Error('旧动作仓位未移除');
 const blocked=renderStockReport({...base,market:'a-shares',signal:null,data_quality:{...base.data_quality,signal_allowed:false}});
-if(!byClass(blocked,'report-investment-summary')[0].innerHTML.includes('暂无操作信号'))throw new Error('核心门槛不足未解释');
+if(!byClass(blocked,'report-signal')[0]?.textContent.includes('暂未生成'))throw new Error('核心门槛不足未解释');
 const detail=renderStockReport({...base,market:'a-shares',signal:null,data_quality:{...base.data_quality,signal_allowed:false,
  signal_unavailable_reason:'财务、估值分析依据未满足信号生成条件。'}});
-const placeholder=byClass(detail,'report-signal-placeholder')[0];
-if(!placeholder?.textContent.includes('操作信号：暂未生成')||!placeholder.textContent.includes('财务、估值分析依据未满足信号生成条件'))throw new Error('缺失占位或具体原因');
-if(!byClass(blocked,'report-signal-placeholder')[0]?.textContent.includes('当前报告未生成操作信号'))throw new Error('旧快照缺原因时仍需占位');
+if(!byClass(detail,'report-signal')[0]?.textContent.includes('财务、估值分析依据未满足信号生成条件'))throw new Error('具体原因丢失');
+if(!byClass(blocked,'report-signal')[0]?.textContent.includes('当前报告未生成模型信号'))throw new Error('旧快照缺原因时仍需占位');
 const hk=renderStockReport({...base,market:'hk',signal:null,data_quality:{...base.data_quality,signal_allowed:false}});
-const hkSummary=byClass(hk,'report-investment-summary')[0].innerHTML;
-if(!hkSummary.includes('不提供交易信号或仓位建议')||hkSummary.includes('积极观察'))throw new Error('港股信号边界丢失');
-if(!byClass(hk,'report-signal-placeholder')[0]?.textContent.includes('操作信号：不适用'))throw new Error('港股缺少信号占位');
+const hkSignal=byClass(hk,'report-signal')[0].textContent;
+if(!hkSignal.includes('本期港股不提供模型信号')||hkSignal.includes('积极观察'))throw new Error('港股信号边界丢失');
 '''
     _run_node(tmp_path, script)

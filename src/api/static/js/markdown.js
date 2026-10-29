@@ -10,18 +10,20 @@ function isSafeLink(url) {
 }
 
 function inline(s) {
-  return s
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
+  // 行内代码保留字面值，不能被后续链接或强调规则再次解析。
+  return s.split(/(`[^`]+`)/g).map((part, index) => index % 2
+    ? `<code>${part.slice(1, -1)}</code>`
+    : part
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>")
-    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (match, label, url) => (
+    .replace(/\[([^\]]+)\]\((?:&lt;)?([^\s)]+?)(?:&gt;)?\)/g, (match, label, url) => (
       isSafeLink(url)
         ? `<a href="${url}" target="_blank" rel="noopener">${label}</a>`
         : label
     ))
     // 在语法识别后恢复正文实体，避免外部文本被当成 Markdown；代码保留字面值。
-    .replace(/<code>[\s\S]*?<\/code>|&amp;((?:#\d+|#x[0-9a-f]+|amp|lt|gt|quot|apos);)/gi,
-      (match, entity) => entity ? `&${entity}` : match);
+    .replace(/&amp;((?:#\d+|#x[0-9a-f]+|amp|lt|gt|quot|apos);)/gi, "&$1")
+  ).join("");
 }
 
 function isUnorderedList(line) {

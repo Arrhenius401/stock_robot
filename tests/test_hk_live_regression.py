@@ -101,7 +101,7 @@ def test_real_financial_rows_survive_price_outage_through_saved_report(tmp_path,
     assert "同花顺财报" not in markdown
     assert "腾讯估值快照" not in markdown
     assert "14.23" in markdown and "2.9" in markdown
-    assert "操作信号：不适用" in markdown
+    assert "模型信号：不适用" in markdown
     assert "57.25%" in markdown and "毛利率计算口径" in markdown
     assert "计算值：同期间披露毛利÷营运收入" in markdown
     assert "其他营业收入" in markdown

@@ -41,6 +41,15 @@ const failure=renderStockReport({dimensions:{industry:{status:'partial',metrics:
 if(!failure.textContent.includes('经营接口超时'))throw new Error('失败原因被隐藏');
 const legacy=renderStockReport({dimensions:{industry:{status:'ok',score:8,metrics:{industry:'银行',peer_count:8}}}});
 if(!legacy.textContent.includes('银行'))throw new Error('旧报告不可读');
+const dated=structuredClone(comparison);
+dated.periods.annual.label='完整年度（2025-01-01 至 2025-12-31）';
+dated.notes=['分位表示数值位置，采用低于目标比例加相等值比例的一半，不直接等同经营优劣。','统计已排除目标公司'];
+const datedCard=byClass(renderStockReport({dimensions:{industry:{status:'partial',metrics:{comparison:dated}}}}),'peer-comparison')[0];
+if((datedCard.textContent.match(/2025-01-01 至 2025-12-31/g)||[]).length!==1)throw new Error('报告期重复');
+if(datedCard.textContent.includes('分位表示数值位置，采用低于目标比例加相等值比例的一半，不直接等同经营优劣。'))throw new Error('冗余统计说明未过滤');
+if(!datedCard.textContent.includes('统计已排除目标公司'))throw new Error('有效说明丢失');
+if(datedCard.textContent.includes('经营指标只对同一起止日期'))throw new Error('旧统计规则未合并');
+if(!datedCard.textContent.includes('只比较相同期间'))throw new Error('新统计规则缺失');
 '''
     _run_node(tmp_path, script)
 

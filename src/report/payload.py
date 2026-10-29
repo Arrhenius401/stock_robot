@@ -4,15 +4,17 @@ from typing import Any
 
 from data.schemas import AnalysisContext, AnalysisResult
 from report.builder import build_disclaimer
+from report.presentation import signal_presentation
 from report.quality import build_data_quality, hk_industry_label
 from report.scoring import (
     LLM_UNAVAILABLE_PREFIXES,
     SCORING_METHOD,
     compute_price_info,
     compute_score_summary,
+    quantitative_commentary,
     with_commentary_fallback,
 )
-from report.signal import SIGNAL_LABELS, SignalConfig, derive_signal
+from report.signal import SignalConfig
 from report.valuation_dates import stock_date_presentation
 
 
@@ -31,10 +33,10 @@ def build_stock_payload(
         bulk = "主要数据不足，暂不调用模型生成结论。"
     elif no_llm:
         status = "disabled"
-        bulk = "纯数据模式：本次已跳过 AI 调用。"
+        bulk = quantitative_commentary(summary, "disabled")
     elif not llm_available:
         status = "config"
-        bulk = "模型未配置或不可用，数据报告已保留。请检查模型配置。"
+        bulk = quantitative_commentary(summary, "config")
     elif bulk and not bulk.startswith(LLM_UNAVAILABLE_PREFIXES):
         status = "ok"
     else:
@@ -42,10 +44,7 @@ def build_stock_payload(
         bulk = with_commentary_fallback(commentary, summary, no_llm=False).get("bulk", "")
     signal = None
     if quality["signal_allowed"] and signal_cfg is not None and summary.final_score is not None:
-        level = derive_signal(summary.final_score, signal_cfg.thresholds)
-        action = signal_cfg.actions[level]
-        signal = {"level": level, "label": SIGNAL_LABELS[level],
-                  "action": action.action, "position": action.position}
+        signal = signal_presentation(summary.final_score, signal_cfg)
     if ctx.market == "hk":
         industry = hk_industry_label(ctx, results)
     else:

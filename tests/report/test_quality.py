@@ -18,11 +18,11 @@ def test_all_missing_has_no_score_signal_or_model_conclusion():
     text = build_report(ctx.symbol, ctx.name, results, {"bulk": "不应输出模型结论"}, ctx, signal_cfg=SignalConfig())
     assert compute_score_summary(results).final_score is None
     assert "最终综合得分：** 暂无" in text
-    assert "操作信号：暂未生成" in text
+    assert "模型信号：暂未生成" in text
     assert "不应输出模型结论" not in text
     assert "1.2" in text
-    assert "待验证事项" in text
-    assert text.index("## 六、数据覆盖与时效") < text.index("## 七、免责声明")
+    assert "待验证事项" not in text
+    assert text.index("## 五、数据覆盖与时效") < text.index("## 六、免责声明")
 
 
 def test_coverage_conservative_fixed_weights_and_unknown_source():
@@ -93,8 +93,8 @@ def test_partial_report_has_no_signal_even_with_high_score():
     ctx.sufficiency.financial = DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT, sample_count=6)
     r = AnalysisResult(dimension="financial", status="ok", summary="财务", score=9)
     text = build_report(ctx.symbol, ctx.name, [r], {}, ctx, signal_cfg=SignalConfig())
-    assert "操作信号：暂未生成" in text
-    assert "暂无操作信号和仓位建议" in text
+    assert "模型信号：暂未生成" in text
+    assert "分析依据未满足信号生成条件" in text
     assert "AI 解读当前不可用" in text
 
 
@@ -113,9 +113,9 @@ def test_signal_placeholder_explains_actual_blocked_core_dimensions_at_top():
     assert quality["signal_unavailable_reason"] == reason
     assert not quality["signal_allowed"]
     text = build_report(ctx.symbol, ctx.name, results, {}, ctx, no_llm=True, signal_cfg=SignalConfig())
-    header = text.split("## 一、标的基础概况", 1)[0]
-    assert "操作信号：暂未生成" in header and reason in header
-    assert "操作信号：进攻" not in text
+    header = text.split("## 四、综合研判", 1)[1].split("## 五、数据覆盖与时效", 1)[0]
+    assert "模型信号：暂未生成" in header and reason in header
+    assert "模型信号：进攻" not in text
 
 
 def test_real_signal_has_no_placeholder_and_hk_explains_not_applicable():
@@ -128,12 +128,12 @@ def test_real_signal_has_no_placeholder_and_hk_explains_not_applicable():
                for dim in ("financial", "technical", "valuation")]
     assert build_data_quality(ctx, results)["signal_unavailable_reason"] == ""
     text = build_report(ctx.symbol, ctx.name, results, {}, ctx, no_llm=True, signal_cfg=SignalConfig())
-    assert "操作信号：进攻" in text and "操作信号：暂未生成" not in text
+    assert "模型信号：进攻" in text and "模型信号：暂未生成" not in text
     ctx.market = "hk"
     text = build_report(ctx.symbol, ctx.name, results, {}, ctx, no_llm=True, signal_cfg=SignalConfig())
-    header = text.split("## 一、标的基础概况", 1)[0]
-    assert "操作信号：不适用" in header and "本期港股不提供交易信号或仓位建议" in header
-    assert "操作信号：进攻" not in text
+    header = text.split("## 四、综合研判", 1)[1].split("## 五、数据覆盖与时效", 1)[0]
+    assert "模型信号：不适用" in header and "本期港股不提供交易信号" in header
+    assert "模型信号：进攻" not in text
 
 
 def test_valuation_counts_only_valid_points_and_preserves_dependencies():

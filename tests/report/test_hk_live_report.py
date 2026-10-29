@@ -42,7 +42,7 @@ def test_real_qq_failure_sample_and_corrected_market_report():
     assert "基于营业收入的解读" in text
     assert "金额币种未核实" in text
     assert "five-dimension-v1" in text
-    assert "不提供交易信号或仓位建议" in text
+    assert "本期港股不提供交易信号" in text
     assert "申万行业待补全" not in text
     assert "最新财报季度" not in text
 

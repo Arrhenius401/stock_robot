@@ -572,7 +572,7 @@ class Pipeline:
                              style_category: str = "",
                              on_progress: ProgressCallback = None,
                              context: AnalysisContext | None = None) -> dict[str, str]:
-        """单次批量 LLM 调用，生成四段结构化解读"""
+        """单次批量 LLM 调用，生成结构化解读"""
         commentary = {}
         from report.quality import build_data_quality, has_analysis_data
         from report.scoring import compute_score_summary, participation_score

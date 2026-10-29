@@ -79,8 +79,8 @@ def test_markdown_shows_weighted_five_dimension_coverage_and_missing_reasons():
     assert "计分维度覆盖：15.0%" in text
     assert "五维原权重数据覆盖，不表示评分置信度" in text
     assert "1/4" not in text
-    assert "行业 · 数据不可用" in text
-    assert "舆情 · 数据不可用" in text
+    assert any("行业" in line and "数据不可用" in line for line in text.splitlines() if line.startswith("|"))
+    assert any("舆情" in line and "数据不可用" in line for line in text.splitlines() if line.startswith("|"))
     assert "新闻暂时获取失败" in text
 
 
