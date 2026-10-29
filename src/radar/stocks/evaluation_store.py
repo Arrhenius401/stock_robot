@@ -9,7 +9,9 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from radar.stocks import admission, style
+from radar.stocks.company_profile_source import load_company_profile_source
 from radar.stocks.financial_source import load_financial_source
+from radar.stocks.industry_source import load_industry_source
 from radar.stocks.market_value_registry import load_market_value_source
 from radar.stocks.research_store import (
     StockResearchError,
@@ -162,6 +164,12 @@ class StockEvaluationStore:
                 if (not isinstance(market, dict) or market.get('symbol') != symbol
                         or market.get('evaluation_as_of') != market_as_of):
                     raise StockResearchError('公司市值来源的身份或评估截点无效')
+            for key, day_key in (('company_profile_source', 'profile_as_of'), ('industry_source', 'industry_as_of')):
+                if key in entry or day_key in entry:
+                    source = entry.get(key)
+                    cutoff = self.research._date(entry.get(day_key))
+                    if not isinstance(source, dict) or source.get('symbol') != symbol or source.get('evaluation_as_of') != cutoff:
+                        raise StockResearchError('上市或行业来源身份/截点无效')
             evidence_ids: set[str] = set()
             for row in entry['evidence']:
                 if not isinstance(row, dict) or row.get('symbol') != symbol or not isinstance(row.get('payload'), dict):
@@ -199,6 +207,13 @@ class StockEvaluationStore:
                 live_market = load_market_value_source(self.research.db_path.parent, symbol, cutoff)
                 if _json(live_market) != _json(entry['market_value_source']):
                     raise StockRevisionConflict(f'公司市值来源已变化：{symbol}')
+            for key, day_key, loader in (
+                    ('company_profile_source', 'profile_as_of', load_company_profile_source),
+                    ('industry_source', 'industry_as_of', load_industry_source)):
+                if key in entry:
+                    loaded = loader(self.research.db_path.parent, symbol, date.fromisoformat(entry[day_key]))
+                    if _json(loaded) != _json(entry[key]):
+                        raise StockRevisionConflict(f'上市或行业来源已变化：{symbol}')
             if full:
                 live['admission_status'] = 'pending_verification'
                 if _json(live) != _json(expected):
@@ -235,6 +250,9 @@ class StockEvaluationStore:
             if item.get('as_of') != as_of or item.get('rule_version') != admission.RULE_VERSION or item.get('style_rule_version') != style.STYLE_RULE_VERSION:
                 raise StockResearchError('公司截点或规则版本不匹配')
             source = next(entry for entry in inputs['companies'] if entry['company']['symbol'] == symbol)
+            for key, day_key in (('company_profile_source', 'profile_as_of'), ('industry_source', 'industry_as_of')):
+                if (key in item or key in source) and (source.get(day_key) != as_of or _json(source.get(key)) != _json(item.get(key))):
+                    raise StockResearchError('报告上市或行业来源与归档输入不匹配')
             if ('market_value_source' in item or 'market_value_source' in source) and (
                     source.get('market_value_as_of') != as_of or _json(source.get('market_value_source')) != _json(item.get('market_value_source'))):
                 raise StockResearchError('报告市值来源与归档输入不匹配')

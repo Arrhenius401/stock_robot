@@ -163,10 +163,22 @@ export function renderRadarStockPool(root, header, pool, payload, options = {}) 
       const source = value.financial_source;
       append(section, node('p', 'radar-meta stock-financial-source', '盈利来源：结构化财务 · 本次评估截点 ' + (value.as_of || '未知') + ' · 财务研究截点 ' + (source.as_of || '暂无') + ' · 范围日期 ' + (source.scope_as_of || '暂无') + '。' + (source.reason || '资料待补')));
     }
+    if (value?.industry_source) {
+      const source = value.industry_source, industry = source.industry || {};
+      append(section, node('p', 'radar-meta', '行业分类参考 · 来源截点 ' + (source.as_of || '未知') + ' · ' + (industry.level1 || '待核验') + ' / ' + (industry.level2 || '待核验') + '；行业归属不代表龙头资格。'));
+    }
     const details = node('div');
     (value?.checks || []).forEach(check => {
       let extra = '';
       if (check.channel === 'structured_financial') extra = (check.reference_check ? '；本次结构化来源：' : '；结构化来源：') + label(check.structured_check?.outcome) + '，人工事实：' + label(check.manual_check?.outcome);
+      if (check.channel === 'official_listing') {
+        const reference = check.reference_check || check.profile_check;
+        extra = '；官方名录' + (check.reference_check ? '历史（' + check.reference_as_of + '）' : '本次') + '：' + label(reference?.outcome) + '，人工事实：' + label(check.manual_check?.outcome);
+        if (value?.company_profile_source?.name_match === false) extra += '；名录名称：' + (value.company_profile_source.roster_name || '未知') + '，与范围名称不同，身份待核验';
+        const values = reference?.values || {};
+        if (values.a_listed_on) extra += '，A股上市日 ' + values.a_listed_on;
+        if (values.third_anniversary) extra += '，完整三周年 ' + values.third_anniversary;
+      }
       if (check.channel === 'supplier_market_value') {
         const reference = check.reference_check || check.supplier_check;
         const values = reference?.values || {};
