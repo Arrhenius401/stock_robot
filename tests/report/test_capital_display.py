@@ -29,15 +29,18 @@ def test_capital_display_does_not_change_calculations(north, main, label):
     result = CapitalFlowAnalyzer().analyze(ctx)
     original = result.model_dump()
     builder = IndexReportBuilder()
-    expected_composite = builder._composite({"index_valuation": "invalid", "index_capital_flow": result.metrics["tag"]})
     report = builder.build(ctx, [result])
-    assert report.section_capital["display"]["label"] == label
-    assert report.tag_capital == result.metrics["tag"]
-    assert (report.composite_comment, report.position_coeff) == expected_composite
+    # 新版不再从资金值生成总投票标签，保留旧字段仅用于兼容。
+    expected_label = label if label in {"无净流入或净流出", "暂无数据"} else "方向未记录"
+    assert report.section_capital["display"]["label"] == expected_label
+    assert report.position_coeff is None
+    assert "不生成整体方向评级" in report.composite_comment or "方向评级" in report.composite_comment or "方向判断" in report.composite_comment
     assert result.model_dump() == original
     assert report.section_capital["metrics"] == result.metrics
     markdown = render_index_report_markdown(report)
-    assert f"| 资金面 | {label} |" in markdown
+    assert "### 资金流向" in markdown
+    assert "建议仓位" not in markdown
+    assert "净流出 0.0亿" not in markdown
     if label == "无净流入或净流出":
         assert label in markdown
         assert "净流出 0.0亿" not in markdown
@@ -50,7 +53,9 @@ def test_capital_display_does_not_change_calculations(north, main, label):
         assert "数据异常" in report.section_capital["display"]["summary"]
     compare = IndexCompareReportBuilder().build([ctx], [report])
     assert compare.rows[0]["capital"] == report.tag_capital
-    assert compare.rows[0]["capital_display"]["label"] == label
+    assert compare.rows[0]["capital_display"]["label"] == expected_label
+    assert "资金" not in compare.headers
+    assert "综合评级" not in compare.headers
 
 
 def test_unavailable_residual_values_are_not_reported_as_flow():
@@ -66,7 +71,8 @@ def test_unavailable_residual_values_are_not_reported_as_flow():
     assert "资金流向：暂无数据" in text
     assert "旧资金残留摘要" not in text
     assert "净流入 5" not in text
-    assert "| 资金面 | 暂无数据 |" in text
+    assert report.section_capital["display"]["rows"] == []
+    assert "### 资金流向" in text
 
 
 def test_cli_compare_uses_display_label():
@@ -84,3 +90,19 @@ def test_cli_compare_uses_display_label():
     Console(file=output, width=120).print(_render_compare_table(table))
     assert "无净流入或净流出" in output.getvalue()
     assert "negative" not in output.getvalue()
+
+
+
+def test_partial_capital_preserves_unverified_source_reason_without_fabricated_flow():
+    ctx = IndexAnalysisContext(target=AnalysisTarget(target_type="index", symbol="000300", name="沪深300", index_style="broad"))
+    ctx.capital_flow = CapitalFlowData(symbol="000300", date=date(2026, 10, 20),
+        north_bound=None, notes=["北向源未披露真实净流量，返回零值不能证明净流量为零"])
+    result = CapitalFlowAnalyzer().analyze(ctx)
+    original = result.model_dump()
+    report = IndexReportBuilder().build(ctx, [result])
+    text = render_index_report_markdown(report)
+    assert "不能证明净流量为零" in report.section_capital["summary"]
+    assert "不能证明净流量为零" in str(report.data_quality["limitations"])
+    assert "北向资金：暂无数据" in text
+    assert "北向资金：无净流入或净流出" not in text
+    assert report.section_capital["metrics"] == original["metrics"]

@@ -314,6 +314,7 @@ class NewsData(BaseModel):
     symbol: str
     date: date
     headlines: list[str] = Field(default_factory=list)
+    index_items: list[dict[str, Any]] = Field(default_factory=list)
     hk_news: HKNewsSnapshot | None = None
     _raw_sentiment: RawSentimentData | None = PrivateAttr(default=None)
     _from_stale_cache: bool = PrivateAttr(default=False)
@@ -452,6 +453,7 @@ class CapitalFlowData(BaseModel):
     north_bound: float | None = None
     main_net_inflow: float | None = None
     margin_balance: float | None = None
+    notes: list[str] = Field(default_factory=list)
 
 
 class MacroContext(BaseModel):
@@ -462,6 +464,8 @@ class MacroContext(BaseModel):
     cpi_yoy: float | None = None
     pmi: float | None = None
     usd_cny: float | None = None
+    indicator_dates: dict[str, str] = Field(default_factory=dict)
+    notes: list[str] = Field(default_factory=list)
     shibor_percentile: float | None = None
     pmi_percentile: float | None = None
 
@@ -509,6 +513,7 @@ class IndexAnalysisContext(BaseModel):
     valuation_data: IndexValuationData | None = None
     capital_flow: CapitalFlowData | None = None
     macro: MacroContext | None = None
+    news_items: list[dict[str, Any]] = Field(default_factory=list)
     raw_sentiment: RawSentimentData | None = None
     sufficiency: DataSufficiency | None = None
     enriched_sentiment: EnrichedSentiment | None = None
@@ -545,3 +550,10 @@ class IndexReport(BaseModel):
 
     risk_list: list[str]
     visible_sections: set[str]
+    report_version: int = 1  # 新报告使用版本2，历史结构继续兼容
+    generated_at: str = ""
+    data_quality: dict[str, Any] = Field(default_factory=dict)
+    commentary: str = ""
+    commentary_status: str = "disabled"
+    commentary_retry_id: str | None = None
+    disclaimer: list[str] = Field(default_factory=list)

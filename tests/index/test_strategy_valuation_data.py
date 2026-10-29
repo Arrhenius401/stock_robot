@@ -34,14 +34,14 @@ def test_history_sorted_deduplicated_and_has_real_coverage(provider, monkeypatch
     feed(provider, monkeypatch, list(reversed(data)) + [data[0]])
     result = provider.fetch("930740", end=END)
     assert result is not None
-    assert result.pe_ttm == 261
-    assert result.pe_percentile == 100
+    assert result.pe_snapshot == 261
+    assert result.pe_percentile is None
     assert result.pe_sample_count == 252
     assert result.percentile_sample_start == date.fromisoformat(data[0]["tradeDate"])
     assert result.percentile_sample_end == END
-    assert result.pe_as_of == END
+    assert result.pe_snapshot_as_of == END
     assert result.pb_percentile is None
-    assert result.valuation_valid
+    assert not result.valuation_valid
 
 
 @pytest.mark.parametrize("count, expected", [(251, None), (252, 100)])
@@ -49,8 +49,8 @@ def test_independent_pe_sample_threshold(provider, monkeypatch, count, expected)
     feed(provider, monkeypatch, rows(count))
     result = provider.fetch("930740", end=END)
     assert result is not None
-    assert result.pe_percentile == expected
-    assert result.valuation_valid is (count >= 252)
+    assert result.pe_percentile is None
+    assert not result.valuation_valid
 
 
 def test_bad_rows_and_calendar_window_filtered(provider, monkeypatch):
@@ -127,7 +127,7 @@ def test_invalid_snapshot_rejected_without_losing_history(provider, monkeypatch,
     monkeypatch.setattr(provider, "_factsheet", lambda *_: snapshot)
     result = provider.fetch("930740", end=END)
     assert result is not None
-    assert result.pe_ttm == 261
+    assert result.pe_snapshot == 261
     assert result.pb is None
 
 
@@ -153,7 +153,7 @@ def test_factsheet_failure_does_not_hide_valid_history(provider, monkeypatch):
     monkeypatch.setattr(provider, "_factsheet", fail)
     result = provider.fetch("930740", end=END)
     assert result is not None
-    assert result.pe_percentile == 100
+    assert result.pe_percentile is None
     assert any("单张请求失败" in note for note in result.valuation_notes)
 
 
@@ -169,7 +169,7 @@ def test_daily_pb_uses_exact_name_and_does_not_replace_pe(provider, monkeypatch)
     result = provider.fetch("000015", end=END)
     assert result is not None
     assert result.pb == 0.9
-    assert result.pe_ttm == 261
+    assert result.pe_snapshot == 261
     assert result.pb_sample_count == 0
     assert result.pb_percentile is None
 
@@ -221,5 +221,5 @@ def test_undisclosed_pb_explained_with_usable_pe(provider, monkeypatch):
     monkeypatch.setattr(provider, "_factsheet", lambda *_: {"symbol": "930740", "as_of": END, "pb": None})
     result = provider.fetch("930740", end=END)
     assert result is not None
-    assert result.pe_percentile == 100
+    assert result.pe_percentile is None
     assert any("未披露 PB" in note for note in result.valuation_notes)

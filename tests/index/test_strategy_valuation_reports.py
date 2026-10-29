@@ -32,7 +32,7 @@ def test_strategy_partial_record_keeps_provider_errors(monkeypatch):
     monkeypatch.setattr(StrategyValuationProvider, "fetch_prices", lambda *_a, **_k: [price])
     monkeypatch.setattr(StrategyValuationProvider, "collect", lambda *_a, **_k: snapshot)
     monkeypatch.setattr(StrategyValuationProvider, "fetch", lambda *_a, **_k: None)
-    ctx = IndexDataCollector().collect(target())
+    ctx = IndexDataCollector(isolate_requests=False).collect(target())
     assert ctx.collection_records["strategy_data"].result_state == "partial"
     assert "部分缺失" in ctx.collection_records["strategy_data"].error_message
     assert "部分缺失" in ctx.risk_flags
@@ -53,7 +53,7 @@ def test_strategy_valuation_record_checks_values_and_degradation(monkeypatch, va
         source="官方", as_of=date(2026, 9, 30), members=[ConstituentSnapshot(symbol="600519", weight=1)]))
     monkeypatch.setattr(StrategyValuationProvider, "fetch", lambda *_a, **_k: IndexValuationData(
         symbol="980092", date=date(2026, 9, 30), **values))
-    ctx = IndexDataCollector().collect(target())
+    ctx = IndexDataCollector(isolate_requests=False).collect(target())
     assert ctx.collection_records["index_valuation"].result_state == expected
 
 
@@ -120,7 +120,7 @@ def test_strategy_collector_isolates_valuation_and_counts_progress(monkeypatch, 
     if etf:
         selected.requested_instrument={"symbol":"515300"}
     progress=[]
-    ctx=IndexDataCollector().collect(selected, on_progress=lambda *args: progress.append(args))
+    ctx=IndexDataCollector(isolate_requests=False).collect(selected, on_progress=lambda *args: progress.append(args))
     assert calls == [("980092","cni")]
     assert ctx.strategy_data is not None
     assert ctx.benchmark_prices

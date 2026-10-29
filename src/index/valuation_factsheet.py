@@ -72,7 +72,7 @@ def parse_factsheet_text(text: str, symbol: str, provider: str, end: date) -> di
             "pe_basis": pe_basis, "pb_basis": pb_basis}
 
 
-def fetch_factsheet(symbol: str, provider: str, end: date, timeout: float = 12) -> dict:
+def fetch_factsheet(symbol: str, provider: str, end: date, timeout: float | tuple[float, float] = 12) -> dict:
     """读取目录核验的官方单张；失败由上层按源隔离并记录。"""
     from data.index_mapping import IndexMapping
     entry = IndexMapping().lookup(symbol)

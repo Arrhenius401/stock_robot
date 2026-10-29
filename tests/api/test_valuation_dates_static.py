@@ -48,7 +48,19 @@ const box=makeElement('indexContent');
 api.index=async()=>payload;
 await openIndex('000015 000922');
 if(!box.textContent.includes('50.00%（截至 2026-10-21）')) throw new Error('对比表漏异日日期');
-if(!descendants(box).some(e=>e.innerHTML.includes('PB 2.00（截至 2026-09-30）'))) throw new Error('摘要漏PB日期');
-if((box.textContent.match(/估值数据截至 2026-10-22/g)||[]).length<2) throw new Error('概览或对比缺少统一日期');
+const articles=byClass(box,'index-report');
+if(articles.length!==2) throw new Error('新版指数报告数量不符');
+for(const [index,article] of articles.entries()) {
+ const rows=descendants(article).filter(e=>e.tagName==='TR').map(e=>e.children.map(c=>c.textContent));
+ if(!rows.some(c=>c[0]==='PB'&&c[1]==='2.00'&&c[2].includes('2026-09-30'))) throw new Error('新版PB数值和独立日期未保留');
+ const end=index===0?'2026-10-22':'2026-10-21';
+ if(!rows.some(c=>c[0]==='PE'&&c[1]==='20.00'&&c[2].includes(end))) throw new Error('新版PE日期被其他指数或PB覆盖');
+}
+if(!box.textContent.includes(payload.compare.valuation_cutoff)) throw new Error('比较表统一日期缺失');
+// 旧快照保留原日期展示，仍能读取行内异日标记。
+api.index=async()=>({reports:payload.reports.map(r=>({...r,report_version:1}))});
+await openIndex('000015 000922');
+if(!descendants(box).some(e=>e.innerHTML.includes('PB 2.00（截至 2026-09-30）'))) throw new Error('旧报告摘要漏PB日期');
+if((box.textContent.match(/估值数据截至 2026-10-22/g)||[]).length<1) throw new Error('旧报告概览日期丢失');
 '''
     _run_node(tmp_path, script)

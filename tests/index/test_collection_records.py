@@ -17,7 +17,7 @@ from index.collector import IndexDataCollector
 
 def test_index_records_use_result_and_classify_fields(mocker):
     target = AnalysisTarget(target_type="index", symbol="000300", name="沪深300", index_style="broad")
-    collector = IndexDataCollector()
+    collector = IndexDataCollector(isolate_requests=False)
     rows = {
         "index_price": [IndexPriceData(symbol="000300", trade_date=date(2026, 1, 1), open=1, high=1, low=1, close=1, volume=1)],
         "index_valuation": [IndexValuationData(symbol="000300", date=date(2026, 1, 1), pe_ttm=10)],
@@ -37,7 +37,7 @@ def test_index_records_use_result_and_classify_fields(mocker):
 
 def test_empty_or_exception_records_failed(mocker):
     target = AnalysisTarget(target_type="index", symbol="000300", name="沪深300", index_style="broad")
-    collector = IndexDataCollector()
+    collector = IndexDataCollector(isolate_requests=False)
     def fetch(symbol, **kw):
         if kw["data_type"] == "index_price":
             raise RuntimeError("网络异常")

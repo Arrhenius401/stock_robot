@@ -5,8 +5,10 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 
 from data.schemas import AnalysisResult, IndexAnalysisContext, IndexReport
+from index.presentation import build_quality, display_rows, valuation_rows
+from report.builder import build_disclaimer
 from report.capital_display import capital_presentation
-from report.formatter import format_metric_value
+from report.formatter import _news_text, _news_url, format_metric_value
 from report.valuation_dates import index_date_presentation
 from utils.numbers import is_finite_number, is_positive_finite, is_valid_percentile
 
@@ -44,7 +46,51 @@ class IndexReportBuilder:
         macro = self._build_section(results_map, "index_macro")
         sentiment = self._build_section(results_map, "index_sentiment")
 
-        comment, coeff = self._composite(tags)
+        performance = self._build_section(results_map, "index_performance")
+        strategy = self._build_section(results_map, "index_strategy")
+        technical["display"] = {"rows": display_rows(technical["metrics"], ("ma_5", "ma_20", "ma_60", "adx_14", "atr_20", "atr_pct", "year_high", "year_low", "price_position_pct"))}
+        valuation["display"]["rows"] = valuation_rows(ctx)
+        capital["display"] = {**capital["display"], "rows": display_rows(capital["metrics"], ("north_bound", "main_net_inflow", "margin_balance")) if capital["status"] != "unavailable" else []}
+        # 资金文字统一使用独立值的展示，避免旧分析摘要把零流量写成净流出。
+        capital["summary"] = capital["display"]["summary"]
+        if capital["status"] != "unavailable":
+            notes = capital["metrics"].get("notes") or []
+            if notes:
+                capital["summary"] += "；" + "；".join(str(note) for note in notes)
+        macro["display"] = {"rows": display_rows(macro["metrics"], ("pmi", "shibor_3m", "cpi_yoy", "usd_cny"))}
+        sentiment["display"] = {"rows": [], "items": sentiment["metrics"].get("items") or sentiment["metrics"].get("news_items") or []}
+        performance["display"] = {"rows": [{"label": label, "value": format_metric_value(key, performance["metrics"][key]), "note": ""} for key, label in (("return_pct", "区间收益率"), ("max_drawdown_pct", "最大回撤"), ("annualized_volatility_pct", "年化波动率"), ("benchmark_aligned_index_return_pct", "同日指数区间收益"), ("benchmark_return_pct", "同日基准区间收益"), ("excess_return_pct", "同日基准超额收益")) if performance["metrics"].get(key) is not None], "windows": performance["metrics"].get("windows") or []}
+        performance["display"]["etf_rows"] = []
+        if performance["metrics"].get("etf_symbol"):
+            metrics = performance["metrics"]
+            performance["display"]["etf_rows"] = [
+                {"label": "ETF代码", "value": str(metrics["etf_symbol"]), "note": "ETF自身表现，不以指数代替"},
+                {"label": "ETF区间收益率", "value": format_metric_value("return_pct", metrics.get("etf_return_pct")), "note": str(metrics.get("etf_return_basis") or "口径未记录")},
+                {"label": "ETF实际区间", "value": f"{metrics.get('etf_start_date') or '未记录'}至{metrics.get('etf_end_date') or '未记录'}", "note": str(metrics.get("etf_unavailable_reason") or "")},
+            ]
+        performance["display"]["benchmark_rows"] = [row for row in performance["display"]["rows"] if "同日" in row["label"]]
+        strategy_metrics = strategy["metrics"]
+        strategy["display"] = {"rows": []}
+        for key, label in (("source", "来源"), ("as_of", "采样日"), ("weight_as_of", "官方权重日"), ("financial_years", "财报年度"), ("market_cap_dates", "市值采样日期"), ("member_weight_coverage_pct", "成分权重覆盖率"), ("top10_weight_pct", "前十大集中度"), ("industry_coverage_pct", "行业分类覆盖率")):
+            value = strategy_metrics.get(key)
+            if value is not None:
+                text = "、".join(map(str, value)) if isinstance(value, list) else format_metric_value(key, value)
+                strategy["display"]["rows"].append({"label": label, "value": text, "note": ""})
+        for indicator in strategy_metrics.get("indicators") or []:
+            value = indicator.get("value")
+            text = f"{value:.4f}{indicator.get('unit', '')}" if is_finite_number(value) else "不可用"
+            strategy["display"]["rows"].append({"label": indicator.get("label", "专项指标"), "value": text, "note": f"官方权重覆盖率 {indicator.get('coverage_pct', '未记录')}%；{indicator.get('scope', '')}；{indicator.get('reason', '')}"})
+        for industry in strategy_metrics.get("industry_weights") or []:
+            strategy["display"]["rows"].append({"label": industry.get("industry", "未记录行业"), "value": f"{industry.get('weight_pct', '未记录')}%", "note": "占完整指数的原始官方权重"})
+        overview["display_rows"] = display_rows(overview, ("latest_close", "change_pct")) + valuation_rows(ctx)
+        for row in overview["display_rows"][:2]:
+            row["note"] = overview["price_date"]
+        sections = {"performance": performance, "technical": technical, "valuation": valuation, "capital": capital, "macro": macro, "sentiment": sentiment, "strategy": strategy}
+        quality = build_quality(ctx, sections)
+        sample_count = len({p.trade_date for p in ctx.price_data if p.symbol == ctx.target.symbol and p.close > 0})
+        comment = "主要行情数据不可用，暂不作整体方向判断。" if not sample_count else "以下仅按可用事实说明，不生成方向评级。"
+        commentary = "### 核心判断\n\n" + comment + "\n\n### 关键依据与分歧\n\n" + (technical["summary"] or "行情证据不足。") + "\n\n" + (valuation["summary"] or "估值依据不足。") + "\n\n### 后续观察重点\n\n跟踪短中期均线关系、实际风险区间及估值数据更新；缺失维度不补零，不推断方向。"
+        coeff = None
 
         return IndexReport(
             code=ctx.target.symbol,
@@ -56,9 +102,14 @@ class IndexReportBuilder:
             section_capital=capital,
             section_macro=macro if "macro" in visible else None,
             section_sentiment=sentiment,
-            section_strategy=self._build_section(results_map, "index_strategy") if "strategy" in visible else None,
-            section_performance=self._build_section(results_map, "index_performance") if "performance" in visible else None,
+            section_strategy=strategy if "strategy" in visible else None,
+            section_performance=performance,
             requested_instrument=ctx.requested_instrument,
+            report_version=2,
+            generated_at=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
+            data_quality=quality, commentary=commentary,
+            commentary_status="disabled" if sample_count >= 60 else "insufficient",
+            disclaimer=[p.replace("指标、评分及观察结论", "指标及观察结论") for p in build_disclaimer()],
             tag_technical=tags.get("index_technical", "shake"),
             tag_valuation=tags.get("index_valuation", "invalid"),
             tag_capital=tags.get("index_capital_flow", "neutral"),
@@ -83,7 +134,7 @@ class IndexReportBuilder:
         return tags
 
     def _compute_visible_sections(self, index_style: str | None) -> set[str]:
-        sections = {"overview", "technical", "valuation", "sentiment"}
+        sections = {"overview", "technical", "valuation", "sentiment", "performance"}
         if index_style == "broad":
             sections.update({"capital", "macro"})
         elif index_style == "sector":
@@ -97,12 +148,13 @@ class IndexReportBuilder:
 
     def _build_overview(self, ctx: IndexAnalysisContext,
                         results_map: dict) -> dict:
-        prices = ctx.price_data
+        prices = sorted({p.trade_date: p for p in ctx.price_data if p.symbol == ctx.target.symbol and is_positive_finite(p.close)}.values(), key=lambda p: p.trade_date)
         latest_close = prices[-1].close if prices else None
         change_pct = prices[-1].change_pct if prices else None
         val = ctx.valuation_data
 
         return {
+            "price_date": str(prices[-1].trade_date) if prices else "未记录",
             "latest_close": latest_close,
             "change_pct": change_pct,
             "pe_ttm": val.pe_ttm if val and is_finite_number(val.pe_ttm) else None,
@@ -126,24 +178,8 @@ class IndexReportBuilder:
         }
 
     def _composite(self, tags: dict) -> tuple[str, float | None]:
-        bullish = sum(1 for t in tags.values()
-                      if t in ("bull", "undervalued", "positive"))
-        bearish = sum(1 for t in tags.values()
-                     if t in ("bear", "overvalued", "negative"))
-        invalid = sum(1 for t in tags.values() if t in ("invalid", "na"))
-        active = len(tags) - invalid if len(tags) > invalid else 1
+        return "不生成整体方向评级", None
 
-        net = (bullish - bearish) / max(active, 1)
-
-        if net > 0.3:
-            comment = "谨慎看多"
-        elif net < -0.3:
-            comment = "谨慎看空"
-        else:
-            comment = "中性震荡"
-
-        coeff = round(max(0.1, min(0.9, 0.5 + net * 0.4)), 2)
-        return comment, coeff
 
 
 def render_index_report_markdown(report: IndexReport) -> str:
@@ -155,15 +191,18 @@ def render_index_report_markdown(report: IndexReport) -> str:
         lstrip_blocks=True,
     )
     from index.enricher import INDEX_TAG_LABELS
-    from report.builder import _md_table
-
+    from report.builder import _md_table, _quality_table
+    env.filters["news_text"] = _news_text
+    env.filters["news_url"] = _news_url
+    env.filters["quality_table"] = _quality_table
     env.filters["md_table"] = _md_table
     env.filters["metric_value"] = lambda value, key: format_metric_value(key, value)
     template = env.get_template("index_report.jinja2")
     return template.render(
         code=report.code,
         name=report.name,
-        generated_at=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
+        generated_at=report.generated_at or str(report.date),
+        report=report,
         overview=report.overview,
         section_technical=report.section_technical,
         section_valuation=report.section_valuation,

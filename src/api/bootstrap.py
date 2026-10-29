@@ -111,7 +111,7 @@ def build_agent_core(
         llm_enabled = config.get("llm.enabled", True)
     pipeline = Pipeline(registry=reg, config=config,
                         llm_enabled=llm_enabled and llm is not None)
-    index_pipeline = IndexPipeline()
+    index_pipeline = IndexPipeline(registry=reg, config=config, llm=llm, llm_enabled=llm_enabled)
 
     registry = ToolRegistry()
     registry.register(AnalyzeStockTool(pipeline=_wrap_pipeline(pipeline)))

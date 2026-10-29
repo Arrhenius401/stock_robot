@@ -58,6 +58,7 @@ class ReportDetail:
     missing_artifacts: list[str] | None = None
     stock_payload: dict[str, Any] | None = None
     gold_payload: dict[str, Any] | None = None
+    index_payload: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -395,6 +396,10 @@ def get_report_detail(
         else:
             gold_payload = load_gold_snapshot(path, markdown)
         return ReportDetail(report=summary, markdown=markdown, gold_payload=gold_payload)
+    if summary.type == "index":
+        from index.archives import load_index_snapshot
+        return ReportDetail(report=summary, markdown=markdown,
+                            index_payload=load_index_snapshot(path, markdown, summary.symbol))
     if summary.type != "backtest":
         return ReportDetail(report=summary, markdown=markdown,
                             stock_payload=_load_stock_snapshot(reports_root, path, summary.symbol, markdown)

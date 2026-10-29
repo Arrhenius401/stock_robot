@@ -35,7 +35,7 @@ INDEX_DIMENSION_STYLES = {
     "index_macro": ("broad", "overseas"),
     "index_sentiment": ("broad", "sector", "overseas"),
     "index_strategy": ("strategy",),
-    "index_performance": ("strategy",),
+    "index_performance": ("broad", "sector", "overseas", "strategy"),
 }
 
 
@@ -47,9 +47,12 @@ class IndexPipelineResult:
 
 
 class IndexPipeline:
-    def __init__(self, registry: Registry | None = None):
+    def __init__(self, registry: Registry | None = None, config=None, llm=None, llm_enabled: bool | None = None):
         if registry is None:
             registry = Registry()
+        self._config = config
+        self._llm = llm
+        self._llm_enabled = bool(config.get("llm.enabled", True)) if config is not None and llm_enabled is None else bool(llm_enabled)
         self._registry = registry
         self._collector = IndexDataCollector(registry)
         self._enricher = IndexValuationEnricher()
@@ -114,6 +117,8 @@ class IndexPipeline:
                                    INDEX_DIMENSION_LABELS.get(module.dimension) or module.dimension)
 
                 report = self._report_builder.build(ctx, results)
+                from index.commentary import apply_commentary
+                apply_commentary(report, ctx, results, self._llm, self._llm_enabled)
                 reports.append(report)
                 contexts.append(ctx)
 

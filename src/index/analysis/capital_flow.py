@@ -3,7 +3,6 @@ from typing import Any, Literal
 
 from analysis.base import AnalysisModule
 from data.schemas import AnalysisResult, IndexAnalysisContext
-from index.enricher import index_tag_label, tag_capital
 
 
 class CapitalFlowAnalyzer(AnalysisModule):
@@ -18,19 +17,19 @@ class CapitalFlowAnalyzer(AnalysisModule):
             return AnalysisResult(dimension=self.dimension, status="unavailable",
                                   summary="资金流向数据不可用", metrics={})
 
-        flow_tag = tag_capital(cf.north_bound, cf.main_net_inflow)
 
         metrics = {
+            "notes": cf.notes,
             "north_bound": cf.north_bound,
             "main_net_inflow": cf.main_net_inflow,
             "margin_balance": cf.margin_balance,
-            "tag": flow_tag,
+
         }
 
-        summary = f"资金面：{index_tag_label(flow_tag)}"
+        summary = "；".join(cf.notes) if cf.notes else "资金指标按来源披露，不作综合投票"
         if cf.north_bound is not None:
             direction = "流入" if cf.north_bound > 0 else "流出"
             summary += f"，北向资金净{direction} {abs(cf.north_bound):.1f}亿"
 
-        return AnalysisResult(dimension=self.dimension, status="ok",
+        return AnalysisResult(dimension=self.dimension, status="partial" if cf.notes else "ok",
                               summary=summary, metrics=metrics)

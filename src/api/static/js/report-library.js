@@ -1,8 +1,8 @@
 import { api } from "./api.js";
 import { el, errorCard, skeleton } from "./components.js";
-import { renderMarkdown } from "./markdown.js?v=20261028-stock-report-refinement";
+import { renderMarkdown } from "./markdown.js?v=20261029-index-report-refinement";
 import { bus } from "./state.js";
-import { localizeReportMarkdown, renderStockMarkdownReport, renderStockReport } from "./report-renderer.js?v=20261028-stock-report-refinement";
+import { localizeReportMarkdown, renderStockMarkdownReport, renderStockReport } from "./report-renderer.js?v=20261029-index-report-refinement";
 
 const TYPE_LABELS = {
   stock: "个股",
@@ -218,7 +218,7 @@ function tabButton(value, label) {
 
 function renderTabs(report, detail) {
   const tabs = el("nav", "report-library-tabs");
-  if ((report.type === "stock" && detail.stock_payload) || (report.type === "gold" && detail.gold_payload)) {
+  if ((report.type === "stock" && detail.stock_payload) || (report.type === "gold" && detail.gold_payload) || (report.type === "index" && detail.index_payload)) {
     tabs.appendChild(tabButton("report", "研报视图"));
     tabs.appendChild(tabButton("markdown", "Markdown 原文"));
   } else {
@@ -332,6 +332,9 @@ function renderMarkdownTab(detail) {
 function renderActiveTab(detail) {
   if (state.tab === "curve") return renderEquityCurve(detail.equity_curve);
   if (state.tab === "trades") return renderTrades(detail.trades);
+  if (detail.report?.type === "index" && detail.index_payload && state.tab === "report") {
+    return renderStockReport(detail.index_payload, { sectionIdPrefix: "library-", readOnly: true });
+  }
   if (detail.report?.type === "gold") {
     if (detail.gold_payload && state.tab === "report") {
       return renderStockReport(detail.gold_payload, {

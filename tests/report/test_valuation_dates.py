@@ -98,8 +98,13 @@ def test_index_markdown_preserves_independent_dates_and_raw_values():
     original = result.model_dump()
     report = IndexReportBuilder().build(ctx, [result])
     markdown = render_index_report_markdown(report)
-    assert markdown.count("估值数据截至 2026-10-22") == 1
-    assert "2.00（截至 2026-09-30）" in markdown
+    # 新版不强制所有估值共用一个截至日；日期在各指标说明列独立展示。
+    rows = report.section_valuation["display"]["rows"]
+    pe = next(row for row in rows if row["label"] == "PE")
+    pb = next(row for row in rows if row["label"] == "PB")
+    assert pe["value"] == "20.00" and "2026-10-22" in pe["note"]
+    assert pb["value"] == "2.00" and "2026-09-30" in pb["note"]
+    assert "2026-10-22" in markdown and "2026-09-30" in markdown
     assert "PB 2.00（截至 2026-09-30）" in report.section_valuation["display"]["summary"]
     assert result.model_dump() == original
 

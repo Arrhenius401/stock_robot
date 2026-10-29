@@ -223,11 +223,19 @@ class StrategyDataProvider:
         key = f"{provider}:{symbol}:{end}"
         cached = self._read_cached("strategy_price", key)
         if cached is not None:
-            return [IndexPriceData.model_validate(v) for v in cached]
-        for source in (self._official_prices, self._fallback_prices):
+            prices = [IndexPriceData.model_validate(v) for v in cached]
+            source_label = self._read_cached("strategy_price_source", key) or "既有缓存，原始行情来源未记录"
+            for price in prices:
+                price._data_source = source_label
+            return prices
+        for number, source in enumerate((self._official_prices, self._fallback_prices)):
             try:
                 prices = source(symbol, provider, end)
                 if prices:
+                    source_label = f"{provider}官方指数历史" if number == 0 else "东方财富指数历史（官方源回退）"
+                    for price in prices:
+                        price._data_source = source_label
+                    self._write_cached("strategy_price_source", key, source_label)
                     self._write_cached("strategy_price", key, [v.model_dump(mode="json") for v in prices])
                     return prices
             except Exception as exc:  # noqa: BLE001 — 独立网络源失败逐个降级

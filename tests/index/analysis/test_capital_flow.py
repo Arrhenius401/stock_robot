@@ -33,5 +33,5 @@ class TestCapitalFlowAnalyzer:
             north_bound=5.2, main_net_inflow=10.0
         )
         result = CapitalFlowAnalyzer().analyze(ctx)
-        assert result.metrics["tag"] in ("positive", "neutral", "negative")
-        assert "资金面：积极" in result.summary
+        assert "tag" not in result.metrics
+        assert "不作综合投票" in result.summary
