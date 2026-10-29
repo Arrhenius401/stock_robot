@@ -23,7 +23,7 @@ if(!article.textContent.includes('历史缺失')||!article.textContent.includes(
 if(!article.textContent.includes('3.00%')||!article.textContent.includes('同日基准')||!article.textContent.includes('ETF自身区间'))throw Error('表现、基准或ETF独立展示缺失');
 const background=article.children.find(x=>x.id==='index-background');
 const details=descendants(background).find(x=>x.tagName==='DETAILS');
-if(!details||details.textContent.includes('要闻')||!details.textContent.includes('新闻四'))throw Error('前三条默认显示，其余折叠');
+if(!details||!details.textContent.includes('要闻')||!details.textContent.includes('新闻四'))throw Error('新闻样本应统一折叠展示');
 if(descendants(background).some(x=>x.tagName==='A'&&(x.getAttribute('href')||'').startsWith('javascript:')))throw Error('危险链接');
 await byClass(article,'report-retry-commentary')[0].click();if(count!==1)throw Error('重试不可用');
 const strategy=renderStockReport({...report,visible_sections:['technical','valuation','strategy','performance'],section_capital:{summary:'资金流向：暂无数据'}});
