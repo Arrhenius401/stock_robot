@@ -4,6 +4,25 @@ import json
 from tests.api.test_static import _DOM_STUB, _module_url, _run_node
 
 
+def test_index_news_uses_stock_sample_list_and_safe_sources(tmp_path):
+    script = _DOM_STUB + r'''
+const {renderStockReport}=await import(__RENDERER__);
+const report={report_version:2,code:'000300',name:'测试',section_technical:{},visible_sections:['sentiment'],
+  section_sentiment:{summary:'新闻样本',display:{items:[
+    {title:'第一条',published_at:'2026-10-29',source:'来源甲',url:'https://example.com/a'},
+    {title:'第二条',source:'来源乙',url:'javascript:alert(1)'}]}},
+  data_quality:{summary_rows:[],limitations:[]}};
+const article=renderStockReport(report);
+const background=article.children.find(x=>x.id==='index-background');
+const details=descendants(background).find(x=>x.tagName==='DETAILS');
+if(!details||!details.textContent.includes('查看采集样本与来源'))throw new Error('新闻应按个股样式折叠');
+if(descendants(details).filter(x=>x.tagName==='LI').length!==2)throw new Error('新闻应逐条展示');
+const links=descendants(details).filter(x=>x.tagName==='A');
+if(links.length!==1||links[0].getAttribute('href')!=='https://example.com/a')throw new Error('来源链接不安全');
+'''.replace('__RENDERER__', json.dumps(_module_url('src/api/static/js/report-renderer.js')))
+    _run_node(tmp_path, script)
+
+
 def test_stock_report_order_quality_and_safe_signal(tmp_path):
     script = _DOM_STUB + r'''
 const {renderStockReport}=await import(__RENDERER__);

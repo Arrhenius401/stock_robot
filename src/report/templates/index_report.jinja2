@@ -83,7 +83,8 @@
 {% if "sentiment" in visible_sections %}
 {{ section_sentiment.summary or "暂无可核实的新闻。" }}
 {% for item in section_sentiment.display["items"] or [] %}
-- {{ item.title | news_text }}（{{ item.source | default("来源未记录", true) | news_text }}；{{ item.published_at | default("发布时间未记录", true) | news_text }}）{% set link = item.url | default("") | news_url %}{% if link %} [来源](<{{ link }}>){% endif %}
+{% set link = item.url | default("") | news_url %}
+- {{ item.title | news_text }}（{{ item.source | default("来源未记录", true) | news_text }}；{{ item.published_at | default("发布时间未记录", true) | news_text }}）{% if link %} [来源](<{{ link }}>){% endif %}{{ '\n' }}
 {% endfor %}
 {% else %}
 未接入适用新闻源。

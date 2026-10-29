@@ -81,8 +81,10 @@ def build_quality(ctx: IndexAnalysisContext, sections: dict[str, dict]) -> dict:
             fields.append({"label": "缓存状态", "value": "过期缓存" if record.cache_status == "stale" else str(record.cache_status)})
         if applicable and status != "ok" and not notes:
             notes.append(section.get("summary") or "原因未记录")
+        if status == "not_applicable":
+            notes = ["当前指数不适用或未接入该项数据。"]
         for note in notes:
-            if note:
+            if note and status != "ok":
                 fields.append({"label": "分析限制", "value": str(note)})
         dimensions.append({"key": key, "title": title, "status": status, "fields": fields})
     quality = {"dimensions": dimensions}

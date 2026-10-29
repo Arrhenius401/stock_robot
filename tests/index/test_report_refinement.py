@@ -52,6 +52,27 @@ def test_news_text_and_url_are_safe_and_timestamp_not_invented():
     assert "\n## 假章节" not in text
 
 
+def test_news_items_are_separate_markdown_paragraphs():
+    from data.schemas import AnalysisResult
+    ctx = IndexAnalysisContext(target=AnalysisTarget(target_type="index", symbol="000300", name="沪深300", index_style="broad"))
+    items = [{"title": "第一条", "source": "甲", "url": "https://example.com/1"},
+             {"title": "第二条", "source": "乙", "url": "https://example.com/2"}]
+    result = AnalysisResult(dimension="index_sentiment", status="ok", summary="新闻", metrics={"items": items})
+    text = render_index_report_markdown(IndexReportBuilder().build(ctx, [result]))
+    assert "\n- 第一条" in text
+    assert "\n- 第二条" in text
+
+
+def test_quality_only_expands_non_normal_index_statuses():
+    from data.schemas import AnalysisResult
+    ctx = IndexAnalysisContext(target=AnalysisTarget(target_type="index", symbol="000300", name="沪深300", index_style="broad"))
+    results = [AnalysisResult(dimension="index_technical", status="ok", summary="正常", metrics={"notes": ["正常口径说明"]}),
+               AnalysisResult(dimension="index_macro", status="partial", summary="部分", metrics={"notes": ["宏观数据缺失"]})]
+    quality = IndexReportBuilder().build(ctx, results).data_quality
+    assert "正常口径说明" not in str(quality["limitations"])
+    assert "宏观数据缺失" in str(quality["limitations"])
+
+
 def test_strategy_display_preserves_coverage_and_dates():
     from data.schemas import AnalysisResult
     ctx = IndexAnalysisContext(target=AnalysisTarget(target_type="index", symbol="980092", name="现金流", index_style="strategy"))

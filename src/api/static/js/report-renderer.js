@@ -1,5 +1,5 @@
 // 结构化股票报告共享渲染器：不读取业务状态，也不发起网络请求。
-import { renderMarkdown } from "./markdown.js?v=20261029-index-report-refinement";
+import { renderMarkdown } from "./markdown.js?v=20261029-index-news-quality";
 import { el, kv, priceBar, statusBadge } from "./components.js";
 
 const DIMENSIONS = [
@@ -1050,19 +1050,18 @@ export function renderIndexReport(report, options = {}) {
     addRows(background, part.display?.rows);
     const items = part.display?.items || part.metrics?.items || [];
     if (Array.isArray(items) && items.length) {
-      const list = el("ul", "report-metric-list");
-      const extra = el("ul", "report-metric-list");
-      for (const [index, item] of items.slice(0, 10).entries()) {
-        const li = el("li", "", readable(item.title));
+      const list = el("ul", "report-metric-list sentiment-source-list");
+      for (const item of items.slice(0, 30)) {
+        const li = el("li");
+        li.appendChild(el("span", "", `${readable(item.title, "未记录标题")}（${readable(item.published_at, "日期未记录")}）`));
         const url = safeNewsUrl(item.url);
-        if (url) { const link = el("a", "", " 来源"); link.setAttribute("href", url); link.setAttribute("rel", "noopener noreferrer"); li.appendChild(link); }
-        if (item.source || item.published_at) li.appendChild(el("span", "", ` ${item.source || ""} ${item.published_at || ""}`));
-        (index < 3 ? list : extra).appendChild(li);
+        const source = readable(item.source, "来源未标注");
+        if (url) { const link = el("a", "sentiment-source-link", source); link.setAttribute("href", url); link.setAttribute("target", "_blank"); link.setAttribute("rel", "noopener noreferrer"); li.appendChild(link); }
+        else li.appendChild(el("span", "peer-caption", ` · ${source}`));
+        list.appendChild(li);
       }
-      background.appendChild(list);
-      if (items.length > 3) {
-        const details = el("details", "sentiment-sources"); details.appendChild(el("summary", "", "查看其余新闻")); details.appendChild(extra); background.appendChild(details);
-      }
+      const details = el("details", "sentiment-sources");
+      details.appendChild(el("summary", "", "查看采集样本与来源")); details.appendChild(list); background.appendChild(details);
     }
   }
   article.appendChild(background);

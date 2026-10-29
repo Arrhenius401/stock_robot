@@ -5,8 +5,8 @@ import {
   sessionDetailGeneration,
 } from "./state.js";
 import { api } from "./api.js";
-import { renderMessageHistory, clearChatScroll, cancelSessionRuns } from "./chat.js?v=20261029-index-report-refinement";
-import { closeReportDrawer } from "./report-drawer.js?v=20261029-index-report-refinement";
+import { renderMessageHistory, clearChatScroll, cancelSessionRuns } from "./chat.js?v=20261029-index-news-quality";
+import { closeReportDrawer } from "./report-drawer.js?v=20261029-index-news-quality";
 import { el } from "./components.js";
 
 const listEl = () => document.getElementById("sessionList");
