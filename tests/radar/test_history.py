@@ -1,10 +1,11 @@
 """行情缓存的实际覆盖、口径隔离和恢复补齐测试。"""
 from datetime import date
+from typing import cast
 
 import pandas as pd
 import pytest
 
-from radar.data import RadarDataError
+from radar.data import RadarDataError, RadarDataProvider
 from radar.history import HistoryKey, HistoryStore, HistorySynchronizer
 
 
@@ -29,7 +30,7 @@ class Provider:
 def test_sort_deduplicate_and_actual_coverage_without_full_history_claim(tmp_path):
     store = HistoryStore(tmp_path / "radar.db")
     provider = Provider(frame(30, 28, 29, 29))
-    sync = HistorySynchronizer(store, provider)
+    sync = HistorySynchronizer(store, cast(RadarDataProvider, provider))
     result, source = sync.prepare("510300", "cn", date(2026, 1, 1), date(2026, 9, 30))
     assert result.date.tolist() == [date(2026, 9, d) for d in (28, 29, 30)]
     coverage = store.coverage(HistoryKey(source, "cn", "unadjusted", "510300"))
@@ -42,11 +43,11 @@ def test_sort_deduplicate_and_actual_coverage_without_full_history_claim(tmp_pat
 
 def test_stale_tail_and_internal_gaps_fail_but_preserve_download_for_retry(tmp_path):
     store = HistoryStore(tmp_path / "radar.db")
-    sync = HistorySynchronizer(store, Provider(frame(28, 30)))
+    sync = HistorySynchronizer(store, cast(RadarDataProvider, Provider(frame(28, 30))))
     with pytest.raises(RadarDataError, match="缺失交易日"):
         sync.prepare("510300", "cn", date(2026, 9, 28), date(2026, 9, 30), trading_days=[date(2026, 9, d) for d in (28, 29, 30)])
     with pytest.raises(RadarDataError, match="目标交易日"):
-        HistorySynchronizer(store, Provider(frame(28))).prepare("510500", "cn", date(2026, 9, 28), date(2026, 9, 30))
+        HistorySynchronizer(store, cast(RadarDataProvider, Provider(frame(28)))).prepare("510500", "cn", date(2026, 9, 28), date(2026, 9, 30))
 
 
 def test_series_do_not_mix_and_unadjusted_revisions_update_overlap(tmp_path):
@@ -64,7 +65,7 @@ def test_adjustment_revision_invalidates_old_prefix_and_refetches_its_coverage(t
     store = HistoryStore(tmp_path / "radar.db")
     provider = Provider(frame(1, 28, 29))
     provider.adjustment = "qfq"
-    sync = HistorySynchronizer(store, provider)
+    sync = HistorySynchronizer(store, cast(RadarDataProvider, provider))
     sync.prepare("510300", "cn", date(2026, 9, 1), date(2026, 9, 29))
     provider.result = frame(1, 28, 29, 30, scale=2)
     result, _ = sync.prepare("510300", "cn", date(2026, 9, 1), date(2026, 9, 30))
@@ -75,7 +76,7 @@ def test_adjustment_revision_invalidates_old_prefix_and_refetches_its_coverage(t
 
 def test_successful_retry_reuses_cached_series_without_network(tmp_path):
     provider = Provider(frame(28, 29, 30))
-    sync = HistorySynchronizer(HistoryStore(tmp_path / "radar.db"), provider)
+    sync = HistorySynchronizer(HistoryStore(tmp_path / "radar.db"), cast(RadarDataProvider, provider))
     sync.prepare("510300", "cn", date(2026, 9, 28), date(2026, 9, 30))
     sync.prepare("510300", "cn", date(2026, 9, 28), date(2026, 9, 30), reuse=True)
     assert len(provider.calls) == 1
@@ -85,7 +86,7 @@ def test_invalid_price_rejected(tmp_path):
     bad = frame(30)
     bad.loc[0, "close"] = float("nan")
     with pytest.raises(RadarDataError, match="无效价格"):
-        HistorySynchronizer(HistoryStore(tmp_path / "radar.db"), Provider(bad)).prepare("510300", "cn", date(2026, 9, 28), date(2026, 9, 30))
+        HistorySynchronizer(HistoryStore(tmp_path / "radar.db"), cast(RadarDataProvider, Provider(bad))).prepare("510300", "cn", date(2026, 9, 28), date(2026, 9, 30))
 
 
 def test_fallback_skips_stale_primary_for_fresh_alternative(tmp_path):
@@ -96,7 +97,7 @@ def test_fallback_skips_stale_primary_for_fresh_alternative(tmp_path):
         source_label = "备源"
 
     alternative = Alternative(frame(28, 29, 30))
-    sync = HistorySynchronizer(HistoryStore(tmp_path / "radar.db"), FallbackETFDataProvider([primary, alternative]))
+    sync = HistorySynchronizer(HistoryStore(tmp_path / "radar.db"), FallbackETFDataProvider([cast(RadarDataProvider, primary), cast(RadarDataProvider, alternative)]))
     result, source = sync.prepare("510300", "cn", date(2026, 9, 28), date(2026, 9, 30))
     assert source == "备源"
     assert result.iloc[-1]["date"] == date(2026, 9, 30)
@@ -105,7 +106,7 @@ def test_fallback_skips_stale_primary_for_fresh_alternative(tmp_path):
 def test_unknown_adjustment_revisions_also_invalidate_prefix(tmp_path):
     provider = Provider(frame(1, 28, 29))
     provider.adjustment = "unknown"
-    sync = HistorySynchronizer(HistoryStore(tmp_path / "radar.db"), provider)
+    sync = HistorySynchronizer(HistoryStore(tmp_path / "radar.db"), cast(RadarDataProvider, provider))
     sync.prepare("510300", "cn", date(2026, 9, 1), date(2026, 9, 29))
     provider.result = frame(1, 28, 29, 30, scale=2)
     result, _ = sync.prepare("510300", "cn", date(2026, 9, 1), date(2026, 9, 30))
@@ -120,7 +121,7 @@ def test_fallback_internal_gap_selects_complete_alternative(tmp_path):
     class Alternative(Provider):
         source_label = "备源"
     alternative = Alternative(frame(28, 29, 30))
-    sync = HistorySynchronizer(HistoryStore(tmp_path / "radar.db"), FallbackETFDataProvider([primary, alternative]))
+    sync = HistorySynchronizer(HistoryStore(tmp_path / "radar.db"), FallbackETFDataProvider([cast(RadarDataProvider, primary), cast(RadarDataProvider, alternative)]))
     result, source = sync.prepare("510300", "cn", date(2026, 9, 28), date(2026, 9, 30), trading_days=[date(2026, 9, day) for day in (28, 29, 30)])
     assert source == "备源"
     assert len(result) == 3
@@ -132,7 +133,7 @@ def test_old_prefix_gap_is_filled_even_outside_scoring_window(tmp_path):
     key = HistoryKey("Provider", "cn", "unadjusted", "510300")
     store.merge(key, frame(1, 3, 29), date(2026, 9, 1), date(2026, 9, 29), missing_dates=[date(2026, 9, 2)])
     store.select(key, "Provider")
-    result, _ = HistorySynchronizer(store, provider).prepare("510300", "cn", date(2026, 9, 20), date(2026, 9, 30), trading_days=[date(2026, 9, d) for d in (1, 2, 3, 29, 30)])
+    result, _ = HistorySynchronizer(store, cast(RadarDataProvider, provider)).prepare("510300", "cn", date(2026, 9, 20), date(2026, 9, 30), trading_days=[date(2026, 9, d) for d in (1, 2, 3, 29, 30)])
     assert provider.calls[0][1] <= date(2026, 9, 2)
     assert result.date.tolist() == [date(2026, 9, 29), date(2026, 9, 30)]
     assert date(2026, 9, 2) in store.read(key, date(2026, 9, 1), date(2026, 9, 30)).date.tolist()
@@ -143,7 +144,7 @@ def test_old_prefix_gap_is_filled_even_outside_scoring_window(tmp_path):
 
 def test_read_or_sync_expands_earlier_window_but_reuses_shorter_window(tmp_path):
     provider = Provider(frame(28, 29, 30))
-    sync = HistorySynchronizer(HistoryStore(tmp_path / "radar.db"), provider)
+    sync = HistorySynchronizer(HistoryStore(tmp_path / "radar.db"), cast(RadarDataProvider, provider))
     sync.read_or_sync("510300", "cn", date(2026, 9, 28), date(2026, 9, 30))
     sync.read_or_sync("510300", "cn", date(2026, 9, 29), date(2026, 9, 30))
     assert len(provider.calls) == 1
@@ -160,7 +161,7 @@ def test_success_target_binding_survives_other_date_source_switch(tmp_path):
     class Alternative(Provider):
         source_label = "其他源"
     alternative = Alternative(frame(15))
-    sync = HistorySynchronizer(HistoryStore(tmp_path / "radar.db"), FallbackETFDataProvider([primary, alternative]))
+    sync = HistorySynchronizer(HistoryStore(tmp_path / "radar.db"), FallbackETFDataProvider([cast(RadarDataProvider, primary), cast(RadarDataProvider, alternative)]))
     sync.prepare("510300", "cn", date(2026, 9, 1), date(2026, 9, 30))
     primary.result = pd.DataFrame(columns=["date", "open", "high", "low", "close", "amount"])
     sync.prepare("510300", "cn", date(2026, 9, 1), date(2026, 9, 15))
@@ -177,7 +178,7 @@ def test_earlier_adjustment_revision_keeps_latest_tail_and_failed_rebuild_keeps_
     store = HistoryStore(tmp_path / "radar.db")
     provider = Provider(frame(1, 15, 30))
     provider.adjustment = "qfq"
-    sync = HistorySynchronizer(store, provider)
+    sync = HistorySynchronizer(store, cast(RadarDataProvider, provider))
     key = HistoryKey("Provider", "cn", "qfq", "510300")
     sync.prepare("510300", "cn", date(2026, 9, 1), date(2026, 9, 30))
     original_fetch = provider.fetch_daily
