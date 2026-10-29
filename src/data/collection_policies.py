@@ -81,6 +81,8 @@ class IndexPolicy(_Policy):
             "index_macro": ("shibor_3m", "cpi_yoy", "pmi", "usd_cny"),
         }[self.kind]
         values = [getattr(rows[0], name, None) for name in fields]
+        if self.kind == "index_valuation" and values[0] is None:
+            values[0] = getattr(rows[0], "pe_snapshot", None)
         count = sum(isinstance(v, (int, float)) and math.isfinite(v) for v in values)
         if not count:
             return "failed"

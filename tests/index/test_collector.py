@@ -36,7 +36,7 @@ def sector_target():
 @pytest.fixture
 def collector(mocker):
     """使用确定性数据源，验证采集编排而非第三方网络可用性。"""
-    instance = IndexDataCollector()
+    instance = IndexDataCollector(isolate_requests=False)
     responses = {
         "index_price": [IndexPriceData(
             symbol="000300", trade_date=date(2026, 8, 27),
@@ -103,7 +103,7 @@ class TestIndexDataCollector:
             calls.append((stage, current, total, label))
 
         collector.collect(sector_target, on_progress=track)
-        assert len(calls) == 4  # sector: no macro step
+        assert len(calls) == 5  # 行业新增共同日期基准，无宏观步骤
 
     def test_collect_without_on_progress_still_works(self, broad_target, collector):
         ctx = collector.collect(broad_target)  # no on_progress

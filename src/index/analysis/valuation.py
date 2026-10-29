@@ -20,11 +20,11 @@ class IndexValuationAnalyzer(AnalysisModule):
             return AnalysisResult(dimension=self.dimension, status="unavailable",
                                   summary="估值数据不可用", metrics={})
 
-        if context.target.index_style == "strategy":
+        if context.target.index_style == "strategy" or val.pe_snapshot is not None or val.valuation_notes:
             return self._analyze_strategy(val)
 
         pe_pct = val.pe_percentile if val.valuation_valid and is_positive_finite(val.pe_ttm) and is_valid_percentile(val.pe_percentile) else None
-        pb_pct = val.pb_percentile if val.valuation_valid and is_positive_finite(val.pb) and is_valid_percentile(val.pb_percentile) else None
+        pb_pct = val.pb_percentile if val.pb_sample_count >= 252 and is_positive_finite(val.pb) and is_valid_percentile(val.pb_percentile) else None
         vtag = tag_valuation(pe_pct)
 
         metrics = {
@@ -63,7 +63,7 @@ class IndexValuationAnalyzer(AnalysisModule):
         for key in ("pe_ttm", "pe_snapshot", "pb", "dividend_yield"):
             if key in metrics and not is_finite_number(metrics[key]):
                 metrics.pop(key)
-        if not val.valuation_valid or not is_positive_finite(val.pb) or not is_valid_percentile(val.pb_percentile):
+        if val.pb_sample_count < 252 or not is_positive_finite(val.pb) or not is_valid_percentile(val.pb_percentile):
             metrics.pop("pb_percentile", None)
         if not val.valuation_valid or not is_positive_finite(val.pe_ttm) or not is_valid_percentile(val.pe_percentile):
             metrics.pop("pe_percentile", None)
@@ -76,7 +76,9 @@ class IndexValuationAnalyzer(AnalysisModule):
         if is_finite_number(val.pe_ttm):
             parts.append(f"PE-TTM {format_metric_value('pe_ttm', val.pe_ttm)}")
         elif is_finite_number(val.pe_snapshot):
-            parts.append(f"官方单张PE {format_metric_value('pe_snapshot', val.pe_snapshot)}")
+            # 快照容器也可承载日频未声明TTM的PE，展示名须服从真实来源口径。
+            pe_label = "官方日频PE" if "日频" in val.pe_snapshot_basis else "官方月末PE" if "月" in val.pe_snapshot_basis else "官方PE"
+            parts.append(f"{pe_label} {format_metric_value('pe_snapshot', val.pe_snapshot)}")
         if is_finite_number(val.pb):
             parts.append(f"PB {format_metric_value('pb', val.pb)}")
         if is_valid_percentile(val.pe_percentile) and val.valuation_valid and is_positive_finite(val.pe_ttm):

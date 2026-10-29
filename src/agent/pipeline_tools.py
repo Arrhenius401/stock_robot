@@ -218,17 +218,10 @@ class AnalyzeIndexTool:
                                  metadata={"source": "pipeline", "symbol": symbol})
 
             report = result.reports[0]
-            return ToolResult(
-                status="success",
-                data={
-                    "code": report.code,
-                    "name": report.name,
-                    "overview": report.overview,
-                    "composite_comment": getattr(report, "composite_comment", ""),
-                    "position_coeff": getattr(report, "position_coeff", None),
-                },
-                metadata={"source": "pipeline", "symbol": symbol},
-            )
+            from index.archives import save_index_report
+            save_index_report(report)
+            return ToolResult(status="success", data=report.model_dump(mode="json"),
+                              metadata={"source": "pipeline", "symbol": symbol})
         except Exception as e:  # noqa: BLE001 — 工具执行隔离，失败以 ToolResult 返回
             logger.error(f"analyze_index 执行失败: {e}")
             return ToolResult(status="error", error=str(e),

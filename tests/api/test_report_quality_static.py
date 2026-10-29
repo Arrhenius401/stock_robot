@@ -25,10 +25,9 @@ const report = {
 };
 const article = renderStockReport(report, {onRetryCommentary: () => { retries += 1; }});
 const ids = article.children.map(node => node.id);
-if (ids.at(-1) !== "report-disclaimer" || ids.at(-2) !== "report-quality" || ids.at(-3) !== "report-pending") throw new Error("免责声明应置于数据覆盖与时效之后");
+if (ids.at(-1) !== "report-disclaimer" || ids.at(-2) !== "report-quality" || ids.at(-3) !== "report-commentary" || ids.includes("report-pending")) throw new Error("免责声明应置于数据覆盖与时效之后，不显示待验证事项");
 const quality = article.children.find(node => node.id === "report-quality");
-const labels = byClass(quality, "report-quality-field").map(node => node.children[0].textContent);
-if (labels.join("|") !== "样本范围|数据来源|数据截止|缺失原因") throw new Error("固定字段顺序错误");
+if (!["2期财报", "实际来源", "2026-06-30", "缺少同期对比"].every(value=>quality.textContent.includes(value))) throw new Error("精简汇总必须保留样本、来源、截止和缺失原因");
 if (descendants(quality).some(node => node.tagName === "BUTTON")) throw new Error("不得添加采集重试");
 const allHtml = descendants(article).map(node => node.innerHTML).join("");
 if (allHtml.includes("买入") || allHtml.includes("80%")) throw new Error("不完整数据不得生成信号建议");

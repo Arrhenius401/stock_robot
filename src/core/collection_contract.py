@@ -53,6 +53,8 @@ ALLOWED_FETCH_RESULT_CALLS: frozenset[tuple[str, str]] = frozenset({
     ("src/core/pipeline.py", "Pipeline.collect.fetch_one"),
     ("src/core/pipeline.py", "Pipeline._collect_hk_news"),
     ("src/gold/data.py", "GoldCollector._request"),
+    ("src/index/collector.py", "IndexDataCollector._fetch_result"),
+    ("src/index/request_cache.py", "IndexRequestCache.fetch_cached"),
     ("src/index/collector.py", "IndexDataCollector.collect._fetch_price"),
     ("src/index/collector.py", "IndexDataCollector.collect._fetch_valuation"),
     ("src/index/collector.py", "IndexDataCollector.collect._fetch_capital_flow"),

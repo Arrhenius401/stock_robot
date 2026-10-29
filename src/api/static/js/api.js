@@ -80,6 +80,11 @@ export const api = {
       body: JSON.stringify({ report_token: reportToken, ...artifact }),
     });
   },
+  retryIndexCommentary(reportToken, artifact = {}) {
+    return request("/api/v1/index/commentary/retry", {
+      method: "POST", body: JSON.stringify({ report_token: reportToken, ...artifact }),
+    });
+  },
   indices(query = "") {
     const suffix = query ? `?q=${encodeURIComponent(query)}` : "";
     return request(`/api/v1/indices${suffix}`);

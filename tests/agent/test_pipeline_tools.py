@@ -122,6 +122,8 @@ class TestAnalyzeIndexTool:
         mock_report.overview = {"pe_ttm": 12.5}
         mock_report.composite_comment = "谨慎看多"
         mock_report.position_coeff = 0.7
+        mock_report.model_dump.return_value = {"code":"000300", "name":"沪深300", "overview":{"pe_ttm":12.5}}
+        mocker.patch("index.archives.save_index_report")
         mock_pipeline.run.return_value = mocker.Mock(
             reports=[mock_report],
             errors=[],

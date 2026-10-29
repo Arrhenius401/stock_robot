@@ -1,9 +1,35 @@
 """AkShare 指数数据采集测试"""
+from datetime import date
+
 import pandas as pd
 import pytest
 
 from data.akshare import AkShareAdapter
 from data.schemas import IndexPriceData
+
+
+def test_index_valuation_keeps_unknown_daily_pe_out_of_ttm(mocker):
+    from data.schemas import IndexValuationData
+    provider = mocker.patch("index.valuation_data.StrategyValuationProvider").return_value
+    provider.fetch.return_value = IndexValuationData(symbol="000300", date=date(2026, 10, 28), pe_ttm=12.76, pe_as_of=date(2026, 10, 28), pe_percentile=57.1)
+    result = AkShareAdapter().fetch("000300", data_type="index_valuation")
+    assert result[0].pe_ttm is None
+    assert result[0].pe_snapshot == 12.76
+    assert result[0].pe_percentile is None
+    assert result[0].valuation_valid is False
+    provider.fetch.assert_called_once_with("000300", provider="csi")
+
+
+def test_index_valuation_routes_chinext_to_cni_snapshot(mocker):
+    from data.schemas import IndexValuationData
+    provider = mocker.patch("index.valuation_data.StrategyValuationProvider").return_value
+    # 2026-10-29探针：国证399006官方2026年9月单张PE31.28、PB5.20，未声明TTM。
+    provider.fetch.return_value = IndexValuationData(symbol="399006", date=date(2026, 9, 30), pe_snapshot=31.28, pb=5.2, valuation_valid=False)
+    result = AkShareAdapter().fetch("399006", data_type="index_valuation")
+    assert result[0].pe_snapshot == 31.28
+    assert result[0].pe_ttm is None
+    assert result[0].pb == 5.2
+    provider.fetch.assert_called_once_with("399006", provider="cni")
 
 
 class TestAkShareIndexAdapter:
@@ -171,3 +197,74 @@ def test_index_history_result_empty_and_safe_failure(monkeypatch):
     assert failed.record.result_state == "failed"
     assert failed.record.error_kind == "timeout"
     assert "敏感的上游细节" not in failed.record.error_message
+
+@pytest.mark.parametrize('timestamp, source', [(float('nan'), float('nan')), ('not-a-date', '媒体'), (pd.NaT, pd.NA)])
+def test_index_news_invalid_metadata_stays_missing(mocker, timestamp, source):
+    from data.schemas import AnalysisTarget, IndexAnalysisContext
+    from index.analysis.sentiment import IndexSentimentAnalyzer
+    mocker.patch('akshare.stock_news_main_em', return_value=pd.DataFrame([{'title':'真实标题','pub_time':timestamp,'source':source}]), create=True)
+    news = AkShareAdapter().fetch('000300', data_type='index_sentiment')[0]
+    item = news.index_items[0]
+    assert item['published_at'] is None
+    if not isinstance(source, str):
+        assert item['source'] == '未记录'
+    ctx = IndexAnalysisContext(target=AnalysisTarget(target_type='index',symbol='000300',name='沪深300',index_style='broad'), news_items=news.index_items)
+    assert IndexSentimentAnalyzer().analyze(ctx).status != 'ok'
+
+
+def test_index_news_preserves_valid_date_and_fallback(mocker):
+    mocker.patch('akshare.stock_news_main_em', return_value=pd.DataFrame([{'title':'真实标题','pub_time':float('nan'),'publish_time':'2026-10-29 09:30:00','source':'来源媒体'}]), create=True)
+    item=AkShareAdapter().fetch('000300',data_type='index_sentiment')[0].index_items[0]
+    assert item['published_at'] == '2026-10-29 09:30:00'
+    assert item['source'] == '来源媒体'
+
+
+def test_index_news_cache_preserves_known_endpoint_source(mocker, tmp_path):
+    from index.request_cache import IndexRequestCache
+    mocker.patch("akshare.stock_news_main_em", side_effect=AttributeError, create=True)
+    mocker.patch("akshare.stock_news_main_cx", return_value=pd.DataFrame([{"title":"财新标题","pub_time":"2026-10-29 09:30:00","source":float("nan"),"url":"https://www.caixin.com/example"}]))
+    cache=IndexRequestCache(tmp_path/"news-cache.db")
+    first=cache.fetch_cached(AkShareAdapter(),"000300","index_sentiment")
+    assert first.record is not None
+    assert first.record.source == "财新要闻接口"
+    assert first.rows[0].index_items[0]["source"] == "未记录"
+    cached=cache.fetch_cached(AkShareAdapter(),"000300","index_sentiment")
+    assert cached.record is not None
+    assert cached.record.source == "财新要闻接口"
+    assert cached.record.cache_status == "cache"
+
+
+def test_index_news_old_cache_recovers_known_source_from_link(mocker, tmp_path):
+    import json
+    from datetime import datetime
+
+    from index.request_cache import IndexRequestCache
+    cache=IndexRequestCache(tmp_path/"old-cache.db")
+    payload={"rows":[{"symbol":"000300","date":"2026-10-29","headlines":["标题"],"index_items":[{"title":"标题","source":"nan","published_at":"nan","url":"https://www.caixin.com/article"}]}],"record":{"source":"来源未记录","collected_at":datetime.now().astimezone().isoformat()}}
+    cache.cache.put("index_sentiment","000300:","status",json.dumps(payload),300)
+    result=cache.fetch_cached(mocker.Mock(),"000300","index_sentiment")
+    assert result.record is not None
+    assert result.record.source == "财新要闻（缓存原始链接）"
+
+@pytest.mark.parametrize('symbol,provider', [('000016','csi'),('000905','csi'),('000852','csi'),('000688','csi'),('000001','csi'),('399001','cni'),('399673','cni')])
+def test_existing_broad_indices_keep_verified_official_valuation(mocker,symbol,provider):
+    from data.index_mapping import IndexMapping
+    from data.schemas import IndexValuationData
+    entry=IndexMapping().lookup(symbol)
+    assert entry is not None and entry.provider == provider and entry.source_url
+    source=mocker.patch('index.valuation_data.StrategyValuationProvider').return_value
+    source.fetch.return_value=IndexValuationData(symbol=symbol,date=date(2026,9,30),pe_snapshot=10.95,pb=1.15,valuation_valid=False)
+    result=AkShareAdapter().fetch(symbol,data_type='index_valuation')
+    assert result and result[0].pe_snapshot == 10.95 and result[0].pe_ttm is None
+    source.fetch.assert_called_once_with(symbol,provider=provider)
+
+def test_verified_sse50_official_layout_keeps_valuation():
+    from pathlib import Path
+
+    from index.valuation_factsheet import parse_factsheet_text
+    # 中证官方上证50单张，2026-10-29采样，保留2026-09-30两页真实文本布局。
+    text=(Path(__file__).resolve().parents[1]/'resources/index/csi-000016-valuation-factsheet-20260930.txt').read_text(encoding='utf-8')
+    result=parse_factsheet_text(text,'000016','csi',date(2026,10,29))
+    assert result['pe_snapshot']==10.95
+    assert result['pb']==1.15
+    assert result['as_of']==date(2026,9,30)

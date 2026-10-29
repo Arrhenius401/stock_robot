@@ -285,4 +285,7 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
     }
     if hk:
         quality.update(available_dimensions=available, applicable_dimensions=len(DIM_WEIGHTS))
+    from report.presentation import compact_quality
+
+    quality.update(compact_quality(quality))
     return quality

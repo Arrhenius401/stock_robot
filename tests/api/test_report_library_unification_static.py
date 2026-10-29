@@ -25,7 +25,7 @@ if(byClass(root,"report-library-metrics").length)throw new Error("个股不得�
 if(byClass(root,"report-retry-commentary").length||byClass(root,"report-configure-commentary").length)throw new Error("存档不得提供即时操作");
 const sections=byClass(root,"stock-report")[0].children;
 if(!sections.some(s=>s.textContent.includes("多风格观察视角"))||!sections.at(-1).children[1].innerHTML.includes("局限原文"))throw new Error("存档丢失原说明内容");
-if(sections.at(-1).id!=="library-report-disclaimer"||sections.at(-2).id!=="library-report-quality"||sections.at(-3).id!=="library-report-pending")throw new Error("免责声明应当最后展示");
+if(sections.at(-1).id!=="library-report-disclaimer"||sections.at(-2).id!=="library-report-quality"||sections.at(-3).id!=="library-report-commentary")throw new Error("免责声明应当最后展示");
 if(sections.at(-1).children[0].textContent!=="免责声明")throw new Error("旧标题未归一");
 if(sections.at(-1).children[1].innerHTML.includes("部分内容由 AI 生成"))throw new Error("旧库研报视图未移除尾注");
 const buttons=()=>descendants(root).filter(n=>n.tagName==="BUTTON");
@@ -91,7 +91,7 @@ for(const status of ['ok','failed','disabled','insufficient']){
  const article=renderStockReport({commentary:status==='ok'?bulk:'',commentary_status:status},
   {archiveMarkdown:status==='ok'?archived:'# 报告\n\n## 五、多风格观察视角\n\n> 内容已包含在上方'});
  const cards=article.children, ai=cards.find(c=>c.id==='report-commentary');
- if(ai.children[0].textContent!=='AI 综合解读')throw new Error('AI标题未统一');
+ if(ai.children[0].textContent!=='综合研判')throw new Error('AI标题未统一');
  if(cards.some(c=>/多风格观察/.test(c.children[0]?.textContent||'')))throw new Error('仍有独立多风格卡片');
  const html=descendants(article).map(n=>n.innerHTML).join('\n');
  if(html.includes('已包含在上方'))throw new Error('仍有空指引');

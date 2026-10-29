@@ -128,27 +128,16 @@ class FakePipeline:
         )
 
 
-class FakeIndexReport:
-    def __init__(self):
-        self.code = "000300"
-        self.name = "沪深300"
-        self.overview = {}
-        self.section_technical = {"status": "unavailable", "summary": "", "metrics": {}}
-        self.section_valuation = {"status": "unavailable", "summary": "", "metrics": {}}
-        self.section_capital = {"status": "unavailable", "summary": "", "metrics": {}}
-        self.section_macro = None
-        self.section_sentiment = {"status": "unavailable", "summary": "", "metrics": {}}
-        self.tag_technical = "shake"
-        self.tag_valuation = "invalid"
-        self.tag_capital = "neutral"
-        self.tag_macro = "na"
-        self.tag_sentiment = "neutral"
-        self.composite_comment = "中性震荡"
-        self.position_coeff = 0.5
-        self.visible_sections = {"overview", "technical", "valuation", "sentiment"}
+from data.schemas import IndexReport
 
-    def model_dump(self, mode="json"):
-        return {"code": self.code, "name": self.name}
+
+class FakeIndexReport(IndexReport):
+    def __init__(self):
+        from data.schemas import AnalysisTarget, IndexAnalysisContext
+        from index.build_single import IndexReportBuilder
+        context = IndexAnalysisContext(target=AnalysisTarget(
+            target_type="index", symbol="000300", name="沪深300", index_style="broad"))
+        super().__init__(**IndexReportBuilder().build(context, []).model_dump())
 
 
 class FakeIndexPipeline:

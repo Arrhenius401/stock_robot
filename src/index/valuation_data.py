@@ -1,10 +1,10 @@
 """策略指数公开官方估值：实际交易日 PE 与独立月度快照。"""
 import logging
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any
 
 from data.schemas import IndexValuationData
-from index.enricher import compute_percentile
 from index.strategy_data import StrategyDataProvider, finite_number
 
 logger = logging.getLogger(__name__)
@@ -40,9 +40,22 @@ def _start(end: date) -> date:
 class StrategyValuationProvider(StrategyDataProvider):
     """复用有超时的网络与 SQLite 缓存，保留每个指标的来源和日期。"""
 
+    def __init__(self, cache_path: Path | None = None, timeout: float = 12, max_workers: int = 4,
+                 *, request_timeout: tuple[float, float] | None = None):
+        super().__init__(cache_path, timeout, max_workers)
+        self.request_timeout = request_timeout
+
+    def _get_json(self, url: str, params: dict | None = None) -> dict:
+        if self.request_timeout is None:
+            return super()._get_json(url, params)
+        import requests
+        response = requests.get(url, params=params, timeout=self.request_timeout)
+        response.raise_for_status()
+        return response.json()
+
     def _factsheet(self, symbol: str, provider: str, end: date) -> dict:
         from index.valuation_factsheet import fetch_factsheet
-        return fetch_factsheet(symbol, provider, end, self.timeout)
+        return fetch_factsheet(symbol, provider, end, self.request_timeout or self.timeout)
 
     def _current_pb(self, symbol: str, end: date) -> dict:
         names = {"000015": "红利指数", "000922": "中证红利"}
@@ -98,7 +111,7 @@ class StrategyValuationProvider(StrategyDataProvider):
                     notes.append("官方日频滚动 PE 数据不可用")
             except Exception as exc:  # noqa: BLE001 — 官方网络边界独立降级
                 logger.warning("策略估值历史源失败 %s: %s", symbol, exc)
-                notes.append("官方日频滚动 PE 请求失败，请稍后重试")
+                notes.append(f"官方日频PE请求失败：{type(exc).__name__}: {exc}")
         else:
             notes.append("国证公开单张 PE 未声明 TTM，不能计算滚动 PE 历史分位")
         snapshots = []
@@ -111,7 +124,7 @@ class StrategyValuationProvider(StrategyDataProvider):
                     notes.append("官方月度估值单张暂不可用或未提供估值")
             except Exception as exc:  # noqa: BLE001 — 单张网络和 PDF 边界独立降级
                 logger.warning("策略估值单张失败 %s: %s", symbol, exc)
-                notes.append("官方月度估值单张请求失败，请稍后重试")
+                notes.append(f"官方月度估值单张请求失败：{type(exc).__name__}: {exc}")
         if symbol in {"000015", "000922"}:
             try:
                 snapshot = self._source_snapshot("valuation_daily_pb", symbol, provider, end, lambda: self._current_pb(symbol, end))
@@ -128,13 +141,14 @@ class StrategyValuationProvider(StrategyDataProvider):
             "pe_source_url": HISTORY_URL if history else "", "valuation_valid": False,
             "percentile_sample_start": samples[0][0] if samples else None,
             "percentile_sample_end": samples[-1][0] if samples else None}
+        # 官方peg未完成计算口径核验，所有指数类型都只披露为独立PE字段。
+        values.update(pe_ttm=None, pe_as_of=None, pe_basis="官方日频PE计算口径待核实" if history else "")
+        if pe is not None:
+            values.update(pe_snapshot=pe, pe_snapshot_as_of=latest,
+                          pe_snapshot_basis="官方日频PE，计算口径待核实", pe_snapshot_source_url=HISTORY_URL)
+            notes.append("官方日频PE计算口径待核实，不作为TTM或高低估判断")
         if latest and (end - latest).days > 14:
-            notes.append(f"官方日频 PE 数据过期，最新日期为 {latest}，不计算当前分位")
-        elif pe is not None and len(samples) >= 252:
-            values["pe_percentile"] = compute_percentile(pe, [v for _, v in samples])
-            values["valuation_valid"] = True
-        elif history:
-            notes.append("最新交易日 PE 缺失或有效样本不足 252 个交易日，不计算历史分位")
+            notes.append(f"官方日频PE过期，最新日期{latest}，仅作历史参考")
         for snapshot in snapshots:
             sampled = _date(snapshot.get("as_of"))
             if snapshot.get("symbol") != symbol or sampled is None or not 0 <= (end - sampled).days <= (14 if snapshot.get("source_url") == CURRENT_URL else 62):

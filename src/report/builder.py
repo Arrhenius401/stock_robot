@@ -1,4 +1,5 @@
 """报告构建器 — 将分析结果组装为 Markdown 报告"""
+import html
 import re
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +16,7 @@ from report.formatter import (
     metric_display_name,
 )
 from report.peer_comparison import format_peer_comparison_markdown
+from report.presentation import compact_quality, compact_score_detail
 
 
 def build_disclaimer(*, hk: bool = False) -> list[str]:
@@ -29,6 +31,38 @@ def build_disclaimer(*, hk: bool = False) -> list[str]:
         "指标、评分及观察结论受数据口径、样本范围和分析方法限制，不代表对未来表现的预测。",
         "请结合自身风险承受能力独立判断，并核实相关信息。市场有风险，投资需谨慎。",
     ]
+
+
+_QUALITY_STATUS = {"ok": "正常", "partial": "部分数据", "unavailable": "数据不可用", "not_applicable": "不适用"}
+
+
+def _md_cell(value) -> str:
+    """表内生成值只转义 HTML 与竖线，不把日期等普通字符写成实体码。"""
+    return (html.escape(str(value), quote=False)
+            .replace("|", "&#124;").replace("\n", " ").replace("\r", " "))
+
+
+def _quality_range(sample: str, cutoff: str) -> str:
+    if not cutoff or cutoff == "未记录":
+        return sample
+    if sample == "未记录":
+        return f"截至 {cutoff}"
+    return sample if cutoff in sample else f"{sample}；截至 {cutoff}"
+
+
+def _quality_table(rows) -> str:
+    """由精简字段生成五维覆盖表，状态与范围只在此处展示。"""
+    prepared = []
+    for row in rows:
+        sample = _md_cell(row.get("sample") or "未记录")
+        cutoff = str(row.get("cutoff") or "未记录")
+        prepared.append({
+            "title": _md_cell(row.get("title") or "未记录"),
+            "status": _QUALITY_STATUS.get(str(row.get("status")), "未记录"),
+            "range": _quality_range(sample, cutoff),
+            "source": _md_cell(row.get("source") or "未记录"),
+        })
+    return _md_table(prepared, {"维度": "title", "状态": "status", "数据范围／截至": "range", "来源": "source"})
 
 
 def _display_width(s: str) -> int:
@@ -60,7 +94,8 @@ def _md_table(data, headers=None):
         filtered = {
             k: v
             for k, v in data.items()
-            if not isinstance(v, (list, dict)) and k not in {"peer_names", "peer_display_note", "tag"}
+            if not isinstance(v, (list, dict)) and k not in {"peer_names", "peer_display_note", "tag", "roe_trend", "amount_basis", "gross_margin_basis"}
+            and not (k == "trend_note" and not v)
         }
         if not filtered:
             return ""
@@ -127,15 +162,20 @@ class ReportBuilder:
             lstrip_blocks=True,
         )
         self._env.filters["md_table"] = _md_table
+        self._env.filters["plain_text"] = _news_text
+        self._env.filters["compact_score_detail"] = compact_score_detail
+        self._env.filters["quality_table"] = _quality_table
         self._env.filters["hk_news_markdown"] = format_hk_news_markdown
         self._env.filters["sentiment_risk_markdown"] = format_sentiment_risk_markdown
         self._env.filters["peer_comparison_markdown"] = format_peer_comparison_markdown
         self._env.filters["metric_value"] = lambda value, key: format_metric_value(key, value)
+        self._env.filters["metric_name"] = metric_display_name
         # 模型仍按原提示词输出编号段落，报告内统一降为第四节的子标题。
         self._env.filters["commentary_section"] = lambda text: re.sub(
             r"^#{1,2}\s+(?=\d+[.、．])", "### ", text, flags=re.MULTILINE)
         from report.formatter import risk_display_name
         self._env.filters["risk_display_name"] = risk_display_name
+        self._env.filters["risk_labels"] = lambda flags: list(dict.fromkeys(risk_display_name(flag) for flag in flags))
 
     def build(self, symbol: str, name: str, results: list[AnalysisResult],
               commentary: dict[str, str], no_llm: bool = False,
@@ -157,6 +197,8 @@ class ReportBuilder:
             if "latest_quarter" in metrics:
                 metrics["report_period"] = metrics.pop("latest_quarter")
             results_map["financial"] = financial.model_copy(update={"metrics": metrics})
+        if data_quality and "summary_rows" not in data_quality:
+            data_quality = {**data_quality, **compact_quality(data_quality)}
         template = self._env.get_template("report_v2.jinja2")
         return template.render(
             symbol=symbol,

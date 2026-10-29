@@ -164,6 +164,8 @@ METRIC_DISPLAY_NAMES = {
     "year_high": "近一年最高价",
     "year_low": "近一年最低价",
     "pe_ttm": "PE(TTM)",
+    "pe_static": "PE（静）",
+    "pe_lyr": "PE（静）",
     "pb": "PB",
     "ps_ttm": "PS(TTM)",
     "pe_percentile": "PE 分位",
@@ -234,7 +236,7 @@ def metric_display_name(key: object) -> str:
 
 
 _PRICE_KEYS = {"latest_close", "latest_price", "year_high", "year_low", "ma_5", "ma_20", "ma_60"}
-_MULTIPLE_KEYS = {"pe_ttm", "pe_snapshot", "pb", "ps_ttm", "industry_median_pe", "industry_median_pb",
+_MULTIPLE_KEYS = {"pe_static", "pe_lyr", "pe_ttm", "pe_snapshot", "pb", "ps_ttm", "industry_median_pe", "industry_median_pb",
                   "target_pe", "target_pb"}
 _RATIO_KEYS = {"roe", "gross_margin", "revenue_growth_yoy", "profit_growth_yoy", "industry_median_gross_margin"}
 _PERCENT_KEYS = {"change_pct", "pe_percentile", "pb_percentile", "target_pe_premium", "dividend_yield",

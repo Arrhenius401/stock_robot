@@ -1,8 +1,8 @@
 // 指数分析视图：多指数对比表 + 逐指数纵向研报
 import { store, switchView } from "./state.js";
 import { api } from "./api.js";
-import { renderMarkdown } from "./markdown.js?v=20261027-gold-observation-2";
-import { appendReadableMetric, riskText, formatMetricValue } from "./report-renderer.js?v=20261027-gold-observation-2";
+import { renderMarkdown } from "./markdown.js?v=20261029-index-news-quality";
+import { appendReadableMetric, riskText, formatMetricValue, renderIndexReport } from "./report-renderer.js?v=20261029-index-news-quality";
 import { el, kv, tagChip, priceBar, errorCard, skeleton,
          showEntryError, clearEntryError } from "./components.js";
 
@@ -127,6 +127,24 @@ function compareCard(compare) {
 }
 
 function reportCard(r) {
+  if (r.report_version >= 2) {
+    const container = el("div", "index-report-container");
+    let current = r;
+    let busy = false;
+    let error = "";
+    const draw = () => container.replaceChildren(renderIndexReport(current, {
+      commentaryBusy: busy, commentaryError: error, onConfigure: () => switchView("config"),
+      onRetryCommentary: current.commentary_retry_id ? async () => {
+        if (busy) return;
+        busy = true; error = ""; draw();
+        try { current = await api.retryIndexCommentary(current.commentary_retry_id); }
+        catch (err) { error = err.message || "重试失败"; }
+        finally { busy = false; draw(); }
+      } : null,
+    }));
+    draw();
+    return container;
+  }
   const card = el("div", "report");
   const hdr = el("div", "report-header");
   hdr.appendChild(el("span", "stock-name", r.name || r.code));

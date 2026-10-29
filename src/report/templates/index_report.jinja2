@@ -1,182 +1,117 @@
-{# 指数分析报告模板 #}
-# 指数分析报告：{{ name }} ({{ code }})
+{# 指数报告与网页共用的展示副本，原始metrics保留追溯。 #}
+{% macro rows(section) -%}
+{% if section and section.display and section.display.rows %}
+{{ section.display.rows | md_table({"指标":"label", "数值":"value", "解读标注":"note"}) }}
+{% endif %}
+{%- endmacro %}
+# 指数分析报告：{{ name }}（{{ code }}）
 
 > 生成时间：{{ generated_at }}
-{% if overview.valuation_display %}
-> {{ overview.valuation_display.cutoff }}
-{% endif %}
-
-{% set overview_values = overview.valuation_display.metrics if overview.valuation_display else {} %}
-
 {% if requested_instrument %}
-> 输入识别为ETF：{{ requested_instrument.name }}（{{ requested_instrument.symbol }}），跟踪指数 {{ code }}。下面指数与ETF表现分别标明口径。
+> 输入为ETF {{ requested_instrument.name }}（{{ requested_instrument.symbol }}），本报告分析跟踪指数；ETF自身表现单独披露。
 {% endif %}
 
-## 概览
+## 一、概览
 
-| 指标 | 数值 |
-|------|------|
-| 最新点位 | {{ overview.latest_close | metric_value("latest_close") }} |
-| 涨跌幅 | {{ overview.change_pct | metric_value("change_pct") }} |
-{% if "strategy" in visible_sections %}
-{% if overview.pe_ttm is number %}
-| PE-TTM | {{ overview_values.pe_ttm if overview.valuation_display else overview.pe_ttm | metric_value("pe_ttm") }} |
-{% elif overview.pe_snapshot is number %}
-| 官方单张PE | {{ overview_values.pe_snapshot if overview.valuation_display else overview.pe_snapshot | metric_value("pe_snapshot") }} |
-{% endif %}
-{% if overview.pb is number %}
-| PB | {{ overview_values.pb if overview.valuation_display else overview.pb | metric_value("pb") }} |
-{% endif %}
-{% else %}
-| PE-TTM | {{ overview_values.pe_ttm if overview.valuation_display else overview.pe_ttm | metric_value("pe_ttm") }}{% if overview.pe_percentile is number %}（历史分位 {{ overview_values.pe_percentile if overview.valuation_display else overview.pe_percentile | metric_value("pe_percentile") }}，回看 {{ overview.percentile_lookback_years }} 年）{% endif %} |
-{% if not overview.valuation_valid %}
-> ⚠️ 历史样本不足或分位无效，不判断高低估。
-{% endif %}
-{% endif %}
+{{ overview.display_rows | md_table({"指标":"label", "数值":"value", "说明":"note"}) }}
 
----
+## 二、历史表现与技术面
 
-## 技术面
-
-{% if section_technical.status != "unavailable" %}
-{{ section_technical.summary }}
-
-{{ section_technical.metrics | md_table }}
-{% else %}
-技术面数据不可用。
-{% endif %}
-
----
-
-## 估值面
-
-{{ (section_valuation.display.summary if section_valuation.display else section_valuation.summary) or "估值数据不可用。" }}
-{% if "strategy" in visible_sections %}
-{{ (section_valuation.display.metrics if section_valuation.display else section_valuation.metrics) | md_table }}
-{% for note in section_valuation.metrics.valuation_notes or [] %}
-- {{ note }}
-{% endfor %}
-{% elif section_valuation.status != "unavailable" %}
-{% if not section_valuation.metrics.valuation_valid %}
-> 历史样本不足或分位无效，不判断高低估。
-{% endif %}
-{{ (section_valuation.display.metrics if section_valuation.display else section_valuation.metrics) | md_table }}
-{% endif %}
-
----
-
-{% if "capital" in visible_sections %}
-## 资金面
-
-{{ capital_display.summary }}
-{% endif %}
-
----
-
-{% if "macro" in visible_sections %}
-## 宏观面
-
-{% if section_macro.status != "unavailable" %}
-{{ section_macro.summary }}
-> 宏观指标反映国内整体宏观环境。
-{% else %}
-宏观数据不可用。
-{% endif %}
-{% endif %}
-
----
-
-{% if "sentiment" in visible_sections %}
-## 舆情面
-
-{% if section_sentiment.status != "unavailable" %}
-{{ section_sentiment.summary }}
-{% else %}
-暂无有效市场舆情信号。
-{% endif %}
-{% endif %}
-
----
-
-## 综合评估
-
-{% if section_valuation.display and section_valuation.display.details %}
-### 估值数据说明
-{% for item in section_valuation.display.details %}
-- {{ item }}
-{% endfor %}
-{% endif %}
-
-| 维度 | 标签 |
-|------|------|
-| 技术面 | {{ tag_labels.get(tag_technical, tag_technical) }} |
-| 估值面 | {{ "暂无估值判断" if "strategy" in visible_sections and tag_valuation == "invalid" else tag_labels.get(tag_valuation, tag_valuation) }} |
-{% if "capital" in visible_sections %}
-| 资金面 | {{ capital_display.label }} |
-{% endif %}
-{% if "macro" in visible_sections %}
-| 宏观面 | {{ tag_labels.get(tag_macro, tag_macro) }} |
-{% endif %}
-{% if "sentiment" in visible_sections %}
-| 舆情面 | {{ tag_labels.get(tag_sentiment, tag_sentiment) }} |
-{% endif %}
-
-**综合定性：** {{ composite_comment }}
-**建议仓位参考系数：** {{ position_coeff if position_coeff is not none else "暂无数据" }}
-
-
-{% if "performance" in visible_sections and section_performance %}
-## 风险收益分析
-
+### 历史表现
+{% if section_performance %}
 {{ section_performance.summary }}
-{% set p = section_performance.metrics %}
-
-| 指标 | 数值 |
-|------|------|
-| 行情区间 | {{ p.start_date or "暂无数据" }} 至 {{ p.end_date or "暂无数据" }} |
-| 有效交易日 | {{ p.sample_count or "暂无数据" }} |
-| 区间收益率 | {{ "%.2f%%"|format(p.return_pct) if p.return_pct is number else "暂无数据" }} |
-| 年化波动率 | {{ "%.2f%%"|format(p.annualized_volatility_pct) if p.annualized_volatility_pct is number else "暂无数据" }} |
-| 最大回撤 | {{ "%.2f%%"|format(p.max_drawdown_pct) if p.max_drawdown_pct is number else "暂无数据" }} |
-| 基准 | {{ p.benchmark_symbol or "暂无数据" }} |
-| 同日指数区间收益 | {{ "%.2f%%"|format(p.benchmark_aligned_index_return_pct) if p.benchmark_aligned_index_return_pct is number else "暂无数据" }} |
-| 基准区间收益 | {{ "%.2f%%"|format(p.benchmark_return_pct) if p.benchmark_return_pct is number else "暂无数据" }} |
-| 同日基准超额收益 | {{ "%.2f%%"|format(p.excess_return_pct) if p.excess_return_pct is number else "暂无数据" }} |
-| 基准共同交易日区间 | {{ p.benchmark_start_date or "暂无数据" }} 至 {{ p.benchmark_end_date or "暂无数据" }}（{{ p.benchmark_sample_count or 0 }} 日） |
-
-> 收益口径：{{ p.return_basis or "价格指数，不含分红" }}。
-{% if p.etf_symbol %}
-
-ETF {{ p.etf_symbol }} 自身区间收益：{{ "%.2f%%"|format(p.etf_return_pct) if p.etf_return_pct is number else "不可用" }}。
-> ETF口径：{{ p.etf_return_basis }}，区间 {{ p.etf_start_date or "暂无数据" }} 至 {{ p.etf_end_date or "暂无数据" }}。{{ p.etf_unavailable_reason or "" }}
+{% if section_performance.metrics.windows %}
+{{ section_performance.metrics.windows | md_table({"区间":"label", "起始日期":"start_date", "截止日期":"end_date", "交易日":"sample_count", "区间收益率":"return_pct", "最大回撤":"max_drawdown_pct", "年化波动率":"annualized_volatility_pct"}) }}
+{% else %}
+{{ rows(section_performance) }}
+{% endif %}
+{% if section_performance.display.benchmark_rows %}
+{{ section_performance.display.benchmark_rows | md_table({"指标":"label", "数值":"value", "说明":"note"}) }}
+> 基准 {{ section_performance.metrics.benchmark_symbol }}；共同交易日 {{ section_performance.metrics.benchmark_start_date }}至{{ section_performance.metrics.benchmark_end_date }}，{{ section_performance.metrics.benchmark_sample_count }}日。
+{% endif %}
+{% if section_performance.display.etf_rows %}
+{{ section_performance.display.etf_rows | md_table({"指标":"label", "数值":"value", "说明":"note"}) }}
 {% endif %}
 {% endif %}
 
-{% if "strategy" in visible_sections and section_strategy %}
-## 策略专项分析
+### 技术状态
+
+{{ section_technical.summary or "行情数据不可用，暂不判断技术状态。" }}
+{{ rows(section_technical) }}
+{% if section_technical.metrics.methodology %}
+> {{ section_technical.metrics.methodology }}
+{% endif %}
+
+{% if section_strategy %}
+### 策略专项分析
 
 {{ section_strategy.summary }}
-{% set s = section_strategy.metrics %}
-
-来源：{{ s.source or "不可用" }}。采样日：{{ s.as_of or "暂无数据" }}；官方权重日：{{ s.weight_as_of or "暂无数据" }}。
-财报年度：{{ s.financial_years|join("、") if s.financial_years else "暂无数据" }}；同日股价及市值日期：{{ s.market_cap_dates|join("、") if s.market_cap_dates else "不可用" }}。
-
-| 指标 | 数值 | 官方权重覆盖率 | 估算范围 / 不可用原因 |
-|------|------|------|------|
-{% for i in s.indicators or [] %}
-| {{ i.label }} | {{ "%.4f"|format(i.value) ~ i.unit if i.value is number else "不可用" }} | {{ "%.2f%%"|format(i.coverage_pct) }} | {{ i.scope }}{% if i.reason %}；{{ i.reason }}{% endif %} |
-{% endfor %}
-
-前十大集中度：{{ "%.2f%%"|format(s.top10_weight_pct) if s.top10_weight_pct is number else "不可用" }}；行业分类覆盖率：{{ "%.2f%%"|format(s.industry_coverage_pct) if s.industry_coverage_pct is number else "不可用" }}。
-
-| 行业 | 原始官方权重 |
-|------|------|
-{% for i in s.industry_weights or [] %}
-| {{ i.industry }} | {{ "%.2f%%"|format(i.weight_pct) }} |
-{% endfor %}
-
-> {{ s.methodology or "官方成分和财务数据不可用" }}
-{% for error in s.errors or [] %}
+{{ rows(section_strategy) }}
+> {{ section_strategy.metrics.methodology or "" }}
+{% for error in section_strategy.metrics.errors or [] %}
 - {{ error }}
 {% endfor %}
 {% endif %}
+
+## 三、估值面
+
+{{ section_valuation.summary or "估值数据不可用。" }}
+{{ rows(section_valuation) }}
+{% for note in section_valuation.metrics.valuation_notes or [] %}
+- {{ note }}
+{% endfor %}
+
+## 四、资金、宏观与新闻
+
+### 资金流向
+{% if "capital" in visible_sections %}
+{{ section_capital.summary or "资金数据不可用。" }}
+{{ rows(section_capital) }}
+{% else %}
+当前指数不适用已接入的资金流向指标。
+{% endif %}
+
+### 宏观环境
+{% if section_macro and "macro" in visible_sections %}
+{{ section_macro.summary or "宏观数据不可用。" }}
+{{ rows(section_macro) }}
+{% else %}
+当前指数没有已适配的宏观指标，不以国内环境代替海外环境。
+{% endif %}
+
+### 相关新闻
+{% if "sentiment" in visible_sections %}
+{{ section_sentiment.summary or "暂无可核实的新闻。" }}
+{% for item in section_sentiment.display["items"] or [] %}
+{% set link = item.url | default("") | news_url %}
+- {{ item.title | news_text }}（{{ item.source | default("来源未记录", true) | news_text }}；{{ item.published_at | default("发布时间未记录", true) | news_text }}）{% if link %} [来源](<{{ link }}>){% endif %}{{ '\n' }}
+{% endfor %}
+{% else %}
+未接入适用新闻源。
+{% endif %}
+
+## 五、综合研判
+
+> {{ {"disabled":"AI未启用，以下为确定性量化摘要。", "insufficient":"主要证据不足，以下仅作受限摘要。", "unconfigured":"AI未配置，以下为量化摘要。", "failed":"AI生成失败，保留量化摘要。", "ready":"基于本次量化事实的AI解读。"}.get(report.commentary_status, "解读状态未记录。") }}
+
+{{ report.commentary }}
+
+## 六、数据覆盖与时效
+
+{{ report.data_quality.summary_rows | quality_table }}
+{% if report.data_quality.limitations %}
+**数据限制：**
+{% for item in report.data_quality.limitations %}
+- {{ item.dimension }} · {{ item.label }}：{{ item.value }}
+{% endfor %}
+{% endif %}
+{% for risk in report.risk_list %}
+- 风险提示：{{ risk }}
+{% endfor %}
+
+## 七、免责声明
+
+{% for paragraph in report.disclaimer %}
+{{ paragraph }}
+
+{% endfor %}

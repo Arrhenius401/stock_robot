@@ -1,11 +1,12 @@
 """配置雷达刷新失败边界测试。"""
 
 from datetime import date
+from typing import cast
 
 import pandas as pd
 import pytest
 
-from radar.data import RadarDataError
+from radar.data import RadarDataError, RadarDataProvider
 from radar.models import RadarUniverse
 from radar.refresh import RadarRefresher
 from radar.store import RadarStore
@@ -57,7 +58,7 @@ def test_refresh_reports_deduplicated_provider_chain_when_every_instrument_fails
             },
         ],
     })
-    refresher = RadarRefresher(_Repository(universe), _UnavailableProvider(), RadarStore(tmp_path / "radar.db"))
+    refresher = RadarRefresher(_Repository(universe), cast(RadarDataProvider, _UnavailableProvider()), RadarStore(tmp_path / "radar.db"))
 
     with pytest.raises(RuntimeError, match="AkShare 请求失败；腾讯请求失败；官方兜底未启用") as error:
         refresher.refresh("test_etf", as_of=date(2025, 12, 31))
@@ -92,7 +93,7 @@ def test_retry_only_fetches_failed_symbol_and_recomputes_complete_pool(tmp_path)
     provider = _DailyProvider()
     provider.fail = {"510050"}
     store = RadarStore(tmp_path / "radar.db")
-    refresher = RadarRefresher(_Repository(_universe()), provider, store)
+    refresher = RadarRefresher(_Repository(_universe()), cast(RadarDataProvider, provider), store)
     first = refresher.refresh("test_etf", as_of=date(2026, 9, 30))
     assert store.status_summary("test_etf") == {"fresh": 2, "failed": 1, "stale": 0}
     provider.fail = set()
@@ -116,7 +117,7 @@ def test_cancellation_at_item_boundary_leaves_previous_snapshot_readable(tmp_pat
 
     provider = _DailyProvider()
     store = RadarStore(tmp_path / "radar.db")
-    refresher = RadarRefresher(_Repository(_universe()), provider, store)
+    refresher = RadarRefresher(_Repository(_universe()), cast(RadarDataProvider, provider), store)
     first = refresher.refresh("test_etf", as_of=date(2026, 9, 30))
     provider.calls.clear()
     with pytest.raises(RadarRefreshCancelled):
@@ -133,7 +134,7 @@ def test_stale_target_never_publishes_fresh_snapshot(tmp_path):
     provider.fetch_daily = lambda symbol, start, end: original(symbol, start, end).iloc[:-1]
     store = RadarStore(tmp_path / "radar.db")
     with pytest.raises(RuntimeError, match="目标交易日"):
-        RadarRefresher(_Repository(_universe()), provider, store).refresh("test_etf", as_of=date(2026, 9, 30))
+        RadarRefresher(_Repository(_universe()), cast(RadarDataProvider, provider), store).refresh("test_etf", as_of=date(2026, 9, 30))
     assert store.latest_completed("test_etf") is None
 
 
@@ -159,7 +160,7 @@ def test_publishing_callback_cancellation_does_not_publish(tmp_path):
     from radar.refresh import RadarRefreshCancelled
 
     store = RadarStore(tmp_path / "radar.db")
-    refresher = RadarRefresher(_Repository(_universe()), _DailyProvider(), store)
+    refresher = RadarRefresher(_Repository(_universe()), cast(RadarDataProvider, _DailyProvider()), store)
     first = refresher.refresh("test_etf", as_of=date(2026, 9, 30))
     cancelled = False
     def phase(value):

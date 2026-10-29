@@ -22,7 +22,7 @@ def test_invalid_history_cannot_vote_or_compare(pct):
     report = IndexReportBuilder().build(ctx, [result])
     assert report.tag_valuation == "invalid"
     assert report.overview["pe_percentile"] is None
-    assert report.position_coeff == 0.5
+    assert report.position_coeff is None
     compare = IndexCompareReportBuilder().build([ctx], [report])
     assert "历史样本不足" in compare.rows[0]["pe_pct"]
     text = render_index_report_markdown(report)

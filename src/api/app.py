@@ -170,6 +170,22 @@ def _persist_artifacts_if_present(
         if (isinstance(payload, dict) and payload.get("report_type") == "gold"
                 and payload.get("symbol") == "GOLD"):
             reports.append(("gold_report", "GOLD", payload, result.get("message_id")))
+    for result in tool_results:
+        if result.get("tool") != "analyze_index" or result.get("status") not in ("done", "success"):
+            continue
+        payload = result.get("content")
+        if isinstance(payload, str):
+            raw = payload.removeprefix("[analyze_index] success:").strip()
+            try:
+                payload = json.loads(raw)
+            except ValueError:
+                try:
+                    payload = ast.literal_eval(raw)
+                except (ValueError, SyntaxError):
+                    logger.debug("指数工具结果不是结构化报告")
+                    continue
+        if isinstance(payload, dict) and payload.get("report_version") == 2 and payload.get("code"):
+            reports.append(("index_report", payload["code"], payload, result.get("message_id")))
     for kind, symbol, payload, message_id in reports:
         try:
             artifact = manager.save_artifact(
@@ -180,6 +196,12 @@ def _persist_artifacts_if_present(
                 message_id=message_id,
                 memory=memory,
             )
+            if kind == "index_report":
+                from index.commentary import commentary_store as index_store
+                record = index_store.get(payload.get("commentary_retry_id") or "")
+                if record:
+                    record.session_id = session_id
+                    record.artifact_id = artifact.get("artifact_id")
             events.append({"artifact": artifact, "persisted": True})
         except Exception as exc:  # noqa: BLE001 — 持久化边界失败不能中断聊天
             logger.error("报告成果持久化失败，会话 %s: %s", session_id, exc)
@@ -443,15 +465,8 @@ def create_app(
 
     def _save_web_index_report(report) -> Path:
         """将网页指数分析保存为与 CLI 一致的 Markdown 报告。"""
-        from index.build_single import render_index_report_markdown
-        from report.formatter import ReportFormatter
-
-        saved_path = ReportFormatter.save(
-            render_index_report_markdown(report),
-            report.code,
-            output_dir=_reports_root(),
-            category="index",
-        )
+        from index.archives import save_index_report
+        saved_path = save_index_report(report, _reports_root())
         logger.info("网页指数报告已保存: %s", saved_path)
         return saved_path
 
@@ -947,6 +962,59 @@ def create_app(
         except Exception as exc:  # noqa: BLE001, RUF100 — 模型重试隔离边界，SDK 异常类型不可预测
             logger.exception("AI 解读重试失败")
             raise HTTPException(status_code=502, detail="AI 解读重试失败，请稍后重试") from exc
+        finally:
+            record.lock.release()
+
+    @app.post("/api/v1/index/commentary/retry")
+    async def retry_index_commentary(request: Request):
+        """只重试冻结指数事实，不重新取行情，也不切换报告批次。"""
+        from index.archives import update_index_report
+        from index.commentary import commentary_store as index_store
+        from index.commentary import generate
+
+        body = await request.json()
+        token = str(body.get("report_token", ""))
+        record = index_store.get(token)
+        if record is None:
+            raise HTTPException(status_code=410, detail="本次指数解读已过期，请重新分析")
+        artifact_id = body.get("artifact_id")
+        if record.artifact_id or artifact_id:
+            artifact = sessions.get_artifact(str(artifact_id)) if sessions is not None else None
+            pending_payload = record.pending_report.model_dump(mode="json") if record.pending_report is not None else None
+            if (artifact is None or artifact_id != record.artifact_id
+                    or body.get("session_id") != record.session_id
+                    or artifact.get("session_id") != record.session_id
+                    or (artifact.get("payload", {}).get("commentary_retry_id") != token
+                        and artifact.get("payload") != pending_payload)):
+                raise HTTPException(status_code=404, detail="报告成果不属于本次会话")
+        current = _snapshot_core(_runtime_snapshot())
+        if (current is None or getattr(current, "llm", None) is None
+                or getattr(getattr(current, "index_pipeline", None), "_llm_enabled", None) is False):
+            raise HTTPException(status_code=503, detail="模型未配置或不可用")
+        if not record.lock.acquire(blocking=False):
+            raise HTTPException(status_code=409, detail="此指数报告正在重试")
+        try:
+            if record.report.commentary_status == "ready":
+                return JSONResponse(_json_safe(record.report.model_dump(mode="json")))
+            if record.pending_report is None:
+                text = await asyncio.to_thread(generate, record, current.llm)
+                report = record.report.model_copy(deep=True)
+                report.commentary = text
+                report.commentary_status = "ready"
+                report.commentary_retry_id = None
+                record.pending_report = report
+            else:
+                report = record.pending_report
+            payload = report.model_dump(mode="json")
+            if record.output_path:
+                update_index_report(report, record.output_path, token)
+            if artifact_id and sessions is not None:
+                sessions.update_artifact_payload(str(artifact_id), payload)
+            record.report = report
+            return JSONResponse(_json_safe(payload))
+        except Exception as exc:
+            logger.exception("指数解读重试失败")
+            raise HTTPException(status_code=502, detail="指数解读重试失败，量化报告仍可查看") from exc
         finally:
             record.lock.release()
 

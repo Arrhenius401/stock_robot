@@ -18,4 +18,4 @@ class TestIndexSentimentAnalyzer:
         ctx = IndexAnalysisContext(target=target)
         result = IndexSentimentAnalyzer().analyze(ctx)
         assert result.status == "unavailable"
-        assert "暂无有效市场舆情信号" in result.summary
+        assert "未取得可核查的市场新闻" in result.summary

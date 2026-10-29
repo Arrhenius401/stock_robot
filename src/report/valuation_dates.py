@@ -68,7 +68,19 @@ def stock_date_presentation(ctx: AnalysisContext, metrics: dict[str, Any], summa
             else:
                 periods = [p.trade_date for p in enriched.daily_points if getattr(p, key) is not None]
                 dates[f"{key}_percentile"] = max(periods) if periods else None
-    return date_presentation(metrics, dates, summary)
+    display = date_presentation(metrics, dates, summary)
+    if enriched:
+        windows: dict[tuple[str, str, int], list[str]] = {}
+        for key, label in (("pe", "PE"), ("pb", "PB")):
+            periods = [point.trade_date for point in enriched.daily_points if getattr(point, key) is not None]
+            if periods and metrics.get(f"{key}_percentile") is not None:
+                window = (min(periods).isoformat(), max(periods).isoformat(), len(periods))
+                windows.setdefault(window, []).append(label)
+        for (start, end, count), labels in windows.items():
+            method = "同源实测估值" if ctx.market == "hk" else "以本次财务分母派生估值"
+            display["cutoff"] += (f" {'、'.join(labels)}分位区间：{start} 至 {end}，{count}个有效样本；"
+                                  f"{method}，不保证覆盖上市以来完整历史。")
+    return display
 
 
 def index_date_presentation(val: IndexValuationData | None, metrics: dict[str, Any], *, strategy: bool, summary: str = "") -> dict[str, Any]:

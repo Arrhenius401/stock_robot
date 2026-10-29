@@ -185,6 +185,11 @@ foreach ($file in $changedFiles) {
     if ($path.StartsWith("src\index\", [StringComparison]::OrdinalIgnoreCase)) {
         Add-UniqueTarget $testTargets "tests/index"
         Add-UniqueTarget $testTargets "tests/api/test_app.py"
+        if ($path -in @("src\index\commentary.py", "src\index\archives.py", "src\index\collection_budget.py", "src\index\request_cache.py", "src\index\news.py")) {
+            Add-UniqueTarget $testTargets "tests/api/test_report_library.py"
+            Add-UniqueTarget $testTargets "tests/agent/test_pipeline_tools.py"
+            Add-UniqueTarget $testTargets "tests/api/test_index_report_refinement_static.py"
+        }
         continue
     }
     if ($path.StartsWith("src\radar\", [StringComparison]::OrdinalIgnoreCase)) {

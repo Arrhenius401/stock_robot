@@ -61,17 +61,17 @@ class TestIndexPipeline:
             )
             pipeline.run([target], on_progress=track)
 
-        # broad 有 5 个分析模块
+        # broad 有 6 个分析模块
         analyze_calls = [c for c in calls_record if c[0] == "analyze"]
-        assert len(analyze_calls) == 5
+        assert len(analyze_calls) == 6
         for i, (_, current, total, _) in enumerate(analyze_calls):
             assert current == i + 1
-            assert total == 5
+            assert total == 6
 
     @pytest.mark.parametrize("index_style,expected_count", [
-        ("broad", 5),
-        ("sector", 4),
-        ("overseas", 4),
+        ("broad", 6),
+        ("sector", 5),
+        ("overseas", 5),
     ])
     def test_analysis_modules_filtered_by_index_style(self, index_style, expected_count):
         with patch("src.index.pipeline.IndexDataCollector"), \

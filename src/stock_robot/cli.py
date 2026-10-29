@@ -427,7 +427,9 @@ def index(symbols, style, output, compare_only):
             requested_instrument=asdict(etf) if etf else None,
         ))
 
-    pipeline = IndexPipeline()
+    from api.bootstrap import build_llm
+
+    pipeline = IndexPipeline(config=config, llm=build_llm(config))
     with _create_cli_progress() as progress:
         task_id = progress.add_task("正在分析指数...", total=None)
 
@@ -438,18 +440,14 @@ def index(symbols, style, output, compare_only):
         result = pipeline.run(targets, on_progress=on_progress)
         progress.update(task_id, visible=False)
 
-    from report.formatter import ReportFormatter
 
     if not compare_only:
         for report in result.reports:
             if output == "terminal":
                 console.print(_render_index_report(report))
             elif output == "markdown":
-                saved = ReportFormatter.save(
-                    _render_index_report_md(report),
-                    report.code,
-                    category="index",
-                )
+                from index.archives import save_index_report
+                saved = save_index_report(report)
                 console.print(f"[green]报告已保存: {saved}[/green]")
 
     if result.compare is not None:

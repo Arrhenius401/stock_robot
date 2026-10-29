@@ -98,8 +98,13 @@ def test_index_markdown_preserves_independent_dates_and_raw_values():
     original = result.model_dump()
     report = IndexReportBuilder().build(ctx, [result])
     markdown = render_index_report_markdown(report)
-    assert markdown.count("估值数据截至 2026-10-22") == 1
-    assert "2.00（截至 2026-09-30）" in markdown
+    # 新版不强制所有估值共用一个截至日；日期在各指标说明列独立展示。
+    rows = report.section_valuation["display"]["rows"]
+    pe = next(row for row in rows if row["label"] == "PE")
+    pb = next(row for row in rows if row["label"] == "PB")
+    assert pe["value"] == "20.00" and "2026-10-22" in pe["note"]
+    assert pb["value"] == "2.00" and "2026-09-30" in pb["note"]
+    assert "2026-10-22" in markdown and "2026-09-30" in markdown
     assert "PB 2.00（截至 2026-09-30）" in report.section_valuation["display"]["summary"]
     assert result.model_dump() == original
 
@@ -121,7 +126,7 @@ def test_stock_markdown_and_payload_use_same_dates():
     assert display["cutoff"] in markdown
     assert display["metrics"]["ps_ttm"] in markdown
     assert "3.00（截至 2026-10-21）" in markdown
-    assert markdown.index("PS(TTM)：测试") > markdown.index("## 六、数据覆盖与时效")
+    assert markdown.index("PS(TTM)：测试") > markdown.index("## 五、数据覆盖与时效")
 
 
 @pytest.mark.parametrize(("pe_date", "pb_date"), [
