@@ -1,11 +1,11 @@
 // 应用主入口：导航接线、工作台覆盖层与各视图初始化。
 import { bus, store, switchView } from "./state.js";
 import { initChat } from "./chat.js?v=20261029-index-news-quality";
-import { initReportView, openReport } from "./report.js?v=20261029-index-news-quality";
+import { initReportView, openReport } from "./report.js?v=20261030-index-review";
 import { initReportDrawer } from "./report-drawer.js?v=20261029-index-news-quality";
 import { closeReportDrawer } from "./report-drawer.js?v=20261029-index-news-quality";
 import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js";
-import { initIndexView } from "./indexview.js?v=20261029-index-news-quality";
+import { initIndexView } from "./indexview.js?v=20261030-index-review";
 import { initReportLibrary } from "./report-library.js?v=20261029-index-news-quality";
 import { initSessions, initSessionStartup } from "./sessions.js?v=20261029-index-news-quality";
 import { initSubscriptions } from "./subscriptions.js?v=20260928-run-notice-2";

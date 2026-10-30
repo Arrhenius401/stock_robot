@@ -85,12 +85,19 @@ export const api = {
       method: "POST", body: JSON.stringify({ report_token: reportToken, ...artifact }),
     });
   },
-  indices(query = "") {
-    const suffix = query ? `?q=${encodeURIComponent(query)}` : "";
+  indices(query = "", options = {}) {
+    const params = new URLSearchParams();
+    if (query) params.set("q", query);
+    if (options.market) params.set("market", options.market);
+    if (options.offset) params.set("offset", String(options.offset));
+    const suffix = params.toString() ? `?${params.toString()}` : "";
     return request(`/api/v1/indices${suffix}`);
   },
-  index(symbols) {
-    return request("/api/v1/index", { method: "POST", body: JSON.stringify({ symbols }) });
+  refreshIndices(source = "hsi") {
+    return request(`/api/v1/indices/refresh?source=${encodeURIComponent(source)}`, { method: "POST" });
+  },
+  index(symbols, refreshCache = false) {
+    return request("/api/v1/index", { method: "POST", body: JSON.stringify({ symbols, ...(refreshCache ? {refresh_cache: true} : {}) }) });
   },
   listReports(params = {}) {
     const search = new URLSearchParams();

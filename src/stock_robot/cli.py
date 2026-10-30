@@ -410,6 +410,8 @@ def index(symbols, style, output, compare_only):
             entry = mapping.resolve(raw_index)
         except ValueError as exc:
             raise click.ClickException(str(exc)) from exc
+        if entry is None and ":" in raw_index:
+            raise click.ClickException(f"指数 {raw_index} 不在已验证目录中，请先刷新目录")
         if entry is None and not validate_index_symbol(raw_index):
             raise click.ClickException(f"无效的指数代码或名称: {raw}")
         normalized = normalize_index_symbol(raw_index)
@@ -419,12 +421,16 @@ def index(symbols, style, output, compare_only):
                     f"无法识别指数 {normalized}，请用 --style 指定类别 (broad/sector/overseas/strategy)")
             index_style, name, market = style, raw, "a-shares"
         else:
+            if entry.market not in ("a-shares", "hk", "us"):
+                raise click.ClickException(f"指数 {entry.symbol} 的市场尚未核验，暂不可分析")
             index_style, name, market = entry.index_style, entry.name, entry.market
             normalized = entry.symbol
         targets.append(AnalysisTarget(
             target_type="index", symbol=normalized, name=name,
             market=market, index_style=index_style,
             requested_instrument=asdict(etf) if etf else None,
+            return_type=(entry.return_type or "price") if entry is not None else "unknown",
+            official_index_code=entry.price_symbol if entry is not None and entry.provider == "hsi" else None,
         ))
 
     from api.bootstrap import build_llm

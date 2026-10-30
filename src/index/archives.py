@@ -12,6 +12,26 @@ from data.schemas import IndexReport
 logger = logging.getLogger(__name__)
 
 
+def index_archive_component(code: str) -> str:
+    """旧代码保留原路径；带命名空间的代码使用不可与旧格式冲突的编码。"""
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", code):
+        return code
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*:[A-Za-z0-9][A-Za-z0-9._-]*", code):
+        return "~" + code.encode("utf-8").hex()
+    raise ValueError("指数代码不适合存档")
+
+
+def index_archive_symbol(component: str) -> str:
+    """从目录名恢复命名空间代码；无法解码时保留原值。"""
+    if not re.fullmatch(r"~(?:[0-9a-f]{2})+", component):
+        return component
+    try:
+        code = bytes.fromhex(component[1:]).decode("utf-8")
+        return code if index_archive_component(code) == component else component
+    except (ValueError, UnicodeDecodeError):
+        return component
+
+
 def write_snapshot(report: IndexReport, path: Path, markdown: str) -> None:
     payload = report.model_dump(mode="json")
     wrapper = {"schema_version": 1, "markdown_sha256": hashlib.sha256(markdown.encode()).hexdigest(), "payload": payload}
@@ -25,7 +45,7 @@ def update_index_report(report: IndexReport, path: Path, expected_token: str) ->
     from index.build_single import render_index_report_markdown
     from report.formatter import _atomic_write
 
-    if path.suffix != ".md" or len(path.parents) < 4 or path.parents[2].name != "index" or path.parent.parent.name != report.code:
+    if path.suffix != ".md" or len(path.parents) < 4 or path.parents[2].name != "index" or path.parent.parent.name != index_archive_component(report.code):
         raise ValueError("指数报告路径无效")
     root = path.parents[3].resolve()
     snapshot = path.with_suffix(".report.json")
@@ -59,15 +79,14 @@ def save_index_report(report: IndexReport, output_dir: Path | None = None) -> Pa
     from report.formatter import _atomic_write
 
     markdown = render_index_report_markdown(report)
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", report.code):
-        raise ValueError("指数代码不适合存档")
+    component = index_archive_component(report.code)
     root = output_dir or Path("reports")
     now = datetime.now().astimezone()
-    directory = root / "index" / report.code / now.strftime("%Y-%m")
+    directory = root / "index" / component / now.strftime("%Y-%m")
     if not directory.resolve().is_relative_to(root.resolve()):
         raise ValueError("指数报告路径越界")
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{report.code}_{now.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex}.md"
+    path = directory / f"{component}_{now.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex}.md"
     _atomic_write(path, markdown.encode("utf-8"))
     snapshot_written = True
     try:

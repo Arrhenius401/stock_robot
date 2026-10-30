@@ -246,3 +246,46 @@ def test_malformed_or_reordered_headings_fail_without_losing_summary():
         assert report.commentary_status=='failed'
         assert report.commentary=='量化摘要'
         assert report.commentary_retry_id
+
+
+def test_namespaced_index_archive_roundtrip_and_retry(tmp_path):
+    from api.report_library import get_report_detail, list_reports
+    from index.archives import (
+        load_index_snapshot,
+        save_index_report,
+        update_index_report,
+    )
+    from index.build_single import IndexReportBuilder
+
+    report = IndexReportBuilder().build(sample_context(), [])
+    report.code = 'HSI:00001.00'
+    report.commentary_retry_id = 'retry-token'
+    report.commentary_status = 'failed'
+    path = save_index_report(report, tmp_path)
+    assert ':' not in str(path.relative_to(tmp_path))
+    assert path.parent.parent.name.startswith('~')
+    snapshot = load_index_snapshot(path, path.read_text(encoding='utf-8'), report.code)
+    assert snapshot is not None and snapshot['code'] == report.code
+    summary = list_reports(tmp_path, report_type='index')[0]
+    assert summary.symbol == report.code
+    detail = get_report_detail(tmp_path, summary.id)
+    assert detail.index_payload is not None and detail.index_payload['code'] == report.code
+    report.commentary_status = 'ready'
+    report.commentary_retry_id = None
+    update_index_report(report, path, 'retry-token')
+    snapshot = load_index_snapshot(path, path.read_text(encoding='utf-8'), report.code)
+    assert snapshot is not None and snapshot['commentary_status'] == 'ready'
+
+
+def test_index_archive_component_rejects_paths_and_preserves_legacy():
+    import pytest
+
+    from index.archives import index_archive_component, index_archive_symbol
+
+    assert index_archive_component('000300') == '000300'
+    assert index_archive_symbol('000300') == '000300'
+    assert index_archive_symbol('~414243') == '~414243'
+    assert index_archive_symbol(index_archive_component('HSI:00001.00')) == 'HSI:00001.00'
+    for code in ('../x', 'HSI:../x', '~4853493a303030', 'HSI:'):
+        with pytest.raises(ValueError):
+            index_archive_component(code)

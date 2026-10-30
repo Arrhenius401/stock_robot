@@ -819,7 +819,9 @@ def create_app(
                                  headers={"Cache-Control": "no-cache", "Connection": "keep-alive"})
 
     @app.get("/api/v1/indices")
-    async def index_catalog(q: str = ""):
+    async def index_catalog(q: str = "", offset: int = Query(default=0, ge=0),
+                            limit: int = Query(default=100, ge=1, le=100),
+                            market: str = ""):
         """公开指数目录与人工核验的ETF跟踪关系，查询不触发行情采集。"""
         from dataclasses import asdict
 
@@ -828,13 +830,40 @@ def create_app(
         mapping = IndexMapping()
         etfs = [item for item in ETFIndexMapping().entries()
                 if not q.strip() or q.strip().casefold() in f"{item.symbol} {item.name}".casefold()]
-        matches = {entry.symbol: entry for entry in mapping.search(q)}
+        if market not in ("", "a-shares", "hk", "unknown"):
+            raise HTTPException(status_code=422, detail="market 无效")
+        matches = {entry.symbol: entry for entry in mapping.search(q) if not market or entry.market == market}
         for item in etfs:
             entry = mapping.lookup(item.index_symbol)
-            if entry is not None:
+            if entry is not None and (not market or entry.market == market):
                 matches[entry.symbol] = entry
-        return {"indices": [asdict(entry) for entry in matches.values()],
+        entries = list(matches.values())
+        return {"indices": [asdict(entry) for entry in entries[offset:offset + limit]],
+                "total": len(entries), "indices_total": len(entries), "offset": offset, "limit": limit,
                 "etfs": [asdict(item) for item in etfs]}
+
+    @app.post("/api/v1/indices/refresh")
+    async def refresh_index_catalog(source: str = "hsi"):
+        """按来源刷新官方目录；源失败时保留上次成功快照。"""
+        from data.index_catalog_sources import (
+            fetch_cni_catalog,
+            fetch_csi_catalog,
+            fetch_hsi_catalog,
+            sync_catalog,
+        )
+
+        fetchers = {"hsi": fetch_hsi_catalog, "cni": fetch_cni_catalog,
+                    "csi1": lambda: fetch_csi_catalog("1"), "csi2": lambda: fetch_csi_catalog("2")}
+        fetch = fetchers.get(source)
+        if fetch is None:
+            raise HTTPException(status_code=422, detail="不支持的指数目录来源")
+        path = Path.cwd() / ".stock_robot" / f"index-catalog-{source}.json"
+        try:
+            entries, state = await asyncio.to_thread(sync_catalog, path, fetch, refresh=True)
+            return {"source": source, "state": state, "total": len(entries)}
+        except Exception as error:  # noqa: BLE001 — 第三方接口隔离，保留安全错误
+            logger.warning("指数目录更新失败 %s：%s", source, error)
+            return JSONResponse({"source": source, "state": "failed", "error": "目录更新失败"}, status_code=502)
 
     @app.post("/api/v1/analyze")
     async def analyze(request: Request):
@@ -1060,6 +1089,9 @@ def create_app(
             except ValueError as exc:
                 errors.append(str(exc))
                 continue
+            if entry is None and ":" in raw_index:
+                errors.append(f"指数 {raw_index} 不在已验证目录中，请先刷新目录")
+                continue
             if entry is None and not validate_index_symbol(raw_index):
                 errors.append(f"无效的指数代码或名称: {sym}，请在指数目录中选择")
                 continue
@@ -1073,9 +1105,15 @@ def create_app(
                     target_type="index", symbol=normalized, name=normalized,
                     market="a-shares", index_style=index_style)
             else:
+                if entry.market not in ("a-shares", "hk", "us"):
+                    errors.append(f"指数 {entry.symbol} 的市场尚未核验，暂不可分析")
+                    continue
                 target = AnalysisTarget(
                     target_type="index", symbol=getattr(entry, "symbol", normalized),
-                    name=entry.name, market=entry.market, index_style=entry.index_style)
+                    name=entry.name, market=entry.market, index_style=entry.index_style,
+                    return_type=getattr(entry, "return_type", "") or "price",
+                    official_index_code=getattr(entry, "price_symbol", None)
+                    if getattr(entry, "provider", "") == "hsi" else None)
             if any(existing.symbol == target.symbol for existing in targets):
                 errors.append(f"重复指数 {target.symbol} 已跳过，请分别分析ETF与其指数")
                 continue
@@ -1087,7 +1125,7 @@ def create_app(
             raise HTTPException(status_code=422, detail="；".join(errors))
 
         try:
-            result = await asyncio.to_thread(agent_core.index_pipeline.run, targets)
+            result = await asyncio.to_thread(agent_core.index_pipeline.run, targets, refresh_cache=True) if body.get("refresh_cache") is True else await asyncio.to_thread(agent_core.index_pipeline.run, targets)
             for report in result.reports:
                 if report.code in requested:
                     report.requested_instrument = requested[report.code]

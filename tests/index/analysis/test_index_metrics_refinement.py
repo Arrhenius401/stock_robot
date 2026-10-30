@@ -114,6 +114,7 @@ def test_new_official_route_has_split_timeout(mocker, tmp_path):
 def test_invalid_ohlc_cannot_create_out_of_range_position():
     ctx = context()
     for row in ctx.price_data:
+        assert isinstance(row, IndexPriceData)
         row.high = row.close - 1
     result = IndexTechnicalAnalyzer().analyze(ctx)
     assert result.metrics['price_position_pct'] is None
@@ -153,7 +154,7 @@ def test_request_cache_reuses_success_and_preserves_it_on_failure(mocker, tmp_pa
     assert not cache.fetch_cached(adapter, "000300", "index_price", index_style="broad").rows
     assert not cache.fetch_cached(adapter, "000300", "index_price", index_style="broad").rows
     assert adapter.fetch_result.call_count == 2
-    assert cache.cache.get_entry("index_price", "000300", "last-success") is not None
+    assert cache.cache.get_entry("index_price", "000300:broad", "last-success") is not None
     with cache.cache._get_conn() as connection:
         assert connection.execute("SELECT ttl_seconds FROM cache WHERE date_key='status'").fetchone()[0] == 300
 

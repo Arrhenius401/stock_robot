@@ -87,3 +87,24 @@ def test_cli_strategy_name_and_etf_routing(mocker, query, expected):
     assert target.index_style == "strategy"
     if query == "515300":
         assert target.requested_instrument["symbol"] == "515300"
+
+
+def test_cli_namespaced_hk_uses_official_code_and_blocks_unknown(mocker):
+    from data.index_mapping import IndexMappingEntry
+
+    mocker.patch('src.stock_robot.cli._check_disclaimer', return_value=True)
+    lookup = mocker.patch('data.index_mapping.IndexMapping.resolve')
+    run = mocker.patch('index.pipeline.IndexPipeline.run', return_value=SimpleNamespace(reports=[], compare=None, errors=[]))
+    lookup.return_value = IndexMappingEntry(symbol='HSI:01067.00', name='恒生高股息', index_style='overseas', market='hk', provider='hsi', price_symbol='01067.00')
+    result = CliRunner().invoke(main, ['index', 'HSI:01067.00'])
+    assert result.exit_code == 0, result.output
+    assert run.call_args.args[0][0].official_index_code == '01067.00'
+    lookup.return_value = IndexMappingEntry(symbol='CSI:999999', name='未知', index_style='broad', market='unknown')
+    run.reset_mock()
+    result = CliRunner().invoke(main, ['index', 'CSI:999999'])
+    assert result.exit_code != 0 and '尚未核验' in result.output
+    run.assert_not_called()
+    lookup.return_value = None
+    result = CliRunner().invoke(main, ['index', 'HSI:99999.00'])
+    assert result.exit_code != 0 and '刷新目录' in result.output
+    run.assert_not_called()

@@ -410,11 +410,22 @@ class AnalysisTarget(BaseModel):
     market: str = "a-shares"
     index_style: Literal["broad", "sector", "overseas", "strategy"] | None = None
     requested_instrument: dict[str, Any] | None = None
+    official_index_code: str | None = None
+    return_type: str = "price"
 
 
 class IndexPriceData(PriceData):
     """指数日线行情（继承 PriceData 的 OHLCV 字段）"""
     turnover: float | None = None
+    change_pct: float | None = None
+
+
+class IndexClosePriceData(BaseModel):
+    """只有收盘价的指数记录，不构造未披露的 OHLC。"""
+    _data_source: str = PrivateAttr(default="")
+    symbol: str
+    trade_date: date
+    close: float = Field(ge=0)
     change_pct: float | None = None
 
 
@@ -435,6 +446,7 @@ class IndexValuationData(BaseModel):
     pe_as_of: "date | None" = None
     pb_as_of: "date | None" = None
     pe_snapshot_as_of: "date | None" = None
+    pe_snapshot_period: str = ""  # 月频来源仅披露年月时，不推断具体交易日
     pe_snapshot_basis: str = ""
     pe_snapshot_source_url: str = ""
     pe_basis: str = ""
@@ -453,6 +465,8 @@ class CapitalFlowData(BaseModel):
     north_bound: float | None = None
     main_net_inflow: float | None = None
     margin_balance: float | None = None
+    southbound_sh_yi: float | None = None
+    southbound_sz_yi: float | None = None
     notes: list[str] = Field(default_factory=list)
 
 
@@ -461,6 +475,9 @@ class MacroContext(BaseModel):
     symbol: str
     fetch_date: date
     shibor_3m: float | None = None
+    hibor_1m: float | None = None
+    hk_base_rate: float | None = None
+    hk_closing_balance_million: float | None = None
     cpi_yoy: float | None = None
     pmi: float | None = None
     usd_cny: float | None = None
@@ -509,7 +526,7 @@ class IndexAnalysisContext(BaseModel):
     """指数分析上下文 — 管道的核心数据容器"""
     target: AnalysisTarget
     collection_records: dict[str, DataCollectionRecord] = Field(default_factory=dict)
-    price_data: list[IndexPriceData] = Field(default_factory=list)
+    price_data: list[IndexPriceData | IndexClosePriceData] = Field(default_factory=list)
     valuation_data: IndexValuationData | None = None
     capital_flow: CapitalFlowData | None = None
     macro: MacroContext | None = None

@@ -263,3 +263,25 @@ class TestPushExecutor:
         assert result["ok"] == 1
         assert len(result["failures"]) == 1
         assert "ABC123" in result["failures"][0]
+
+
+def test_push_index_routes_hk_official_identity_and_blocks_unknown(mocker):
+    import pytest
+
+    from data.index_mapping import IndexMappingEntry
+
+    core = _Core()
+    executor = PushExecutor(core, None, _Config())
+    entry = IndexMappingEntry(symbol='HSI:01067.00', name='恒生高股息', index_style='overseas', market='hk', provider='hsi', price_symbol='01067.00')
+    run = mocker.patch.object(core.index_pipeline, 'run', return_value=type('Result', (), {'reports': [], 'errors': []})())
+    with pytest.raises(RuntimeError):
+        executor._push_index(entry.symbol, entry, None, 'email', _Backend())
+    assert run.call_args.args[0][0].official_index_code == '01067.00'
+    entry = IndexMappingEntry(symbol='CSI:999999', name='未知', index_style='broad', market='unknown')
+    run.reset_mock()
+    with pytest.raises(ValueError, match='尚未核验'):
+        executor._push_index(entry.symbol, entry, None, 'email', _Backend())
+    run.assert_not_called()
+    with pytest.raises(ValueError, match='刷新目录'):
+        executor._push_index('HSI:99999.00', None, None, 'email', _Backend())
+    run.assert_not_called()

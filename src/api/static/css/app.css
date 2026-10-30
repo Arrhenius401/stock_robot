@@ -1360,9 +1360,13 @@ body.subs-modal-open { overflow: hidden; }
 .collector-history-row button { margin-top:10px; }
 
 /* 策略指数目录沿用查询卡片的共享坐标与现有主题。 */
-.index-directory { width: min(980px, calc(100% - var(--page-inset) - var(--page-inset))); margin: 12px var(--page-inset) 0; flex-shrink: 0; }
+.index-directory { width: 100%; margin: 12px 0 0; padding-top: 12px; border-top: 1px solid var(--border-soft); }
 .index-directory summary { cursor: pointer; }
-.index-directory input { width: 100%; padding: 8px 10px; margin: 8px 0; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; }
+.index-directory-filters { display: flex; gap: 8px; align-items: center; }
+.index-directory-filters select, .index-directory-refresh select { max-width: 120px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
+.index-directory input { min-width: 0; flex: 1; width: 100%; padding: 8px 10px; margin: 8px 0; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; }
+.index-directory-refresh { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+#indexDirectoryRefreshStatus { color: var(--text-3); overflow-wrap: anywhere; }
 #indexDirectoryResults { max-height: 180px; overflow-y: auto; }
 .index-directory-group { margin-top: 10px; }
 .index-directory-list { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -1586,3 +1590,6 @@ body.subs-modal-open { overflow: hidden; }
 .stock-report .sentiment-risk-value { margin-left: auto; color: var(--warn); font-size: 13px; }
 .stock-report .sentiment-source-list { padding-left: 20px; overflow-wrap: anywhere; }
 .stock-report .sentiment-source-link { margin-left: 8px; color: var(--accent); }
+
+.index-refresh-option { display: flex; align-items: center; gap: 5px; white-space: nowrap; font-size: 12px; color: var(--text-3); }
+.analysis-entry-card .index-refresh-option input { width: auto; height: auto; }

@@ -177,3 +177,9 @@ class TestToolSelector:
         last_messages = model.calls[0]
         # 用户消息中应包含最近工具结果
         assert any("s0" in str(m.get("content", "")) for m in last_messages)
+
+def test_fallback_preserves_namespaced_index_codes():
+    from agent.tool_selector import _extract_tool_args
+    assert _extract_tool_args("analyze_index", "分析 HSI:10068.00") == {"symbol": "HSI:10068.00"}
+    assert _extract_tool_args("analyze_index", "分析 CSI:932365.") == {"symbol": "CSI:932365"}
+    assert _extract_tool_args("analyze_stock", "分析股票 600519") == {"symbol": "600519"}

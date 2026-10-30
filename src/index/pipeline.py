@@ -80,21 +80,24 @@ class IndexPipeline:
         ]
 
     def run(self, targets: list[AnalysisTarget],
-            on_progress: ProgressCallback = None) -> IndexPipelineResult:
+            on_progress: ProgressCallback = None, *, refresh_cache: bool = False) -> IndexPipelineResult:
         reports: list[IndexReport] = []
         contexts: list[IndexAnalysisContext] = []
         errors: list[str] = []
 
         for target in targets:
             try:
-                ctx = self._collector.collect(target, on_progress=on_progress)
+                ctx = self._collector.collect(target, on_progress=on_progress, refresh_cache=True) if refresh_cache else self._collector.collect(target, on_progress=on_progress)
+                if target.market == "hk" and not ctx.price_data:
+                    raise ValueError("未取得港股指数行情，请重试或选择其他指数")
                 if target.index_style == "strategy" and len(ctx.price_data) < 2:
                     raise ValueError("策略指数真实行情不足，官方及独立回退源未取得可分析序列")
 
                 # 按 index_style 过滤适用的分析模块
                 applicable_modules = [
                     m for m in self._analysis_modules
-                    if target.index_style in INDEX_DIMENSION_STYLES.get(m.dimension, ())
+                    if (target.market == "hk" and m.dimension != "index_strategy")
+                    or (target.market != "hk" and target.index_style in INDEX_DIMENSION_STYLES.get(m.dimension, ()))
                 ]
                 if not applicable_modules:
                     logger.warning(f"指数 {target.symbol} 的 index_style={target.index_style} "
@@ -135,9 +138,17 @@ class IndexPipeline:
     def get_snapshot(self, symbol: str) -> dict | None:
         """轻量快照接口 — 仅供个股联动使用，不跑完整指数管道"""
         try:
+            from data.index_mapping import IndexMapping
+
+            entry = IndexMapping().resolve(symbol)
+            if entry is None or entry.market not in ("a-shares", "hk", "us"):
+                logger.warning("指数快照市场未核验：%s", symbol)
+                return None
             target = AnalysisTarget(
-                target_type="index", symbol=symbol,
-                name=symbol, market="a-shares", index_style="broad"
+                target_type="index", symbol=entry.symbol, name=entry.name,
+                market=entry.market, index_style=entry.index_style,
+                return_type=entry.return_type or "price",
+                official_index_code=entry.price_symbol if entry.market == "hk" and entry.provider == "hsi" else None,
             )
             ctx = self._collector.collect(target)
             if ctx.valuation_data is None:

@@ -15,7 +15,7 @@ from data.schemas import AnalysisTarget, IndexAnalysisContext
 logger = logging.getLogger(__name__)
 
 
-def collect_bounded(target: AnalysisTarget, budget: float = 60, on_progress: Callable[[str, int, int, str], None] | None = None) -> IndexAnalysisContext:
+def collect_bounded(target: AnalysisTarget, budget: float = 60, on_progress: Callable[[str, int, int, str], None] | None = None, *, refresh_cache: bool = False) -> IndexAnalysisContext:
     root = Path(__file__).resolve().parents[2] / 'tmp'
     root.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='index-collect-', dir=root) as temporary:
@@ -29,7 +29,7 @@ def collect_bounded(target: AnalysisTarget, budget: float = 60, on_progress: Cal
         process = subprocess.Popen([sys.executable, '-m', 'index.collection_budget'], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=log_file, env=environment, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         timed_out = False
         deadline = time.monotonic() + budget
-        payload: bytes | None = json.dumps({'target': target.model_dump(mode='json'), 'output': str(output)}).encode()
+        payload: bytes | None = json.dumps({'target': target.model_dump(mode='json'), 'output': str(output), 'refresh_cache': refresh_cache}).encode()
         completed = 0
         try:
             while True:
@@ -82,7 +82,7 @@ def main() -> None:
     output = Path(config['output'])
     collector = IndexDataCollector(isolate_requests=False, cache_requests=True)
     collector.checkpoint_path = output
-    context = collector.collect(AnalysisTarget.model_validate(config['target']))
+    context = collector.collect(AnalysisTarget.model_validate(config['target']), refresh_cache=config.get('refresh_cache') is True)
     collector._checkpoint(context)
 
 

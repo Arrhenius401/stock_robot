@@ -54,8 +54,11 @@ class PushExecutor:
                 return symbol, "index", self._mapping.lookup(symbol)
             if validate_index_symbol(raw):
                 idx_norm = normalize_index_symbol(raw)
+                entry = self._mapping.lookup(idx_norm)
+                if entry is None and ":" in idx_norm:
+                    raise ValueError(f"指数 {idx_norm} 不在已验证目录中，请先刷新目录")
                 # 查映射表取名称/市场；未收录的 A 股指数由 _push_index 兜底
-                return idx_norm, "index", self._mapping.lookup(idx_norm)
+                return idx_norm, "index", entry
             raise ValueError(f"无效的指数代码: {raw}")
         if OVERSEAS_PATTERN.match(raw.strip().upper()):
             symbol = raw.strip().upper()
@@ -64,6 +67,8 @@ class PushExecutor:
         entry = self._mapping.lookup(idx_norm)
         if entry is not None:
             return idx_norm, "index", entry
+        if ":" in idx_norm:
+            raise ValueError(f"指数 {idx_norm} 不在已验证目录中，请先刷新目录")
         if validate_symbol(raw):
             return normalize_symbol(raw), "stock", None
         raise ValueError(f"无效的代码: {raw}")
@@ -122,6 +127,10 @@ class PushExecutor:
 
     def _push_index(self, symbol: str, entry, explicit_style: str | None,
                     channel: str, backend) -> None:
+        if entry is None and ":" in symbol:
+            raise ValueError(f"指数 {symbol} 不在已验证目录中，请先刷新目录")
+        if entry is not None and entry.market not in ("a-shares", "hk", "us"):
+            raise ValueError(f"指数 {entry.symbol} 的市场尚未核验，暂不可分析")
         # style 优先级：显式 index_style > 映射条目 > 海外默认 overseas > broad
         if explicit_style is not None:
             style = explicit_style
@@ -141,6 +150,8 @@ class PushExecutor:
             target_type="index", symbol=symbol, name=name,
             market=market,
             index_style=cast(Literal["broad", "sector", "overseas", "strategy"], style),
+            return_type=(entry.return_type or "price") if entry is not None else "unknown",
+            official_index_code=entry.price_symbol if entry is not None and entry.provider == "hsi" else None,
         )
         result = self._core.index_pipeline.run([target])
         if not result.reports:
