@@ -7,6 +7,10 @@ from report.signal import SIGNAL_LABELS, derive_signal
 def build_stock_summary(symbol: str, name: str, results, ctx,
                         signal_cfg) -> str:
     """微信摘要：核心指标 + 操作信号 + 维度评分 + 风险"""
+    if not ctx.extra_analysis_enabled:
+        from analysis.mode import objective_results
+
+        results = objective_results(results)
     summary = compute_score_summary(results)
     price = compute_price_info(ctx)
     lines = [f"**{name}**（{symbol}）"]
@@ -15,10 +19,17 @@ def build_stock_summary(symbol: str, name: str, results, ctx,
         pct_txt = f"（{pct:+.2f}%）" if pct is not None else ""
         lines.append(f"> 最新收盘：{price['latest_price']} {pct_txt}")
     quality = build_data_quality(ctx, results)
+    if not ctx.extra_analysis_enabled:
+        lines.extend(["> 客观数据模式", f"> 数据覆盖：{quality['coverage']}%"])
+        for result in results:
+            if result.summary:
+                lines.append(f"- {result.summary}")
+        return "\n".join(lines)
     if quality["signal_allowed"] and summary.final_score is not None:
         level = derive_signal(summary.final_score, signal_cfg.thresholds)
         action = signal_cfg.actions[level]
-        lines.append(f"> 操作信号：**{SIGNAL_LABELS[level]}**｜{action.action}（{action.position}）")
+        lines.append(f"> 模型信号：**{SIGNAL_LABELS[level]}**" if ctx.market == "hk" else
+                     f"> 操作信号：**{SIGNAL_LABELS[level]}**｜{action.action}（{action.position}）")
     else:
         lines.append("> 数据依据不完整，暂无操作信号和仓位建议。")
     score_text = f"{summary.final_score}/10" if quality["has_scored_data"] and summary.final_score is not None else "暂无"
@@ -48,6 +59,10 @@ _TAG_LABELS = [
 def build_index_summary(report) -> str:
     """指数微信摘要：多空标签 + 综合点评 + 风险"""
     lines = [f"**{report.name}**（{report.code}）", f"> 报告日期：{report.date}"]
+    if report.analysis_mode == "objective":
+        from index.build_single import render_index_report_markdown
+
+        return render_index_report_markdown(report)
     for attr, label in _TAG_LABELS:
         val = getattr(report, attr)
         if val not in ("na", "invalid", None):

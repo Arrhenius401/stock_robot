@@ -370,6 +370,8 @@ class AnalysisContext(BaseModel):
     symbol: str
     name: str
     market: str = "a-shares"
+    # 历史直接构造上下文保持旧语义；正式管道按配置显式覆盖。
+    extra_analysis_enabled: bool = True
     financial_data: list[FinancialData] | None = None
     price_data: list[PriceData] | None = None
     valuation_data: ValuationData | None = None  # 只存当日单时点，日频序列走 enriched_valuation
@@ -410,11 +412,22 @@ class AnalysisTarget(BaseModel):
     market: str = "a-shares"
     index_style: Literal["broad", "sector", "overseas", "strategy"] | None = None
     requested_instrument: dict[str, Any] | None = None
+    official_index_code: str | None = None
+    return_type: str = "price"
 
 
 class IndexPriceData(PriceData):
     """指数日线行情（继承 PriceData 的 OHLCV 字段）"""
     turnover: float | None = None
+    change_pct: float | None = None
+
+
+class IndexClosePriceData(BaseModel):
+    """只有收盘价的指数记录，不构造未披露的 OHLC。"""
+    _data_source: str = PrivateAttr(default="")
+    symbol: str
+    trade_date: date
+    close: float = Field(ge=0)
     change_pct: float | None = None
 
 
@@ -435,6 +448,7 @@ class IndexValuationData(BaseModel):
     pe_as_of: "date | None" = None
     pb_as_of: "date | None" = None
     pe_snapshot_as_of: "date | None" = None
+    pe_snapshot_period: str = ""  # 月频来源仅披露年月时，不推断具体交易日
     pe_snapshot_basis: str = ""
     pe_snapshot_source_url: str = ""
     pe_basis: str = ""
@@ -453,6 +467,8 @@ class CapitalFlowData(BaseModel):
     north_bound: float | None = None
     main_net_inflow: float | None = None
     margin_balance: float | None = None
+    southbound_sh_yi: float | None = None
+    southbound_sz_yi: float | None = None
     notes: list[str] = Field(default_factory=list)
 
 
@@ -461,6 +477,9 @@ class MacroContext(BaseModel):
     symbol: str
     fetch_date: date
     shibor_3m: float | None = None
+    hibor_1m: float | None = None
+    hk_base_rate: float | None = None
+    hk_closing_balance_million: float | None = None
     cpi_yoy: float | None = None
     pmi: float | None = None
     usd_cny: float | None = None
@@ -508,8 +527,9 @@ class StrategySnapshot(BaseModel):
 class IndexAnalysisContext(BaseModel):
     """指数分析上下文 — 管道的核心数据容器"""
     target: AnalysisTarget
+    extra_analysis_enabled: bool = True
     collection_records: dict[str, DataCollectionRecord] = Field(default_factory=dict)
-    price_data: list[IndexPriceData] = Field(default_factory=list)
+    price_data: list[IndexPriceData | IndexClosePriceData] = Field(default_factory=list)
     valuation_data: IndexValuationData | None = None
     capital_flow: CapitalFlowData | None = None
     macro: MacroContext | None = None
@@ -527,6 +547,7 @@ class IndexAnalysisContext(BaseModel):
 class IndexReport(BaseModel):
     """指数分析报告"""
     code: str
+    analysis_mode: Literal["objective", "extra"] = "extra"
     name: str
     date: date
     overview: dict
@@ -539,11 +560,11 @@ class IndexReport(BaseModel):
     section_performance: dict | None = None
     requested_instrument: dict[str, Any] | None = None
 
-    tag_technical: Literal["bull", "shake", "bear"]
-    tag_valuation: Literal["undervalued", "neutral", "overvalued", "invalid"]
-    tag_capital: Literal["positive", "neutral", "negative"]
-    tag_macro: Literal["positive", "neutral", "negative", "na"]
-    tag_sentiment: Literal["positive", "neutral", "negative"]
+    tag_technical: Literal["bull", "shake", "bear"] | None
+    tag_valuation: Literal["undervalued", "neutral", "overvalued", "invalid"] | None
+    tag_capital: Literal["positive", "neutral", "negative"] | None
+    tag_macro: Literal["positive", "neutral", "negative", "na"] | None
+    tag_sentiment: Literal["positive", "neutral", "negative"] | None
 
     composite_comment: str
     position_coeff: float | None

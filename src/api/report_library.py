@@ -185,6 +185,9 @@ def _summary_for_markdown(
     ):
         return None
     symbol = relative.parts[1] if not legacy else relative.parts[0]
+    if report_type == "index" and not legacy:
+        from index.archives import index_archive_symbol
+        symbol = index_archive_symbol(symbol)
     kind = "个股" if report_type == "stock" else "指数"
     title = "黄金综合研报" if report_type == "gold" else f"{symbol} {kind}分析报告"
     heading = _first_heading(_read_text(path))

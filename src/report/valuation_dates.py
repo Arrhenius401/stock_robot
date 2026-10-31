@@ -19,6 +19,8 @@ def _date_text(value: Any) -> str | None:
     if isinstance(value, date):
         return value.isoformat()
     if isinstance(value, str):
+        if re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", value):
+            return value
         try:
             return date.fromisoformat(value).isoformat()
         except ValueError:
@@ -87,9 +89,9 @@ def index_date_presentation(val: IndexValuationData | None, metrics: dict[str, A
     dates: dict[str, Any] = {}
     if val:
         # 普通指数 date 是源表日期；策略指数 date 是多源日期的汇总，不能代表每项。
-        fallback = None if strategy else val.date
+        fallback = None if strategy or val.pe_snapshot_period else val.date
         dates.update(pe_ttm=val.pe_as_of or fallback, pb=val.pb_as_of or fallback,
-                     pe_snapshot=val.pe_snapshot_as_of,
+                     pe_snapshot=val.pe_snapshot_period or val.pe_snapshot_as_of,
                      pe_percentile=val.percentile_sample_end, pb_percentile=val.pb_as_of if strategy else val.percentile_sample_end,
                      dividend_yield=fallback)
     return date_presentation(metrics, dates, summary)

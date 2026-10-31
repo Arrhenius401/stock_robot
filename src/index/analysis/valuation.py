@@ -21,11 +21,11 @@ class IndexValuationAnalyzer(AnalysisModule):
                                   summary="估值数据不可用", metrics={})
 
         if context.target.index_style == "strategy" or val.pe_snapshot is not None or val.valuation_notes:
-            return self._analyze_strategy(val)
+            return self._analyze_strategy(val, extra=context.extra_analysis_enabled)
 
         pe_pct = val.pe_percentile if val.valuation_valid and is_positive_finite(val.pe_ttm) and is_valid_percentile(val.pe_percentile) else None
         pb_pct = val.pb_percentile if val.pb_sample_count >= 252 and is_positive_finite(val.pb) and is_valid_percentile(val.pb_percentile) else None
-        vtag = tag_valuation(pe_pct)
+        vtag = tag_valuation(pe_pct) if context.extra_analysis_enabled else "invalid"
 
         metrics = {
             "pe_ttm": val.pe_ttm if is_finite_number(val.pe_ttm) else None,
@@ -51,7 +51,7 @@ class IndexValuationAnalyzer(AnalysisModule):
         return AnalysisResult(dimension=self.dimension, status=status,
                               summary=summary, metrics=metrics)
 
-    def _analyze_strategy(self, val: IndexValuationData) -> AnalysisResult:
+    def _analyze_strategy(self, val: IndexValuationData, *, extra: bool = True) -> AnalysisResult:
         """按公开官方真实覆盖展示，单张快照不能推导历史分位。"""
         fields = (
             "pe_ttm", "pe_snapshot", "pb", "pe_percentile", "pb_percentile",
@@ -83,7 +83,7 @@ class IndexValuationAnalyzer(AnalysisModule):
             parts.append(f"PB {format_metric_value('pb', val.pb)}")
         if is_valid_percentile(val.pe_percentile) and val.valuation_valid and is_positive_finite(val.pe_ttm):
             metrics.update({
-                "tag": tag_valuation(val.pe_percentile),
+                "tag": tag_valuation(val.pe_percentile) if extra else "invalid",
                 "percentile_lookback_years": val.percentile_lookback_years,
                 "sample_start": val.percentile_sample_start,
                 "sample_end": val.percentile_sample_end,

@@ -73,6 +73,23 @@ def sentiment_display_items(metrics: dict[str, Any]) -> list[dict[str, Any]]:
     return combined
 
 
+def format_news_facts_markdown(metrics: dict[str, Any]) -> str:
+    """客观新闻只披露标题、日期及原文来源，不输出情绪或评分。"""
+    lines = [_news_text(note) for note in [metrics.get("news_disclaimer"), *(metrics.get("news_notes") or [])] if note]
+    for item in metrics.get("news_items") or []:
+        sources = []
+        links = item.get("links") or [{"url": item.get("url"), "media": item.get("media") or item.get("source")}]
+        for link in links:
+            label = _news_text(link.get("media") or "来源未标注")
+            url = _news_url(link.get("url"))
+            sources.append(f"[{label}](<{url}>)" if url else label)
+        stamp = item.get("publish_date") or item.get("published_at") or "日期未记录"
+        lines.append(f"- {_news_text(item.get('title', ''))}（{_news_text(stamp)} · {'、'.join(sources)}）")
+    if not metrics.get("news_items"):
+        lines.extend(f"- {_news_text(title)}（日期与来源未记录）" for title in metrics.get("headlines") or [])
+    return "\n".join(lines) or "本次暂无可展示新闻。"
+
+
 def format_sentiment_risk_markdown(metrics: dict[str, Any]) -> str:
     """新舆情口径同时披露原风险、反向参与值和可追溯样本。"""
     risk, participation = metrics.get("risk_score"), metrics.get("participation_score")

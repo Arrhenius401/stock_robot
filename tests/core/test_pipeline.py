@@ -186,6 +186,7 @@ def _make_hermetic_pipeline(reg, llm, provider="openai"):
     reg.register_llm_backend(llm, provider=provider)
     # 强制使用 openai provider，覆盖本地配置
     cfg = Config()
+    cfg.data["analysis"]["extra_enabled"] = True
     cfg.data["llm"]["provider"] = provider
     return Pipeline(registry=reg, config=cfg)
 
@@ -234,6 +235,7 @@ class TestCacheHealth:
 
         reg = Registry()
         cfg = Config(config_dir=tmp_path)
+        cfg.data["analysis"]["extra_enabled"] = True
         return Pipeline(registry=reg, config=cfg, llm_enabled=False)
 
     def test_industry_unknown_not_cached(self, tmp_path, mocker):
@@ -472,9 +474,9 @@ class TestPipelineIndustryIntegration:
         reg.register_analysis_module(TechnicalAnalyzer())
         reg.register_analysis_module(SentimentAnalyzer())
 
-        pipeline = Pipeline(
-            registry=reg, config=Config(config_dir=tmp_path), llm_enabled=False,
-        )
+        config = Config(config_dir=tmp_path)
+        config.data["analysis"]["extra_enabled"] = True
+        pipeline = Pipeline(registry=reg, config=config, llm_enabled=False)
         results, _, ctx = pipeline.run("000001", "平安银行")
 
         assert len(results) == 5

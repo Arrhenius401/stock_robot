@@ -131,6 +131,11 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
     from report.builder import ReportBuilder
     from report.quality import build_data_quality, hk_industry_label
 
+    if not ctx.extra_analysis_enabled:
+        from analysis.mode import objective_results
+
+        results = objective_results(results)
+        commentary = {}
     quality = build_data_quality(ctx, results)
     summary = compute_score_summary(results)
     if not quality["has_scored_data"]:
@@ -138,7 +143,8 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
         summary.final_score = None
     if not quality["has_analysis_data"]:
         commentary = {}
-    commentary = with_commentary_fallback(commentary, summary, no_llm) if quality["has_analysis_data"] else commentary
+    if ctx.extra_analysis_enabled and quality["has_analysis_data"]:
+        commentary = with_commentary_fallback(commentary, summary, no_llm)
     price_info = compute_price_info(ctx)
     if ctx.market == "hk":
         industry = hk_industry_label(ctx, results)
@@ -159,6 +165,7 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
 
     valuation = next((r for r in results if r.dimension == "valuation"), None)
     return builder.build(
+        extra_analysis_enabled=ctx.extra_analysis_enabled,
         scoring_method=SCORING_METHOD,
         symbol=symbol,
         name=name,

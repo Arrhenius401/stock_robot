@@ -206,7 +206,8 @@ async def test_retry_only_calls_model_and_preserves_report(tmp_path, monkeypatch
         return {"bulk": "恢复后的AI解读"} if success else {"bulk": "（LLM 分析暂时不可用：请求超时）"} if case == "fallback" else {}
 
     # 不提供run/collect，任何重新采集都会直接失败。
-    core = SimpleNamespace(pipeline=SimpleNamespace(_generate_commentary=generate), llm=object())
+    core = SimpleNamespace(pipeline=SimpleNamespace(_generate_commentary=generate,
+                           _extra_analysis_enabled=True, _llm_enabled=True), llm=object())
     sessions = SessionManager(SessionStore(tmp_path / "sessions.db"))
     sid, _ = sessions.get_or_create_for_message(None, "报告")
     artifact = sessions.save_artifact(sid, kind="stock_report", symbol="000001",

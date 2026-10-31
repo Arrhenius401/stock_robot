@@ -6,7 +6,12 @@ from itertools import pairwise
 from typing import Any, Literal
 
 from analysis.base import AnalysisModule
-from data.schemas import AnalysisResult, IndexAnalysisContext, SufficiencyLevel
+from data.schemas import (
+    AnalysisResult,
+    IndexAnalysisContext,
+    IndexPriceData,
+    SufficiencyLevel,
+)
 from index.enricher import tag_technical
 
 
@@ -61,7 +66,8 @@ class IndexTechnicalAnalyzer(AnalysisModule):
         ohlc = [
             p
             for p in sorted_prices
-            if all(math.isfinite(v) and v > 0 for v in (p.high, p.low, p.open))
+            if isinstance(p, IndexPriceData)
+            and all(math.isfinite(v) and v > 0 for v in (p.high, p.low, p.open))
             and p.low <= min(p.open, p.close) <= max(p.open, p.close) <= p.high
         ]
         year_ohlc = [p for p in ohlc if p.trade_date >= start]
@@ -111,7 +117,7 @@ class IndexTechnicalAnalyzer(AnalysisModule):
             )
 
         # 趋势标签
-        trend_tag = tag_technical(ma_5, ma_20, latest_close)
+        trend_tag = tag_technical(ma_5, ma_20, latest_close) if context.extra_analysis_enabled else None
 
         metrics = {
             "latest_close": latest_close,
@@ -142,7 +148,7 @@ class IndexTechnicalAnalyzer(AnalysisModule):
             if adx >= 20
             else "趋势强度不足",
             "methodology": "ADX14与ATR20采用Wilder平滑；ADX不表示方向；价格位置为近12个月高低区间位置，不是历史分位",
-            "notes": (["存在异常OHLC，未计算ADX、ATR及受影响的年内高低/价格位置"] if not usable else [])
+            "notes": (["缺少或存在异常OHLC，未计算ADX、ATR及受影响的年内高低/价格位置"] if not usable else [])
             + (["样本不足完整12个月"] if sorted_prices[0].trade_date > start else []),
         }
 

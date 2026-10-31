@@ -9,6 +9,7 @@ from agent.tools import ToolRegistry, model_tool_data
 logger = logging.getLogger(__name__)
 
 _SYMBOL_PATTERN = re.compile(r"\d{6}")
+_INDEX_ID_PATTERN = re.compile(r"(?i)(?<![a-z0-9])(?:hsi|csi|cni|sw):[a-z0-9]+(?:\.[0-9]+)?(?![a-z0-9])")
 
 # 仅处理带 symbol 参数的确定性工具的降级参数提取
 _SYMBOL_TOOLS = ("analyze_stock", "analyze_index", "get_snapshot")
@@ -25,6 +26,10 @@ TOOL_SELECTION_SYSTEM_PROMPT = """你是股票投研 Agent 的执行器。给定
 
 def _extract_tool_args(tool_name: str, description: str) -> dict:
     """从步骤描述提取工具参数；仅处理带 symbol 参数的确定性工具"""
+    if tool_name == "analyze_index":
+        index_id = _INDEX_ID_PATTERN.search(description)
+        if index_id:
+            return {"symbol": index_id.group(0)}
     if tool_name in _SYMBOL_TOOLS:
         m = _SYMBOL_PATTERN.search(description)
         if m:

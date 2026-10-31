@@ -168,6 +168,8 @@ class StrategyDataProvider:
         self._cache = CacheManager(cache_path)
         self.timeout = timeout
         self.max_workers = min(max(max_workers, 1), 4)
+        self.refresh_cache = False
+        self.refresh_notes: list[str] = []
 
     def _get_json(self, url: str, params: dict | None = None) -> dict:
         response = requests.get(url, params=params, timeout=self.timeout)
@@ -177,6 +179,10 @@ class StrategyDataProvider:
     def _read_cached(self, kind: str, key: str) -> Any:
         raw = self._cache.get(kind, key, "v2")
         return json.loads(raw) if raw is not None else None
+
+    def _read_refresh_cached(self, kind: str, key: str) -> Any:
+        raw = self._cache.get_stale(kind, key, "v2") if self.refresh_cache else None
+        return json.loads(raw) if raw is not None else self._read_cached(kind, key)
 
     def _write_cached(self, kind: str, key: str, value: Any, ttl: int = 86400) -> None:
         self._cache.put(kind, key, "v2", json.dumps(value, ensure_ascii=False, default=str), ttl)
@@ -221,8 +227,8 @@ class StrategyDataProvider:
     def fetch_prices(self, symbol: str, provider: str = "csi", end: date | None = None) -> list[IndexPriceData]:
         end = end or datetime.now().astimezone().date()
         key = f"{provider}:{symbol}:{end}"
-        cached = self._read_cached("strategy_price", key)
-        if cached is not None:
+        cached = self._read_refresh_cached("strategy_price", key)
+        if cached is not None and not self.refresh_cache:
             prices = [IndexPriceData.model_validate(v) for v in cached]
             source_label = self._read_cached("strategy_price_source", key) or "既有缓存，原始行情来源未记录"
             for price in prices:
@@ -240,14 +246,21 @@ class StrategyDataProvider:
                     return prices
             except Exception as exc:  # noqa: BLE001 — 独立网络源失败逐个降级
                 logger.warning("策略价格源 %s 失败 %s: %s", source.__name__, symbol, exc)
+        if cached:
+            self.refresh_notes.append("策略行情刷新失败，使用原日期缓存")
+            prices = [IndexPriceData.model_validate(v) for v in cached]
+            source_label = self._read_cached("strategy_price_source", key) or "原来源未记录"
+            for price in prices:
+                price._data_source = source_label
+            return prices
         self._write_cached("strategy_price", key, [], ttl=300)
         return []
 
     def fetch_etf_prices(self, symbol: str, end: date | None = None) -> list[IndexPriceData]:
         end = end or datetime.now().astimezone().date()
         key = f"{symbol}:qfq:{end}"
-        cached = self._read_cached("strategy_etf_price", key)
-        if cached is not None:
+        cached = self._read_refresh_cached("strategy_etf_price", key)
+        if cached is not None and not self.refresh_cache:
             return [IndexPriceData.model_validate(v) for v in cached]
         prices = []
         for source in (self._tencent_etf_prices, self._eastmoney_etf_prices):
@@ -257,6 +270,9 @@ class StrategyDataProvider:
                     break
             except Exception as exc:  # noqa: BLE001 — 独立ETF源逐个降级
                 logger.warning("ETF复权行情源 %s 失败 %s: %s", source.__name__, symbol, exc)
+        if not prices and cached:
+            self.refresh_notes.append("ETF行情刷新失败，使用原日期缓存")
+            return [IndexPriceData.model_validate(v) for v in cached]
         if not prices:
             logger.warning("ETF所有前复权行情源不可用 %s", symbol)
         self._write_cached("strategy_etf_price", key, [v.model_dump(mode="json") for v in prices], ttl=86400 if prices else 300)
@@ -280,8 +296,8 @@ class StrategyDataProvider:
 
     def _members(self, symbol: str, provider: str) -> tuple[list[ConstituentSnapshot], date]:
         key = f"{provider}:{symbol}"
-        cached = self._read_cached("strategy_members", key)
-        if cached is not None:
+        cached = self._read_refresh_cached("strategy_members", key)
+        if cached is not None and not self.refresh_cache:
             return [ConstituentSnapshot.model_validate(v) for v in cached["members"]], date.fromisoformat(cached["as_of"])
         if provider == "cni":
             url = "https://www.cnindex.com.cn/sample-detail/download-history"
@@ -315,14 +331,17 @@ class StrategyDataProvider:
             industry = (str(raw_industry).strip() if pd.notna(raw_industry) else "") if provider == "cni" else classification.sw_level1 if classification.is_verified else ""
             by_symbol[code] = ConstituentSnapshot(symbol=code, name=str(row["name"]), weight=weight, industry=industry or None)
         members = list(by_symbol.values())
+        if not members and self.refresh_cache and cached and cached.get("members"):
+            self.refresh_notes.append("成分权重刷新为空，使用原日期缓存")
+            return [ConstituentSnapshot.model_validate(v) for v in cached["members"]], date.fromisoformat(cached["as_of"])
         self._write_cached("strategy_members", key, {"members": [v.model_dump(mode="json") for v in members], "as_of": as_of})
         return members, as_of
 
     def _cached_report(self, report: str, symbols: list[str], as_of: date) -> tuple[list[dict], list[str]]:
         digest = hashlib.sha256(",".join(sorted(symbols)).encode()).hexdigest()[:20]
         key = f"{report}:{digest}:{as_of}"
-        cached = self._read_cached("strategy_financial", key)
-        if cached is not None:
+        cached = self._read_refresh_cached("strategy_financial", key)
+        if cached is not None and not self.refresh_cache:
             return cached["rows"], cached["errors"]
         rows: list[dict] = []
         errors: list[str] = []
@@ -345,6 +364,8 @@ class StrategyDataProvider:
             logger.warning("公开财务采集失败 %s: %s", report, exc)
             labels = {"RPT_DMSK_FN_CASHFLOW": "年度现金流", "RPT_F10_FINANCE_GBALANCE": "年度资产负债", "RPT_DMSK_FN_INCOME": "年度利润", "RPT_SHAREBONUS_DET": "已实施分红"}
             errors.append(f"{labels.get(report, '公开财务')}数据不可用（{type(exc).__name__}），请稍后重试")
+        if errors and cached and cached.get("rows"):
+            return cached["rows"], [*errors, "年度财务刷新失败，使用原日期缓存"]
         self._write_cached("strategy_financial", key, {"rows": rows, "errors": errors}, ttl=86400 if rows else 300)
         return rows, errors
 
@@ -379,8 +400,8 @@ class StrategyDataProvider:
 
     def _quotes(self, symbols: list[str], as_of: date) -> tuple[dict[str, dict], list[str]]:
         key = hashlib.sha256((str(as_of)+",".join(sorted(symbols))).encode()).hexdigest()[:24]
-        cached = self._read_cached("strategy_quotes", key)
-        if cached is not None:
+        cached = self._read_refresh_cached("strategy_quotes", key)
+        if cached is not None and not self.refresh_cache:
             return cached["quotes"], cached["errors"]
         quotes: dict[str, dict] = {}
         errors: list[str] = []
@@ -399,6 +420,8 @@ class StrategyDataProvider:
             missing = [s for s in chunk if s not in quotes]
             if missing:
                 errors.append(f"{len(missing)}只成分股同日市值/价格缺失；{'、'.join(failures)}")
+        if errors and cached and cached.get("quotes"):
+            return cached["quotes"], [*errors, "成分报价刷新失败，使用原日期缓存"]
         self._write_cached("strategy_quotes", key, {"quotes": quotes, "errors": errors}, ttl=86400 if quotes else 300)
         return quotes, errors
 
@@ -413,7 +436,14 @@ class StrategyDataProvider:
             as_of = today
         except Exception as exc:  # noqa: BLE001 — 官方成分边界失败仍返回可审计快照
             logger.warning("策略成分权重失败 %s: %s", target.symbol, exc)
-            return StrategySnapshot(source=provider, as_of=today, strategy_kind=kind or "", errors=["官方成分权重暂不可用，请稍后重试"])
+            old = self._read_refresh_cached("strategy_members", f"{provider}:{target.symbol}")
+            if self.refresh_cache and old and old.get("members"):
+                members = [ConstituentSnapshot.model_validate(v) for v in old["members"]]
+                weight_as_of = date.fromisoformat(old["as_of"])
+                as_of = today
+                errors.append("成分权重刷新失败，使用原日期缓存")
+            else:
+                return StrategySnapshot(source=provider, as_of=today, strategy_kind=kind or "", errors=["官方成分权重暂不可用，请稍后重试"])
         if not members:
             return StrategySnapshot(source=provider, as_of=as_of, strategy_kind=kind or "", errors=["官方成分权重为空"])
         if (today - weight_as_of).days > 7:

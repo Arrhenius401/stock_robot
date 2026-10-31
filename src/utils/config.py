@@ -14,6 +14,7 @@ from filelock import FileLock
 from utils.paths import project_state_dir
 
 DEFAULT_CONFIG = {
+    "analysis": {"extra_enabled": False},
     "llm": {
         "provider": "openai",
         "model": "gpt-4o",
@@ -32,6 +33,10 @@ DEFAULT_CONFIG = {
             "news": 21600,
         },
         "disclaimer_accepted": False,
+    },
+    "maintenance": {
+        "report_cleanup_enabled": True,
+        "sweep_interval_minutes": 360,
     },
     "api": {
         "host": "127.0.0.1",

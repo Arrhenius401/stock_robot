@@ -234,3 +234,21 @@ def test_historical_slice_recalibrates_after_thirty_days(tmp_path, monkeypatch):
     assert len(calls) == 3
     assert calls[-1]["startDate"] == "20210929"
     assert calls[-1]["endDate"] == "20260929"
+
+
+def test_manual_refresh_preserves_completed_history_on_failure(tmp_path, monkeypatch):
+    provider = StrategyDataProvider(tmp_path / "cache.db")
+    calls = []
+    def get(_url, params):
+        calls.append(params)
+        if len(calls) == 1:
+            return {"data": [row()]}
+        raise OSError("offline")
+    monkeypatch.setattr(provider, "_get_json", get)
+    assert provider.fetch_official_history("930740", END) == [row()]
+    original = provider._cache.get_stale("csi_history_artifact", "930740", "v2")
+    provider.refresh_cache = True
+    assert provider.fetch_official_history("930740", END) == [row()]
+    assert len(calls) == 2
+    assert provider._cache.get_stale("csi_history_artifact", "930740", "v2") == original
+    assert "刷新失败" in provider.refresh_notes[0]

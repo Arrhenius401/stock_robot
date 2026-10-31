@@ -1,20 +1,26 @@
 """指数风险收益：价格口径与ETF复权口径分开，基准仅比较共同日期。"""
 import calendar
 import math
+from collections.abc import Sequence
 from itertools import pairwise
 from statistics import stdev
 from typing import Any, Literal
 
 from analysis.base import AnalysisModule
-from data.schemas import AnalysisResult, IndexAnalysisContext, IndexPriceData
+from data.schemas import (
+    AnalysisResult,
+    IndexAnalysisContext,
+    IndexClosePriceData,
+    IndexPriceData,
+)
 
 
-def _prices(prices: list[IndexPriceData]) -> list[IndexPriceData]:
+def _prices(prices: Sequence[IndexPriceData | IndexClosePriceData]) -> list[IndexPriceData | IndexClosePriceData]:
     unique = {p.trade_date: p for p in prices if math.isfinite(p.close) and p.close > 0}
     return sorted(unique.values(), key=lambda p: p.trade_date)
 
 
-def _return(prices: list[IndexPriceData]) -> float | None:
+def _return(prices: Sequence[IndexPriceData | IndexClosePriceData]) -> float | None:
     return (prices[-1].close / prices[0].close - 1) * 100 if len(prices) >= 2 else None
 
 
@@ -53,11 +59,13 @@ class IndexPerformanceAnalyzer(AnalysisModule):
         for p in prices:
             peak = max(peak, p.close)
             drawdown = min(drawdown, p.close / peak - 1)
+        basis = {"price": "价格指数，不含分红", "gross_total_return": "含税总收益指数",
+                 "net_total_return": "净总收益指数"}.get(context.target.return_type, "收益口径未核验")
         metrics: dict[str, Any] = {
             "windows": windows, "start_date": prices[0].trade_date.isoformat(), "end_date": prices[-1].trade_date.isoformat(),
             "sample_count": len(prices), "return_pct": _return(prices),
             "annualized_volatility_pct": stdev(returns) * math.sqrt(252) * 100 if len(returns) >= 60 else None,
-            "max_drawdown_pct": drawdown * 100, "return_basis": "价格指数，不含分红；年化波动按252个交易日",
+            "max_drawdown_pct": drawdown * 100, "return_basis": f"{basis}；年化波动按252个交易日",
             "benchmark_symbol": None, "benchmark_return_pct": None, "excess_return_pct": None,
             "benchmark_sample_count": 0, "benchmark_start_date": None, "benchmark_end_date": None,
             "benchmark_aligned_index_return_pct": None,
@@ -80,7 +88,7 @@ class IndexPerformanceAnalyzer(AnalysisModule):
         elif context.requested_instrument:
             metrics["etf_symbol"] = context.requested_instrument.get("symbol")
             metrics["etf_unavailable_reason"] = "ETF独立复权行情未取得，指数收益不能替代ETF表现"
-        summary = f"{metrics['start_date']} 至 {metrics['end_date']}，价格指数区间收益 " + (f"{metrics['return_pct']:.2f}%" if metrics["return_pct"] is not None else "样本不足") + f"，最大回撤 {drawdown * 100:.2f}%"
+        summary = f"{metrics['start_date']} 至 {metrics['end_date']}，{basis}区间收益 " + (f"{metrics['return_pct']:.2f}%" if metrics["return_pct"] is not None else "样本不足") + f"，最大回撤 {drawdown * 100:.2f}%"
         needs_benchmark = context.target.index_style in ("sector", "strategy") and context.target.symbol != "000300"
         if needs_benchmark and len(aligned) < 2:
             summary += "；基准行情不可用，未计算超额收益"

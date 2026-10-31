@@ -34,7 +34,8 @@ async def test_hk_retry_unscored_facts_uses_same_context(tmp_path, monkeypatch, 
             raise TimeoutError("模型超时")
         return {"bulk": "港股营业收入观察"} if outcome == "ok" else {}
 
-    core = SimpleNamespace(pipeline=SimpleNamespace(_generate_commentary=generate), llm=object())
+    core = SimpleNamespace(pipeline=SimpleNamespace(_generate_commentary=generate,
+                           _extra_analysis_enabled=True, _llm_enabled=True), llm=object())
     async with AsyncClient(transport=ASGITransport(app=create_app(core=core, push=False)), base_url="http://test") as client:
         response = await client.post("/api/v1/commentary/retry", json={"report_token": token})
     assert calls == [ctx]

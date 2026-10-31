@@ -1,8 +1,8 @@
 // 指数分析视图：多指数对比表 + 逐指数纵向研报
 import { store, switchView } from "./state.js";
-import { api } from "./api.js";
+import { api } from "./api.js?v=20261030-index-refresh";
 import { renderMarkdown } from "./markdown.js?v=20261029-index-news-quality";
-import { appendReadableMetric, riskText, formatMetricValue, renderIndexReport } from "./report-renderer.js?v=20261029-index-news-quality";
+import { appendReadableMetric, riskText, formatMetricValue, renderIndexReport } from "./report-renderer.js?v=20261031-analysis-mode-1";
 import { el, kv, tagChip, priceBar, errorCard, skeleton,
          showEntryError, clearEntryError } from "./components.js";
 
@@ -47,7 +47,7 @@ export async function openIndex(codes) {
   box.innerHTML = "";
   box.appendChild(skeleton());
   try {
-    const data = await api.index(symbols);
+    const data = await api.index(symbols, document.getElementById("indexRefreshCache")?.checked === true);
     if (seq !== reqSeq) return;  // 已有更新请求，迟到响应不覆盖新视图
     renderIndex(data);
   } catch (err) {
@@ -316,13 +316,14 @@ function appendIndustryWeights(grid, weights) {
 let directory = null;
 let directoryRequest = null;
 let directorySequence = 0;
+let directoryPage = null;
 const initializedInputs = new WeakSet();
 
 export function getIndexDirectory() {
   if (directory) return Promise.resolve(directory);
   if (!directoryRequest) {
     const request = api.indices().then((data) => {
-      const result = { indices: Array.isArray(data.indices) ? data.indices : [], etfs: Array.isArray(data.etfs) ? data.etfs : [] };
+      const result = { indices: Array.isArray(data.indices) ? data.indices : [], etfs: Array.isArray(data.etfs) ? data.etfs : [], total: data.indices_total ?? data.total ?? 0, offset: data.offset ?? 0 };
       if (directoryRequest === request) directory = result;
       return result;
     }).finally(() => { if (directoryRequest === request) directoryRequest = null; });
@@ -333,34 +334,41 @@ export function getIndexDirectory() {
 
 function matchesDirectory(item, query) {
   const aliases = Array.isArray(item.aliases) ? item.aliases : [item.aliases || ""];
-  return [item.symbol, item.name, item.index_symbol, ...aliases].join(" ").toLowerCase().includes(query.toLowerCase());
+  return [item.symbol, item.identity, item.name, item.index_symbol, ...aliases].join(" ").toLowerCase().includes(query.toLowerCase());
 }
 
 function renderDirectory() {
   const box = document.getElementById("indexDirectoryResults");
-  if (!box || !directory) return;
+  const current = directoryPage || directory;
+  if (!box || !current) return;
   box.replaceChildren();
   const query = document.getElementById("indexDirectorySearch")?.value.trim() || "";
   const groups = new Map();
   const labels = { broad: "宽基指数", sector: "行业指数", overseas: "海外指数", strategy: "策略指数" };
-  for (const item of directory.indices) {
+  for (const item of current.indices) {
     if (!matchesDirectory(item, query)) continue;
-    const group = labels[item.index_style] || "其他指数";
+    const group = item.market === "unknown" ? "市场待核验（暂不能分析）" : labels[item.index_style] || "其他指数";
     if (!groups.has(group)) groups.set(group, []);
     groups.get(group).push(item);
   }
-  const etfs = directory.etfs.filter((item) => matchesDirectory(item, query));
+  const selectedMarket = document.getElementById("indexDirectoryMarket")?.value || "";
+  const etfs = selectedMarket && selectedMarket !== "a-shares" ? [] : current.etfs.filter((item) => matchesDirectory(item, query));
   if (etfs.length) groups.set("ETF（分析跟踪指数）", etfs);
   for (const [label, items] of groups) {
     const group = el("section", "index-directory-group");
     group.appendChild(el("h3", "panel-title", label));
     const list = el("div", "index-directory-list");
     for (const item of items) {
-      const button = el("button", "index-directory-item", `${item.name} · ${item.symbol}${item.index_symbol ? ` → ${item.index_symbol}` : ""}`);
+      const market = item.market === "hk" ? "港股" : item.market === "a-shares" ? "A股" : item.market === "unknown" ? "市场待核验，暂不能分析" : "";
+      const version = ({ price: "价格指数", gross_total_return: "含税总收益", net_total_return: "净总收益", PI: "价格指数", TRI_Grs: "含税总收益", TRI_Net: "净总收益" })[item.return_type] || "";
+      const status = item.capability === "complete" ? "数据已验证" : item.capability === "partial" ? "数据受限" : item.capability === "failed" ? "数据不可用" : "数据待验证";
+      const checked = item.verified_at ? `验证时间 ${item.verified_at}` : "";
+      const detail = [market, version, item.index_symbol ? "" : status, checked].filter(Boolean).join(" · ");
+      const button = el("button", "index-directory-item", `${item.name} · ${item.symbol}${item.index_symbol ? ` → ${item.index_symbol}` : ""}${detail ? `（${detail}）` : ""}`);
       button.type = "button";
       button.addEventListener("click", () => {
         const input = document.getElementById("indexInput");
-        input.value = item.symbol;
+        input.value = item.identity || item.symbol;
         clearEntryError("indexInput");
         input.focus();
       });
@@ -370,13 +378,48 @@ function renderDirectory() {
     box.appendChild(group);
   }
   if (!groups.size) box.appendChild(el("p", "dim-sum", "没有匹配的指数或 ETF"));
+  if (current.offset > 0) {
+    const previous = el("button", "btn-refresh", "上一页");
+    previous.type = "button";
+    previous.addEventListener("click", () => loadDirectoryPage(Math.max(0, current.offset - 100)));
+    box.appendChild(previous);
+  }
+  if (current.total > (current.offset || 0) + current.indices.length) {
+    const more = el("button", "btn-refresh", "下一页");
+    more.type = "button";
+    more.addEventListener("click", () => loadDirectoryPage((current.offset || 0) + current.indices.length));
+    box.appendChild(more);
+  }
+}
+
+async function loadDirectoryPage(offset = 0) {
+  const seq = ++directorySequence;
+  const box = document.getElementById("indexDirectoryResults");
+  const query = document.getElementById("indexDirectorySearch")?.value.trim() || "";
+  const market = document.getElementById("indexDirectoryMarket")?.value || "";
+  if (!box) return;
+  box.replaceChildren(el("p", "dim-sum", "正在读取指数目录…"));
+  try {
+    const data = await api.indices(query, { market, offset });
+    if (seq !== directorySequence) return;
+    directoryPage = { indices: Array.isArray(data.indices) ? data.indices : [], etfs: Array.isArray(data.etfs) ? data.etfs : [], total: data.indices_total ?? data.total ?? 0, offset: data.offset ?? offset };
+    renderDirectory();
+    return true;
+  } catch (error) {
+    if (seq !== directorySequence) return false;
+    const retry = el("button", "btn-refresh", "重试读取目录");
+    retry.type = "button";
+    retry.addEventListener("click", () => loadDirectoryPage(offset));
+    box.replaceChildren(el("p", "dim-sum", `指数目录读取失败：${error.message}`), retry);
+    return false;
+  }
 }
 
 export async function loadIndexDirectory(force = false) {
   const seq = ++directorySequence;
   const box = document.getElementById("indexDirectoryResults");
   if (!box) return;
-  if (force) { directory = null; directoryRequest = null; }
+  if (force) { directory = null; directoryPage = null; directoryRequest = null; }
   box.replaceChildren(el("p", "dim-sum", "正在读取指数目录…"));
   try {
     await getIndexDirectory();
@@ -395,7 +438,32 @@ export function initIndexView() {
   const btn = document.getElementById("indexBtn");
   if (!input || !btn || initializedInputs.has(input)) return;
   initializedInputs.add(input);
-  document.getElementById("indexDirectorySearch")?.addEventListener("input", renderDirectory);
+  document.getElementById("indexDirectorySearch")?.addEventListener("input", () => loadDirectoryPage());
+  document.getElementById("indexDirectoryMarket")?.addEventListener("change", () => loadDirectoryPage());
+  const refresh = document.getElementById("indexDirectoryRefresh");
+  const refreshStatus = document.getElementById("indexDirectoryRefreshStatus");
+  refresh?.addEventListener("click", async () => {
+    refresh.disabled = true;
+    if (refreshStatus) refreshStatus.textContent = "正在更新所选指数目录…";
+    try {
+      const source = document.getElementById("indexDirectorySource")?.value || "hsi";
+      const result = await api.refreshIndices(source);
+      if (result.state === "stale") {
+        if (refreshStatus) refreshStatus.textContent = "刷新失败，继续使用上次成功目录。";
+      } else if (result.state === "live") {
+        directory = null;
+        directoryRequest = null;
+        const loaded = await loadDirectoryPage();
+        if (refreshStatus) refreshStatus.textContent = loaded ? "所选指数目录更新完成。" : "目录已更新，但列表读取失败，请重试。";
+      } else {
+        throw new Error("目录更新状态无效");
+      }
+    } catch (error) {
+      if (refreshStatus) refreshStatus.textContent = `目录刷新失败：${error.message}`;
+    } finally {
+      refresh.disabled = false;
+    }
+  });
   btn.addEventListener("click", () => {
     clearEntryError("indexInput");  // 重新分析前清除上次校验红字
     // 空输入不触发：否则令牌自增会丢弃在途响应、骨架屏永久残留

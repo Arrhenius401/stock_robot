@@ -417,6 +417,9 @@ def test_bulk_commentary_never_receives_reference_values(tmp_path):
 
     pipeline, _, symbol = setup(tmp_path, "financial")
     model = RecordingLLM()
+    # 此用例显式测试已启用的模型事实隔离，默认关闭另有独立回归。
+    pipeline._extra_analysis_enabled = True
+    pipeline._llm_enabled = True
     pipeline._registry.register_llm_backend(model, provider=pipeline._config.get("llm.provider"))
     reference = DataReference(data_type="financial", record=DataCollectionRecord(
         source="旧参考独有来源", collected_at=datetime.now().astimezone()), financial_data=[FinancialData(

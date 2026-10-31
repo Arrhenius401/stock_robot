@@ -36,6 +36,7 @@ def test_actual_prompt_contains_formatted_facts_and_invalid_pe_reason(tmp_path, 
     industry = AnalysisResult(dimension="industry", status="partial", summary="同期经营比较",
                               metrics={"comparison": comparison_sample()})
     config = Config(config_dir=tmp_path)
+    config.data["analysis"]["extra_enabled"] = True
     config.data["llm"]["provider"] = provider
     registry = Registry()
     backend = CapturingBackend()

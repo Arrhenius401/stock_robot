@@ -222,6 +222,7 @@ def test_empty_major_data_skips_sentiment_llm(tmp_path, monkeypatch):
     backend = CountingBackend()
     reg.register_llm_backend(backend, provider="openai")
     cfg = Config(config_dir=tmp_path)
+    cfg.data["analysis"]["extra_enabled"] = True
     cfg.data["llm"]["provider"] = "openai"
     pipe = Pipeline(reg, cfg, llm_enabled=True)
     ctx = AnalysisContext(

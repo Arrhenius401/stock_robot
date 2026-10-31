@@ -73,8 +73,8 @@ class StrategyValuationProvider(StrategyDataProvider):
     def _source_snapshot(self, kind: str, symbol: str, provider: str, end: date, source: Any) -> dict:
         """每个来源单独缓存；未披露数值仍是成功响应。"""
         key = f"{provider}:{symbol}:{end}"
-        cached = self._read_cached(kind, key)
-        if cached is not None:
+        cached = self._read_refresh_cached(kind, key)
+        if cached is not None and not self.refresh_cache:
             if not cached["ok"]:
                 raise RuntimeError(cached["error"])
             return cached["value"]
@@ -83,6 +83,9 @@ class StrategyValuationProvider(StrategyDataProvider):
             sampled = _date(snapshot.get("as_of")) if snapshot else None
             max_age = 14 if kind == "valuation_daily_pb" else 62
             if not snapshot:
+                if self.refresh_cache and cached and cached.get("ok") and cached.get("value"):
+                    self.refresh_notes.append("估值刷新为空，使用原日期缓存")
+                    return cached["value"]
                 self._write_cached(kind, key, {"ok": True, "value": {}}, ttl=300)
                 return {}
             if snapshot.get("symbol") != symbol or sampled is None or not 0 <= (end - sampled).days <= max_age:
@@ -91,6 +94,9 @@ class StrategyValuationProvider(StrategyDataProvider):
             return snapshot
         except Exception as exc:  # noqa: BLE001, RUF100 — 快照网络与 PDF 解析边界独立降级
             logger.warning("官方估值源 %s %s 失败: %s", kind, symbol, exc)
+            if self.refresh_cache and cached and cached.get("ok") and cached.get("value"):
+                self.refresh_notes.append("估值刷新失败，使用原日期缓存")
+                return cached["value"]
             self._write_cached(kind, key, {"ok": False, "error": str(exc)}, ttl=300)
             raise
 

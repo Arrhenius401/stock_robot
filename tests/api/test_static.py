@@ -188,7 +188,7 @@ def _module_url(path: str) -> str:
     url = Path(path).resolve().as_uri()
     # 与聊天模块的正式导入保持同一 URL，避免产生两份抽屉状态单例。
     if path.endswith("/report-drawer.js"):
-        url += "?v=20261029-index-news-quality"
+        url += "?v=20261031-analysis-mode-1"
     return url
 
 
@@ -412,7 +412,7 @@ if (calls.length !== beforeA + 1 || !calls.at(-1).refresh_cache) throw new Error
         app_js = (await client.get("/js/app.js")).text
         api_js = (await client.get("/js/api.js")).text
 
-        assert 'import { initReportLibrary } from "./report-library.js?v=20261029-index-news-quality";' in app_js
+        assert 'import { initReportLibrary } from "./report-library.js?v=20261031-analysis-mode-1";' in app_js
         assert "initReportLibrary();" in app_js
         assert "listReports(" in api_js
         assert "getReport(" in api_js
@@ -449,7 +449,7 @@ if (calls.length !== beforeA + 1 || !calls.at(-1).refresh_cache) throw new Error
     async def test_app_initializes_report_drawer(self, client):
         resp = await client.get("/js/app.js")
 
-        assert 'import { initReportDrawer } from "./report-drawer.js?v=20261029-index-news-quality";' in resp.text
+        assert 'import { initReportDrawer } from "./report-drawer.js?v=20261031-analysis-mode-1";' in resp.text
         assert "initReportDrawer();" in resp.text
 
     def test_markdown_renderer_escapes_untrusted_input_and_formats_safe_blocks(self):
@@ -1913,6 +1913,7 @@ const payload = {
       temperature: 0.3, max_tokens: 2000, retry_times: 2, timeout_seconds: 60 },
     data: { disclaimer_accepted: false,
       cache_ttl: { daily: 86400, quarterly: 604800, news: 21600 } },
+    maintenance: { report_cleanup_enabled: true, sweep_interval_minutes: 360 },
     api: { host: "127.0.0.1", port: 25618 },
     push: { enabled: true, max_symbols_per_subscription: 20,
       email: { smtp_host: "smtp.qq.com", smtp_port: 465, smtp_user: "user",
@@ -1960,6 +1961,13 @@ if (!byClass(settingsContent, "settings-module")[0].hidden) throw new Error("切
 await moduleButtons[0].click();
 for (const heading of ["模型连接", "数据与缓存", "服务设置", "推送设置", "信号策略"]) {
   if (!settingsContent.textContent.includes(heading)) throw new Error(`缺少分区: ${heading}`);
+}
+const retentionToggle = document.getElementById("settings-maintenance-report_cleanup_enabled");
+if (!retentionToggle || retentionToggle.checked !== true) {
+  throw new Error("报告清理开关未按配置渲染");
+}
+if (document.getElementById("settings-maintenance-report_retention_days")) {
+  throw new Error("保留期固定 7 天，不应提供天数输入框");
 }
 if (!settingsContent.textContent.includes("D:/project/.stock_robot")) {
   throw new Error("未显示只读路径");
@@ -2268,7 +2276,8 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         assert 'id="subName"' not in html
         assert 'id="subChannel"' not in html
         assert "企业微信" not in html
-        assert 'href="/css/app.css?v=20261029-index-news-quality"' in html
+        assert 'href="/css/app.css?v=20261031-gold-coverage"' in html
+        assert 'src="/js/app.js?v=20261031-analysis-mode-1"' in html
         script = (await client.get("/js/subscriptions.js")).text
         assert "searchPushSymbols" in script
         assert "批量添加" not in script

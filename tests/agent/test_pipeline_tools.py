@@ -219,3 +219,20 @@ class TestScreenStocksTool:
         result = await tool.execute(industry="")
         assert result.status == "error"
         assert "行业" in (result.error or "")
+
+@pytest.mark.asyncio
+async def test_index_agent_preserves_hk_identity_and_rejects_unknown(mocker):
+    from agent.pipeline_tools import AnalyzeIndexTool
+    from data.index_mapping import IndexMappingEntry
+    pipeline = mocker.Mock()
+    pipeline.run.return_value = mocker.Mock(reports=[], errors=[])
+    entry = IndexMappingEntry(symbol="HSI:10068.00", name="恒指总收益", index_style="overseas", market="hk", provider="hsi", price_symbol="10068.00", return_type="gross_total_return")
+    lookup = mocker.patch("data.index_mapping.IndexMapping.resolve", return_value=entry)
+    await AnalyzeIndexTool(pipeline).execute(symbol="HSI:10068.00")
+    target = pipeline.run.call_args.kwargs["targets"][0]
+    assert (target.market, target.symbol, target.official_index_code, target.return_type) == ("hk", "HSI:10068.00", "10068.00", "gross_total_return")
+    lookup.return_value = None
+    pipeline.reset_mock()
+    result = await AnalyzeIndexTool(pipeline).execute(symbol="UNKNOWN")
+    assert result.status == "error"
+    pipeline.run.assert_not_called()

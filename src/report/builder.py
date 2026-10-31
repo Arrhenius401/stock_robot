@@ -167,6 +167,9 @@ class ReportBuilder:
         self._env.filters["quality_table"] = _quality_table
         self._env.filters["hk_news_markdown"] = format_hk_news_markdown
         self._env.filters["sentiment_risk_markdown"] = format_sentiment_risk_markdown
+        from report.formatter import format_news_facts_markdown
+
+        self._env.filters["news_facts_markdown"] = format_news_facts_markdown
         self._env.filters["peer_comparison_markdown"] = format_peer_comparison_markdown
         self._env.filters["metric_value"] = lambda value, key: format_metric_value(key, value)
         self._env.filters["metric_name"] = metric_display_name
@@ -189,7 +192,7 @@ class ReportBuilder:
               data_quality: dict | None = None,
               price_start: str | None = None, price_end: str | None = None,
               market: str = "A 股", valuation_display: dict | None = None,
-              scoring_method: str | None = None) -> str:
+              scoring_method: str | None = None, extra_analysis_enabled: bool = True) -> str:
         results_map = {r.dimension: r for r in results}
         if market == "港股" and "financial" in results_map:
             financial = results_map["financial"]
@@ -201,6 +204,7 @@ class ReportBuilder:
             data_quality = {**data_quality, **compact_quality(data_quality)}
         template = self._env.get_template("report_v2.jinja2")
         return template.render(
+            extra_analysis_enabled=extra_analysis_enabled,
             symbol=symbol,
             name=name,
             market=market,

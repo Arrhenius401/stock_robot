@@ -232,6 +232,8 @@ def test_hk_commentary_preserves_unassessed_facts_without_fabricated_risk(tmp_pa
     from data.schemas import AnalysisContext, AnalysisResult
 
     pipe, _ = pipeline(tmp_path, mocker, [])
+    pipe._extra_analysis_enabled = True
+    pipe._llm_enabled = True
     llm = mocker.Mock()
     llm.generate.return_value = "解读"
     mocker.patch.object(pipe._registry, "get_llm_backend", return_value=llm)

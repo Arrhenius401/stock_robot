@@ -85,6 +85,11 @@ def generate(record: IndexCommentaryRecord, llm: Any) -> str:
 
 def apply_commentary(report: Any, ctx: Any, results: list, llm: Any, enabled: bool) -> None:
     """先保留构建器的量化摘要，失败也不丢失报告。"""
+    if not ctx.extra_analysis_enabled:
+        report.commentary_status = "not_requested"
+        report.commentary = ""
+        report.commentary_retry_id = None
+        return
     report.commentary_retry_id = None
     if len({p.trade_date for p in ctx.price_data if p.symbol == ctx.target.symbol and math.isfinite(p.close) and p.close > 0}) < 60:
         report.commentary_status = "insufficient"

@@ -5,6 +5,7 @@ import json
 import logging
 import threading
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,7 @@ from agent.planner import Planner
 from agent.react import ReActExecutor
 from api.configuration import create_configuration_router
 from api.logs import create_logs_router
+from api.maintenance import create_maintenance_router
 from api.message_content import encode_message_content, normalize_message_content
 from api.report_library import (
     ReportLibraryError,
@@ -136,7 +138,7 @@ def _extract_stock_reports(
             "commentary": commentary,
             "generated_at": report.get("generated_at"),
         }
-        for key in ("market", "scoring_method", "data_quality", "pending_verifications", "disclaimer", "signal", "commentary_status",
+        for key in ("analysis_mode", "market", "scoring_method", "data_quality", "pending_verifications", "disclaimer", "signal", "commentary_status",
                     "commentary_retry_id"):
             if key in report:
                 payload[key] = report[key]
@@ -323,6 +325,22 @@ def _initial_core_factory(core: Any):
     return build
 
 
+def _maintenance_lifespan(maintenance: Any):
+    """只对显式注入的维护任务启停后台线程；测试与模块级 app 不启动清理。"""
+    if maintenance is None:
+        return None
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        maintenance.start()
+        try:
+            yield
+        finally:
+            await asyncio.to_thread(maintenance.stop)
+
+    return lifespan
+
+
 def create_app(
     core=None,
     sessions=None,
@@ -331,6 +349,7 @@ def create_app(
     log_start_offset: int | None = None,
     runtime_log_path: Path | None = None,
     gold_service: Any = None,
+    maintenance: Any = None,
 ):
     # 生产路径由 RuntimeManager 独占 core、执行器和推送调度器的初始所有权。
     # 测试传入 push=False、推送桩或 runtime 桩时保持既有注入行为，不创建真实依赖。
@@ -346,11 +365,13 @@ def create_app(
         push = snapshot.push_scheduler
 
     app = FastAPI(title=f"{APP_NAME} API", version=VERSION,
-                  description="AI 驱动的股票分析研报助手 HTTP API")
+                  description="AI 驱动的股票分析研报助手 HTTP API",
+                  lifespan=_maintenance_lifespan(maintenance))
 
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
                        allow_headers=["*"])
     app.include_router(create_configuration_router(runtime=runtime))
+    app.include_router(create_maintenance_router(maintenance))
     # 正式服务启动前的历史日志不属于本次运行；测试和直接导入 app 时保留默认读取行为。
     runtime_log_offset = log_start_offset
     if runtime_log_offset is None and core is not None:
@@ -819,7 +840,9 @@ def create_app(
                                  headers={"Cache-Control": "no-cache", "Connection": "keep-alive"})
 
     @app.get("/api/v1/indices")
-    async def index_catalog(q: str = ""):
+    async def index_catalog(q: str = "", offset: int = Query(default=0, ge=0),
+                            limit: int = Query(default=100, ge=1, le=100),
+                            market: str = ""):
         """公开指数目录与人工核验的ETF跟踪关系，查询不触发行情采集。"""
         from dataclasses import asdict
 
@@ -828,13 +851,40 @@ def create_app(
         mapping = IndexMapping()
         etfs = [item for item in ETFIndexMapping().entries()
                 if not q.strip() or q.strip().casefold() in f"{item.symbol} {item.name}".casefold()]
-        matches = {entry.symbol: entry for entry in mapping.search(q)}
+        if market not in ("", "a-shares", "hk", "unknown"):
+            raise HTTPException(status_code=422, detail="market 无效")
+        matches = {entry.symbol: entry for entry in mapping.search(q) if not market or entry.market == market}
         for item in etfs:
             entry = mapping.lookup(item.index_symbol)
-            if entry is not None:
+            if entry is not None and (not market or entry.market == market):
                 matches[entry.symbol] = entry
-        return {"indices": [asdict(entry) for entry in matches.values()],
+        entries = list(matches.values())
+        return {"indices": [asdict(entry) for entry in entries[offset:offset + limit]],
+                "total": len(entries), "indices_total": len(entries), "offset": offset, "limit": limit,
                 "etfs": [asdict(item) for item in etfs]}
+
+    @app.post("/api/v1/indices/refresh")
+    async def refresh_index_catalog(source: str = "hsi"):
+        """按来源刷新官方目录；源失败时保留上次成功快照。"""
+        from data.index_catalog_sources import (
+            fetch_cni_catalog,
+            fetch_csi_catalog,
+            fetch_hsi_catalog,
+            sync_catalog,
+        )
+
+        fetchers = {"hsi": fetch_hsi_catalog, "cni": fetch_cni_catalog,
+                    "csi1": lambda: fetch_csi_catalog("1"), "csi2": lambda: fetch_csi_catalog("2")}
+        fetch = fetchers.get(source)
+        if fetch is None:
+            raise HTTPException(status_code=422, detail="不支持的指数目录来源")
+        path = Path.cwd() / ".stock_robot" / f"index-catalog-{source}.json"
+        try:
+            entries, state = await asyncio.to_thread(sync_catalog, path, fetch, refresh=True)
+            return {"source": source, "state": state, "total": len(entries)}
+        except Exception as error:  # noqa: BLE001 — 第三方接口隔离，保留安全错误
+            logger.warning("指数目录更新失败 %s：%s", source, error)
+            return JSONResponse({"source": source, "state": "failed", "error": "目录更新失败"}, status_code=502)
 
     @app.post("/api/v1/analyze")
     async def analyze(request: Request):
@@ -929,8 +979,13 @@ def create_app(
             raise HTTPException(status_code=422, detail="主要数据不足，暂不生成 AI 结论")
         snapshot = _runtime_snapshot()
         agent_core = _snapshot_core(snapshot)
+        if (not record.context.extra_analysis_enabled
+                or not getattr(getattr(agent_core, "pipeline", None), "_extra_analysis_enabled", False)):
+            raise HTTPException(status_code=403, detail="当前未启用额外分析或 AI 解读，请重新分析")
         if agent_core is None or agent_core.llm is None:
             raise HTTPException(status_code=503, detail="模型未配置或不可用，请检查模型配置")
+        if not getattr(agent_core.pipeline, "_llm_enabled", False):
+            raise HTTPException(status_code=403, detail="当前未启用 AI 解读，请重新分析")
         if not record.lock.acquire(blocking=False):
             raise HTTPException(status_code=409, detail="此报告正在重试 AI 解读")
         try:
@@ -988,6 +1043,9 @@ def create_app(
                         and artifact.get("payload") != pending_payload)):
                 raise HTTPException(status_code=404, detail="报告成果不属于本次会话")
         current = _snapshot_core(_runtime_snapshot())
+        if (record.report.analysis_mode == "objective"
+                or not getattr(getattr(current, "index_pipeline", None), "_extra_analysis_enabled", False)):
+            raise HTTPException(status_code=403, detail="当前未启用额外分析，请重新分析")
         if (current is None or getattr(current, "llm", None) is None
                 or getattr(getattr(current, "index_pipeline", None), "_llm_enabled", None) is False):
             raise HTTPException(status_code=503, detail="模型未配置或不可用")
@@ -1060,6 +1118,9 @@ def create_app(
             except ValueError as exc:
                 errors.append(str(exc))
                 continue
+            if entry is None and ":" in raw_index:
+                errors.append(f"指数 {raw_index} 不在已验证目录中，请先刷新目录")
+                continue
             if entry is None and not validate_index_symbol(raw_index):
                 errors.append(f"无效的指数代码或名称: {sym}，请在指数目录中选择")
                 continue
@@ -1073,9 +1134,15 @@ def create_app(
                     target_type="index", symbol=normalized, name=normalized,
                     market="a-shares", index_style=index_style)
             else:
+                if entry.market not in ("a-shares", "hk", "us"):
+                    errors.append(f"指数 {entry.symbol} 的市场尚未核验，暂不可分析")
+                    continue
                 target = AnalysisTarget(
                     target_type="index", symbol=getattr(entry, "symbol", normalized),
-                    name=entry.name, market=entry.market, index_style=entry.index_style)
+                    name=entry.name, market=entry.market, index_style=entry.index_style,
+                    return_type=getattr(entry, "return_type", "") or "price",
+                    official_index_code=getattr(entry, "price_symbol", None)
+                    if getattr(entry, "provider", "") == "hsi" else None)
             if any(existing.symbol == target.symbol for existing in targets):
                 errors.append(f"重复指数 {target.symbol} 已跳过，请分别分析ETF与其指数")
                 continue
@@ -1087,7 +1154,7 @@ def create_app(
             raise HTTPException(status_code=422, detail="；".join(errors))
 
         try:
-            result = await asyncio.to_thread(agent_core.index_pipeline.run, targets)
+            result = await asyncio.to_thread(agent_core.index_pipeline.run, targets, refresh_cache=True) if body.get("refresh_cache") is True else await asyncio.to_thread(agent_core.index_pipeline.run, targets)
             for report in result.reports:
                 if report.code in requested:
                     report.requested_instrument = requested[report.code]

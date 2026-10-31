@@ -28,6 +28,10 @@ class IndexReportBuilder:
 
     def build(self, ctx: IndexAnalysisContext,
               results: list[AnalysisResult]) -> IndexReport:
+        if not ctx.extra_analysis_enabled:
+            from analysis.mode import objective_results
+
+            results = objective_results(results)
         results_map = {r.dimension: r for r in results}
 
         tags = self._extract_tags(results_map)
@@ -35,6 +39,9 @@ class IndexReportBuilder:
         if not val or not val.valuation_valid or not is_positive_finite(val.pe_ttm) or not is_valid_percentile(val.pe_percentile):
             tags["index_valuation"] = "invalid"
         visible = self._compute_visible_sections(ctx.target.index_style)
+        if ctx.target.market == "hk":
+            visible.update({"capital", "macro", "sentiment"})
+            visible.discard("strategy")
 
         overview = self._build_overview(ctx, results_map)
         technical = self._build_section(results_map, "index_technical")
@@ -50,14 +57,18 @@ class IndexReportBuilder:
         strategy = self._build_section(results_map, "index_strategy")
         technical["display"] = {"rows": display_rows(technical["metrics"], ("ma_5", "ma_20", "ma_60", "adx_14", "atr_20", "atr_pct", "year_high", "year_low", "price_position_pct"))}
         valuation["display"]["rows"] = valuation_rows(ctx)
-        capital["display"] = {**capital["display"], "rows": display_rows(capital["metrics"], ("north_bound", "main_net_inflow", "margin_balance")) if capital["status"] != "unavailable" else []}
+        capital_keys = ("southbound_sh_yi", "southbound_sz_yi") if ctx.target.market == "hk" else ("north_bound", "main_net_inflow", "margin_balance")
+        capital["display"] = {**capital["display"], "rows": display_rows(capital["metrics"], capital_keys) if capital["status"] != "unavailable" else []}
         # 资金文字统一使用独立值的展示，避免旧分析摘要把零流量写成净流出。
-        capital["summary"] = capital["display"]["summary"]
+        if ctx.target.market == "hk":
+            capital["display"]["summary"] = capital["summary"] or "港股通市场背景不可用"
+        else:
+            capital["summary"] = capital["display"]["summary"]
         if capital["status"] != "unavailable":
             notes = capital["metrics"].get("notes") or []
             if notes:
                 capital["summary"] += "；" + "；".join(str(note) for note in notes)
-        macro["display"] = {"rows": display_rows(macro["metrics"], ("pmi", "shibor_3m", "cpi_yoy", "usd_cny"))}
+        macro["display"] = {"rows": display_rows(macro["metrics"], ("pmi", "shibor_3m", "cpi_yoy", "usd_cny", "hibor_1m", "hk_base_rate", "hk_closing_balance_million"))}
         sentiment["display"] = {"rows": [], "items": sentiment["metrics"].get("items") or sentiment["metrics"].get("news_items") or []}
         performance["display"] = {"rows": [{"label": label, "value": format_metric_value(key, performance["metrics"][key]), "note": ""} for key, label in (("return_pct", "区间收益率"), ("max_drawdown_pct", "最大回撤"), ("annualized_volatility_pct", "年化波动率"), ("benchmark_aligned_index_return_pct", "同日指数区间收益"), ("benchmark_return_pct", "同日基准区间收益"), ("excess_return_pct", "同日基准超额收益")) if performance["metrics"].get(key) is not None], "windows": performance["metrics"].get("windows") or []}
         performance["display"]["etf_rows"] = []
@@ -91,8 +102,12 @@ class IndexReportBuilder:
         comment = "主要行情数据不可用，暂不作整体方向判断。" if not sample_count else "以下仅按可用事实说明，不生成方向评级。"
         commentary = "### 核心判断\n\n" + comment + "\n\n### 关键依据与分歧\n\n" + (technical["summary"] or "行情证据不足。") + "\n\n" + (valuation["summary"] or "估值依据不足。") + "\n\n### 后续观察重点\n\n跟踪短中期均线关系、实际风险区间及估值数据更新；缺失维度不补零，不推断方向。"
         coeff = None
+        if not ctx.extra_analysis_enabled:
+            commentary = ""
+            comment = ""
 
         return IndexReport(
+            analysis_mode="extra" if ctx.extra_analysis_enabled else "objective",
             code=ctx.target.symbol,
             name=ctx.target.name,
             date=datetime.now().astimezone().date(),
@@ -108,15 +123,17 @@ class IndexReportBuilder:
             report_version=2,
             generated_at=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
             data_quality=quality, commentary=commentary,
-            commentary_status="disabled" if sample_count >= 60 else "insufficient",
+            commentary_status=("not_requested" if not ctx.extra_analysis_enabled else
+                               "disabled" if sample_count >= 60 else "insufficient"),
             disclaimer=[p.replace("指标、评分及观察结论", "指标及观察结论") for p in build_disclaimer()],
-            tag_technical=tags.get("index_technical", "shake"),
-            tag_valuation=tags.get("index_valuation", "invalid"),
-            tag_capital=tags.get("index_capital_flow", "neutral"),
-            tag_macro=tags.get("index_macro", "na"),
-            tag_sentiment=tags.get("index_sentiment", "neutral"),
+            tag_technical=tags.get("index_technical", "shake") if ctx.extra_analysis_enabled else None,
+            tag_valuation=tags.get("index_valuation", "invalid") if ctx.extra_analysis_enabled else None,
+            tag_capital=tags.get("index_capital_flow", "neutral") if ctx.extra_analysis_enabled else None,
+            tag_macro=tags.get("index_macro", "na") if ctx.extra_analysis_enabled else None,
+            tag_sentiment=tags.get("index_sentiment", "neutral") if ctx.extra_analysis_enabled else None,
             composite_comment=comment,
             position_coeff=coeff,
+            # 此处全部为采集与数据覆盖诊断，客观模式也必须保留。
             risk_list=ctx.risk_flags,
             visible_sections=visible,
         )

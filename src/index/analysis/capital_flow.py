@@ -18,6 +18,11 @@ class CapitalFlowAnalyzer(AnalysisModule):
                                   summary="资金流向数据不可用", metrics={})
 
 
+        if context.target.market == "hk":
+            if cf.southbound_sh_yi is None or cf.southbound_sz_yi is None:
+                return AnalysisResult(dimension=self.dimension, status="unavailable", summary="港股通市场背景未取得", metrics={})
+            return AnalysisResult(dimension=self.dimension, status="ok", summary=f"港股通市场背景：沪通道成交净买额 {cf.southbound_sh_yi:.2f}亿元，深通道 {cf.southbound_sz_yi:.2f}亿元，日期 {cf.date.isoformat()}", metrics={"data_date": cf.date.isoformat(), "southbound_sh_yi": cf.southbound_sh_yi, "southbound_sz_yi": cf.southbound_sz_yi, "notes": cf.notes})
+
         metrics = {
             "notes": cf.notes,
             "north_bound": cf.north_bound,

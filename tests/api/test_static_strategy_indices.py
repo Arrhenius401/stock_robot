@@ -36,7 +36,7 @@ api.indices = async () => ({indices:[{symbol:"930740",name:"红利低波",index_
 search.value=""; await byClass(box,"btn-refresh")[0].click();
 if(!box.textContent.includes("930740")) throw new Error("目录重试失败");
 """
-    script = script.replace("__API__", json.dumps(_module_url("src/api/static/js/api.js")))
+    script = script.replace("__API__", json.dumps(_module_url("src/api/static/js/api.js") + "?v=20261030-index-refresh"))
     script = script.replace("__INDEX__", json.dumps(_module_url("src/api/static/js/indexview.js")))
     _run_node(tmp_path, script)
 
@@ -63,7 +63,7 @@ api.index=async()=>({reports:[{code:"000300",name:"沪深300",section_technical:
 await openIndex("000300");
 if(!descendants(box).some(node => node.innerHTML.includes("趋势正常")) || box.textContent.includes("专项分析")) throw new Error("旧报告不兼容");
 """
-    script = script.replace("__API__", json.dumps(_module_url("src/api/static/js/api.js")))
+    script = script.replace("__API__", json.dumps(_module_url("src/api/static/js/api.js") + "?v=20261030-index-refresh"))
     script = script.replace("__INDEX__", json.dumps(_module_url("src/api/static/js/indexview.js")))
     _run_node(tmp_path, script)
 
@@ -93,10 +93,10 @@ await loadIndexDirectory(true);
 await openReport("159998");
 if(analyzed.at(-1)!=="159998") throw new Error("目录失败阻断原入口");
 """
-    script = script.replace("__API__", json.dumps(_module_url("src/api/static/js/api.js")))
+    script = script.replace("__API__", json.dumps(_module_url("src/api/static/js/api.js") + "?v=20261030-index-refresh"))
     script = script.replace("__REPORT__", json.dumps(_module_url("src/api/static/js/report.js")))
     script = script.replace("__REPORT_API__", json.dumps(_module_url("src/api/static/js/api.js") + "?v=20261029-index-news-quality"))
-    script = script.replace("__INDEX__", json.dumps(_module_url("src/api/static/js/indexview.js") + "?v=20261029-index-news-quality"))
+    script = script.replace("__INDEX__", json.dumps(_module_url("src/api/static/js/indexview.js") + "?v=20261030-index-refresh"))
     _run_node(tmp_path, script)
 
 
@@ -123,7 +123,7 @@ await openIndex("自由现金流");
 if (document.getElementById("indexContent").children.length) throw new Error("歧义错误留下加载占位");
 if (!wrap.querySelector(".entry-error").textContent.includes("匹配到多个指数")) throw new Error("歧义错误未显示");
 """
-    script = script.replace("__API__", json.dumps(_module_url("src/api/static/js/api.js")))
+    script = script.replace("__API__", json.dumps(_module_url("src/api/static/js/api.js") + "?v=20261030-index-refresh"))
     script = script.replace("__INDEX__", json.dumps(_module_url("src/api/static/js/indexview.js")))
     _run_node(tmp_path, script)
 
@@ -148,6 +148,86 @@ for(const text of ["官方单张PE","单张PE数据日期","PB数据日期","PE�
 }
 if(box.textContent.includes("PE-TTM") || box.textContent.includes("None") || box.textContent.includes("无效")) throw new Error("快照估值错误标签");
 """
-    script=script.replace("__API__",json.dumps(_module_url("src/api/static/js/api.js")))
+    script=script.replace("__API__",json.dumps(_module_url("src/api/static/js/api.js") + "?v=20261030-index-refresh"))
     script=script.replace("__INDEX__",json.dumps(_module_url("src/api/static/js/indexview.js")))
     _run_node(tmp_path,script)
+
+
+def test_directory_market_identity_and_unverified_state(tmp_path):
+    script = _DOM_STUB + r"""
+makeElement("indexInput", "input"); makeElement("indexBtn", "button");
+makeElement("indexDirectoryResults"); makeElement("indexDirectorySearch", "input");
+const market=makeElement("indexDirectoryMarket", "select"); makeElement("indexContent");
+const {api}=await import(__API__); let queries=[];
+api.indices=async(q="", options={})=>{queries.push({q,...options}); return {indices:[
+ {symbol:"HSI:01067.00",identity:"HSI:01067.00",name:"恒生高股息",market:"hk",provider:"hsi",return_type:"price",index_style:"overseas"}],etfs:[],total:1,offset:0};};
+const view=await import(__INDEX__); await view.initIndexView();
+let box=document.getElementById("indexDirectoryResults");
+for(const text of ["港股","价格指数","数据待验证"]) if(!box.textContent.includes(text)) throw new Error("目录缺少 "+text);
+await byClass(box,"index-directory-item")[0].click();
+if(document.getElementById("indexInput").value!=="HSI:01067.00") throw new Error("身份选择丢失");
+market.value="hk"; await market.dispatch("change");
+if(!queries.some(x=>x.market==="hk")) throw new Error("未按市场向服务端查询");
+"""
+    script = script.replace("__API__", json.dumps(_module_url("src/api/static/js/api.js") + "?v=20261030-index-refresh"))
+    script = script.replace("__INDEX__", json.dumps(_module_url("src/api/static/js/indexview.js")))
+    _run_node(tmp_path, script)
+
+
+def test_directory_refresh_preserves_results_when_source_fails(tmp_path):
+    script = _DOM_STUB + r"""
+makeElement("indexInput", "input"); makeElement("indexBtn", "button"); makeElement("indexContent");
+makeElement("indexDirectoryResults"); makeElement("indexDirectorySearch", "input");
+const refresh=makeElement("indexDirectoryRefresh", "button");
+const source=makeElement("indexDirectorySource", "select"); source.value="hsi";
+const notice=makeElement("indexDirectoryRefreshStatus");
+const {api}=await import(__API__);
+api.indices=async()=>({indices:[{symbol:"HSI",name:"恒生指数",market:"hk",index_style:"overseas"}],etfs:[]});
+api.refreshIndices=async()=>{throw new Error("目录源不可用")};
+const view=await import(__INDEX__); await view.initIndexView(); await refresh.click();
+if(!notice.textContent.includes("目录源不可用")) throw new Error("缺少刷新失败原因");
+if(!document.getElementById("indexDirectoryResults").textContent.includes("恒生指数")) throw new Error("刷新失败丢失旧目录");
+api.refreshIndices=async()=>({state:"stale"}); await refresh.click();
+if(!notice.textContent.includes("上次") || !notice.textContent.includes("失败")) throw new Error("缓存回退未说明");
+let sources=[];
+api.refreshIndices=async(value)=>{sources.push(value); return {state:"live"}};
+for(const value of ["hsi","cni","csi1","csi2"]) {source.value=value; await refresh.click();}
+if(sources.join(",")!=="hsi,cni,csi1,csi2") throw new Error("未按来源独立刷新");
+if(!notice.textContent.includes("完成")) throw new Error("刷新成功未说明");
+"""
+    script = script.replace("__API__", json.dumps(_module_url("src/api/static/js/api.js") + "?v=20261030-index-refresh"))
+    script = script.replace("__INDEX__", json.dumps(_module_url("src/api/static/js/indexview.js")))
+    _run_node(tmp_path, script)
+
+
+def test_directory_groups_unknown_market_separately(tmp_path):
+    script = _DOM_STUB + r"""
+makeElement("indexInput", "input"); makeElement("indexBtn", "button"); makeElement("indexContent");
+makeElement("indexDirectoryResults"); makeElement("indexDirectorySearch", "input");
+const box=document.getElementById("indexDirectoryResults");
+const {api}=await import(__API__);
+api.indices=async()=>({indices:[{symbol:"CNI:980092",identity:"CNI:980092",name:"未知样本",market:"unknown",index_style:"broad"}],etfs:[],total:1,offset:0});
+const view=await import(__INDEX__); await view.loadIndexDirectory(true);
+if(!box.textContent.includes("市场待核验（暂不能分析）")) throw new Error("未知市场分组缺失："+box.textContent);
+"""
+    script = script.replace("__API__", json.dumps(_module_url("src/api/static/js/api.js") + "?v=20261030-index-refresh"))
+    script = script.replace("__INDEX__", json.dumps(_module_url("src/api/static/js/indexview.js")))
+    _run_node(tmp_path, script)
+
+
+def test_directory_search_matches_identity_and_unknown_market_hides_etfs(tmp_path):
+    script = _DOM_STUB + r"""
+makeElement("indexInput", "input"); makeElement("indexBtn", "button"); makeElement("indexContent");
+const search=makeElement("indexDirectorySearch", "input"); const market=makeElement("indexDirectoryMarket", "select");
+const box=makeElement("indexDirectoryResults");
+const {api}=await import(__API__);
+api.indices=async()=>({indices:[{symbol:"000300",identity:"csi:000300",name:"沪深300",market:"a-shares",index_style:"broad"}],etfs:[{symbol:"515300",name:"基金",index_symbol:"930740"}]});
+const view=await import(__INDEX__); await view.initIndexView();
+search.value="csi:000300"; await search.dispatch("input");
+if(!box.textContent.includes("沪深300")) throw new Error("规范身份查询被过滤");
+search.value=""; market.value="unknown"; await market.dispatch("change");
+if(box.textContent.includes("515300")) throw new Error("未知市场显示A股ETF");
+"""
+    script = script.replace("__API__", json.dumps(_module_url("src/api/static/js/api.js") + "?v=20261030-index-refresh"))
+    script = script.replace("__INDEX__", json.dumps(_module_url("src/api/static/js/indexview.js")))
+    _run_node(tmp_path, script)

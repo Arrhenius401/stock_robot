@@ -11,6 +11,8 @@ LABELS = {
     "adx_14": "ADX(14)", "atr_20": "ATR(20)（点）", "atr_pct": "ATR占收盘价", "price_position_pct": "近12个月价格位置",
     "year_high": "近12个月最高价", "year_low": "近12个月最低价", "pmi": "PMI", "shibor_3m": "Shibor3M",
     "cpi_yoy": "CPI同比", "usd_cny": "USD/CNY", "north_bound": "北向资金（亿元）", "main_net_inflow": "主力资金（亿元）", "margin_balance": "融资余额",
+    "hibor_1m": "HIBOR 1个月（%）", "hk_base_rate": "香港基本利率（%）", "hk_closing_balance_million": "香港总结余（百万港元）",
+    "southbound_sh_yi": "港股通（沪）成交净买额（亿元）", "southbound_sz_yi": "港股通（深）成交净买额（亿元）",
 }
 
 
@@ -31,7 +33,7 @@ def build_quality(ctx: IndexAnalysisContext, sections: dict[str, dict]) -> dict:
         section = sections.get(key) or {}
         metrics = section.get("metrics") or {}
         record = ctx.collection_records.get(record_key)
-        applicable = not (key == "capital" and ctx.target.index_style not in ("broad", "sector")
+        applicable = ctx.target.market == "hk" or not (key == "capital" and ctx.target.index_style not in ("broad", "sector")
                           or key == "macro" and ctx.target.index_style != "broad"
                           or key == "sentiment" and ctx.target.index_style in ("strategy", "overseas"))
         status = {"ok": "ok", "partial": "partial"}.get(str(section.get("status")), "unavailable") if applicable else "not_applicable"
@@ -49,10 +51,12 @@ def build_quality(ctx: IndexAnalysisContext, sections: dict[str, dict]) -> dict:
             sample, cutoff = f"{prices[0].trade_date}至{prices[-1].trade_date}，{len(prices)}个交易日", str(prices[-1].trade_date)
         elif key == "valuation" and ctx.valuation_data:
             val = ctx.valuation_data
-            sample = f"PE样本{val.pe_sample_count}个；PB样本{val.pb_sample_count}个"
+            sample = f"PE日频样本{val.pe_sample_count}个；PB日频样本{val.pb_sample_count}个"
+            if val.pe_snapshot is not None and is_finite_number(val.pe_snapshot) and val.pe_sample_count == 0:
+                sample += f"；PE快照{float(val.pe_snapshot):.2f}"
             if val.percentile_sample_start and val.percentile_sample_end:
                 sample += f"；{val.percentile_sample_start}至{val.percentile_sample_end}"
-            cutoff = "；".join(dict.fromkeys(str(d) for d in (val.pe_as_of, val.pe_snapshot_as_of, val.pb_as_of) if d)) or str(val.date)
+            cutoff = "；".join(dict.fromkeys(str(d) for d in (val.pe_as_of, val.pe_snapshot_period or val.pe_snapshot_as_of, val.pb_as_of) if d)) or str(val.date)
             source = "；".join(dict.fromkeys(v for v in (val.pe_source_url, val.pe_snapshot_source_url, val.pb_source_url) if v)) or source
         elif key == "capital" and ctx.capital_flow:
             cutoff = str(ctx.capital_flow.date)
@@ -99,7 +103,7 @@ def valuation_rows(ctx: IndexAnalysisContext) -> list[dict[str, str]]:
     rows = []
     for label, value, sampled, basis in [
         ("PE", val.pe_ttm, val.pe_as_of or val.date, val.pe_basis or "滚动市盈率"),
-        ("PE", val.pe_snapshot, val.pe_snapshot_as_of or val.date, val.pe_snapshot_basis or "官方快照，未声明TTM"),
+        ("PE", val.pe_snapshot, val.pe_snapshot_period or val.pe_snapshot_as_of or val.date, val.pe_snapshot_basis or "官方快照，未声明TTM"),
         ("PB", val.pb, val.pb_as_of or val.date, val.pb_basis or "市净率"),
         ("股息率", val.dividend_yield, val.date, "来源披露口径"),
     ]:

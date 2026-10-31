@@ -17,7 +17,7 @@ def test_web_uses_capital_display_without_recalculating_summary(tmp_path):
     compare = IndexCompareReportBuilder().build([ctx], [report])
     payload = {"reports": [report.model_dump(mode="json")], "compare": {"headers": compare.headers, "rows": compare.rows}}
     script = _DOM_STUB + "\nconst payload=" + json.dumps(payload, ensure_ascii=False) + ";\n"
-    script += "const {api}=await import(" + json.dumps(_module_url("src/api/static/js/api.js")) + ");\n"
+    script += "const {api}=await import(" + json.dumps(_module_url("src/api/static/js/api.js") + "?v=20261030-index-refresh") + ");\n"
     script += "const {openIndex}=await import(" + json.dumps(_module_url("src/api/static/js/indexview.js")) + ");\n"
     script += r'''
 const box=makeElement('indexContent');

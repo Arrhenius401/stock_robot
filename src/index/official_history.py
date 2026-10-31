@@ -38,11 +38,11 @@ class OfficialHistoryStore:
             now - artifact["calibrated_at"] >= 30 * 86400
             or (end - date.fromisoformat(artifact["calibrated_end"])).days >= 30))
         # 新成功产物可覆盖旧失败，但历史切片也必须遵守周期校准。
-        if covered and covered_end and end < covered_end and not calibration_due:
+        if not self.provider.refresh_cache and covered and covered_end and end < covered_end and not calibration_due:
             return self._slice(artifact["rows"], symbol, start, end)
-        if status is not None and not status["ok"]:
+        if not self.provider.refresh_cache and status is not None and not status["ok"]:
             raise RuntimeError(status["error"])
-        if status is not None and covered:
+        if not self.provider.refresh_cache and status is not None and covered:
             return self._slice(artifact["rows"], symbol, start, end)
         full = (artifact is None or covered_start is None or covered_start > start
                 or calibration_due
@@ -72,6 +72,9 @@ class OfficialHistoryStore:
         except Exception as exc:  # noqa: BLE001, RUF100 — 官方网络及响应边界，保留成功产物并显式降级
             logger.warning("共享官方历史 %s 失败: %s", symbol, exc)
             message = f"官方历史请求失败或响应无效: {exc}"
+            if self.provider.refresh_cache and covered and artifact is not None:
+                self.provider.refresh_notes.append("官方历史刷新失败，使用原日期缓存")
+                return self._slice(artifact["rows"], symbol, start, end)
             self.provider._write_cached("csi_history_status", status_key, {"ok": False, "error": message}, ttl=300)
             raise RuntimeError(message) from exc
 

@@ -26,12 +26,12 @@ class IndexRequestCache:
     def __init__(self, path: Path):
         self.cache = CacheManager(path)
 
-    def fetch_cached(self, adapter: Any, symbol: str, kind: str, **kwargs: Any) -> CollectionResult:
+    def fetch_cached(self, adapter: Any, symbol: str, kind: str, *, refresh: bool = False, **kwargs: Any) -> CollectionResult:
         now = datetime.now().astimezone()
         key = f'{symbol}:{kwargs.get("index_style", "")}'
         # 先读新鲜成功或最近失败状态，均不驱逐旧成功产物。
         status = self.cache.get_entry(kind, key, 'status')
-        if status is not None and time.time() - status.created_at < status.ttl_seconds:
+        if not refresh and status is not None and time.time() - status.created_at < status.ttl_seconds:
             raw = json.loads(status.value)
             model = _MODELS[kind]
             record = DataCollectionRecord.model_validate(raw['record']) if raw.get('record') else None
@@ -66,10 +66,25 @@ class IndexRequestCache:
         result = CollectionResult(result.rows, make_record(source or (result.record.source if result.record else "来源未记录"), state, diagnostic=result.record, collected_at=now), result.errors)
         failed_notes = any("请求失败" in note for row in result.rows for note in getattr(row, "valuation_notes", []))
         successful = state in ("complete", "partial") and not (result.record and result.record.error_kind) and not failed_notes
+        if refresh and not successful:
+            old = self.cache.get_entry(kind, key, 'last-success')
+            if old is None:
+                legacy = self.cache.get_entry(kind, symbol, 'last-success')
+                # 旧快照未保存类别；仅在同类别状态与旧快照完全一致时才可证明身份。
+                if legacy is not None and status is not None and legacy.value == status.value:
+                    old = legacy
+            if old is not None:
+                raw = json.loads(old.value)
+                rows = [_MODELS[kind].model_validate(row) for row in raw['rows']]
+                previous = DataCollectionRecord.model_validate(raw['record']) if raw.get('record') else None
+                if previous is not None:
+                    previous = previous.model_copy(update={'result_state': 'partial', 'cache_status': 'stale',
+                        'error_kind': 'fetch_failed', 'error_message': '刷新失败，保留原日期成功快照'})
+                return CollectionResult(rows, previous, ['刷新失败，保留原日期成功快照'])
         midnight = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
         ttl = max(1, int((midnight - now).total_seconds())) if successful else 300
         value = json.dumps({'rows': [row.model_dump(mode='json') for row in result.rows], 'record': result.record.model_dump(mode='json') if result.record else None, 'errors': result.errors}, ensure_ascii=False)
         self.cache.put(kind, key, 'status', value, ttl)
         if successful:
-            self.cache.put(kind, symbol, 'last-success', value, -1)
+            self.cache.put(kind, key, 'last-success', value, -1)
         return result

@@ -101,9 +101,12 @@ class Pipeline:
                  llm_enabled: bool | None = None):
         self._registry = registry
         self._config = config or Config()
+        from analysis.mode import extra_analysis_enabled
+
+        self._extra_analysis_enabled = extra_analysis_enabled(self._config)
         if llm_enabled is None:
             llm_enabled = self._config.get("llm.enabled", True)
-        self._llm_enabled = llm_enabled
+        self._llm_enabled = bool(llm_enabled and self._extra_analysis_enabled)
         cache_db = self._config.config_dir / "cache.db"
         self._cache = CacheManager(db_path=cache_db)
         # 只串行化同一管道内港股新闻的保护性读写，不锁网络采集或其他市场。
@@ -476,6 +479,7 @@ class Pipeline:
 
         ctx = self.collect(symbol, name, market, refresh_cache=refresh_cache,
                            data_types=data_types, on_progress=on_progress)
+        ctx.extra_analysis_enabled = self._extra_analysis_enabled
 
         # 充实步骤（collect 之后 analyze 之前）
         from data.enricher import ContextEnricher
@@ -512,7 +516,7 @@ class Pipeline:
                 level=SufficiencyLevel.INSUFFICIENT, reason="同行比较数据获取失败",
                 sample_count=0, score_weight=0.0,
             )
-        if dimension in (None, "financial"):
+        if self._extra_analysis_enabled and dimension in (None, "financial"):
             from data.financial_scoring_facts import FinancialScoringFactsService
 
             try:
@@ -530,10 +534,11 @@ class Pipeline:
             sentiment_enricher.set_llm(self._registry.get_llm_backend(provider))
         sentiment_stage = ContextEnricher()
         sentiment_stage.register(sentiment_enricher)
-        ctx = sentiment_stage.enrich(ctx)
+        if self._extra_analysis_enabled:
+            ctx = sentiment_stage.enrich(ctx)
 
         # 新增：加载行业配置
-        industry_config = self._config_loader.load_for_context(ctx)
+        industry_config = self._config_loader.load_for_context(ctx) if self._extra_analysis_enabled else None
 
         results = []
         total = len(analysis_modules)
@@ -558,6 +563,10 @@ class Pipeline:
                                DIMENSION_LABELS.get(mod.dimension, mod.dimension))
 
         commentary = {}
+        if not self._extra_analysis_enabled:
+            from analysis.mode import objective_results
+
+            results = objective_results(results)
         if self._llm_enabled:
             commentary = self._generate_commentary(
                 symbol, name, results, ctx.sw_industry, ctx.style_category,
@@ -577,7 +586,8 @@ class Pipeline:
         from report.quality import build_data_quality, has_analysis_data
         from report.scoring import compute_score_summary, participation_score
 
-        if not has_analysis_data(results, context):
+        if (not self._extra_analysis_enabled or (context is not None and not context.extra_analysis_enabled)
+                or not self._llm_enabled or not has_analysis_data(results, context)):
             return commentary
         provider = self._config.get("llm.provider", "openai")
         llm = self._registry.get_llm_backend(provider)

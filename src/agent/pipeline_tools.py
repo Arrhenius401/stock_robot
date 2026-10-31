@@ -200,12 +200,15 @@ class AnalyzeIndexTool:
 
         try:
             mapping = IndexMapping()
-            entry = mapping.lookup(symbol)
+            entry = mapping.resolve(symbol)
+            if entry is None or entry.market not in ("a-shares", "hk", "us"):
+                return ToolResult(status="error", error=f"无法确定指数 {symbol} 的市场，请先选择已核验目录项",
+                                  metadata={"source": "pipeline", "symbol": symbol})
             target = AnalysisTarget(
-                target_type="index", symbol=symbol,
-                name=entry.name if entry else symbol,
-                market="a-shares",
-                index_style=entry.index_style if entry else "broad",
+                target_type="index", symbol=entry.symbol, name=entry.name,
+                market=entry.market, index_style=entry.index_style,
+                return_type=(entry.return_type or "price") if entry is not None else "unknown",
+            official_index_code=entry.price_symbol if entry.market == "hk" and entry.provider == "hsi" else None,
             )
             result = await asyncio.to_thread(self._pipeline.run, targets=[target])
 
