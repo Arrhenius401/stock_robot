@@ -4,6 +4,6 @@
 协议、数据格式与策略版本不属于应用版本，不在此处合并。
 """
 
-VERSION = "0.3.1"
+VERSION = "0.3.2"
 APP_NAME = "Stock Robot"
 DISTRIBUTION_NAME = "stock-robot"
