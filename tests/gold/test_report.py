@@ -30,7 +30,9 @@ def test_price_first_and_observations_without_advice():
     assert "快速快照" in text and "偏空" in text and "超卖" in text
     assert text.index("## 黄金价格") < text.index("## 近期价格变化") < text.index("## 辅助分析")
     assert "实际利率" in text and "-30" in text
-    assert "2026-10-19（来源当地日期）" in text
+    assert "## 数据覆盖与时效" in text
+    assert "| 数据 | 来源 | 观察日期 | 状态 |" in text
+    assert "附录 A" not in text
     for forbidden in ("加权合计", "长期看多", "长期配置建议", "短期交易参考", "分批买入", "预览"):
         assert forbidden not in text
 
@@ -86,5 +88,18 @@ def test_monthly_window_and_reverse_percentile_are_explained():
     data["observations"].append({"key": "china_reserves", "name": "中国储备", "main": {"window": 6, "change": 2}, "marginal": {"window": 3, "change": 1}})
     text = render_gold_markdown(data)
     assert "6 个月变化" in text and "3 个月变化" in text
-    assert "实际利率与美元变化的分位按变化取反计算" in text
+    assert "数据覆盖与时效" in text
     assert "国内金条、国内黄金 ETF 参考国内价格" in text
+
+
+def test_coverage_table_uses_current_source_facts_and_marks_missing():
+    data = sample()
+    data["sources"] = [
+        {"name": "国内黄金", "source": "上海黄金交易所", "as_of": "2026-10-30", "status": "ok"},
+        {"name": "全球央行数据", "source": "IMF", "as_of": None, "status": "unavailable"},
+    ]
+    text = render_gold_markdown(data)
+    assert "| 国内黄金 | 上海黄金交易所 | 2026-10-30 | 正常 |" in text
+    assert "| 全球央行数据 | IMF | 数据缺失 | 不可用 |" in text
+    assert "全球央行数据：不可用" in text
+    assert "| 地址 |" not in text

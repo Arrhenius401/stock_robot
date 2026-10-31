@@ -113,81 +113,6 @@ def _generated_at(value: Any) -> str:
     return _cell(value, "未提供")
 
 
-def _publication(row: dict[str, Any]) -> str:
-    value = row.get("published_at")
-    precision = row.get("published_precision") or _mapping(row.get("metadata")).get("published_precision")
-    if precision == "date" and isinstance(value, str):
-        return value.split("T")[0] + "（来源当地日期）"
-    return str(value) if value else "发布日期未记录"
-
-
-def _fx(rows: list[dict[str, Any]]) -> list[str]:
-    lines = [
-        "## 人民币换汇参考影响拆分",
-        "",
-        (
-            "非同步日线参考比较：汇率为纽约中午参考价，黄金为各自日线收盘。"
-            "这是会计式参考分解，不是因果归因，也不是可交易的实时境内溢价或套利收益。"
-        ),
-        "",
-    ]
-    if not rows:
-        return lines + [
-            "共同观察日或单位数据缺失，未计算参考拆分；原币表现见各市场。",
-            "",
-        ]
-    for row in rows:
-        lines += [
-            f"### 近{_cell(row.get('window'))}个共同观察日",
-            "",
-            (
-                f"起止：{_cell(row.get('start'))} 至 {_cell(row.get('end'))}；"
-                f"共同观察点数：{_cell(row.get('count'))}。"
-            ),
-            "",
-        ]
-        lines += _table(
-            [
-                "国际黄金涨跌（%）",
-                "汇率变化（%）",
-                "国内黄金涨跌（%）",
-                "换汇参考涨跌（%）",
-            ],
-            [
-                [
-                    row.get("international_return_pct"),
-                    row.get("fx_return_pct"),
-                    row.get("domestic_return_pct"),
-                    row.get("reference_return_pct"),
-                ]
-            ],
-        )
-        lines += _table(
-            [
-                "交互项（百分比点）",
-                "国际价格参考贡献（百分比点）",
-                "汇率参考贡献（百分比点）",
-                "未解释差额（百分比点）",
-            ],
-            [
-                [
-                    row.get("interaction_pp"),
-                    row.get("international_contribution_pp"),
-                    row.get("fx_contribution_pp"),
-                    row.get("residual_pp"),
-                ]
-            ],
-        )
-    return lines + [
-        (
-            "交互项=g×f；国际与汇率参考贡献分别为g+½gf、f+½gf，二者与未解释差额合计为国内涨跌。"
-            "未解释差额可能包含时点、报价、基差等差异，不能直接解释为供需贡献。未前向填充观察日期。"
-        ),
-        "",
-    ]
-
-
-
 def _number(value: Any, *, decimals: int = 2) -> str:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         return "数据缺失"
@@ -276,42 +201,33 @@ def render_gold_markdown(payload: dict[str, Any]) -> str:
         else:
             desc = "风险数据缺失"
         lines += [f"- {label}：{_cell(desc)}。"]
-    lines += ["", "### 接下来观察什么", "", "观察两地收盘价与均线、波动及 RSI 的变化，以及实际利率、美元和需求样本的后续更新；这些指标并未验证为有效择时信号。", "", "## 附录 A：宏观与需求数据", ""]
-    factor_rows = []
-    for obs in observations:
-        for window in ("main", "marginal"):
-            part = _mapping(obs.get(window))
-            factor_rows.append([obs.get("name"), "主窗口" if window == "main" else "边际窗口", (str(part.get("window")) + ("个月" if obs.get("key") in ("china_reserves", "global_reserves") else "个观察日")) if part.get("window") is not None else None, part.get("change"), part.get("unit"), part.get("start"), part.get("end"), part.get("count"), part.get("percentile"), part.get("percentile_status"), part.get("rank_start"), part.get("rank_end"), part.get("rank_count"), obs.get("latest_value"), obs.get("unit"), obs.get("as_of"), obs.get("source"), obs.get("source_url"), _observation_status(obs)])
-    lines += _table(["指标", "窗口", "窗口长度", "变化", "单位", "开始", "结束", "样本数", "历史分位", "分位状态", "分位开始", "分位结束", "分位样本数", "最新值", "最新值单位", "观察日期", "来源", "来源地址", "状态"], factor_rows)
-    lines += ["分位仅描述历史位置，具体样本范围见上表；实际利率与美元变化的分位按变化取反计算，下降越大分位越高。缺失或过期数据不补零。", "", "## 附录 B：价格与技术数据", ""]
-    for label, market in pairs:
-        lines += [f"### {label}", ""]
-        perf = _mapping(market.get("performance"))
-        lines += _table(["观察日数", "涨跌", "开始", "结束", "样本数", "状态"], [[n, _pct(_mapping(perf.get(n)).get("return_pct")), _mapping(perf.get(n)).get("start"), _mapping(perf.get(n)).get("end"), _mapping(perf.get(n)).get("count"), _mapping(perf.get(n)).get("status")] for n in ("5", "20", "60", "120", "250")])
-        ind = _mapping(market.get("indicators"))
-        fields = [("ma20", "MA20"), ("ma60", "MA60"), ("slope_pct", "MA60 斜率（%）"), ("prior_slope_pct", "此前 MA60 斜率（%）"), ("rsi14", "Wilder RSI"), ("atr14", "ATR"), ("deviation_atr", "价格偏离（ATR 倍数）"), ("vol20_pct", "年化波动率（%）"), ("vol_percentile", "波动历史分位"), ("vol_rank_start", "波动分位样本开始"), ("vol_rank_end", "波动分位样本结束"), ("vol_rank_count", "波动分位样本数")]
-        lines += _table(["指标", "值"], [[name, ind.get(field)] for field, name in fields])
-        positions = _mapping(market.get("price_position"))
-        lines += _table(["价格位置", "历史分位", "开始", "结束", "样本数", "状态"], [[label2, _mapping(positions.get(key)).get("percentile"), _mapping(positions.get(key)).get("start"), _mapping(positions.get(key)).get("end"), _mapping(positions.get(key)).get("count"), _mapping(positions.get(key)).get("status")] for key, label2 in (("3y", "3年"), ("5y", "5年"))])
-    lines += ["历史价格分位仅表示历史位置，不代表高估、低估或未来收益。", "", "## 附录 C：风险数据", ""]
-    risk_rows = []
-    for label, market in pairs:
-        for risk in _records(market.get("risks")):
-            active = risk.get("active")
-            risk_rows.append([label, _risk_name(risk.get("key")), risk.get("value"), risk.get("threshold"), "已触发" if active is True else "未触发" if active is False else "数据缺失", _coverage_status(market.get("status"), market.get("result_state"))])
-    lines += _table(["市场", "风险", "当前值", "参考门槛", "状态", "行情状态"], risk_rows)
-    lines += ["门槛是未验证的描述规则；超卖可能伴随反弹，但不改变下跌趋势。", ""]
-    fx_lines = _fx(_records(data.get("fx_decomposition")))
-    fx_lines[0] = "## 附录 D：汇率参考拆分"
-    lines += fx_lines
-    lines += ["## 附录 E：来源与局限", ""]
-    source_rows = []
-    for source in _records(data.get("sources")):
+    lines += ["", "### 接下来观察什么", "", "观察两地收盘价与均线、波动及 RSI 的变化，以及实际利率、美元和需求样本的后续更新；这些指标并未验证为有效择时信号。", "", "## 数据覆盖与时效", ""]
+    sources = _records(data.get("sources"))
+    coverage_rows = []
+    limited = []
+    for source in sources:
         record = _mapping(source.get("collection_record"))
-        source_rows.append([source.get("name", source.get("key")), source.get("source"), source.get("url", source.get("source_url")), source.get("as_of"), _publication(source), source.get("fetched_at"), _coverage_status(source.get("status"), record.get("result_state")), source.get("error"), source.get("notes"), source.get("parser"), source.get("count")])
-    lines += _table(["数据", "来源", "地址", "观察日期", "发布日期", "获取时间", "状态", "错误", "备注", "解析器", "样本数"], source_rows)
-    rules = _mapping(data.get("rules_snapshot"))
-    rule_keys = ("ma_fast", "ma_slow", "ma_slope_window", "flat_slope_pct", "rsi_period", "atr_period", "vol_window", "annual_days", "rsi_oversold", "vol_high_percentile", "price_high_percentile")
-    lines += _table(["规则参数", "本报告取值"], [[key, rules.get(key)] for key in rule_keys])
-    lines += [f"生成时间：{_generated_at(data.get('generated_at'))}；规则版本：{_cell(data.get('rules_version'), '未提供')}。", "", "数据状态与覆盖程度只反映资料完整性，不代表预测概率。价格、汇率和宏观数据可能滞后；各来源并非同步。分析规则未验证历史收益或预测胜率，不能据此推断未来表现。", ""]
+        status = _coverage_status(source.get("status"), record.get("result_state"))
+        name = source.get("name", source.get("key"))
+        coverage_rows.append([name, source.get("source"), source.get("as_of"), status])
+        if source.get("status") != "ok" or record.get("result_state") == "partial":
+            limited.append(f"{_cell(name)}：{_cell(status)}")
+    if coverage_rows:
+        lines += _table(["数据", "来源", "观察日期", "状态"], coverage_rows)
+    else:
+        lines += ["来源记录缺失，无法核实数据覆盖与时效。", ""]
+    if limited:
+        lines += ["**需注意的数据：**" + "；".join(limited) + "。", ""]
+    lines += [
+        (
+            "**数据限制：**国际 XAU 为 CFD 参考行情；国内、国际价格与宏观数据的观察时点可能不同。"
+            "中国黄金储备为单一国家的月度样本，SPDR 仅为北美单只 ETF 样本；"
+            "全球央行数据缺失时不作推断。数据状态只反映资料完整性，不代表预测概率。"
+        ),
+        "",
+        f"生成时间：{_generated_at(data.get('generated_at'))}；规则版本：{_cell(data.get('rules_version'), '未提供')}。",
+        "",
+        "分析规则未验证历史收益或预测胜率，不能据此推断未来表现。",
+        "",
+    ]
     return "\n".join(lines)

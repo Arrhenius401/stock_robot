@@ -6,7 +6,7 @@ import { initReportDrawer } from "./report-drawer.js?v=20261029-index-news-quali
 import { closeReportDrawer } from "./report-drawer.js?v=20261029-index-news-quality";
 import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js";
 import { initIndexView } from "./indexview.js?v=20261030-index-review";
-import { initReportLibrary } from "./report-library.js?v=20261029-index-news-quality";
+import { initReportLibrary } from "./report-library.js?v=20261031-gold-coverage";
 import { initSessions, initSessionStartup } from "./sessions.js?v=20261029-index-news-quality";
 import { initSubscriptions } from "./subscriptions.js?v=20260928-run-notice-2";
 import { initSettings } from "./settings.js?v=20261031-report-maintenance-1";

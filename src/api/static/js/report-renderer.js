@@ -983,6 +983,7 @@ function renderGoldObservationMarkdown(markdown, options) {
     const label = match?.[1] || `报告章节 ${index + 1}`;
     const body = part.replace(/^##\s+.+\n?/, "");
     const card = index === 0 ? first : section(`gold-observation-${index}`, label, "panel", prefix);
+    if (label === "数据覆盖与时效") card.classList.add("gold-coverage-panel");
     if (index === 0) card.appendChild(el("h3", "", label));
     card.appendChild(markdownBlock(body, "md"));
     if (index !== 0) article.appendChild(card);

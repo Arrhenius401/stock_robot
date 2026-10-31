@@ -611,6 +611,8 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .report-content .panel, #reportDrawerContent .panel, #reportLibraryContent .panel { overflow-x: auto; }
 .gold-report > .panel { min-width: 0; overflow-x: auto; }
 .report-content table, #reportDrawerContent table, .md table { min-width: max-content; }
+.gold-coverage-panel .md table { min-width: 0; table-layout: fixed; }
+.gold-coverage-panel .md th, .gold-coverage-panel .md td { overflow-wrap: anywhere; white-space: normal; }
 .md { overflow-wrap: anywhere; }
 @media (max-width: 520px) {
   .report-detail-row { grid-template-columns: 58px minmax(0, 1fr); gap: 8px; }

@@ -412,7 +412,7 @@ if (calls.length !== beforeA + 1 || !calls.at(-1).refresh_cache) throw new Error
         app_js = (await client.get("/js/app.js")).text
         api_js = (await client.get("/js/api.js")).text
 
-        assert 'import { initReportLibrary } from "./report-library.js?v=20261029-index-news-quality";' in app_js
+        assert 'import { initReportLibrary } from "./report-library.js?v=20261031-gold-coverage";' in app_js
         assert "initReportLibrary();" in app_js
         assert "listReports(" in api_js
         assert "getReport(" in api_js
@@ -2276,8 +2276,8 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         assert 'id="subName"' not in html
         assert 'id="subChannel"' not in html
         assert "企业微信" not in html
-        assert 'href="/css/app.css?v=20261030-index-refresh"' in html
-        assert 'src="/js/app.js?v=20261031-report-maintenance-1"' in html
+        assert 'href="/css/app.css?v=20261031-gold-coverage"' in html
+        assert 'src="/js/app.js?v=20261031-gold-coverage"' in html
         script = (await client.get("/js/subscriptions.js")).text
         assert "searchPushSymbols" in script
         assert "批量添加" not in script
