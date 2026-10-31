@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
 按 Git 改动范围或全量执行项目校验。
 
@@ -180,6 +180,11 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/report"
         Add-UniqueTarget $testTargets "tests/api/test_app.py"
         Add-UniqueTarget $testTargets "tests/api/test_static.py"
+        continue
+    }
+    if ($path.StartsWith("src\maintenance\", [StringComparison]::OrdinalIgnoreCase)) {
+        Add-UniqueTarget $testTargets "tests/maintenance"
+        Add-UniqueTarget $testTargets "tests/api"
         continue
     }
     if ($path.StartsWith("src\index\", [StringComparison]::OrdinalIgnoreCase)) {

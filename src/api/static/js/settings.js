@@ -28,6 +28,7 @@ const SECTIONS = [
       { path: "data.cache_ttl.daily", label: "日线缓存秒数", type: "number", min: 1, step: 1 },
       { path: "data.cache_ttl.quarterly", label: "季报缓存秒数", type: "number", min: 1, step: 1 },
       { path: "data.cache_ttl.news", label: "新闻缓存秒数", type: "number", min: 1, step: 1 },
+      { path: "maintenance.report_cleanup_enabled", label: "自动清理过期报告", type: "checkbox" },
     ],
   },
   {
@@ -126,6 +127,7 @@ const FIELD_DESCRIPTIONS = {
   "llm.max_tokens": "留空自动选择输出预算；填写正整数限制单次输出。已有数值会保留，清空后切换自动。",
   "llm.retry_times": "请求失败后允许重试的次数。",
   "llm.timeout_seconds": "一次生成的总等待上限，包含能力查询、重试和截断恢复。",
+  "maintenance.report_cleanup_enabled": "由分析服务自己清理超过 7 天的个股、指数和黄金研报；删除不可恢复，符合报告单元识别的文件才会处理。",
   "radar.collector.enabled": "关闭后仍可手动采集。",
   "radar.collector.hour": "北京时间，24 小时制。",
   "radar.collector.minute": "每小时的计划分钟。",

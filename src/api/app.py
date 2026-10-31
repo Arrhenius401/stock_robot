@@ -5,6 +5,7 @@ import json
 import logging
 import threading
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,7 @@ from agent.planner import Planner
 from agent.react import ReActExecutor
 from api.configuration import create_configuration_router
 from api.logs import create_logs_router
+from api.maintenance import create_maintenance_router
 from api.message_content import encode_message_content, normalize_message_content
 from api.report_library import (
     ReportLibraryError,
@@ -323,6 +325,22 @@ def _initial_core_factory(core: Any):
     return build
 
 
+def _maintenance_lifespan(maintenance: Any):
+    """只对显式注入的维护任务启停后台线程；测试与模块级 app 不启动清理。"""
+    if maintenance is None:
+        return None
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        maintenance.start()
+        try:
+            yield
+        finally:
+            await asyncio.to_thread(maintenance.stop)
+
+    return lifespan
+
+
 def create_app(
     core=None,
     sessions=None,
@@ -331,6 +349,7 @@ def create_app(
     log_start_offset: int | None = None,
     runtime_log_path: Path | None = None,
     gold_service: Any = None,
+    maintenance: Any = None,
 ):
     # 生产路径由 RuntimeManager 独占 core、执行器和推送调度器的初始所有权。
     # 测试传入 push=False、推送桩或 runtime 桩时保持既有注入行为，不创建真实依赖。
@@ -346,11 +365,13 @@ def create_app(
         push = snapshot.push_scheduler
 
     app = FastAPI(title=f"{APP_NAME} API", version=VERSION,
-                  description="AI 驱动的股票分析研报助手 HTTP API")
+                  description="AI 驱动的股票分析研报助手 HTTP API",
+                  lifespan=_maintenance_lifespan(maintenance))
 
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
                        allow_headers=["*"])
     app.include_router(create_configuration_router(runtime=runtime))
+    app.include_router(create_maintenance_router(maintenance))
     # 正式服务启动前的历史日志不属于本次运行；测试和直接导入 app 时保留默认读取行为。
     runtime_log_offset = log_start_offset
     if runtime_log_offset is None and core is not None:

@@ -84,7 +84,7 @@ python3 -m venv .venv
 .\scripts\stock-robot.ps1 chat                   # 交互式投研
 ```
 
-股票报告保存到 `reports/stock/`，指数报告保存到 `reports/index/`，黄金报告保存到 `reports/gold/GOLD/`，回测产物保存到 `reports/backtests/`。配置与缓存位于当前目录的 `./.stock_robot/`。新个股与黄金报告同时保存 Markdown 和 `.report.json` 生成时快照，指数报告保存 Markdown；报告库可浏览和下载。完整命令与参数见[使用指南](docs/使用指南.md)。
+股票报告保存到 `reports/stock/`，指数报告保存到 `reports/index/`，黄金报告保存到 `reports/gold/GOLD/`，回测产物保存到 `reports/backtests/`。配置与缓存位于当前目录的 `./.stock_robot/`。新个股与黄金报告同时保存 Markdown 和 `.report.json` 生成时快照，指数报告保存 Markdown；报告库可浏览和下载。`stock-robot run` 会按固定 7 天保留期自行清理个股、指数和黄金报告，可在 Web 配置页关闭；回测、雷达产物不受影响。完整命令与参数见[使用指南](docs/使用指南.md)。
 
 Web 或聊天中输入“黄金”“国内黄金”“国际黄金”“Au99.99”或“XAU”可生成同一份黄金市场观察简报。黄金报告使用确定性说明，不提供买卖建议；来源缺失和过期会单独说明，历史价格分位只表示位置，不是估值或胜率。黄金不提供首饰金店牌价，也不分析单只黄金 ETF。
 

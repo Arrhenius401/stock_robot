@@ -1913,6 +1913,7 @@ const payload = {
       temperature: 0.3, max_tokens: 2000, retry_times: 2, timeout_seconds: 60 },
     data: { disclaimer_accepted: false,
       cache_ttl: { daily: 86400, quarterly: 604800, news: 21600 } },
+    maintenance: { report_cleanup_enabled: true, sweep_interval_minutes: 360 },
     api: { host: "127.0.0.1", port: 25618 },
     push: { enabled: true, max_symbols_per_subscription: 20,
       email: { smtp_host: "smtp.qq.com", smtp_port: 465, smtp_user: "user",
@@ -1960,6 +1961,13 @@ if (!byClass(settingsContent, "settings-module")[0].hidden) throw new Error("切
 await moduleButtons[0].click();
 for (const heading of ["模型连接", "数据与缓存", "服务设置", "推送设置", "信号策略"]) {
   if (!settingsContent.textContent.includes(heading)) throw new Error(`缺少分区: ${heading}`);
+}
+const retentionToggle = document.getElementById("settings-maintenance-report_cleanup_enabled");
+if (!retentionToggle || retentionToggle.checked !== true) {
+  throw new Error("报告清理开关未按配置渲染");
+}
+if (document.getElementById("settings-maintenance-report_retention_days")) {
+  throw new Error("保留期固定 7 天，不应提供天数输入框");
 }
 if (!settingsContent.textContent.includes("D:/project/.stock_robot")) {
   throw new Error("未显示只读路径");
@@ -2269,7 +2277,7 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         assert 'id="subChannel"' not in html
         assert "企业微信" not in html
         assert 'href="/css/app.css?v=20261030-index-refresh"' in html
-        assert 'src="/js/app.js?v=20261030-index-review"' in html
+        assert 'src="/js/app.js?v=20261031-report-maintenance-1"' in html
         script = (await client.get("/js/subscriptions.js")).text
         assert "searchPushSymbols" in script
         assert "批量添加" not in script

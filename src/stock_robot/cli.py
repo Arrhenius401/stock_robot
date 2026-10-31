@@ -834,6 +834,7 @@ def run(host, port):
     """启动 Web API 服务（含 Web UI）"""
     from api.app import create_app
     from api.bootstrap import build_agent_core
+    from maintenance.runner import MaintenanceRunner
 
     config = Config()
     runtime_log_path = _configure_runtime_log(config)
@@ -850,6 +851,9 @@ def run(host, port):
             core=core,
             log_start_offset=runtime_log_offset,
             runtime_log_path=runtime_log_path,
+            maintenance=MaintenanceRunner(
+                Path.cwd() / "reports", state_dir=config.config_dir
+            ),
         )
         progress.update(task_id, completed=3, description="正在启动 HTTP 服务")
 

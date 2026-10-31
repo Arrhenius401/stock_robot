@@ -33,6 +33,10 @@ DEFAULT_CONFIG = {
         },
         "disclaimer_accepted": False,
     },
+    "maintenance": {
+        "report_cleanup_enabled": True,
+        "sweep_interval_minutes": 360,
+    },
     "api": {
         "host": "127.0.0.1",
         "port": 25618,

@@ -34,6 +34,10 @@ _EDITABLE_FIELDS: dict[str, Any] = {
         "cache_ttl": {"daily": None, "quarterly": None, "news": None},
         "disclaimer_accepted": None,
     },
+    "maintenance": {
+        "report_cleanup_enabled": None,
+        "sweep_interval_minutes": None,
+    },
     "api": {"host": None, "port": None},
     "push": {
         "enabled": None,
@@ -180,6 +184,7 @@ def _validate_leaf(value: Any, path: tuple[str, ...]) -> Any:
         ("llm", "enabled"),
         ("data", "disclaimer_accepted"),
         ("push", "enabled"),
+        ("maintenance", "report_cleanup_enabled"),
     }:
         if type(value) is not bool:
             _validation_error(path, "必须是布尔值")
@@ -200,6 +205,7 @@ def _validate_leaf(value: Any, path: tuple[str, ...]) -> Any:
         ("api", "port"): (1, 65535),
         ("push", "max_symbols_per_subscription"): (1, None),
         ("push", "email", "smtp_port"): (1, None),
+        ("maintenance", "sweep_interval_minutes"): (1, 1440),
     }
     if path in integer_ranges:
         minimum, maximum = integer_ranges[path]
@@ -255,8 +261,12 @@ def _restart_required(update: dict[str, Any]) -> bool:
 
 
 def _has_hot_update(update: dict[str, Any]) -> bool:
-    """判断更新中是否包含可在当前进程生效的字段。"""
-    return any(key != "api" for key in update)
+    """判断更新中是否包含需要重建运行时的字段。
+
+    监听地址由重启生效；维护设置由清理循环每轮重新读取配置，保存即生效，
+    不因改动清理开关而重建 Agent 核心。
+    """
+    return any(key not in {"api", "maintenance"} for key in update)
 
 
 def _config_for_runtime(
