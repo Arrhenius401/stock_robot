@@ -77,6 +77,8 @@ class IndustryAnalyzer(AnalysisModule):
         comparison = getattr(enriched, "comparison", {}) if enriched is not None else {}
         if comparison:
             metrics["comparison"] = comparison
+        if comparison and context.extra_analysis_enabled:
+            metrics["comparison"] = comparison
             score, score_detail, score_basis = score_industry_comparison(comparison)
             metrics["industry_scoring"] = score_basis
             return AnalysisResult(
@@ -147,6 +149,8 @@ class IndustryAnalyzer(AnalysisModule):
                 "top_peers": [peer.model_dump() for peer in enriched.top_peers],
             })
         if comparison:
+            metrics["comparison"] = comparison
+        if comparison and context.extra_analysis_enabled:
             metrics["comparison"] = comparison
             score, score_detail, score_basis = score_industry_comparison(comparison)
             metrics["industry_scoring"] = score_basis

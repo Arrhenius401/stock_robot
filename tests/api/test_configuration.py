@@ -24,6 +24,26 @@ class RuntimeStub(RuntimeManager):
         return self.result
 
 
+def test_extra_analysis_defaults_off_and_saves_boolean(runtime_config_client):
+    config, runtime, client = runtime_config_client
+    current = client.get("/api/v1/config").json()
+    assert current["config"]["analysis"]["extra_enabled"] is False
+    response = client.put("/api/v1/config", json={"config": {"analysis": {"extra_enabled": True}},
+                                                  "revision": current["revision"]})
+    assert response.status_code == 200
+    assert runtime.reload_configs[-1].get("analysis.extra_enabled") is True
+    assert Config(config_dir=config.config_dir).get("analysis.extra_enabled") is True
+
+
+@pytest.mark.parametrize("value", ["false", 0, 1, None])
+def test_extra_analysis_rejects_non_boolean(runtime_config_client, value):
+    _, runtime, client = runtime_config_client
+    current = client.get("/api/v1/config").json()
+    response = client.put("/api/v1/config", json={"config": {"analysis": {"extra_enabled": value}},
+                                                  "revision": current["revision"]})
+    assert response.status_code == 422 and not runtime.reload_configs
+
+
 @pytest.fixture
 def config_client(tmp_path: Path, monkeypatch):
     """将配置固定到临时项目目录，避免测试读取真实用户配置。"""

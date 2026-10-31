@@ -70,9 +70,12 @@ SECTIONS.push({ title: "自动采集计划", fields: [
   { path: "radar.collector.hour", label: "采集时间 · 时（北京时间）", type: "number", min: 0, max: 23, step: 1 },
   { path: "radar.collector.minute", label: "采集时间 · 分", type: "number", min: 0, max: 59, step: 1 },
 ] });
+SECTIONS.push({ title: "分析模式", fields: [
+  { path: "analysis.extra_enabled", label: "启用额外分析", type: "checkbox" },
+] });
 const MODULES = [
   { title: "AI 模型", icon: "✦", description: "配置模型连接与生成参数。", tabs: ["模型连接", "生成与重试"] },
-  { title: "分析与数据", icon: "◈", description: "配置分析信号与数据缓存。", tabs: ["信号策略", "数据缓存"] },
+  { title: "分析与数据", icon: "◈", description: "配置分析信号与数据缓存。", tabs: ["分析模式", "信号策略", "数据缓存"] },
   { title: "订阅推送", icon: "↗", description: "配置订阅推送与邮件发送。", tabs: ["通用", "邮箱"] },
   { title: "运行与采集", icon: "⚙", description: "配置雷达采集计划与服务运行。", tabs: ["雷达采集", "服务设置"] },
 ];
@@ -118,6 +121,7 @@ function setValue(target, path, value) {
 }
 
 const FIELD_DESCRIPTIONS = {
+  "analysis.extra_enabled": "为个股和指数增加规则判断及 AI 解读；个股另提供评分与模型信号。默认关闭。",
   "llm.enabled": "开启后使用模型生成自然语言解读。",
   "llm.provider": "选择模型服务提供方。",
   "llm.model": "配置服务商提供的模型名称。",
@@ -584,7 +588,7 @@ export function renderSettings(payload) {
       if (index === 0) section = { title,
         description: tabIndex === 0 ? "配置用于研报解读与会话研究的模型。" : "控制生成长度与请求重试策略。",
         fields: tabIndex === 0 ? SECTIONS[0].fields.slice(0, 5) : SECTIONS[0].fields.slice(5) };
-      else if (index === 1) section = SECTIONS[tabIndex === 0 ? 4 : 1];
+      else if (index === 1) section = SECTIONS[tabIndex === 0 ? 6 : tabIndex === 1 ? 4 : 1];
       else if (index === 2) section = { title: tabIndex === 0 ? "推送设置" : "邮箱",
         fields: SECTIONS[3].fields.filter(field => tabIndex === 0 ? !field.group : field.group) };
       else section = SECTIONS[tabIndex === 0 ? 5 : 2];

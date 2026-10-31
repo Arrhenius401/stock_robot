@@ -118,7 +118,7 @@ def test_signal_placeholder_explains_actual_blocked_core_dimensions_at_top():
     assert "模型信号：进攻" not in text
 
 
-def test_real_signal_has_no_placeholder_and_hk_explains_not_applicable():
+def test_real_signal_has_no_placeholder_and_hk_uses_same_evidence_gate():
     from report.quality import build_data_quality
 
     ctx = AnalysisContext(symbol="000001", name="测试")
@@ -132,8 +132,8 @@ def test_real_signal_has_no_placeholder_and_hk_explains_not_applicable():
     ctx.market = "hk"
     text = build_report(ctx.symbol, ctx.name, results, {}, ctx, no_llm=True, signal_cfg=SignalConfig())
     header = text.split("## 四、综合研判", 1)[1].split("## 五、数据覆盖与时效", 1)[0]
-    assert "模型信号：不适用" in header and "本期港股不提供交易信号" in header
-    assert "模型信号：进攻" not in text
+    assert "模型信号：进攻" in header
+    assert "模型信号：不适用" not in header
 
 
 def test_valuation_counts_only_valid_points_and_preserves_dependencies():

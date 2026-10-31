@@ -370,6 +370,8 @@ class AnalysisContext(BaseModel):
     symbol: str
     name: str
     market: str = "a-shares"
+    # 历史直接构造上下文保持旧语义；正式管道按配置显式覆盖。
+    extra_analysis_enabled: bool = True
     financial_data: list[FinancialData] | None = None
     price_data: list[PriceData] | None = None
     valuation_data: ValuationData | None = None  # 只存当日单时点，日频序列走 enriched_valuation
@@ -525,6 +527,7 @@ class StrategySnapshot(BaseModel):
 class IndexAnalysisContext(BaseModel):
     """指数分析上下文 — 管道的核心数据容器"""
     target: AnalysisTarget
+    extra_analysis_enabled: bool = True
     collection_records: dict[str, DataCollectionRecord] = Field(default_factory=dict)
     price_data: list[IndexPriceData | IndexClosePriceData] = Field(default_factory=list)
     valuation_data: IndexValuationData | None = None
@@ -544,6 +547,7 @@ class IndexAnalysisContext(BaseModel):
 class IndexReport(BaseModel):
     """指数分析报告"""
     code: str
+    analysis_mode: Literal["objective", "extra"] = "extra"
     name: str
     date: date
     overview: dict
@@ -556,11 +560,11 @@ class IndexReport(BaseModel):
     section_performance: dict | None = None
     requested_instrument: dict[str, Any] | None = None
 
-    tag_technical: Literal["bull", "shake", "bear"]
-    tag_valuation: Literal["undervalued", "neutral", "overvalued", "invalid"]
-    tag_capital: Literal["positive", "neutral", "negative"]
-    tag_macro: Literal["positive", "neutral", "negative", "na"]
-    tag_sentiment: Literal["positive", "neutral", "negative"]
+    tag_technical: Literal["bull", "shake", "bear"] | None
+    tag_valuation: Literal["undervalued", "neutral", "overvalued", "invalid"] | None
+    tag_capital: Literal["positive", "neutral", "negative"] | None
+    tag_macro: Literal["positive", "neutral", "negative", "na"] | None
+    tag_sentiment: Literal["positive", "neutral", "negative"] | None
 
     composite_comment: str
     position_coeff: float | None

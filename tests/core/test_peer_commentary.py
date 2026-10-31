@@ -48,6 +48,7 @@ def test_actual_prompt_keeps_comparison_units_and_industry_availability(tmp_path
         summary="财务快照", metrics={"roe": 0.125, "revenue": 3000000})
     ctx = AnalysisContext(symbol="000333" if market == "a-shares" else "00700.HK", name="样例", market=market)
     config = Config(config_dir=tmp_path)
+    config.data["analysis"]["extra_enabled"] = True
     config.data["llm"]["provider"] = provider
     registry = Registry()
     backend = CapturingBackend()

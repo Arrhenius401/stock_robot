@@ -28,6 +28,10 @@ class IndexReportBuilder:
 
     def build(self, ctx: IndexAnalysisContext,
               results: list[AnalysisResult]) -> IndexReport:
+        if not ctx.extra_analysis_enabled:
+            from analysis.mode import objective_results
+
+            results = objective_results(results)
         results_map = {r.dimension: r for r in results}
 
         tags = self._extract_tags(results_map)
@@ -98,8 +102,12 @@ class IndexReportBuilder:
         comment = "主要行情数据不可用，暂不作整体方向判断。" if not sample_count else "以下仅按可用事实说明，不生成方向评级。"
         commentary = "### 核心判断\n\n" + comment + "\n\n### 关键依据与分歧\n\n" + (technical["summary"] or "行情证据不足。") + "\n\n" + (valuation["summary"] or "估值依据不足。") + "\n\n### 后续观察重点\n\n跟踪短中期均线关系、实际风险区间及估值数据更新；缺失维度不补零，不推断方向。"
         coeff = None
+        if not ctx.extra_analysis_enabled:
+            commentary = ""
+            comment = ""
 
         return IndexReport(
+            analysis_mode="extra" if ctx.extra_analysis_enabled else "objective",
             code=ctx.target.symbol,
             name=ctx.target.name,
             date=datetime.now().astimezone().date(),
@@ -115,15 +123,17 @@ class IndexReportBuilder:
             report_version=2,
             generated_at=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
             data_quality=quality, commentary=commentary,
-            commentary_status="disabled" if sample_count >= 60 else "insufficient",
+            commentary_status=("not_requested" if not ctx.extra_analysis_enabled else
+                               "disabled" if sample_count >= 60 else "insufficient"),
             disclaimer=[p.replace("指标、评分及观察结论", "指标及观察结论") for p in build_disclaimer()],
-            tag_technical=tags.get("index_technical", "shake"),
-            tag_valuation=tags.get("index_valuation", "invalid"),
-            tag_capital=tags.get("index_capital_flow", "neutral"),
-            tag_macro=tags.get("index_macro", "na"),
-            tag_sentiment=tags.get("index_sentiment", "neutral"),
+            tag_technical=tags.get("index_technical", "shake") if ctx.extra_analysis_enabled else None,
+            tag_valuation=tags.get("index_valuation", "invalid") if ctx.extra_analysis_enabled else None,
+            tag_capital=tags.get("index_capital_flow", "neutral") if ctx.extra_analysis_enabled else None,
+            tag_macro=tags.get("index_macro", "na") if ctx.extra_analysis_enabled else None,
+            tag_sentiment=tags.get("index_sentiment", "neutral") if ctx.extra_analysis_enabled else None,
             composite_comment=comment,
             position_coeff=coeff,
+            # 此处全部为采集与数据覆盖诊断，客观模式也必须保留。
             risk_list=ctx.risk_flags,
             visible_sections=visible,
         )

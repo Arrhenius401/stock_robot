@@ -7,6 +7,9 @@
 # 指数分析报告：{{ name }}（{{ code }}）
 
 > 生成时间：{{ generated_at }}
+{% if report.analysis_mode == "objective" %}
+> 客观数据模式
+{% endif %}
 {% if requested_instrument %}
 > 输入为ETF {{ requested_instrument.name }}（{{ requested_instrument.symbol }}），本报告分析跟踪指数；ETF自身表现单独披露。
 {% endif %}
@@ -90,13 +93,15 @@
 未接入适用新闻源。
 {% endif %}
 
+{% if report.analysis_mode != "objective" %}
 ## 五、综合研判
 
 > {{ {"disabled":"AI未启用，以下为确定性量化摘要。", "insufficient":"主要证据不足，以下仅作受限摘要。", "unconfigured":"AI未配置，以下为量化摘要。", "failed":"AI生成失败，保留量化摘要。", "ready":"基于本次量化事实的AI解读。"}.get(report.commentary_status, "解读状态未记录。") }}
 
 {{ report.commentary }}
 
-## 六、数据覆盖与时效
+{% endif %}
+## {{ "六" if report.analysis_mode != "objective" else "五" }}、数据覆盖与时效
 
 {{ report.data_quality.summary_rows | quality_table }}
 {% if report.data_quality.limitations %}
@@ -109,7 +114,7 @@
 - 风险提示：{{ risk }}
 {% endfor %}
 
-## 七、免责声明
+## {{ "七" if report.analysis_mode != "objective" else "六" }}、免责声明
 
 {% for paragraph in report.disclaimer %}
 {{ paragraph }}

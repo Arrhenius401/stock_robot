@@ -42,7 +42,7 @@ def test_real_qq_failure_sample_and_corrected_market_report():
     assert "基于营业收入的解读" in text
     assert "金额币种未核实" in text
     assert "five-dimension-v1" in text
-    assert "本期港股不提供交易信号" in text
+    assert "模型信号：暂未生成" in text
     assert "申万行业待补全" not in text
     assert "最新财报季度" not in text
 
@@ -90,6 +90,7 @@ def test_hk_shared_prompt_uses_real_metrics_without_scores(tmp_path, provider):
     result = AnalysisResult(dimension="financial", status="partial", summary="半年度报告", metrics={
         "revenue": 396431000000, "latest_quarter": "2026-06-30", "gross_margin_basis": cached.gross_margin_basis})
     config = Config(config_dir=tmp_path)
+    config.data["analysis"]["extra_enabled"] = True
     config.data["llm"]["provider"] = provider
     registry = Registry()
     backend = CapturingBackend()
@@ -130,7 +131,7 @@ def test_hk_financial_source_and_selection_note_are_visible():
     assert fields["财务包说明"] == "完整来源包"
 
 
-def test_hk_valid_scores_enable_total_without_trade_signal_or_position():
+def test_hk_valid_scores_enable_total_and_model_signal_without_position():
     ctx = hk_context()
     for key in ("financial", "price", "valuation"):
         setattr(ctx.sufficiency, key, DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT))
@@ -143,9 +144,10 @@ def test_hk_valid_scores_enable_total_without_trade_signal_or_position():
     assert quality["coverage"] == 75.0
     assert quality["available_dimensions"] == 3
     assert quality["applicable_dimensions"] == 5
-    assert not quality["signal_allowed"]
+    assert quality["signal_allowed"]
     payload = build_stock_payload(ctx.symbol, ctx.name, results, {"bulk": "有效港股数据解读"}, ctx,
                                   signal_cfg=SignalConfig())
     assert payload["score"]["final"] == 8.0
-    assert payload["signal"] is None
+    assert payload["signal"]["level"] == "attack"
+    assert "position" not in payload["signal"]
     assert payload["commentary_status"] == "ok"

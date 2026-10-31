@@ -170,15 +170,34 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
         # 新财务依据已逐子项核验，不能被港股旧四季度计数规则永久降级。
         if key == "financial" and result and result.metrics.get("scoring_basis") and value is not None:
             level = _RESULT_LEVEL.get(result.status, 0)
-        if value is None:
+        if value is None and ctx.extra_analysis_enabled:
             level = min(level, 1)
             if hk and (result is None or not _has_hk_facts(result)):
                 level = 0
+        if not ctx.extra_analysis_enabled:
+            facts = bool(result and (_has_hk_facts(result) or (
+                key == "sentiment" and result.status != "unavailable" and
+                (result.metrics.get("news_items") or result.metrics.get("headlines")))))
+            if not facts:
+                level = 0
+            elif key == "sentiment" and result is not None:
+                # 原新闻充足度等待模型评估；客观模式直接采用采集状态。
+                level = _RESULT_LEVEL.get(result.status, 0)
+                news_record = records.get(source_key)
+                if getattr(news_record, "error_message", "") or getattr(news_record, "cache_status", "") == "stale":
+                    level = min(level, 1)
         if weight:
             coverage += weight * (level / 2)
-            all_complete = all_complete and level == 2 and value is not None
+            all_complete = all_complete and level == 2 and (value is not None or not ctx.extra_analysis_enabled)
         if key in {"financial", "technical", "valuation"}:
-            signal_ready = (suff.level == "sufficient" and result is not None
+            sufficient = suff.level == "sufficient"
+            if key == "financial" and result and result.metrics.get("scoring_basis"):
+                basis = result.metrics["scoring_basis"]
+                available_max, eligible_max = basis.get("available_max"), basis.get("eligible_max")
+                # 港股原季度计数固定为partial；信号改用已逐项核验的财务证据。
+                sufficient = (is_finite_number(available_max) and is_finite_number(eligible_max)
+                              and available_max >= eligible_max > 0)
+            signal_ready = (sufficient and result is not None
                             and result.status == "ok" and value is not None)
             signal_complete = signal_complete and signal_ready
             if not signal_ready:
@@ -240,12 +259,14 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
             if isinstance(annual, dict) and annual.get("period_end"):
                 fields.append({"label": "ROE计分期间", "value": f"{annual.get('period_start') or '未记录'} 至 {annual['period_end']}"})
                 fields.append({"label": "ROE计分来源", "value": annual.get("source") or "未记录"})
-        if key == "sentiment" and result:
+        if key == "sentiment" and result and ctx.extra_analysis_enabled:
             fields.append({"label": "有效评估", "value": f"{result.metrics.get('evaluated_count', 0)}条相关消息"})
             fields.append({"label": "评估窗口", "value": f"{result.metrics.get('window_start') or '未记录'} 至 {result.metrics.get('window_end') or '未记录'}"})
             if result.metrics.get("assessment_reason"):
                 fields.append({"label": "评估说明", "value": str(result.metrics["assessment_reason"])})
         reasons = [suff.reason] if suff.reason and level < 2 else []
+        if key == "sentiment" and not ctx.extra_analysis_enabled and suff.reason == "待充实":
+            reasons = []
         if result and result.status != "ok" and result.summary:
             reasons.append(result.summary)
         error = getattr(record, "error_message", "")
@@ -274,14 +295,15 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
     quality = {
         "status": "ok" if all_complete else "partial" if analysis_available else "unavailable",
         "coverage": round(coverage * 100, 1),
-        "signal_allowed": not hk and signal_complete and has_scored,
-        "signal_unavailable_reason": ("本期港股不提供交易信号或仓位建议。" if hk else
+        "signal_allowed": ctx.extra_analysis_enabled and signal_complete and has_scored,
+        "signal_unavailable_reason": ("未启用额外分析。" if not ctx.extra_analysis_enabled else
             f"{'、'.join(signal_blocked)}分析依据未满足信号生成条件。" if signal_blocked else ""),
-        "has_scored_data": has_scored,
+        "has_scored_data": ctx.extra_analysis_enabled and has_scored,
         "has_analysis_data": analysis_available,
         "dimensions": dimensions,
         "pending_verifications": list(dict.fromkeys(pending)),
-        "coverage_basis": "五维原权重数据覆盖，不表示评分置信度",
+        "coverage_basis": ("五维原权重数据覆盖，不表示评分置信度" if ctx.extra_analysis_enabled else
+                           "五维原权重数据覆盖，不表示字段完整度"),
     }
     if hk:
         quality.update(available_dimensions=available, applicable_dimensions=len(DIM_WEIGHTS))

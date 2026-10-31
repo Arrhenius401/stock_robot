@@ -115,7 +115,10 @@ class PushExecutor:
 
     def _push_stock(self, symbol: str, channel: str, backend, display_name: str = "") -> None:
         name = display_name or resolve_name(symbol) or symbol
-        results, commentary, ctx = self._core.pipeline.run(symbol, name)
+        if symbol.endswith(".HK"):
+            results, commentary, ctx = self._core.pipeline.run(symbol, name, market="hk")
+        else:
+            results, commentary, ctx = self._core.pipeline.run(symbol, name)
         signal_cfg = load_signal_config(self._config)
         if channel == "email":
             content = build_stock_full(symbol, name, results, commentary, ctx, signal_cfg)

@@ -18,6 +18,7 @@ _CREDENTIAL_PATHS = {
 }
 
 _EDITABLE_FIELDS: dict[str, Any] = {
+    "analysis": {"extra_enabled": None},
     "radar": {"collector": {"enabled": None, "hour": None, "minute": None}},
     "llm": {
         "provider": None,
@@ -166,6 +167,10 @@ def _require_number(
 
 
 def _validate_leaf(value: Any, path: tuple[str, ...]) -> Any:
+    if path == ("analysis", "extra_enabled"):
+        if type(value) is not bool:
+            _validation_error(path, "必须是布尔值")
+        return value
     if path in _CREDENTIAL_PATH_SET:
         if not isinstance(value, str):
             _validation_error(path, "必须是字符串")

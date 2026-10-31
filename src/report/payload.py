@@ -24,11 +24,18 @@ def build_stock_payload(
     signal_cfg: SignalConfig | None = None, llm_available: bool = True,
 ) -> dict[str, Any]:
     """质量门槛只组装一次，所有入口共享相同事实。"""
+    if not ctx.extra_analysis_enabled:
+        from analysis.mode import objective_results
+
+        results = objective_results(results)
     quality = build_data_quality(ctx, results)
     summary = compute_score_summary(results)
     price = compute_price_info(ctx)
     bulk = (commentary.get("bulk") or "").strip()
-    if not quality["has_analysis_data"]:
+    if not ctx.extra_analysis_enabled:
+        status = "not_requested"
+        bulk = ""
+    elif not quality["has_analysis_data"]:
         status = "insufficient"
         bulk = "主要数据不足，暂不调用模型生成结论。"
     elif no_llm:
@@ -51,6 +58,7 @@ def build_stock_payload(
         industry = ctx.sw_industry or (
             ctx.industry_data.industry if ctx.industry_data else "未知")
     return {
+        "analysis_mode": "extra" if ctx.extra_analysis_enabled else "objective",
         "scoring_method": SCORING_METHOD,
         "symbol": symbol, "code": symbol, "name": name, "market": ctx.market,
         "overview": {
@@ -63,7 +71,7 @@ def build_stock_payload(
         "score": {"base": summary.base_score if quality["has_scored_data"] else None,
                   "final": summary.final_score if quality["has_scored_data"] else None,
                   "risk_deduction": summary.risk_deduction},
-        "score_rows": summary.score_rows,
+        "score_rows": summary.score_rows if ctx.extra_analysis_enabled else [],
         "dimensions": {r.dimension: {**r.model_dump(mode="json", exclude={"dimension", "charts"}),
                        **({"display": stock_date_presentation(ctx, r.metrics, r.summary)} if r.dimension == "valuation" else {})}
                        for r in results},

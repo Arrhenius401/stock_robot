@@ -191,6 +191,7 @@ def test_existing_single_ai_call_consumes_fixed_facts(provider, market, tmp_path
     from utils.config import Config
 
     config = Config(config_dir=tmp_path)
+    config.data["analysis"]["extra_enabled"] = True
     config.data["llm"]["provider"] = provider
     registry, backend = Registry(), CountingLLM()
     registry.register_llm_backend(backend, provider=provider)

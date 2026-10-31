@@ -107,7 +107,7 @@ def test_retry_rejects_session_bypass_and_never_collects():
     llm=Mock()
     sessions=Mock()
     sessions.get_artifact.return_value={'session_id':'s1','payload':{'commentary_retry_id':token}}
-    client=TestClient(create_app(core=SimpleNamespace(llm=llm),sessions=sessions,push=False))
+    client=TestClient(create_app(core=SimpleNamespace(llm=llm,index_pipeline=SimpleNamespace(_extra_analysis_enabled=True,_llm_enabled=True)),sessions=sessions,push=False))
     result=client.post('/api/v1/index/commentary/retry',json={'report_token':token})
     assert result.status_code==404
     llm.generate.assert_not_called()
@@ -220,7 +220,7 @@ def test_session_write_failure_recovers_without_second_model_call(tmp_path, monk
         return original(*args)
     fail_once.pending=True
     monkeypatch.setattr(manager,'update_artifact_payload',fail_once)
-    client=TestClient(create_app(core=SimpleNamespace(llm=llm),sessions=manager,push=False))
+    client=TestClient(create_app(core=SimpleNamespace(llm=llm,index_pipeline=SimpleNamespace(_extra_analysis_enabled=True,_llm_enabled=True)),sessions=manager,push=False))
     body={'report_token':token,'artifact_id':record.artifact_id,'session_id':sid}
     assert client.post('/api/v1/index/commentary/retry',json=body).status_code==502
     response=client.post('/api/v1/index/commentary/retry',json=body)

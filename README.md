@@ -56,6 +56,8 @@ python3 -m venv .venv
 
 默认使用 OpenAI。使用 Claude、兼容接口或暂时不调用 LLM，见[配置 LLM](docs/使用指南.md#配置-llm)。Linux 将 `.\scripts\stock-robot.ps1` 替换为 `./scripts/stock-robot.sh`。
 
+个股与指数的额外分析默认关闭。在 Web「配置 → 分析与数据 → 分析模式」开启，或运行 `.\scripts\stock-robot.ps1 config set analysis.extra_enabled true`：为个股和指数增加规则判断及 AI 解读；个股另提供评分与模型信号。黄金沿用原有设置。
+
 ### 3. 启动并生成第一份报告
 
 ```powershell

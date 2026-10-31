@@ -51,9 +51,13 @@ class IndexPipeline:
         if registry is None:
             registry = Registry()
         self._config = config
+        from analysis.mode import extra_analysis_enabled
+
+        self._extra_analysis_enabled = extra_analysis_enabled(config)
         self._llm = llm
         self._llm_enabled = bool(config.get("llm.enabled", True)) if config is not None and llm_enabled is None else bool(llm_enabled)
         self._registry = registry
+        self._llm_enabled = self._llm_enabled and self._extra_analysis_enabled
         self._collector = IndexDataCollector(registry)
         self._enricher = IndexValuationEnricher()
         self._report_builder = IndexReportBuilder()
@@ -88,6 +92,7 @@ class IndexPipeline:
         for target in targets:
             try:
                 ctx = self._collector.collect(target, on_progress=on_progress, refresh_cache=True) if refresh_cache else self._collector.collect(target, on_progress=on_progress)
+                ctx.extra_analysis_enabled = self._extra_analysis_enabled
                 if target.market == "hk" and not ctx.price_data:
                     raise ValueError("未取得港股指数行情，请重试或选择其他指数")
                 if target.index_style == "strategy" and len(ctx.price_data) < 2:
@@ -119,9 +124,14 @@ class IndexPipeline:
                         on_progress("analyze", i + 1, total,
                                    INDEX_DIMENSION_LABELS.get(module.dimension) or module.dimension)
 
+                if not self._extra_analysis_enabled:
+                    from analysis.mode import objective_results
+
+                    results = objective_results(results)
                 report = self._report_builder.build(ctx, results)
                 from index.commentary import apply_commentary
-                apply_commentary(report, ctx, results, self._llm, self._llm_enabled)
+                if self._extra_analysis_enabled:
+                    apply_commentary(report, ctx, results, self._llm, self._llm_enabled)
                 reports.append(report)
                 contexts.append(ctx)
 

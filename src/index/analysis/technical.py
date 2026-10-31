@@ -117,7 +117,7 @@ class IndexTechnicalAnalyzer(AnalysisModule):
             )
 
         # 趋势标签
-        trend_tag = tag_technical(ma_5, ma_20, latest_close)
+        trend_tag = tag_technical(ma_5, ma_20, latest_close) if context.extra_analysis_enabled else None
 
         metrics = {
             "latest_close": latest_close,

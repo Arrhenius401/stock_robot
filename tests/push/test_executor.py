@@ -69,6 +69,22 @@ class _Config:
 
 
 class TestPushExecutor:
+    def test_hk_stock_push_preserves_market(self, monkeypatch):
+        from types import SimpleNamespace
+
+        calls = []
+
+        def run(symbol, name, *, market):
+            calls.append(market)
+            return [], {}, AnalysisContext(symbol=symbol, name=name, market=market,
+                                            extra_analysis_enabled=False)
+
+        core = SimpleNamespace(pipeline=SimpleNamespace(run=run))
+        backend = _Backend()
+        PushExecutor(core, None, _Config())._push_stock("00700.HK", "email", backend, "腾讯")
+        assert calls == ["hk"]
+        assert "市场：港股" in backend.calls[0]["content"]
+
     def test_email_subject_uses_public_name(self, monkeypatch):
         monkeypatch.setattr("push.executor.APP_NAME", "测试应用")
         backend = _Backend()

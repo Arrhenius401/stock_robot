@@ -395,6 +395,7 @@ function legacyHk(report) {
 function summarySection(report, sectionIdPrefix) {
   const card = section("report-summary", "标的基础概况", "panel", sectionIdPrefix);
   card.appendChild(reportHeader(report));
+  if (report.analysis_mode === "objective") card.appendChild(el("p", "dim-sum", "客观数据模式"));
   const quality = record(report.data_quality);
   if (quality.status) {
     const badge = statusBadge(quality.status);
@@ -428,7 +429,7 @@ function summarySection(report, sectionIdPrefix) {
   if (Number.isFinite(quality.coverage)) {
     const coverage = legacyHk(report) && Number.isInteger(quality.available_dimensions)
       ? `可用维度覆盖：${quality.available_dimensions}/${quality.applicable_dimensions}（${quality.coverage}%），不代表字段完整`
-      : `${legacyHk(report) ? "分析数据覆盖" : "计分数据覆盖"}：${quality.coverage}%`;
+      : `${report.analysis_mode === "objective" || legacyHk(report) ? "分析数据覆盖" : "计分数据覆盖"}：${quality.coverage}%`;
     meta.appendChild(el("span", "", coverage));
   }
   if (fiveDimension(report) && quality.coverage_basis) meta.appendChild(el("span", "", quality.coverage_basis));
@@ -651,9 +652,11 @@ function industryComparisonSection(dimension, sectionIdPrefix, newScoring = fals
   return card;
 }
 
-function dimensionSection(name, label, data, sectionIdPrefix, unscored = false, applicable = true, newScoring = false) {
+function dimensionSection(name, label, data, sectionIdPrefix, unscored = false, applicable = true, newScoring = false, objective = false) {
   if (name === "industry" && Object.keys(record(record(record(data).metrics).comparison)).length) {
-    return industryComparisonSection(record(data), sectionIdPrefix, newScoring);
+    const comparison = industryComparisonSection(record(data), sectionIdPrefix, newScoring && !objective);
+    if (objective) comparison.querySelectorAll(".dim-score").forEach(node => node.remove());
+    return comparison;
   }
   const card = section(`report-${name}`, label, "panel", sectionIdPrefix);
   if (!applicable) {
@@ -671,7 +674,7 @@ function dimensionSection(name, label, data, sectionIdPrefix, unscored = false, 
   title.remove();
   header.appendChild(title);
   header.appendChild(statusBadge(dimension.status));
-  header.appendChild(el("span", "dim-score", name === "industry" && !newScoring ? "不计分" : unscored ? "评分不适用" : scoreText(dimension.score, "暂无评分")));
+  if (!objective) header.appendChild(el("span", "dim-score", name === "industry" && !newScoring ? "不计分" : unscored ? "评分不适用" : scoreText(dimension.score, "暂无评分")));
   card.appendChild(header);
   card.appendChild(markdownBlock(naturalText(dimension.display?.summary ?? dimension.summary), "dim-sum md"));
 
@@ -736,6 +739,34 @@ function safeNewsUrl(value) {
   } catch {
     return null;
   }
+}
+
+function newsFactsSection(data, sectionIdPrefix) {
+  const card = section("report-sentiment", "相关新闻", "panel", sectionIdPrefix);
+  const dimension = record(data), metrics = record(dimension.metrics);
+  for (const note of [metrics.news_disclaimer, ...(metrics.news_notes || [])].filter(Boolean)) {
+    card.appendChild(el("p", "dim-sum", String(note)));
+  }
+  const list = el("ul", "report-metric-list sentiment-source-list");
+  const items = Array.isArray(metrics.news_items) && metrics.news_items.length ? metrics.news_items
+    : (metrics.headlines || []).map(title => ({title}));
+  for (const item of items) {
+    const row = el("li");
+    row.appendChild(el("span", "", `${readable(item.title, "未记录标题")}（${readable(item.publish_date || item.published_at, "日期未记录")}）`));
+    const links = Array.isArray(item.links) && item.links.length ? item.links : [{url: item.url, media: item.media || item.source}];
+    for (const link of links) {
+      const url = safeNewsUrl(link.url), label = readable(link.media, "来源未标注");
+      if (url) {
+        const source = el("a", "sentiment-source-link", label);
+        source.setAttribute("href", url); source.setAttribute("target", "_blank"); source.setAttribute("rel", "noopener noreferrer");
+        row.appendChild(source);
+      } else row.appendChild(el("span", "peer-caption", ` · ${label}`));
+    }
+    list.appendChild(row);
+  }
+  if (list.children.length) card.appendChild(list);
+  else card.appendChild(el("p", "dim-sum", dimension.summary || "本次暂无可展示新闻"));
+  return card;
 }
 
 function sentimentRiskSection(data, sectionIdPrefix) {
@@ -852,7 +883,7 @@ function commentarySection(report, sectionIdPrefix, options) {
   const signal = record(report.signal), quality = record(report.data_quality);
   const signalBlock = el("div", "report-signal");
   signalBlock.appendChild(el("h3", "", "模型信号"));
-  if (report.market === "hk") {
+  if (report.market === "hk" && !report.analysis_mode) {
     signalBlock.appendChild(el("p", "dim-sum", "本期港股不提供模型信号。"));
   } else if (quality.signal_allowed !== false && naturalText(signal.label)) {
     signalBlock.appendChild(el("p", "", `模型信号：${naturalText(signal.label)}`));
@@ -869,7 +900,7 @@ function qualitySection(report, sectionIdPrefix) {
   const card = section("report-quality", "数据覆盖与时效", "panel", sectionIdPrefix);
   const quality = record(report.data_quality);
   if (Number.isFinite(quality.coverage)) {
-    const label = legacyHk(report) ? "分析数据覆盖" : "计分维度覆盖";
+    const label = report.analysis_mode === "objective" || legacyHk(report) ? "分析数据覆盖" : "计分维度覆盖";
     card.appendChild(el("p", "dim-sum", `${label}：${quality.coverage}%。${naturalText(quality.coverage_basis) || "不表示评分置信度。"}`));
   }
   const dimensions = Array.isArray(quality.dimensions) ? quality.dimensions.map(record) : [];
@@ -1014,6 +1045,7 @@ export function renderIndexReport(report, options = {}) {
   };
   const overview = make("index-overview", "概览");
   overview.appendChild(reportHeader(report));
+  if (report.analysis_mode === "objective") overview.appendChild(el("p", "dim-sum", "客观数据模式"));
   if (report.generated_at) overview.appendChild(el("p", "dim-sum", `生成时间：${reportTime(report.generated_at)}`));
   addRows(overview, report.overview?.display_rows);
   article.appendChild(overview);
@@ -1078,7 +1110,7 @@ export function renderIndexReport(report, options = {}) {
   }
   if (options.commentaryError) commentary.appendChild(el("p", "report-commentary-error", options.commentaryError));
   if (report.commentary) commentary.appendChild(markdownBlock(report.commentary, "md dim-sum"));
-  article.appendChild(commentary);
+  if (report.analysis_mode !== "objective") article.appendChild(commentary);
   article.appendChild(qualitySection(report, prefix));
   const disclaimer = make("report-disclaimer", "免责声明");
   for (const paragraph of report.disclaimer || []) disclaimer.appendChild(el("p", "dim-sum", paragraph));
@@ -1095,9 +1127,14 @@ export function renderStockReport(report, options = {}) {
   if (options.className) article.classList.add(String(options.className));
   article.appendChild(summarySection(data, sectionIdPrefix));
   const dimensions = record(data.dimensions);
+  const objective = data.analysis_mode === "objective";
   const applicability = Array.isArray(data.data_quality?.dimensions) ? data.data_quality.dimensions : [];
   for (const [name, label] of DIMENSIONS) {
-    if (fiveDimension(data) && name === "sentiment") {
+    if (objective && name === "sentiment") {
+      article.appendChild(newsFactsSection(dimensions[name], sectionIdPrefix));
+      continue;
+    }
+    if (!objective && fiveDimension(data) && name === "sentiment") {
       article.appendChild(sentimentRiskSection(dimensions[name], sectionIdPrefix));
       continue;
     }
@@ -1106,11 +1143,12 @@ export function renderStockReport(report, options = {}) {
       continue;
     }
     const applicable = applicability.find(item => item.key === name)?.applicable !== false;
-    article.appendChild(dimensionSection(name, label, dimensions[name], sectionIdPrefix, legacyHk(data), applicable, fiveDimension(data)));
+    const title = objective ? ({financial: "财务数据", technical: "技术指标", valuation: "估值数据", industry: "行业对比"}[name] || label) : label;
+    article.appendChild(dimensionSection(name, title, dimensions[name], sectionIdPrefix, legacyHk(data), applicable, fiveDimension(data), objective));
   }
-  article.appendChild(scoreSection(data, sectionIdPrefix));
+  if (!objective) article.appendChild(scoreSection(data, sectionIdPrefix));
   const commentary = commentarySection(data, sectionIdPrefix, options);
-  article.appendChild(commentary);
+  if (!objective) article.appendChild(commentary);
   const disclaimer = section("report-disclaimer", "免责声明", "panel", sectionIdPrefix);
   let archivedDisclaimer = false;
   if (options.archiveMarkdown) {
@@ -1246,7 +1284,7 @@ export function renderReportSummary(artifact) {
     ? el("p", "report-summary-conclusion md", goldDirectionSummary(report))
     : markdownBlock(summaryConclusion(report), "report-summary-conclusion md"));
   const meta = el("div", "report-summary-meta");
-  meta.appendChild(el("span", "report-summary-risks", report.report_type === "gold"
+  meta.appendChild(el("span", "report-summary-risks", report.analysis_mode === "objective" ? "客观数据模式" : report.report_type === "gold"
     ? (report.report_schema === "gold-observation-v2" ? "行情日期与风险见正文" : "风险与量化重估见正文") : `${riskFlags(report).length} 项风险`));
   meta.appendChild(el("span", "report-summary-time", artifactTime(item, report)));
   card.appendChild(meta);

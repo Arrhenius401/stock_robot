@@ -14,6 +14,7 @@ from filelock import FileLock
 from utils.paths import project_state_dir
 
 DEFAULT_CONFIG = {
+    "analysis": {"extra_enabled": False},
     "llm": {
         "provider": "openai",
         "model": "gpt-4o",

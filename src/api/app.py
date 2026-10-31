@@ -138,7 +138,7 @@ def _extract_stock_reports(
             "commentary": commentary,
             "generated_at": report.get("generated_at"),
         }
-        for key in ("market", "scoring_method", "data_quality", "pending_verifications", "disclaimer", "signal", "commentary_status",
+        for key in ("analysis_mode", "market", "scoring_method", "data_quality", "pending_verifications", "disclaimer", "signal", "commentary_status",
                     "commentary_retry_id"):
             if key in report:
                 payload[key] = report[key]
@@ -979,8 +979,13 @@ def create_app(
             raise HTTPException(status_code=422, detail="主要数据不足，暂不生成 AI 结论")
         snapshot = _runtime_snapshot()
         agent_core = _snapshot_core(snapshot)
+        if (not record.context.extra_analysis_enabled
+                or not getattr(getattr(agent_core, "pipeline", None), "_extra_analysis_enabled", False)):
+            raise HTTPException(status_code=403, detail="当前未启用额外分析或 AI 解读，请重新分析")
         if agent_core is None or agent_core.llm is None:
             raise HTTPException(status_code=503, detail="模型未配置或不可用，请检查模型配置")
+        if not getattr(agent_core.pipeline, "_llm_enabled", False):
+            raise HTTPException(status_code=403, detail="当前未启用 AI 解读，请重新分析")
         if not record.lock.acquire(blocking=False):
             raise HTTPException(status_code=409, detail="此报告正在重试 AI 解读")
         try:
@@ -1038,6 +1043,9 @@ def create_app(
                         and artifact.get("payload") != pending_payload)):
                 raise HTTPException(status_code=404, detail="报告成果不属于本次会话")
         current = _snapshot_core(_runtime_snapshot())
+        if (record.report.analysis_mode == "objective"
+                or not getattr(getattr(current, "index_pipeline", None), "_extra_analysis_enabled", False)):
+            raise HTTPException(status_code=403, detail="当前未启用额外分析，请重新分析")
         if (current is None or getattr(current, "llm", None) is None
                 or getattr(getattr(current, "index_pipeline", None), "_llm_enabled", None) is False):
             raise HTTPException(status_code=503, detail="模型未配置或不可用")
