@@ -55,12 +55,11 @@ def test_complete_selected_pool_does_not_require_unrequested_pool(tmp_path):
 
 def test_unprocessed_task_blocks_all_legacy_channels(tmp_path):
     from radar.stocks.company_profile_source import load_company_profile_source
-    from radar.stocks.industry_source import load_industry_source
     from radar.stocks.market_value_registry import load_market_value_source
     _, _, tasks, _ = environment(tmp_path)
     run = tasks.enqueue(kind='reference_review', pool_ids=['growth_trend'], target_date=DAY,
                         rule_version=REFERENCE_VERSION, snapshot=snapshot())
-    for loader in (load_company_profile_source, load_industry_source, load_market_value_source):
+    for loader in (load_company_profile_source, load_market_value_source):
         result = loader(tmp_path, '600900', DAY)
         assert result['status'] == 'unavailable'
         assert result['reference_task']['run_id'] == run['run_id']
@@ -68,22 +67,22 @@ def test_unprocessed_task_blocks_all_legacy_channels(tmp_path):
 
 
 def test_unknown_or_broken_latest_task_does_not_disappear(tmp_path):
-    from radar.stocks.industry_source import load_industry_source
+    from radar.stocks.company_profile_source import load_company_profile_source
     _, _, tasks, _ = environment(tmp_path)
     run = tasks.enqueue(kind='reference_review', pool_ids=['growth_trend'], target_date=DAY,
                         rule_version=REFERENCE_VERSION, snapshot=snapshot())
     with tasks.research._write() as connection:
         connection.execute('UPDATE stocks_update_runs SET input_snapshot=?', ('{}',))
-    result = load_industry_source(tmp_path, '600900', DAY)
+    result = load_company_profile_source(tmp_path, '600900', DAY)
     assert result['status'] == 'unavailable' and result['reference_task']['run_id'] == run['run_id']
 
 
 def test_deep_corrupted_task_is_unavailable_instead_of_detail_error(tmp_path):
-    from radar.stocks.industry_source import load_industry_source
+    from radar.stocks.company_profile_source import load_company_profile_source
     _, _, tasks, _ = environment(tmp_path)
     tasks.enqueue(kind='reference_review', pool_ids=['growth_trend'], target_date=DAY,
                   rule_version=REFERENCE_VERSION, snapshot=snapshot())
     # 独立审查提供的原始异常样本：深层数组让json解码触发RecursionError。
     with tasks.research._write() as connection:
         connection.execute('UPDATE stocks_update_runs SET input_snapshot=?', ('[' * 50000 + ']' * 50000,))
-    assert load_industry_source(tmp_path, '600900', DAY)['status'] == 'unavailable'
+    assert load_company_profile_source(tmp_path, '600900', DAY)['status'] == 'unavailable'

@@ -86,6 +86,9 @@ class StockUpdateStore:
         for key in ('pool_ids', 'input_snapshot', 'results'):
             result[key] = json.loads(result[key])
         latest = {item['scope']: item['status'] for item in result['results']}
+        if result['kind'] == 'reference_review':
+            # 旧行业尝试保留为历史记录，不再影响基础资料任务的当前进度。
+            latest.pop('reference:industry', None)
         result['completed_scopes'] = sorted(scope for scope, status in latest.items() if status == 'completed')
         result['pending_scopes'] = sorted(scope for scope, status in latest.items() if status != 'completed')
         result['automatic_enabled'] = False

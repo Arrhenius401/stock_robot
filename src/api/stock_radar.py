@@ -215,7 +215,11 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
                     items.append({**dict(row), 'admission_status': 'pending_verification',
                                   'source_indexes': entry['source_indexes'], 'source_records': entry.get('source_records', [])})
             offset = (page - 1) * 15
-            return {**scope, 'pool_id': pool_id, 'items': items[offset:offset + 15], 'total': len(items),
+            visible = items[offset:offset + 15]
+            for item in visible:
+                industry = load_industry_source(state, item['symbol'], datetime.now().astimezone().date()).get('industry') or {}
+                item.update(industry_level1=industry.get('level1'), industry_level2=industry.get('level2'))
+            return {**scope, 'pool_id': pool_id, 'items': visible, 'total': len(items),
                     'page': page, 'page_size': 15, 'formal_screening_enabled': False}
 
     @router.get('/candidates')

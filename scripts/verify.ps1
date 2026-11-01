@@ -160,6 +160,7 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/radar/test_stock_company_profile_source.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_company_profile_admission.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_industry_source.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_local_industry_source.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_evaluation_store.py"
         Add-UniqueTarget $testTargets "tests/api/test_stock_radar_management.py"
         continue

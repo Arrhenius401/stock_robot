@@ -1,6 +1,7 @@
 """申万官方历史原件行业参考，不授予龙头资格。"""
 from __future__ import annotations
 
+import csv
 import hashlib
 import io
 import logging
@@ -128,20 +129,28 @@ def _registered_load_industry_source(state_dir: Path, symbol: str, as_of: date, 
 
 
 def load_industry_source(state_dir: Path, symbol: str, as_of: date, *, db: Path | None = None) -> dict[str, Any]:
-    """基础资料新任务优先，无适用任务时兼容旧登记。"""
-    from radar.stocks.reference_task import select_reference_manifest
+    """股票池直接查本地行业映射；不发起更新、不依赖在线资料任务。"""
+    from data.industry_classifier import IndustryClassifier
+    from utils.paths import industry_mapping_path
 
-    path, identity = select_reference_manifest(state_dir, symbol, as_of, 'industry', db=db)
-    if identity is None:
-        return _registered_load_industry_source(state_dir, symbol, as_of)
-    result = _registered_load_industry_source(state_dir, symbol, as_of, path) if path is not None else {'symbol': symbol, 'evaluation_as_of': as_of.isoformat(), 'as_of': None, 'status': 'unavailable', 'manifest_sha256': None, 'industry': None, 'reason': '基础资料任务尚无可用行业来源'}
-    after_path, after = select_reference_manifest(state_dir, symbol, as_of, 'industry', db=db)
-    if after_path != path or after != identity:
-        result = {'symbol': symbol, 'evaluation_as_of': as_of.isoformat(), 'as_of': None, 'status': 'unavailable', 'manifest_sha256': None, 'industry': None, 'reason': '基础资料任务尚无可用行业来源'}
-        identity = after or identity
-    result['reference_task'] = identity
-    if result.get('status') == 'unavailable':
-        result['reason'] = identity['reason'] if path is None else '最新基础资料任务内容未通过校验，不能回退旧登记'
-        for check in result.get('checks', []):
-            check['reason'] = result['reason']
+    if type(as_of) is not date:
+        raise ValueError('评估日期无效')
+    result: dict[str, Any] = {'symbol': symbol, 'evaluation_as_of': as_of.isoformat(), 'as_of': None,
+        'status': 'unavailable', 'industry': None, 'manifest_sha256': None,
+        'reason': '本地行业映射缺失或尚未核验'}
+    try:
+        path = industry_mapping_path()
+        raw = _bytes(path)
+        result['manifest_sha256'] = hashlib.sha256(raw).hexdigest()
+        classification = IndustryClassifier(path).lookup(symbol)
+        if not classification.is_verified:
+            return result
+        if _bytes(path) != raw:
+            raise ValueError('本地行业映射读取期间变化')
+        result.update(status='local_reference', industry={'level1': classification.sw_level1, 'level2': classification.sw_level2},
+            source={'provider': 'local_industry_mapping', 'classification': '本地申万行业映射',
+                    'sha256': result['manifest_sha256'], 'mapping_status': classification.mapping_status,
+                    'time_basis': 'not_recorded'}, reason='使用本地已核验行业映射，不代表行业龙头核验')
+    except (OSError, ValueError, TypeError, KeyError, csv.Error) as exc:
+        logger.debug('本地行业映射不可用：%s', type(exc).__name__)
     return result

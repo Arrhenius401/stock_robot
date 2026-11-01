@@ -36,6 +36,9 @@ def test_reference_api_freezes_two_pools_without_exposing_raw_scope(tmp_path):
     app = FastAPI()
     app.include_router(create_stock_router(state_dir=tmp_path, service_factory=FakeService), prefix='/api/v1/radar')
     with TestClient(app) as web:
+        candidate = web.get('/api/v1/radar/stocks/candidates?pool_id=growth_trend').json()['items'][0]
+        assert candidate['industry_level1'] == '公用事业' and candidate['industry_level2'] == '电力'
+        assert candidate['admission_status'] == 'pending_verification'
         response = web.post('/api/v1/radar/stocks/reference-review', json={'pool_ids': ['growth_trend', 'dividend_value'], 'target_date': DAY.isoformat()})
         assert response.status_code == 202, response.text
         run = response.json()
@@ -75,4 +78,4 @@ def test_cli_execution_defaults_to_local_calendar_when_no_window_file(tmp_path, 
     monkeypatch.setattr('radar.stocks.reference_collect.ReferenceCollector', FakeCollector)
     result = CliRunner().invoke(run_one_update, ['--db', str(research.db_path), '--pool-dir', str(Path('config/radar_stock_pools').resolve())])
     assert result.exit_code == 0, result.output
-    assert seen == [trace, trace, trace]
+    assert seen == [trace, trace]

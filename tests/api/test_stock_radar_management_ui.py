@@ -32,6 +32,23 @@ dispose();
 """))
 
 
+def test_local_industry_mapping_is_named_without_fake_snapshot_date(tmp_path):
+    _run_node(tmp_path, _script(r"""
+detail.evaluation.items[0].industry_source = {status:'local_reference',as_of:null,
+  industry:{level1:'公用事业',level2:'电力'},source:{provider:'local_industry_mapping'}};
+company.industry_level1='公用事业';company.industry_level2='电力';
+const request = async url => url.includes('/updates/latest') ? null : (url.includes('/companies/') ? detail : list());
+const dispose = renderRadarStockPool(root, header, pool, empty, {request}); await tick();
+await click(root, '候选与成员管理');
+assert.ok(root.textContent.includes('公用事业 / 电力'));
+await click(root, '测试公司 · 600001');
+assert.ok(root.textContent.includes('来源：本地映射表'));
+assert.ok(root.textContent.includes('公用事业 / 电力'));
+assert.ok(!root.textContent.includes('行业分类参考 · 来源截点'));
+dispose();
+"""))
+
+
 def _script(body: str) -> str:
     url = Path('src/api/static/js/radar-stock-view.js').resolve().as_uri()
     return _DOM_STUB + '\n' + "import assert from 'node:assert/strict';\n" + f"const {{renderRadarStockPool}} = await import({json.dumps(url)});\n" + r"""

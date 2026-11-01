@@ -52,7 +52,7 @@ def test_retry_budget_is_three_and_no_outer_retry(tmp_path):
 
 
 def test_industry_capture_is_shared_between_pools_and_loaded_from_task(tmp_path):
-    from radar.stocks.industry_source import load_industry_source
+    from radar.stocks.industry_source import _registered_load_industry_source
     from radar.stocks.reference_collect import ReferenceCollector
     from radar.stocks.update_runner import _artifact
     from tests.radar.test_stock_industry_source import seed
@@ -78,9 +78,8 @@ def test_industry_capture_is_shared_between_pools_and_loaded_from_task(tmp_path)
         tasks.record_item(run['run_id'], 'worker', {'scope': 'reference:industry', 'status': 'completed',
             'summary': '行业来源完成', 'artifact': ref}, lease_token=claimed['lease_token'])
         tasks.finish(run['run_id'], 'worker', lease_token=claimed['lease_token'], status='partial')
-        actual = load_industry_source(tmp_path, '600900', DAY)
+        actual = _registered_load_industry_source(tmp_path, '600900', DAY, tmp_path / result.value['manifest']['path'])
         assert actual['status'] == 'current' and actual['industry']['level1'] == '一级'
-        assert actual['reference_task']['run_id'] == run['run_id']
     assert len(calls) == 2
 
 
@@ -134,7 +133,7 @@ def test_empty_or_partial_industry_does_not_become_success_cache(tmp_path, empty
     assert not list((tmp_path / 'cache/reference').glob('*.json'))
 
 
-def test_task_retains_two_sources_when_calendar_missing_and_resume_skips_success(tmp_path):
+def test_task_does_not_update_industry_and_resume_skips_success(tmp_path):
     _, _, tasks, _ = environment(tmp_path)
     calls = []
     class FakeCollector:
@@ -159,10 +158,19 @@ def test_task_retains_two_sources_when_calendar_missing_and_resume_skips_success
                 'path': path.relative_to(self.state).as_posix(), 'sha256': hashlib.sha256(raw).hexdigest(), 'bytes': len(raw)}}, make_record(channel, 'complete'))
     frozen = snapshot()
     run = tasks.enqueue(kind='reference_review', pool_ids=frozen['pool_ids'], target_date=DAY, rule_version=REFERENCE_VERSION, snapshot=frozen)
+    claimed = tasks.claim('legacy-worker')
+    assert claimed is not None
+    from radar.stocks.update_runner import _artifact
+    tasks.record_item(run['run_id'], 'legacy-worker', {'scope': 'reference:industry', 'status': 'failed',
+        'summary': '旧行业失败记录', 'artifact': _artifact(tmp_path / 'stock-updates/artifacts', {'legacy': True})},
+        lease_token=claimed['lease_token'])
+    tasks.finish(run['run_id'], 'legacy-worker', lease_token=claimed['lease_token'], status='partial')
+    tasks.resume_reference(run['run_id'], frozen['pool_ids'])
     runner = StockUpdateRunner(tasks, tmp_path / 'stock-updates/cache', tmp_path / 'stock-updates/artifacts', reference_factory=FakeCollector)
     first = runner.execute_one('worker')
     assert first is not None and first['status'] == 'partial'
     tasks.resume_reference(run['run_id'], frozen['pool_ids'])
     resumed = runner.execute_one('worker')
     assert resumed is not None and resumed['status'] == 'partial'
-    assert calls == ['profile', 'industry', 'market_value', 'market_value']
+    assert calls == ['profile', 'market_value', 'market_value']
+    assert 'reference:industry' not in resumed['pending_scopes']

@@ -7,7 +7,9 @@ from datetime import date
 import pandas as pd
 import pytest
 
-from radar.stocks.industry_source import load_industry_source
+from radar.stocks.industry_source import (
+    _registered_load_industry_source as load_industry_source,
+)
 from tests.radar.test_stock_market_value_source import inputs
 
 DAY = date(2026, 10, 18)

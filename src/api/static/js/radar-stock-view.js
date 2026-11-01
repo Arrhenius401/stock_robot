@@ -149,7 +149,8 @@ export function renderRadarStockPool(root, header, pool, payload, options = {}) 
       (data.items || []).forEach(item => {
         const row = node('div', 'stock-row');
         const open = button((item.name || item.symbol) + ' · ' + item.symbol, () => { state.scroll = scrollHost.scrollTop || 0; state.symbol = item.symbol; state.view = 'detail'; show(); }, 'stock-company');
-        append(row, open, node('span', 'radar-meta', '行业待核验 · ' + label(item.admission_status)), node('span', 'radar-meta', '资料截点 ' + (item.data_as_of || item.data_asof || '未知')));
+        const industry = [item.industry_level1, item.industry_level2].filter(Boolean).join(' / ') || '行业待核验';
+        append(row, open, node('span', 'radar-meta', industry + ' · ' + label(item.admission_status)), node('span', 'radar-meta', '资料截点 ' + (item.data_as_of || item.data_asof || '未知')));
         if (item.source_indexes?.length) append(row, node('span', 'radar-meta', '来源指数：' + item.source_indexes.map(v => typeof v === 'string' ? v : v.name || v.code || v.index_id).join('、')));
         append(results, row);
       });
@@ -165,7 +166,8 @@ export function renderRadarStockPool(root, header, pool, payload, options = {}) 
     }
     if (value?.industry_source) {
       const source = value.industry_source, industry = source.industry || {};
-      append(section, node('p', 'radar-meta', '行业分类参考 · 来源截点 ' + (source.as_of || '未知') + ' · ' + (industry.level1 || '待核验') + ' / ' + (industry.level2 || '待核验') + '；行业归属不代表龙头资格。' + (source.reference_task ? '基础资料任务：' + (source.reason || source.reference_task.reason || '资料待补') : '')));
+      const industryBasis = source.source?.provider === 'local_industry_mapping' ? '行业分类 · 来源：本地映射表 · 数据日期未记录' : '行业分类参考 · 来源截点 ' + (source.as_of || '未知');
+      append(section, node('p', 'radar-meta', industryBasis + ' · ' + (industry.level1 || '待核验') + ' / ' + (industry.level2 || '待核验') + '；行业归属不代表龙头资格。' + (source.reference_task ? '基础资料任务：' + (source.reason || source.reference_task.reason || '资料待补') : '')));
     }
     const details = node('div');
     if (value?.growth_research) {
@@ -216,8 +218,10 @@ export function renderRadarStockPool(root, header, pool, payload, options = {}) 
       if (!current() || token !== serial) return;
       const company = data.company;
       const draft = state.drafts[symbol] ||= { reason: '', reviewer: '', evidence_id: '', decision: 'needs_evidence', request_id: null };
-      body.replaceChildren(back, node('h3', '', company.name + ' · ' + company.symbol), node('p', 'radar-meta', '资料截点 ' + (company.data_as_of || '未知') + ' · 版本 ' + company.revision + ' · 行业待核验'), node('p', 'radar-note', '事实审核不代表资格批准。正式规则尚未启用，新增或恢复成员不可用。'));
       const evaluation = data.evaluation?.items?.[0] || data.evaluation || {};
+      const industry = evaluation.industry_source?.industry;
+      const industryLabel = [industry?.level1, industry?.level2].filter(Boolean).join(' / ') || '行业待核验';
+      body.replaceChildren(back, node('h3', '', company.name + ' · ' + company.symbol), node('p', 'radar-meta', '资料截点 ' + (company.data_as_of || '未知') + ' · 版本 ' + company.revision + ' · ' + industryLabel), node('p', 'radar-note', '事实审核不代表资格批准。正式规则尚未启用，新增或恢复成员不可用。'));
       append(body, checks('共同条件', evaluation), checks(pool.name + '条件', evaluation.pools?.[pool.id]));
       const evidenceBox = append(node('div', 'stock-evidence'), node('h3', '', '资料与事实审核'));
       const editor = node('div', 'stock-review-editor');

@@ -237,8 +237,8 @@ class StockUpdateRunner:
         factory = self.reference_factory or ReferenceCollector
         collector = factory(state, self.cache_dir, root, frozen, date.fromisoformat(task['target_date']))
         previous = {item['scope']: item for item in task['results']}
-        channels = [('profile', None), ('industry', None), *(('market_value', row['symbol']) for row in frozen['companies'])]
-        # 日历不足只影响市值；另外两类来源仍按自己的预算完成。
+        channels = [('profile', None), *(('market_value', row['symbol']) for row in frozen['companies'])]
+        # 行业直接复用本地表，不纳入更新；日历不足只影响市值。
         try:
             if self.window_loader is not None:
                 _, trace = self.window_loader(date.fromisoformat(task['target_date']))
