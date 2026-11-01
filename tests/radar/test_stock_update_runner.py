@@ -196,10 +196,12 @@ def test_member_refresh_deduplicates_symbols_and_does_not_claim_risk_review(tmp_
     calls = []
     def history(companies, days, cache, **kwargs):
         calls.append(('market_history', companies, days))
-        return {'as_of': DAY.isoformat(), 'status': 'complete'}
+        return {'as_of': DAY.isoformat(), 'status': 'complete', 'items': [
+            {'status': 'downloaded', 'rows': [{'date': DAY.isoformat()}], 'window_complete': True}]}
     def capital(companies, cache, **kwargs):
         calls.append(('capital_history', companies))
-        return {'as_of': DAY.isoformat(), 'status': 'complete', 'unit_verified': False}
+        return {'as_of': DAY.isoformat(), 'status': 'complete', 'unit_verified': False, 'items': [
+            {'status': 'downloaded', 'rows': [{'date': DAY.isoformat()}], 'complete': True}]}
     days = [DAY - timedelta(days=59-index) for index in range(60)]
     result = StockUpdateRunner(store, tmp_path/'cache', tmp_path/'artifacts', history_collector=history,
                                capital_collector=capital, market_window=days).execute_one('worker')
@@ -218,7 +220,8 @@ def test_missing_market_window_preserves_other_source_result(tmp_path, environme
     member_task(store, research)
     result = StockUpdateRunner(store, tmp_path/'cache', tmp_path/'artifacts',
         history_collector=lambda *a, **k: pytest.fail('缺窗口不得请求行情'),
-        capital_collector=lambda *a, **k: {'as_of': DAY.isoformat(), 'status': 'complete'}).execute_one('worker')
+        capital_collector=lambda *a, **k: {'as_of': DAY.isoformat(), 'status': 'complete', 'items': [
+            {'status': 'downloaded', 'rows': [{'date': DAY.isoformat()}], 'complete': True}]}).execute_one('worker')
     assert result is not None and result['status'] == 'partial'
     assert result['results'][0]['scope'] == 'market_history' and result['results'][0]['status'] == 'failed'
     assert result['results'][1]['scope'] == 'capital_history' and result['results'][1]['status'] == 'completed'

@@ -5,7 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from radar.stocks.structured_collect import collect_structured_company
+from radar.stocks.structured_collect import (
+    collect_structured_company,
+    collect_structured_company_result,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -49,6 +52,20 @@ def test_targets_exact_bytes_and_cache(tmp_path):
     Path(raw_path).write_bytes(b'corrupt')
     collect_structured_company('000100', tmp_path, as_of=date(2026, 10, 18), fetch=_fake(calls))
     assert len(calls) == 6
+
+
+def test_result_boundary_reuses_cache_and_original_time(tmp_path):
+    calls = []
+    first = collect_structured_company_result('000100', tmp_path, as_of=date(2026, 10, 18), fetch=_fake(calls))
+    second = collect_structured_company_result('000100', tmp_path, as_of=date(2026, 10, 18), fetch=_fake(calls))
+    assert len(calls) == 5
+    assert first.record.result_state == second.record.result_state == 'complete'
+    assert first.value is not None and second.value is not None
+    before = first.value['collection_records']
+    after = second.value['collection_records']
+    assert len(before) == len(after) == 5
+    assert all(row['cache_status'] == 'cache' for row in after)
+    assert [row['collected_at'] for row in before] == [row['collected_at'] for row in after]
 
 
 def test_429_stops_all_endpoints(tmp_path):

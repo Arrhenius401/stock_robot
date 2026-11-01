@@ -5,6 +5,21 @@ from pathlib import Path
 from tests.api.test_static import _DOM_STUB, _run_node
 
 
+def test_growth_task_channel_and_failure_reason_are_visible(tmp_path):
+    _run_node(tmp_path, _script(r"""
+const growthDetail = {company, evidence:[], reviews:[], evaluation:{items:[{
+  pools:{growth_trend:{growth_research:{channel:'structured_financial_task',status:'unavailable',
+    as_of:'2026-11-01',reason:'最新任务尚未处理，不能回退旧结果',research:null}}}}]}};
+pool.id = 'growth_trend';
+const request = async url => url.includes('/updates/latest') ? null : (url.includes('/companies/') ? growthDetail : list());
+const dispose = renderRadarStockPool(root, header, pool, empty, {request}); await tick();
+await click(root, '候选与成员管理'); await click(root, '测试公司 · 600001');
+assert.ok(root.textContent.includes('财务复核任务'));
+assert.ok(root.textContent.includes('最新任务尚未处理，不能回退旧结果'));
+dispose();
+"""))
+
+
 def _script(body: str) -> str:
     url = Path('src/api/static/js/radar-stock-view.js').resolve().as_uri()
     return _DOM_STUB + '\n' + "import assert from 'node:assert/strict';\n" + f"const {{renderRadarStockPool}} = await import({json.dumps(url)});\n" + r"""

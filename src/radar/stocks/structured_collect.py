@@ -16,7 +16,9 @@ from typing import Any
 
 import requests
 
+from data.collection_state import ValueResult
 from radar.provider_request import ProviderRequestError, bounded_provider_call
+from radar.stocks.collection_results import collection_result
 from radar.stocks.research_store import _symbol
 
 logger = logging.getLogger(__name__)
@@ -132,7 +134,7 @@ class _Requests:
                     raise ValueError('结构化缓存抓取时间缺少时区')
                 raw = raw_path.read_bytes()
                 if all(meta.get(k) == v for k, v in identity.items()) and meta.get('bytes') == len(raw) <= _MAX_BODY and meta.get('content_sha256') == hashlib.sha256(raw).hexdigest():
-                    return raw, meta
+                    return raw, {**meta, 'cache_status': 'cache'}
             except (OSError, ValueError, TypeError) as exc:
                 logger.debug('结构化缓存不可复用：%s', exc)
         for attempt in range(3):
@@ -157,7 +159,7 @@ class _Requests:
                 if not raw_path.exists() or raw_path.stat().st_size != len(raw) or raw_path.read_bytes() != raw:
                     _atomic(raw_path, raw)
                 _atomic(meta_path, json.dumps(meta, ensure_ascii=False).encode())
-                return raw, meta
+                return raw, {**meta, 'cache_status': 'live'}
             except (ProviderRequestError, requests.RequestException, OSError) as exc:
                 if attempt == 2:
                     self.errors.append(f'{url}: {exc}')
@@ -261,3 +263,8 @@ def collect_structured_company(symbol: str, cache_dir: Path, *, as_of: date, ref
     if total > 1024 ** 3:
         result['warnings'] = ['结构化缓存超过1GiB软上限，未自动删除']
     return result
+
+
+def collect_structured_company_result(*args: Any, **kwargs: Any) -> ValueResult[dict[str, Any]]:
+    """共享结果入口，保留原采集器的请求和缓存语义。"""
+    return collection_result(collect_structured_company(*args, **kwargs), "financial")

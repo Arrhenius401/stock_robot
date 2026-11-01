@@ -6,6 +6,7 @@ import json
 import logging
 import sqlite3
 from contextlib import closing
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -21,19 +22,28 @@ from radar.stocks.structured_screen import RULE_VERSION
 logger = logging.getLogger(__name__)
 
 
-def load_financial_source(db: Path, symbol: str, as_of: date) -> dict[str, Any]:
+@dataclass
+class SavedFinancialTask:
+    """同一选择结果供不同研究投影使用；原文不直接返回网页。"""
+    source: dict[str, Any]
+    payload: Any = None
+    task: dict[str, Any] | None = None
+    name: str = ''
+
+
+def load_financial_task(db: Path, symbol: str, as_of: date) -> SavedFinancialTask:
     """按截点、创建顺序取最新包含公司的任务；坏来源不向旧任务回退。"""
     symbol = _symbol(symbol)
     source: dict[str, Any] = {'symbol': symbol, 'evaluation_as_of': as_of.isoformat(),
                               'status': 'unavailable', 'reason': '尚无可用的已保存财务任务',
                               'channel': 'structured_financial', 'financial': None}
     if not db.is_file():
-        return source
+        return SavedFinancialTask(source)
     with closing(sqlite3.connect(db.resolve().as_uri() + '?mode=ro', uri=True, timeout=5)) as connection:
         connection.row_factory = sqlite3.Row
         connection.execute('BEGIN')
         if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='stocks_update_runs'").fetchone() is None:
-            return source
+            return SavedFinancialTask(source)
         rows = connection.execute("SELECT rowid AS creation_order,* FROM stocks_update_runs WHERE kind='financial_review' AND target_date<=? ORDER BY target_date DESC,created_at DESC,rowid DESC",
                                   (as_of.isoformat(),)).fetchall()
     for row in rows:
@@ -59,28 +69,43 @@ def load_financial_source(db: Path, symbol: str, as_of: date) -> dict[str, Any]:
                           created_at=row['created_at'], scope_as_of=validated['scope_as_of'], scope_sha256=validated['scope_sha256'])
             if row['rule_version'] != RULE_VERSION:
                 source.update(status='version_mismatch', reason='已保存财务任务规则版本与当前版本不符，仅作参考')
-                return source
+                return SavedFinancialTask(source)
             if item is None:
                 source.update(status='not_attempted', reason='最新财务任务尚未处理该公司，不能回退旧结果')
-                return source
+                return SavedFinancialTask(source)
             if item.get('status') not in {'completed', 'partial'}:
                 raise StockResearchError('该公司财务任务未成功保存产物')
             payload = read_financial_artifact(item, db.parent/'stock-updates/artifacts')
-            financial = verify_financial_payload(payload, dict(row), symbol)
-            if financial.get('rule_version', RULE_VERSION) != RULE_VERSION:
-                raise StockResearchError('财务重算规则版本不匹配')
+            if not isinstance(payload, dict) or payload.get('symbol') != symbol or payload.get('as_of') != row['target_date']:
+                raise StockResearchError('财务产物身份或截点不匹配')
             name = next(c['name'] for c in companies if c['symbol'] == symbol)
-            source['financial'] = safe_financial_result(financial, name)
             current = row['target_date'] == as_of.isoformat()
             source.update(status='current' if current else 'historical',
                           reason='已校验结构化原始产物并按当前规则重算' if current else '历史财务结果仅供参考，不能提升本次截点的盈利核验')
-            if current and financial.get('financial_numeric_status') == 'pending_verification':
-                source['reason'] = '已校验保存的产物；结构化资料仍待补，按各项已知依据保留结论'
-            return source
+            return SavedFinancialTask(source, payload, dict(row), name)
         except (OSError, ValueError, TypeError, KeyError, AttributeError, StopIteration) as exc:
             logger.warning('已保存财务来源不可用 %s: %s', symbol, exc)
             source.update(run_id=row['run_id'], snapshot_sha256=hashlib.sha256(row['input_snapshot'].encode()).hexdigest(),
                           task_identity_sha256=_id({key: row[key] for key in ('run_id', 'target_date', 'rule_version', 'pool_ids', 'created_at')}),
                           status='invalid', reason='最新财务任务范围或产物校验失败，资料待补，不能回退旧结果', financial=None)
-            return source
+            return SavedFinancialTask(source)
+    return SavedFinancialTask(source)
+
+
+def load_financial_source(db: Path, symbol: str, as_of: date) -> dict[str, Any]:
+    """盈利投影与成长共享任务选择；任一投影失败不授权回退旧来源。"""
+    selected = load_financial_task(db, symbol, as_of)
+    source = selected.source
+    if selected.task is None:
+        return source
+    try:
+        financial = verify_financial_payload(selected.payload, selected.task, symbol)
+        if financial.get('rule_version', RULE_VERSION) != RULE_VERSION:
+            raise StockResearchError('财务重算规则版本不匹配')
+        source['financial'] = safe_financial_result(financial, selected.name)
+        if source['status'] == 'current' and financial.get('financial_numeric_status') == 'pending_verification':
+            source['reason'] = '已校验保存的产物；结构化资料仍待补，按各项已知依据保留结论'
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, StopIteration) as exc:
+        logger.warning('财务投影不可用 %s: %s', symbol, exc)
+        source.update(status='invalid', reason='最新财务任务范围或产物校验失败，资料待补，不能回退旧结果', financial=None)
     return source

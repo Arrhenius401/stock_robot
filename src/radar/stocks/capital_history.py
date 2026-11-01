@@ -15,8 +15,10 @@ from typing import Any
 
 import requests
 
+from data.collection_state import ValueResult
 from radar.provider_request import ProviderRequestError, bounded_provider_call
 from radar.stocks.admission import _BJ, _day
+from radar.stocks.collection_results import collection_result
 from radar.stocks.research_store import _symbol
 from radar.stocks.source_archive import _close
 
@@ -379,3 +381,8 @@ def collect_capital_history(companies: list[dict[str, Any]], cache_dir: Path, *,
             'retrospective': cutoff < now.astimezone(_BJ).date(), 'point_in_time_verified': False,
             'research_only': True, 'financial_verified': False, 'formal_screening_enabled': False,
             'members_published': 0, 'requires_review': True, 'warnings': _soft_budget(root)}
+
+
+def collect_capital_history_result(*args: Any, **kwargs: Any) -> ValueResult[dict[str, Any]]:
+    """共享结果入口，保留原采集器的请求和缓存语义。"""
+    return collection_result(collect_capital_history(*args, **kwargs), "capital_history")

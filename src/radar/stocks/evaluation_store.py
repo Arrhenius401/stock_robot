@@ -213,7 +213,10 @@ class StockEvaluationStore:
                     ('industry_source', 'industry_as_of', load_industry_source),
                     ('growth_source', 'growth_as_of', load_growth_source)):
                 if key in entry:
-                    loaded = loader(self.research.db_path.parent, symbol, date.fromisoformat(entry[day_key]))
+                    if key == 'growth_source':
+                        loaded = load_growth_source(self.research.db_path.parent, symbol, date.fromisoformat(entry[day_key]), db=self.research.db_path)
+                    else:
+                        loaded = loader(self.research.db_path.parent, symbol, date.fromisoformat(entry[day_key]))
                     if _json(loaded) != _json(entry[key]):
                         raise StockRevisionConflict(f'上市或行业来源已变化：{symbol}')
             if full:

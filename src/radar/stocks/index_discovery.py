@@ -15,8 +15,10 @@ from urllib.parse import urlsplit
 
 import requests
 
+from data.collection_state import ValueResult
 from radar.provider_request import ProviderRequestError, bounded_provider_call
 from radar.stocks.admission import _BJ, _day
+from radar.stocks.collection_results import collection_result
 from radar.stocks.index_scope import (
     INDEX_SOURCES,
     build_index_scope,
@@ -191,3 +193,8 @@ def collect_index_scope(cache_dir: Path, *, as_of: date, refresh: bool = False,
     result = build_index_scope(items, cutoff)
     result.update(version=VERSION, warnings=_soft_budget(root))
     return result
+
+
+def collect_index_scope_result(*args: Any, **kwargs: Any) -> ValueResult[dict[str, Any]]:
+    """共享结果入口，保留原采集器的请求和缓存语义。"""
+    return collection_result(collect_index_scope(*args, **kwargs), "index_scope")

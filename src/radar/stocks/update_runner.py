@@ -14,15 +14,16 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from radar.stocks.capital_history import collect_capital_history
+from radar.stocks.capital_history import collect_capital_history_result
+from radar.stocks.collection_results import collection_result
 from radar.stocks.financial_task import (
     read_financial_artifact,
     verify_financial_payload,
 )
-from radar.stocks.index_discovery import collect_index_scope
-from radar.stocks.market_history import collect_stock_history
+from radar.stocks.index_discovery import collect_index_scope_result
+from radar.stocks.market_history import collect_stock_history_result
 from radar.stocks.research_store import StockResearchError, StockRevisionConflict, _sha
-from radar.stocks.structured_collect import collect_structured_company
+from radar.stocks.structured_collect import collect_structured_company_result
 from radar.stocks.update_runs import StockUpdateStore
 
 logger = logging.getLogger(__name__)
@@ -70,10 +71,10 @@ class StockUpdateRunner:
     """资料发现完成不授予资格；所有数据库提交都重验执行租约。"""
 
     def __init__(self, store: StockUpdateStore, cache_dir: Path, artifact_dir: Path, *,
-                 roster_collector: Callable[..., Any] = collect_index_scope,
-                 history_collector: Callable[..., Any] = collect_stock_history,
-                 capital_collector: Callable[..., Any] = collect_capital_history,
-                 financial_collector: Callable[..., Any] = collect_structured_company,
+                 roster_collector: Callable[..., Any] = collect_index_scope_result,
+                 history_collector: Callable[..., Any] = collect_stock_history_result,
+                 capital_collector: Callable[..., Any] = collect_capital_history_result,
+                 financial_collector: Callable[..., Any] = collect_structured_company_result,
                  market_window: list[date] | None = None,
                  window_loader: Callable[[date], tuple[list[date] | None, Any]] | None = None):
         self.store = store
@@ -112,9 +113,11 @@ class StockUpdateRunner:
 
     def _discovery(self, task: dict[str, Any], worker: str, token: str) -> dict[str, Any]:
         cutoff = date.fromisoformat(task['target_date'])
-        result = self.roster_collector(self.cache_dir/'index-scope', as_of=cutoff)
+        collected = collection_result(self.roster_collector(self.cache_dir/'index-scope', as_of=cutoff), 'index_scope')
+        result = collected.value
         if not isinstance(result, dict) or result.get('as_of') != cutoff.isoformat() or not isinstance(result.get('companies'), list):
             raise StockResearchError('指数初筛结果缺少匹配研究日期和公司清单')
+        result['collection_record'] = collected.record.model_dump(mode='json')
         reference = _artifact(self.artifact_dir, result)
         imported = (self.store.research.import_companies(result['companies'], source_sha256=reference['sha256'],
             source_label=reference['path'], data_as_of=cutoff,
@@ -123,7 +126,8 @@ class StockUpdateRunner:
         item = {'scope': 'index_scope_v1', 'status': 'completed' if complete else ('partial' if result['companies'] else 'failed'),
                 'summary': f"指数范围去重{len(result['companies'])}家公司；来源{'完整' if complete else '尚不完整'}，尚未筛选通过或发布成员",
                 'artifact': {**reference, 'companies_found': len(result['companies']), 'scope_complete': complete,
-                             'import': imported, 'formal_screening_enabled': False, 'members_published': 0}}
+                             'import': imported, 'collection_record': result['collection_record'],
+                             'formal_screening_enabled': False, 'members_published': 0}}
         self.store.record_item(task['run_id'], worker, item, lease_token=token)
         return item
 
@@ -142,10 +146,12 @@ class StockUpdateRunner:
                 continue
             stopped = False
             try:
-                collection = self.financial_collector(symbol, self.cache_dir/'structured-financial',
-                                                       as_of=date.fromisoformat(task['target_date']))
+                collected = collection_result(self.financial_collector(symbol, self.cache_dir/'structured-financial',
+                                                       as_of=date.fromisoformat(task['target_date'])), 'financial')
+                collection = collected.value
                 stopped = isinstance(collection, dict) and collection.get('source_stopped') is True
-                payload = {'symbol': symbol, 'as_of': task['target_date'], 'collection': collection}
+                payload = {'symbol': symbol, 'as_of': task['target_date'], 'collection': collection,
+                           'collection_record': collected.record.model_dump(mode='json')}
                 screened = verify_financial_payload(payload, task, symbol)
                 outcome = screened['financial_numeric_status']
             except StockRevisionConflict:
@@ -154,12 +160,13 @@ class StockUpdateRunner:
                 logger.warning('股票财务采集失败 %s: %s', symbol, exc)
                 payload = {'symbol': symbol, 'as_of': task['target_date'], 'collection': None}
                 outcome = 'pending_verification'
-            incomplete = outcome == 'pending_verification'
+            incomplete = outcome == 'pending_verification' or payload.get('collection_record', {}).get('result_state', 'failed') != 'complete'
             pending = pending or incomplete
             item = {'scope': scope, 'status': 'partial' if incomplete else 'completed',
                     'summary': '财务资料待补，不能当作未盈利' if incomplete else '盈利数值复核已完成，尚未通过全部入池条件',
                     'artifact': {**_artifact(self.artifact_dir, payload), 'symbol': symbol,
-                                 'financial_numeric_status': outcome, 'source_stopped': stopped}}
+                                 'financial_numeric_status': outcome, 'source_stopped': stopped,
+                                 'collection_record': payload.get('collection_record')}}
             self.store.record_item(task['run_id'], worker, item, lease_token=token)
             if stopped:
                 return 'partial'
@@ -182,18 +189,20 @@ class StockUpdateRunner:
                     if days is None:
                         raise StockResearchError('更新成员行情需要明确的60个已收盘市场交易日')
                     value = collector(companies, days, self.cache_dir/scope, as_of=cutoff)
-                    if isinstance(value, dict):
-                        value = {**value, 'market_window_source': trace}
                 else:
                     value = collector(companies, self.cache_dir/scope, as_of=cutoff)
+                collected = collection_result(value, scope)
+                value = collected.value
                 if not isinstance(value, dict) or value.get('as_of') != cutoff.isoformat():
                     raise StockResearchError('成员更新结果日期或结构无效')
-                complete = value.get('status') == 'complete'
-                usable = complete or any(row.get('status') in {'downloaded', 'cached'} and row.get('rows')
-                                         for row in value.get('items', []) if isinstance(row, dict))
+                if scope == 'market_history':
+                    value['market_window_source'] = trace
+                complete = collected.record.result_state == 'complete'
+                usable = collected.record.result_state in {'complete', 'partial'}
+                value['collection_record'] = collected.record.model_dump(mode='json')
                 item = {'scope': scope, 'status': 'completed' if complete else ('partial' if usable else 'failed'),
                         'summary': f"{len(companies)}家公司资料采集{'完成' if complete else '尚不完整'}，未审核资格",
-                        'artifact': _artifact(self.artifact_dir, value)}
+                        'artifact': {**_artifact(self.artifact_dir, value), 'collection_record': value['collection_record']}}
             except StockRevisionConflict:
                 raise
             except Exception as exc:  # noqa: BLE001 各采集来源独立隔离，保留错误继续其他来源

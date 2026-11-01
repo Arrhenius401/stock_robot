@@ -171,7 +171,8 @@ export function renderRadarStockPool(root, header, pool, payload, options = {}) 
     if (value?.growth_research) {
       const source = value.growth_research, research = source.research;
       const study = node('div');
-      append(study, node('p', 'radar-meta', '成长研究参考 · 截点 ' + (source.as_of || '未知') + (source.status === 'historical' ? ' · 历史参考' : '') + '；不改变正式资格或机会。'));
+      const growthChannel = source.channel === 'structured_financial_task' ? '财务复核任务' : '旧登记参考';
+      append(study, node('p', 'radar-meta', '成长研究参考 · 来源：' + growthChannel + ' · 截点 ' + (source.as_of || '未知') + (source.status === 'historical' ? ' · 历史参考' : '') + '；不改变正式资格或机会。' + (source.reason || '')));
       const pathLabel = outcome => ({met_reference: '达到参考线', below_reference: '未达到参考线', pending_verification: '待核验'}[outcome] || '待核验');
       append(study, node('p', '', '持续成长：' + pathLabel(research?.paths?.sustained_growth) + '；经营改善：' + pathLabel(research?.paths?.operating_improvement)));
       const percent = value => value == null ? '待核验' : value + '%';

@@ -21,7 +21,7 @@ def test_reference_preserves_status_and_archive_invalidates(tmp_path, monkeypatc
     source = {'symbol': '600900', 'evaluation_as_of': day.isoformat(), 'as_of': '2026-10-17',
               'status': 'historical', 'research': {'paths': {'sustained_growth': 'met_reference'}}}
     live = [source]
-    monkeypatch.setattr('radar.stocks.evaluation_store.load_growth_source', lambda *_: live[0])
+    monkeypatch.setattr('radar.stocks.evaluation_store.load_growth_source', lambda *_, **__: live[0])
     before = evaluate_store(store, day, symbol='600900', include_styles=True)
     report = evaluate_store(store, day, symbol='600900', include_styles=True, growth_sources={'600900': source})
     for pool, value in before['items'][0]['pools'].items():

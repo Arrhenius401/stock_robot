@@ -17,8 +17,10 @@ from typing import Any
 
 import requests
 
+from data.collection_state import ValueResult
 from radar.provider_request import ProviderRequestError, bounded_provider_call
 from radar.stocks.admission import _BJ, _amount, _day
+from radar.stocks.collection_results import collection_result
 from radar.stocks.research_store import _symbol
 from radar.stocks.source_archive import _close
 
@@ -357,3 +359,8 @@ def collect_stock_history(companies: list[dict[str, Any]], market_window: list[d
             'status': 'complete' if all(item['status'] in ('downloaded', 'cached') for item in items) else 'partial',
             'research_only': True, 'financial_verified': False, 'formal_screening_enabled': False,
             'requires_review': True, 'warnings': list(dict.fromkeys(warnings))}
+
+
+def collect_stock_history_result(*args: Any, **kwargs: Any) -> ValueResult[dict[str, Any]]:
+    """共享结果入口，保留原采集器的请求和缓存语义。"""
+    return collection_result(collect_stock_history(*args, **kwargs), "market_history")
