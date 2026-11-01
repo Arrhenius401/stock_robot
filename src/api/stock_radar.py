@@ -20,6 +20,7 @@ from radar.stocks.company_profile_source import load_company_profile_source
 from radar.stocks.evaluation_store import StockEvaluationStore
 from radar.stocks.financial_source import load_financial_source
 from radar.stocks.financial_task import financial_results
+from radar.stocks.growth_source import load_growth_source
 from radar.stocks.industry_source import load_industry_source
 from radar.stocks.market_value_registry import load_market_value_source
 from radar.stocks.membership_drafts import StockMembershipDraftStore
@@ -223,11 +224,12 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
         financial = load_financial_source(db, symbol, cutoff)
         profile = load_company_profile_source(state, symbol, cutoff)
         industry = load_industry_source(state, symbol, cutoff)
+        growth = load_growth_source(state, symbol, cutoff)
         market_value = load_market_value_source(state, symbol, cutoff)
         _check_market_window(market_value, window, trace)
         report = evaluate_store(store, cutoff, symbol=symbol, market_window=window, include_styles=True,
                                 financial_sources={symbol: financial}, market_value_sources={symbol: market_value},
-                                profile_sources={symbol: profile}, industry_sources={symbol: industry})
+                                profile_sources={symbol: profile}, industry_sources={symbol: industry}, growth_sources={symbol: growth})
         report['market_window_source'] = trace
         evidence, reviews = store.list_evidence(symbol), store.review_history(symbol)
         if company(store, symbol)['revision'] != row['revision']:
@@ -238,6 +240,8 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
             raise StockRevisionConflict('读取详情期间市值来源变化，请重新读取')
         if load_company_profile_source(state, symbol, cutoff) != profile or load_industry_source(state, symbol, cutoff) != industry:
             raise StockRevisionConflict('读取详情期间上市或行业来源变化，请重新读取')
+        if load_growth_source(state, symbol, cutoff) != growth:
+            raise StockRevisionConflict('读取详情期间成长来源变化，请重新读取')
         return {'company': row, 'evidence': evidence, 'reviews': reviews, 'evaluation': report, 'publication_enabled': False}
 
     @router.post('/companies/{symbol}/reviews')
@@ -286,15 +290,17 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
         financial = load_financial_source(db, symbol, cutoff)
         profile = load_company_profile_source(state, symbol, cutoff)
         industry = load_industry_source(state, symbol, cutoff)
+        growth = load_growth_source(state, symbol, cutoff)
         market_value = load_market_value_source(state, symbol, cutoff)
         _check_market_window(market_value, window, trace)
         inputs['companies'][0].update(financial_source=financial, financial_as_of=cutoff.isoformat())
         inputs['companies'][0].update(company_profile_source=profile, profile_as_of=cutoff.isoformat(),
-                                       industry_source=industry, industry_as_of=cutoff.isoformat())
+                                       industry_source=industry, industry_as_of=cutoff.isoformat(),
+                                       growth_source=growth, growth_as_of=cutoff.isoformat())
         inputs['companies'][0].update(market_value_source=market_value, market_value_as_of=cutoff.isoformat())
         report = evaluate_store(store, cutoff, symbol=symbol, market_window=window, include_styles=True,
                                 financial_sources={symbol: financial}, market_value_sources={symbol: market_value},
-                                profile_sources={symbol: profile}, industry_sources={symbol: industry})
+                                profile_sources={symbol: profile}, industry_sources={symbol: industry}, growth_sources={symbol: growth})
         report['market_window_source'] = trace
         saved = evaluations.save_evaluation(report, inputs, market_window=window)
         drafts = StockMembershipDraftStore(evaluations, pools)

@@ -11,6 +11,7 @@ from typing import Any
 from radar.stocks import admission, style
 from radar.stocks.company_profile_source import load_company_profile_source
 from radar.stocks.financial_source import load_financial_source
+from radar.stocks.growth_source import load_growth_source
 from radar.stocks.industry_source import load_industry_source
 from radar.stocks.market_value_registry import load_market_value_source
 from radar.stocks.research_store import (
@@ -164,7 +165,7 @@ class StockEvaluationStore:
                 if (not isinstance(market, dict) or market.get('symbol') != symbol
                         or market.get('evaluation_as_of') != market_as_of):
                     raise StockResearchError('公司市值来源的身份或评估截点无效')
-            for key, day_key in (('company_profile_source', 'profile_as_of'), ('industry_source', 'industry_as_of')):
+            for key, day_key in (('company_profile_source', 'profile_as_of'), ('industry_source', 'industry_as_of'), ('growth_source', 'growth_as_of')):
                 if key in entry or day_key in entry:
                     source = entry.get(key)
                     cutoff = self.research._date(entry.get(day_key))
@@ -209,7 +210,8 @@ class StockEvaluationStore:
                     raise StockRevisionConflict(f'公司市值来源已变化：{symbol}')
             for key, day_key, loader in (
                     ('company_profile_source', 'profile_as_of', load_company_profile_source),
-                    ('industry_source', 'industry_as_of', load_industry_source)):
+                    ('industry_source', 'industry_as_of', load_industry_source),
+                    ('growth_source', 'growth_as_of', load_growth_source)):
                 if key in entry:
                     loaded = loader(self.research.db_path.parent, symbol, date.fromisoformat(entry[day_key]))
                     if _json(loaded) != _json(entry[key]):
@@ -250,7 +252,14 @@ class StockEvaluationStore:
             if item.get('as_of') != as_of or item.get('rule_version') != admission.RULE_VERSION or item.get('style_rule_version') != style.STYLE_RULE_VERSION:
                 raise StockResearchError('公司截点或规则版本不匹配')
             source = next(entry for entry in inputs['companies'] if entry['company']['symbol'] == symbol)
-            for key, day_key in (('company_profile_source', 'profile_as_of'), ('industry_source', 'industry_as_of')):
+            pool_results = item.get('pools')
+            growth_pool = pool_results.get('growth_trend') if isinstance(pool_results, dict) else None
+            if not isinstance(growth_pool, dict):
+                raise StockResearchError('成长池结果格式无效')
+            nested_growth = growth_pool.get('growth_research')
+            if _json(nested_growth) != _json(item.get('growth_source')):
+                raise StockResearchError('成长研究展示结果与绑定来源不匹配')
+            for key, day_key in (('company_profile_source', 'profile_as_of'), ('industry_source', 'industry_as_of'), ('growth_source', 'growth_as_of')):
                 if (key in item or key in source) and (source.get(day_key) != as_of or _json(source.get(key)) != _json(item.get(key))):
                     raise StockResearchError('报告上市或行业来源与归档输入不匹配')
             if ('market_value_source' in item or 'market_value_source' in source) and (

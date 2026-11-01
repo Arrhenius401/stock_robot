@@ -136,6 +136,13 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/api/test_stock_radar_management.py"
         continue
     }
+    if ($path -in @("src\radar\stocks\growth_research.py", "src\radar\stocks\growth_source.py")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_growth_research.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_growth_source.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_growth_integration.py"
+        Add-UniqueTarget $testTargets "tests/api/test_stock_radar_management.py"
+        continue
+    }
     if ($path -in @("src\radar\stocks\market_value_source.py", "src\radar\stocks\market_value_registry.py", "src\radar\stocks\market_value_admission.py")) {
         Add-UniqueTarget $testTargets "tests/radar/test_stock_market_value_source.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_market_value_registry.py"

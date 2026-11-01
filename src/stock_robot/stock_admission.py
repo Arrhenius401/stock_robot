@@ -58,7 +58,8 @@ def evaluate_store(store: StockResearchStore, as_of: date, *, symbol: str | None
                    financial_sources: dict[str, dict[str, Any]] | None = None,
                    market_value_sources: dict[str, dict[str, Any]] | None = None,
                    profile_sources: dict[str, dict[str, Any]] | None = None,
-                   industry_sources: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
+                   industry_sources: dict[str, dict[str, Any]] | None = None,
+                   growth_sources: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     """读前后revision校验，不能把资料更新中的混合结果当稳定结论。"""
     style_engine = None
     if include_styles:
@@ -101,6 +102,15 @@ def evaluate_store(store: StockResearchStore, as_of: date, *, symbol: str | None
             result = (style_engine.evaluate_stock_styles(code, evidence, as_of, market_window=market_window, common_result=common)
                       if style_engine else common)
             result["evaluation_valid"] = True
+            if growth_sources is not None:
+                if code not in growth_sources:
+                    raise ValueError('缺少绑定的成长研究来源')
+                source = growth_sources[code]
+                if source.get('symbol') != code or source.get('evaluation_as_of') != as_of.isoformat():
+                    raise ValueError('成长研究来源身份或截点不符')
+                result['growth_source'] = source
+                if style_engine:
+                    result['pools']['growth_trend']['growth_research'] = source
             after = store.get_company(code)
             if before is None or after is None or before["revision"] != after["revision"]:
                 _invalidate_result(result, "评估期间公司资料已变化，请重新评估")

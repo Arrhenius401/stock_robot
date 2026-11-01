@@ -168,6 +168,19 @@ export function renderRadarStockPool(root, header, pool, payload, options = {}) 
       append(section, node('p', 'radar-meta', '行业分类参考 · 来源截点 ' + (source.as_of || '未知') + ' · ' + (industry.level1 || '待核验') + ' / ' + (industry.level2 || '待核验') + '；行业归属不代表龙头资格。'));
     }
     const details = node('div');
+    if (value?.growth_research) {
+      const source = value.growth_research, research = source.research;
+      const study = node('div');
+      append(study, node('p', 'radar-meta', '成长研究参考 · 截点 ' + (source.as_of || '未知') + (source.status === 'historical' ? ' · 历史参考' : '') + '；不改变正式资格或机会。'));
+      const pathLabel = outcome => ({met_reference: '达到参考线', below_reference: '未达到参考线', pending_verification: '待核验'}[outcome] || '待核验');
+      append(study, node('p', '', '持续成长：' + pathLabel(research?.paths?.sustained_growth) + '；经营改善：' + pathLabel(research?.paths?.operating_improvement)));
+      const percent = value => value == null ? '待核验' : value + '%';
+      if (research) {
+        append(study, node('p', '', 'TTM收入同比 ' + percent(research.ttm?.revenue?.yoy_percent) + '；扣非归母同比 ' + percent(research.ttm?.deducted_profit?.yoy_percent)));
+        (research.quarters || []).forEach(row => append(study, node('p', '', row.period + '：收入同比 ' + percent(row.revenue?.yoy_percent) + '；扣非归母同比 ' + percent(row.deducted_profit?.yoy_percent) + '；扣非利润率变化 ' + (row.margin_change_pp == null ? '待核验' : row.margin_change_pp + '个百分点'))));
+      }
+      append(section, fold('成长路径研究参考', study));
+    }
     (value?.checks || []).forEach(check => {
       let extra = '';
       if (check.channel === 'structured_financial') extra = (check.reference_check ? '；本次结构化来源：' : '；结构化来源：') + label(check.structured_check?.outcome) + '，人工事实：' + label(check.manual_check?.outcome);
