@@ -112,7 +112,7 @@ def test_archive_invalidates_when_market_source_changes(tmp_path, monkeypatch):
     archive = StockEvaluationStore(store)
     source = {'symbol': '600900', 'evaluation_as_of': AS_OF.isoformat(), 'status': 'unavailable', 'checks': []}
     live = [source]
-    monkeypatch.setattr('radar.stocks.evaluation_store.load_market_value_source', lambda *_: live[0])
+    monkeypatch.setattr('radar.stocks.evaluation_store.load_market_value_source', lambda *_, **__: live[0])
     inputs = archive.capture_inputs(symbol='600900')
     inputs['companies'][0].update(market_value_source=source, market_value_as_of=AS_OF.isoformat())
     report = evaluate_store(store, AS_OF, symbol='600900', market_window=WINDOW,
@@ -134,7 +134,7 @@ def test_archive_rejects_mismatched_current_market_window(tmp_path, monkeypatch)
     source = {'symbol': '600900', 'evaluation_as_of': AS_OF.isoformat(), 'as_of': AS_OF.isoformat(),
               'status': 'current', 'window_days': [day.isoformat() for day in WINDOW],
               'calendar_sha256': 'a' * 64, 'checks': []}
-    monkeypatch.setattr('radar.stocks.evaluation_store.load_market_value_source', lambda *_: source)
+    monkeypatch.setattr('radar.stocks.evaluation_store.load_market_value_source', lambda *_, **__: source)
     inputs = archive.capture_inputs(symbol='600900')
     inputs['companies'][0].update(market_value_source=source, market_value_as_of=AS_OF.isoformat())
     report = evaluate_store(store, AS_OF, symbol='600900', market_window=WINDOW,

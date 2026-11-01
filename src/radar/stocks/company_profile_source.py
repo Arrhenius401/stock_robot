@@ -24,7 +24,7 @@ def _parsed(raw: bytes, source: str, parser: Callable[[bytes, str], dict[str, An
     return parser(raw, source)
 
 
-def load_company_profile_source(state_dir: Path, symbol: str, as_of: date) -> dict[str, Any]:
+def _registered_load_company_profile_source(state_dir: Path, symbol: str, as_of: date, manifest_file: Path | None = None) -> dict[str, Any]:
     """缺失及冲突不放行；历史年限不伪装当前资格。"""
     if type(as_of) is not date:
         raise ValueError('评估日期无效')
@@ -34,7 +34,9 @@ def load_company_profile_source(state_dir: Path, symbol: str, as_of: date) -> di
                                                               'reason': '上市名录来源缺失或校验失败'}]}
     try:
         root = Path(state_dir).absolute() / 'stock-company-profile'
-        manifest_path = _path(root, 'manifest.json')
+        if manifest_file is not None:
+            root = manifest_file.parent
+        manifest_path = _path(root, manifest_file.name if manifest_file is not None else 'manifest.json')
         raw = _bytes(manifest_path)
         result['manifest_sha256'] = hashlib.sha256(raw).hexdigest()
         manifest = _json(raw)
@@ -99,4 +101,24 @@ def load_company_profile_source(state_dir: Path, symbol: str, as_of: date) -> di
                                'values': {'a_listed_on': listed.isoformat(), 'third_anniversary': anniversary.isoformat()}}])
     except (OSError, ValueError, TypeError, KeyError, OverflowError, RecursionError) as exc:
         logger.debug('上市名录来源校验失败，保留待核验: %s', exc)
+    return result
+
+
+def load_company_profile_source(state_dir: Path, symbol: str, as_of: date, *, db: Path | None = None) -> dict[str, Any]:
+    """基础资料新任务优先，无适用任务时兼容旧登记。"""
+    from radar.stocks.reference_task import select_reference_manifest
+
+    path, identity = select_reference_manifest(state_dir, symbol, as_of, 'profile', db=db)
+    if identity is None:
+        return _registered_load_company_profile_source(state_dir, symbol, as_of)
+    result = _registered_load_company_profile_source(state_dir, symbol, as_of, path) if path is not None else {'symbol': symbol, 'evaluation_as_of': as_of.isoformat(), 'as_of': None, 'status': 'unavailable', 'manifest_sha256': None, 'name_match': None, 'roster_name': None, 'checks': [{'code': 'listing_age', 'outcome': 'pending_verification', 'reason': '基础资料任务尚无可用上市来源'}]}
+    after_path, after = select_reference_manifest(state_dir, symbol, as_of, 'profile', db=db)
+    if after_path != path or after != identity:
+        result = {'symbol': symbol, 'evaluation_as_of': as_of.isoformat(), 'as_of': None, 'status': 'unavailable', 'manifest_sha256': None, 'name_match': None, 'roster_name': None, 'checks': [{'code': 'listing_age', 'outcome': 'pending_verification', 'reason': '基础资料任务尚无可用上市来源'}]}
+        identity = after or identity
+    result['reference_task'] = identity
+    if result.get('status') == 'unavailable':
+        result['reason'] = identity['reason'] if path is None else '最新基础资料任务内容未通过校验，不能回退旧登记'
+        for check in result.get('checks', []):
+            check['reason'] = result['reason']
     return result

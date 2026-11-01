@@ -205,7 +205,7 @@ class StockEvaluationStore:
                     raise StockRevisionConflict(f'公司财务来源已变化：{symbol}')
             if 'market_value_source' in entry:
                 cutoff = date.fromisoformat(entry['market_value_as_of'])
-                live_market = load_market_value_source(self.research.db_path.parent, symbol, cutoff)
+                live_market = load_market_value_source(self.research.db_path.parent, symbol, cutoff, db=self.research.db_path)
                 if _json(live_market) != _json(entry['market_value_source']):
                     raise StockRevisionConflict(f'公司市值来源已变化：{symbol}')
             for key, day_key, loader in (
@@ -216,7 +216,7 @@ class StockEvaluationStore:
                     if key == 'growth_source':
                         loaded = load_growth_source(self.research.db_path.parent, symbol, date.fromisoformat(entry[day_key]), db=self.research.db_path)
                     else:
-                        loaded = loader(self.research.db_path.parent, symbol, date.fromisoformat(entry[day_key]))
+                        loaded = loader(self.research.db_path.parent, symbol, date.fromisoformat(entry[day_key]), db=self.research.db_path)
                     if _json(loaded) != _json(entry[key]):
                         raise StockRevisionConflict(f'上市或行业来源已变化：{symbol}')
             if full:

@@ -94,6 +94,13 @@ class FinancialInput(Input):
     resume_run_id: Text | None = None
 
 
+class ReferenceInput(Input):
+    pool_ids: list[Text]
+    target_date: date | None = None
+    force_refresh: bool = False
+    resume_run_id: Text | None = None
+
+
 class ChangeInput(Input):
     pool_id: Text
     symbol: Annotated[str, Field(pattern=r'^\d{6}$')]
@@ -400,6 +407,31 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
         wake(tasks)
         return public_task(run)
 
+    @router.post('/reference-review', status_code=202)
+    def start_reference(body: ReferenceInput):
+        from radar.stocks.reference_task import (
+            REFERENCE_VERSION,
+            prepare_reference_snapshot,
+        )
+        for pool_id in body.pool_ids:
+            pool(pool_id)
+        if body.resume_run_id is not None:
+            if body.target_date is not None or body.force_refresh:
+                raise StockResearchError('继续原任务不能更改日期或强制刷新参数')
+            old = next((StockUpdateStore._decode(row) for row in task_rows() if row['run_id'] == body.resume_run_id), None)
+            if old is None or old['kind'] != 'reference_review' or old['pool_ids'] != sorted(body.pool_ids):
+                raise HTTPException(404, '所选池的基础资料任务不存在')
+            tasks = updates()
+            run = tasks.resume_reference(body.resume_run_id, body.pool_ids)
+        else:
+            target = body.target_date or datetime.now().astimezone().date()
+            frozen = prepare_reference_snapshot(db, state, body.pool_ids, target, force_refresh=body.force_refresh)
+            tasks = updates()
+            run = tasks.enqueue(kind='reference_review', pool_ids=body.pool_ids, target_date=target,
+                                rule_version=REFERENCE_VERSION, snapshot=frozen)
+        wake(tasks)
+        return public_task(run)
+
     def task_rows():
         with read_connection(db) as connection:
             if not has_table(connection, 'stocks_update_runs'):
@@ -408,7 +440,7 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
             return connection.execute('SELECT * FROM stocks_update_runs ORDER BY created_at DESC,run_id DESC').fetchall()
 
     @router.get('/updates/latest')
-    def latest(pool_id: str | None = None, kind: Literal['financial_review', 'refresh_members', 'discover_candidates'] | None = None):
+    def latest(pool_id: str | None = None, kind: Literal['financial_review', 'refresh_members', 'discover_candidates', 'reference_review'] | None = None):
         if pool_id is not None:
             pool(pool_id)
         for row in task_rows():

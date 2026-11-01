@@ -32,12 +32,21 @@ def _read(path: Path, digest: str, size: int | None = None) -> Any:
     return _json(raw)
 
 
-def _scope(value: Any, symbol: str, cutoff: date) -> None:
+def _scope(value: Any, symbol: str, cutoff: date, *, required_pools: list[str] | None = None) -> None:
     if not isinstance(value, dict):
         raise TypeError('冻结范围无效')
     scope_day = _day(value.get('as_of'))
-    if (value.get('version') != 'official-index-scope-v1' or value.get('status') != 'complete'
-            or value.get('scope_complete') is not True or scope_day is None or scope_day > cutoff):
+    selected = value.get('selected_pool_ids') if value.get('version') == 'stock-reference-scope-v1' else required_pools
+    if value.get('version') == 'stock-reference-scope-v1' and selected is None:
+        raise ValueError('基础资料范围缺少所选池标识')
+    if selected is not None and (not isinstance(selected, list) or not selected or len(set(selected)) != len(selected)
+                                 or any(pool not in POOL_INDEX_CODES for pool in selected)
+                                 or (required_pools is not None and set(selected) != set(required_pools))):
+        raise ValueError('冻结范围所选池无效')
+    required = set(selected) if selected is not None else set(POOL_INDEX_CODES)
+    if (value.get('version') not in {'official-index-scope-v1', 'stock-reference-scope-v1'}
+            or (selected is None and (value.get('status') != 'complete' or value.get('scope_complete') is not True))
+            or scope_day is None or scope_day > cutoff):
         raise ValueError('冻结范围状态或日期无效')
     companies = value.get('companies')
     pools = value.get('pools')
@@ -63,7 +72,7 @@ def _scope(value: Any, symbol: str, cutoff: date) -> None:
     for pool, indexes in POOL_INDEX_CODES.items():
         row = pools[pool]
         expected = {c['symbol'] for c in companies if pool in c['pool_ids']}
-        if (not isinstance(row, dict) or row.get('status') != 'complete' or row.get('complete') is not True
+        if (not isinstance(row, dict) or (pool in required and (row.get('status') != 'complete' or row.get('complete') is not True))
                 or row.get('index_codes') != list(indexes) or not isinstance(row.get('companies'), list)
                 or len(row['companies']) != len(expected) or set(row['companies']) != expected):
             raise ValueError('冻结池范围不完整')

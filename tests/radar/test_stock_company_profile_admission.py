@@ -49,8 +49,8 @@ def test_profile_and_industry_archive_binding(tmp_path, monkeypatch):
     industry = {'symbol': '600900', 'evaluation_as_of': day.isoformat(), 'as_of': day.isoformat(),
                 'status': 'current', 'industry': {'level1': '公用事业', 'level2': '电力'}}
     live = [industry]
-    monkeypatch.setattr('radar.stocks.evaluation_store.load_company_profile_source', lambda *_: source)
-    monkeypatch.setattr('radar.stocks.evaluation_store.load_industry_source', lambda *_: live[0])
+    monkeypatch.setattr('radar.stocks.evaluation_store.load_company_profile_source', lambda *_, **__: source)
+    monkeypatch.setattr('radar.stocks.evaluation_store.load_industry_source', lambda *_, **__: live[0])
     before = evaluate_store(store, day, symbol='600900', include_styles=True)
     report = evaluate_store(store, day, symbol='600900', include_styles=True,
                             profile_sources={'600900': source}, industry_sources={'600900': industry})

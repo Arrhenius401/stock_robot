@@ -445,13 +445,16 @@ def collect_stock_roster(cache_dir: Path, *, as_of: date, refresh: bool = False,
                           if http_get is None else _parse_source(raw, source))
                 item.update(**parsed)
                 if item['status'] == 'downloaded':
-                    _atomic(manifest, json.dumps({'status': 'downloaded', 'url': url, 'content_sha256': sha,
-                                                  'fetched_at': fetched_at}, ensure_ascii=False).encode())
+                    metadata = {'status': 'downloaded' if item['complete'] else 'partial', 'url': url,
+                                'content_sha256': sha, 'fetched_at': fetched_at}
+                    _atomic(manifest.with_suffix('.attempt'), json.dumps(metadata, ensure_ascii=False).encode())
+                    if item['complete']:
+                        _atomic(manifest, json.dumps(metadata, ensure_ascii=False).encode())
         except Exception as exc:  # noqa: BLE001 各官方来源独立隔离网络、解析和缓存失败
             logger.warning('官方名录采集失败 %s: %s', source, exc)
             item.update(status='source_error', error=str(exc), complete=False)
             try:
-                _atomic(manifest, json.dumps({'status': 'source_error', 'url': url, 'error': str(exc),
+                _atomic(manifest.with_suffix('.attempt'), json.dumps({'status': 'source_error', 'url': url, 'error': str(exc),
                     'content_sha256': item.get('content_sha256'), 'fetched_at': item.get('fetched_at')}, ensure_ascii=False).encode())
             except (OSError, ValueError) as cache_exc:
                 logger.warning('官方名录失败记录未保存 %s: %s', source, cache_exc)

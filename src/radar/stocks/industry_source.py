@@ -80,7 +80,7 @@ def _classifications(history: bytes, taxonomy: bytes, cutoff: date) -> dict[str,
     return result
 
 
-def load_industry_source(state_dir: Path, symbol: str, as_of: date) -> dict[str, Any]:
+def _registered_load_industry_source(state_dir: Path, symbol: str, as_of: date, manifest_file: Path | None = None) -> dict[str, Any]:
     """严格复读登记及原始表格，冲突与损坏来源保持未知。"""
     if type(as_of) is not date:
         raise ValueError('评估日期无效')
@@ -89,7 +89,10 @@ def load_industry_source(state_dir: Path, symbol: str, as_of: date) -> dict[str,
                               'reason': '行业参考资料缺失或校验失败'}
     try:
         root = Path(state_dir).absolute() / 'stock-company-industry'
-        raw = _bytes(_path(root, 'manifest.json'))
+        if manifest_file is not None:
+            root = manifest_file.parent
+        manifest_path = _path(root, manifest_file.name if manifest_file is not None else 'manifest.json')
+        raw = _bytes(manifest_path)
         result['manifest_sha256'] = hashlib.sha256(raw).hexdigest()
         manifest = _json(raw)
         target = _day(manifest.get('as_of'))
@@ -110,7 +113,7 @@ def load_industry_source(state_dir: Path, symbol: str, as_of: date) -> dict[str,
         matches = _classifications(originals[0][1], originals[1][1], target).get(symbol, [])
         if len(matches) != 1:
             raise ValueError('行业缺失或冲突')
-        if (_bytes(_path(root, 'manifest.json')) != raw
+        if (_bytes(manifest_path) != raw
                 or _reference(root, manifest['scope'], need_size=True)[1] != scope_raw
                 or any(_reference(root, entry, need_size=True)[1] != data for entry, data in originals)):
             raise ValueError('读取期间来源变化')
@@ -121,4 +124,24 @@ def load_industry_source(state_dir: Path, symbol: str, as_of: date) -> dict[str,
                       reason='申万官方历史分类参考，不代表行业龙头核验；未证明截点当时已可得')
     except Exception as exc:  # noqa: BLE001 第三方表格解析隔离，坏文件不影响详情
         logger.debug('行业来源校验不可用：%s', type(exc).__name__)
+    return result
+
+
+def load_industry_source(state_dir: Path, symbol: str, as_of: date, *, db: Path | None = None) -> dict[str, Any]:
+    """基础资料新任务优先，无适用任务时兼容旧登记。"""
+    from radar.stocks.reference_task import select_reference_manifest
+
+    path, identity = select_reference_manifest(state_dir, symbol, as_of, 'industry', db=db)
+    if identity is None:
+        return _registered_load_industry_source(state_dir, symbol, as_of)
+    result = _registered_load_industry_source(state_dir, symbol, as_of, path) if path is not None else {'symbol': symbol, 'evaluation_as_of': as_of.isoformat(), 'as_of': None, 'status': 'unavailable', 'manifest_sha256': None, 'industry': None, 'reason': '基础资料任务尚无可用行业来源'}
+    after_path, after = select_reference_manifest(state_dir, symbol, as_of, 'industry', db=db)
+    if after_path != path or after != identity:
+        result = {'symbol': symbol, 'evaluation_as_of': as_of.isoformat(), 'as_of': None, 'status': 'unavailable', 'manifest_sha256': None, 'industry': None, 'reason': '基础资料任务尚无可用行业来源'}
+        identity = after or identity
+    result['reference_task'] = identity
+    if result.get('status') == 'unavailable':
+        result['reason'] = identity['reason'] if path is None else '最新基础资料任务内容未通过校验，不能回退旧登记'
+        for check in result.get('checks', []):
+            check['reason'] = result['reason']
     return result

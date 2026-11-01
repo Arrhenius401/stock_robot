@@ -65,7 +65,7 @@ def _unavailable(symbol: str, as_of: date, digest: str | None = None) -> dict[st
                 for code in _CODES]}
 
 
-def load_market_value_source(state_dir: Path, symbol: str, as_of: date) -> dict[str, Any]:
+def _registered_load_market_value_source(state_dir: Path, symbol: str, as_of: date, manifest_file: Path | None = None) -> dict[str, Any]:
     """只读固定登记文件；损坏、替换或日历不符时不使用结果。"""
     if type(as_of) is not date:
         raise ValueError('评估日期无效')
@@ -74,7 +74,9 @@ def load_market_value_source(state_dir: Path, symbol: str, as_of: date) -> dict[
         root = Path(state_dir).absolute() / 'stock-market-value'
         if root.is_symlink() or (hasattr(root, 'is_junction') and root.is_junction()):
             raise ValueError('登记目录不能是链接')
-        manifest_path = _path(root, 'manifest.json')
+        if manifest_file is not None:
+            root = manifest_file.parent
+        manifest_path = _path(root, manifest_file.name if manifest_file is not None else 'manifest.json')
         raw = _bytes(manifest_path)
         digest = hashlib.sha256(raw).hexdigest()
         manifest = _json(raw)
@@ -112,7 +114,7 @@ def load_market_value_source(state_dir: Path, symbol: str, as_of: date) -> dict[
         if (not isinstance(computed, dict) or computed.get('status') != 'current'
                 or computed.get('symbol') != symbol or computed.get('as_of') != target.isoformat()):
             raise ValueError('来源计算失败')
-        if _bytes(_path(root, 'manifest.json')) != raw:
+        if _bytes(manifest_path) != raw:
             raise ValueError('登记清单已变化')
         if _reference(root, scope_entry)[1] != scope_bytes or _reference(root, window_entry)[1] != window_bytes:
             raise ValueError('范围或窗口已变化')
@@ -127,3 +129,23 @@ def load_market_value_source(state_dir: Path, symbol: str, as_of: date) -> dict[
                 'source': computed.get('source', {}), 'checks': computed.get('checks', [])}
     except (OSError, ValueError, TypeError, KeyError, OverflowError, RecursionError, CalendarUnavailable):
         return _unavailable(symbol, as_of, digest)
+
+
+def load_market_value_source(state_dir: Path, symbol: str, as_of: date, *, db: Path | None = None) -> dict[str, Any]:
+    """基础资料新任务优先，无适用任务时兼容旧登记。"""
+    from radar.stocks.reference_task import select_reference_manifest
+
+    path, identity = select_reference_manifest(state_dir, symbol, as_of, 'market_value', db=db)
+    if identity is None:
+        return _registered_load_market_value_source(state_dir, symbol, as_of)
+    result = _registered_load_market_value_source(state_dir, symbol, as_of, path) if path is not None else _unavailable(symbol, as_of)
+    after_path, after = select_reference_manifest(state_dir, symbol, as_of, 'market_value', db=db)
+    if after_path != path or after != identity:
+        result = _unavailable(symbol, as_of)
+        identity = after or identity
+    result['reference_task'] = identity
+    if result.get('status') == 'unavailable':
+        result['reason'] = identity['reason'] if path is None else '最新基础资料任务内容未通过校验，不能回退旧登记'
+        for check in result.get('checks', []):
+            check['reason'] = result['reason']
+    return result

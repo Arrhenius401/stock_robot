@@ -9,6 +9,7 @@ import os
 import sqlite3
 import tempfile
 import threading
+import uuid
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
@@ -75,6 +76,7 @@ class StockUpdateRunner:
                  history_collector: Callable[..., Any] = collect_stock_history_result,
                  capital_collector: Callable[..., Any] = collect_capital_history_result,
                  financial_collector: Callable[..., Any] = collect_structured_company_result,
+                 reference_factory: Callable[..., Any] | None = None,
                  market_window: list[date] | None = None,
                  window_loader: Callable[[date], tuple[list[date] | None, Any]] | None = None):
         self.store = store
@@ -87,6 +89,7 @@ class StockUpdateRunner:
         self.history_collector = history_collector
         self.capital_collector = capital_collector
         self.financial_collector = financial_collector
+        self.reference_factory = reference_factory
         self.market_window = market_window
         self.window_loader = window_loader
 
@@ -217,6 +220,73 @@ class StockUpdateRunner:
         results.append(pending)
         return results
 
+    def _reference(self, task: dict[str, Any], worker: str, token: str) -> str:
+        from data.collection_state import make_record
+        from radar.stocks.reference_collect import ReferenceCollector
+        from radar.stocks.reference_task import (
+            REFERENCE_VERSION,
+            validate_reference_snapshot,
+            verify_reference_manifest,
+        )
+
+        if task['rule_version'] != REFERENCE_VERSION:
+            raise StockResearchError('基础资料任务规则版本不兼容')
+        frozen = validate_reference_snapshot(task['input_snapshot'], task['pool_ids'], task['target_date'])
+        state = self.store.research.db_path.parent.absolute()
+        root = state / 'stock-updates/reference-snapshots' / uuid.uuid4().hex
+        factory = self.reference_factory or ReferenceCollector
+        collector = factory(state, self.cache_dir, root, frozen, date.fromisoformat(task['target_date']))
+        previous = {item['scope']: item for item in task['results']}
+        channels = [('profile', None), ('industry', None), *(('market_value', row['symbol']) for row in frozen['companies'])]
+        # 日历不足只影响市值；另外两类来源仍按自己的预算完成。
+        try:
+            if self.window_loader is not None:
+                _, trace = self.window_loader(date.fromisoformat(task['target_date']))
+            else:
+                trace = None
+            if trace is None:
+                from radar.stocks.update_service import load_market_window
+                _, trace = load_market_window(state, date.fromisoformat(task['target_date']))
+        except (OSError, ValueError) as exc:
+            logger.warning('基础资料任务日历不可用：%s', type(exc).__name__)
+            trace = None
+        statuses = []
+        for channel, symbol in channels:
+            scope = 'reference:' + (('market_value:' + symbol) if symbol is not None else channel)
+            old = previous.get(scope)
+            if old is not None and old['status'] == 'completed':
+                self._verify_artifact(old)
+                # 恢复不能跳过已损坏或替换的不可变来源快照。
+                from radar.stocks.financial_task import read_financial_artifact
+                payload = read_financial_artifact(old, self.artifact_dir)
+                verify_reference_manifest(state, payload)
+                statuses.append('completed')
+                continue
+            try:
+                result = collector.collect(channel, symbol, window=trace)
+                if result.value is None:
+                    raise StockResearchError('基础资料来源没有可保存产物')
+                status = {'complete': 'completed', 'partial': 'partial'}.get(result.record.result_state, 'failed')
+                artifact = {**_artifact(self.artifact_dir, result.value), 'collection_record': result.record.model_dump(mode='json')}
+            except StockRevisionConflict:
+                raise
+            except Exception as exc:  # noqa: BLE001 独立资料来源隔离，不能使其他来源或公司任务丢失
+                logger.warning('基础资料来源失败 %s %s: %s', channel, symbol, type(exc).__name__)
+                status = 'failed'
+                artifact = {**_artifact(self.artifact_dir, {'channel': channel, 'as_of': task['target_date'], 'manifest': None}),
+                            'collection_record': make_record(channel, 'failed', error_kind='fetch_failed',
+                                error_message='来源请求、日历或内容校验失败，资料待补。').model_dump(mode='json')}
+            self.store.record_item(task['run_id'], worker, {'scope': scope, 'status': status,
+                'summary': '基础资料来源已保存，不代表入池资格' if status == 'completed' else '基础资料仍待补，可查看来源诊断后继续',
+                'artifact': artifact}, lease_token=token)
+            statuses.append(status)
+        try:
+            if sum(path.stat().st_size for path in self.cache_dir.rglob('*') if path.is_file()) > 1024 ** 3:
+                logger.warning('股票资料缓存超过1GiB软上限，未自动删除')
+        except OSError as exc:
+            logger.debug('股票资料缓存预算统计不完整：%s', type(exc).__name__)
+        return 'completed' if all(status == 'completed' for status in statuses) else ('partial' if any(status in {'completed', 'partial'} for status in statuses) else 'failed')
+
     def execute_one(self, worker_id: str) -> dict[str, Any] | None:
         self.store.recover_expired()
         task = self.store.claim(worker_id)
@@ -244,6 +314,8 @@ class StockUpdateRunner:
                 status = item['status']
             elif task['kind'] == 'financial_review':
                 status = self._financial(task, worker_id, token)
+            elif task['kind'] == 'reference_review':
+                status = self._reference(task, worker_id, token)
             else:
                 self._refresh(task, worker_id, token)
                 current = self.store.get(run_id)

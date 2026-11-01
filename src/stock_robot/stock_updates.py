@@ -1,7 +1,7 @@
 """股票手动更新任务命令；自动调度保持关闭。"""
 
 import sqlite3
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import click
@@ -17,6 +17,38 @@ from stock_robot.dividend_materials import _read
 from stock_robot.stock_admission import _read_market_window
 from stock_robot.stock_archive import _protect_database, _protect_pool_directory
 from stock_robot.stock_research import _emit
+
+
+@click.command('stock-reference-update')
+@click.option('--db', type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
+@click.option('--pool', 'pool_ids', multiple=True, required=True)
+@click.option('--as-of')
+@click.option('--force-refresh', is_flag=True)
+@click.option('--resume-run-id')
+@click.option('--pool-dir', type=click.Path(exists=True, file_okay=False, path_type=Path), default='config/radar_stock_pools')
+@click.option('--output', type=click.Path(dir_okay=False, path_type=Path))
+def reference_update(db: Path, pool_ids: tuple[str, ...], as_of: str | None, force_refresh: bool,
+                     resume_run_id: str | None, pool_dir: Path, output: Path | None) -> None:
+    """冻结已保存候选，入队一次基础资料更新；用stock-update-run-one执行。"""
+    from radar.stocks.reference_task import (
+        REFERENCE_VERSION,
+        prepare_reference_snapshot,
+    )
+    try:
+        _protect_database(db, output)
+        _protect_pool_directory(pool_dir, output)
+        if resume_run_id is not None:
+            if as_of is not None or force_refresh:
+                raise ValueError('继续原任务不能更改日期或强制刷新参数')
+            result = _updates(db, pool_dir).resume_reference(resume_run_id, list(pool_ids))
+        else:
+            target = _cutoff(as_of) if as_of is not None else datetime.now().astimezone().date()
+            frozen = prepare_reference_snapshot(db, db.parent, list(pool_ids), target, force_refresh=force_refresh)
+            result = _updates(db, pool_dir).enqueue(kind='reference_review', pool_ids=list(pool_ids), target_date=target,
+                                                   rule_version=REFERENCE_VERSION, snapshot=frozen)
+        _emit(result, db, output)
+    except (OSError, TypeError, ValueError, sqlite3.Error) as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 def _updates(db: Path, pool_dir: Path) -> StockUpdateStore:

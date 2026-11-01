@@ -20,6 +20,18 @@ dispose();
 """))
 
 
+def test_reference_industry_failure_is_visible_in_original_details(tmp_path):
+    _run_node(tmp_path, _script(r"""
+detail.evaluation.items[0].industry_source = {status:'unavailable',industry:null,
+  reference_task:{reason:'来源未完成'},reason:'最新基础资料任务来源校验失败'};
+const request = async url => url.includes('/updates/latest') ? null : (url.includes('/companies/') ? detail : list());
+const dispose = renderRadarStockPool(root, header, pool, empty, {request}); await tick();
+await click(root, '候选与成员管理'); await click(root, '测试公司 · 600001');
+assert.ok(root.textContent.includes('基础资料任务：最新基础资料任务来源校验失败'));
+dispose();
+"""))
+
+
 def _script(body: str) -> str:
     url = Path('src/api/static/js/radar-stock-view.js').resolve().as_uri()
     return _DOM_STUB + '\n' + "import assert from 'node:assert/strict';\n" + f"const {{renderRadarStockPool}} = await import({json.dumps(url)});\n" + r"""

@@ -20,7 +20,7 @@ from radar.stocks.research_store import (
     _text,
 )
 
-_KINDS = {'refresh_members', 'discover_candidates', 'financial_review'}
+_KINDS = {'refresh_members', 'discover_candidates', 'financial_review', 'reference_review'}
 _TERMINAL = {'completed', 'partial', 'failed', 'cancelled'}
 _ITEM_STATUSES = {'completed', 'partial', 'failed', 'not_configured'}
 _PHASES = {'snapshot', 'collect', 'review', 'finalizing'}
@@ -126,6 +126,9 @@ class StockUpdateStore:
             raise StockResearchError('目标日期不能晚于当前北京时间日期')
         if kind == 'financial_review':
             snapshot = self._financial_snapshot(snapshot, pools, target)
+        elif kind == 'reference_review':
+            from radar.stocks.reference_task import validate_reference_snapshot
+            snapshot = validate_reference_snapshot(snapshot, pools, target)
         elif snapshot is not None:
             raise StockResearchError('该任务不接受外部范围快照')
         identity = (kind, _json(pools), target, rules)
@@ -170,6 +173,30 @@ class StockUpdateStore:
                 raise StockRevisionConflict('同一范围日期已有排队或执行中的财务任务')
             connection.execute("UPDATE stocks_update_runs SET status='queued',phase='queued',error=NULL,worker_id=NULL,lease_until=NULL,lease_token=NULL,attempt=0,updated_at=? WHERE run_id=?",
                                (self.research._now().isoformat(), task['run_id']))
+            return self._decode(connection.execute('SELECT * FROM stocks_update_runs WHERE run_id=?', (task['run_id'],)).fetchone())
+
+    def resume_reference(self, run_id: str, pool_ids: list[str]) -> dict[str, Any]:
+        """只继续原基础资料任务，不重新冻结或替换研究日期。"""
+        from radar.stocks.reference_task import validate_reference_snapshot
+        pools = self._pools(pool_ids)
+        with self.research._write() as connection:
+            row = connection.execute('SELECT * FROM stocks_update_runs WHERE run_id=?', (_text(run_id, '任务标识'),)).fetchone()
+            if row is None:
+                raise StockResearchError('基础资料任务不存在')
+            task = self._decode(row)
+            if task['kind'] != 'reference_review' or task['pool_ids'] != pools:
+                raise StockResearchError('只能继续原池范围的基础资料任务')
+            if task['status'] in {'queued', 'running'}:
+                return task
+            if task['status'] not in {'partial', 'failed'}:
+                raise StockResearchError('该基础资料任务无需继续')
+            validate_reference_snapshot(task['input_snapshot'], pools, task['target_date'])
+            active = connection.execute("SELECT 1 FROM stocks_update_runs WHERE kind=? AND pool_ids=? AND target_date=? AND rule_version=? AND status IN ('queued','running')",
+                (task['kind'], _json(pools), task['target_date'], task['rule_version'])).fetchone()
+            if active is not None:
+                raise StockRevisionConflict('同一范围日期已有待执行的基础资料任务')
+            connection.execute("UPDATE stocks_update_runs SET status='queued',phase='queued',error=NULL,worker_id=NULL,lease_until=NULL,lease_token=NULL,attempt=0,updated_at=? WHERE run_id=?",
+                (self.research._now().isoformat(), task['run_id']))
             return self._decode(connection.execute('SELECT * FROM stocks_update_runs WHERE run_id=?', (task['run_id'],)).fetchone())
 
     def claim(self, worker_id: str) -> dict[str, Any] | None:

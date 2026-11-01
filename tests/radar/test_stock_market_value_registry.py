@@ -48,6 +48,14 @@ def test_damaged_manifest_fails_closed(tmp_path, body):
     assert registry.load_market_value_source(tmp_path, '600900', DAY)['status'] == 'unavailable'
 
 
+def test_task_snapshot_name_is_rechecked_instead_of_legacy_manifest(tmp_path, monkeypatch):
+    root, _ = make_registry(tmp_path, monkeypatch)
+    renamed = root / 'market-600900.json'
+    (root / 'manifest.json').rename(renamed)
+    result = registry._registered_load_market_value_source(tmp_path, '600900', DAY, renamed)
+    assert result['status'] == 'current'
+
+
 def test_current_historical_and_no_path_leak(tmp_path, monkeypatch):
     make_registry(tmp_path, monkeypatch)
     current = registry.load_market_value_source(tmp_path, '600900', DAY)

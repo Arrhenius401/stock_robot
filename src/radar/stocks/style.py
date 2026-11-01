@@ -17,7 +17,7 @@ from radar.stocks.admission import (
 )
 from radar.stocks.dividend_payout import _sum_amounts
 
-STYLE_RULE_VERSION = 'styles-research-2026-11-01-v3'
+STYLE_RULE_VERSION = 'styles-research-2026-11-01-v4'
 _STYLE_KINDS = ('cash_flow', 'cash_review', 'dividend_history', 'liquidity')
 
 

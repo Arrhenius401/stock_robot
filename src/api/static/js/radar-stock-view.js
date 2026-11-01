@@ -165,7 +165,7 @@ export function renderRadarStockPool(root, header, pool, payload, options = {}) 
     }
     if (value?.industry_source) {
       const source = value.industry_source, industry = source.industry || {};
-      append(section, node('p', 'radar-meta', '行业分类参考 · 来源截点 ' + (source.as_of || '未知') + ' · ' + (industry.level1 || '待核验') + ' / ' + (industry.level2 || '待核验') + '；行业归属不代表龙头资格。'));
+      append(section, node('p', 'radar-meta', '行业分类参考 · 来源截点 ' + (source.as_of || '未知') + ' · ' + (industry.level1 || '待核验') + ' / ' + (industry.level2 || '待核验') + '；行业归属不代表龙头资格。' + (source.reference_task ? '基础资料任务：' + (source.reason || source.reference_task.reason || '资料待补') : '')));
     }
     const details = node('div');
     if (value?.growth_research) {

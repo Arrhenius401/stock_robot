@@ -114,7 +114,7 @@ def test_detail_and_draft_bind_same_historical_market_source(tmp_path, monkeypat
     company = store.get_company('600000')
     assert company is not None
     revision = company['revision']
-    def loader(_state, symbol, cutoff):
+    def loader(_state, symbol, cutoff, **_kwargs):
         return {'symbol': symbol, 'evaluation_as_of': cutoff.isoformat(), 'as_of': '2026-10-18',
                 'status': 'historical', 'manifest_sha256': 'c' * 64, 'checks': [
                     {'code': code, 'outcome': 'passed'} for code in
