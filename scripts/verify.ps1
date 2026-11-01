@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
 按 Git 改动范围或全量执行项目校验。
 
@@ -87,11 +87,25 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $powershellTargets $path
     }
 
+    if ($path -eq "src\stock_robot\metadata.py") {
+        Add-UniqueTarget $testTargets "tests/test_release_metadata.py"
+        Add-UniqueTarget $testTargets "tests/test_distribution.py"
+        continue
+    }
+    if ($path -in @("src\stock_robot\_build.py", "MANIFEST.in")) {
+        Add-UniqueTarget $testTargets "tests/test_distribution.py"
+        continue
+    }
     if ($path -eq "pyproject.toml" -or $path -eq "uv.lock" -or $path -eq "tests\conftest.py") {
         $planWarnings.Add("依赖、检查配置或全局测试夹具发生变化：本次仅运行冒烟检查，合并或发布前需显式执行 -Scope Full。")
         Add-UniqueTarget $testTargets "tests/test_integration.py"
         Add-UniqueTarget $testTargets "tests/test_cli.py"
         Add-UniqueTarget $testTargets "tests/utils"
+        Add-UniqueTarget $testTargets "tests/test_distribution.py"
+        continue
+    }
+    if ($path -eq "config\gold.yaml" -or $path.StartsWith("src\gold\", [StringComparison]::OrdinalIgnoreCase)) {
+        Add-UniqueTarget $testTargets "tests/gold"
         continue
     }
     if ($path.StartsWith("config\radar_stock_pools\", [StringComparison]::OrdinalIgnoreCase)) {
@@ -106,6 +120,10 @@ foreach ($file in $changedFiles) {
     }
     if ($path -in @("scripts\verify.ps1", "scripts\verify-runtime.py")) {
         Add-UniqueTarget $testTargets "tests/test_verify_script.py"
+        continue
+    }
+    if ($path -eq "scripts\check-data-entrypoints.py") {
+        Add-UniqueTarget $testTargets "tests/test_data_entrypoints.py"
         continue
     }
     if ($path -eq "scripts\probe-index-sources.py") {
@@ -373,7 +391,19 @@ foreach ($file in $changedFiles) {
         # 静态资源变化必须验证所属业务模块，不能按非 Python 文件跳过。
         $resourceParts = $path.Split("\")
         $resourceTests = if ($resourceParts.Count -ge 4) { Join-Path "tests" $resourceParts[2] } else { "" }
-        if ($resourceTests -and (Test-Path -LiteralPath $resourceTests -PathType Container)) {
+        if ($resourceParts.Count -ge 4 -and $resourceParts[2] -eq "hk_stock_connect") {
+            Add-UniqueTarget $testTargets "tests\data\test_hk_stock_connect.py"
+        } elseif ($resourceParts.Count -ge 4 -and $resourceParts[2] -eq "hk_hsics") {
+            Add-UniqueTarget $testTargets "tests\data\test_hk_hsics_industry.py"
+        } elseif ($resourceParts.Count -ge 4 -and $resourceParts[2] -eq "industry") {
+            Add-UniqueTarget $testTargets "tests\data\test_peer_comparison.py"
+            Add-UniqueTarget $testTargets "tests\analysis\test_industry_comparison.py"
+        } elseif ($resourceParts.Count -ge 4 -and $resourceParts[2] -eq "hk") {
+            Add-UniqueTarget $testTargets "tests\data\test_hk_bank_currency.py"
+        } elseif ($resourceParts.Count -ge 4 -and $resourceParts[2] -eq "report") {
+            Add-UniqueTarget $testTargets "tests/report"
+            Add-UniqueTarget $testTargets "tests/api/test_app.py"
+        } elseif ($resourceTests -and (Test-Path -LiteralPath $resourceTests -PathType Container)) {
             Add-UniqueTarget $testTargets $resourceTests
         } else {
             $unmappedFiles.Add($path)
@@ -403,13 +433,40 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/api/test_static.py"
         continue
     }
+    if ($path.StartsWith("src\maintenance\", [StringComparison]::OrdinalIgnoreCase)) {
+        Add-UniqueTarget $testTargets "tests/maintenance"
+        Add-UniqueTarget $testTargets "tests/api"
+        continue
+    }
     if ($path.StartsWith("src\index\", [StringComparison]::OrdinalIgnoreCase)) {
         Add-UniqueTarget $testTargets "tests/index"
         Add-UniqueTarget $testTargets "tests/api/test_app.py"
+        if ($path -in @("src\index\commentary.py", "src\index\archives.py", "src\index\collection_budget.py", "src\index\request_cache.py", "src\index\news.py")) {
+            Add-UniqueTarget $testTargets "tests/api/test_report_library.py"
+            Add-UniqueTarget $testTargets "tests/agent/test_pipeline_tools.py"
+            Add-UniqueTarget $testTargets "tests/api/test_index_report_refinement_static.py"
+        }
         continue
     }
     if ($path.StartsWith("src\radar\", [StringComparison]::OrdinalIgnoreCase)) {
         Add-UniqueTarget $testTargets "tests/radar"
+        continue
+    }
+    if ($path -eq "src\data\akshare.py") {
+        Add-UniqueTarget $testTargets "tests/data"
+        Add-UniqueTarget $testTargets "tests/core"
+        Add-UniqueTarget $testTargets "tests/report"
+        continue
+    }
+    if ($path -in @("src\data\base.py", "src\data\schemas.py", "src\data\collection_policies.py", "src\data\collection_state.py", "src\data\hk_hsics_peers.py")) {
+        Add-UniqueTarget $testTargets "tests/data"
+        Add-UniqueTarget $testTargets "tests/core"
+        continue
+    }
+    if ($path -eq "src\data\validation.py") {
+        Add-UniqueTarget $testTargets "tests/core/test_financial_cache_facts.py"
+        Add-UniqueTarget $testTargets "tests/core/test_pipeline.py"
+        Add-UniqueTarget $testTargets "tests/report"
         continue
     }
     if ($path.StartsWith("src\data\", [StringComparison]::OrdinalIgnoreCase)) {
@@ -430,6 +487,19 @@ foreach ($file in $changedFiles) {
     }
     if ($path.StartsWith("src\analysis\", [StringComparison]::OrdinalIgnoreCase)) {
         Add-UniqueTarget $testTargets "tests/analysis"
+        continue
+    }
+    if ($path -eq "src\core\collection_contract.py") {
+        Add-UniqueTarget $testTargets "tests/core"
+        Add-UniqueTarget $testTargets "tests/data"
+        Add-UniqueTarget $testTargets "tests/test_data_entrypoints.py"
+        continue
+    }
+    if ($path -in @("src\core\resilient_collection.py", "src\core\pipeline.py")) {
+        Add-UniqueTarget $testTargets "tests/core"
+        Add-UniqueTarget $testTargets "tests/data"
+        Add-UniqueTarget $testTargets "tests/report"
+        Add-UniqueTarget $testTargets "tests/agent"
         continue
     }
     if ($path.StartsWith("src\core\", [StringComparison]::OrdinalIgnoreCase)) {
@@ -521,6 +591,10 @@ try {
         if ($requiresFullSuite) { & $pyrightPath --project $pyrightConfig } else { & $pyrightPath --project $pyrightConfig @pythonTargets }
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     } else { Write-Host "本次没有 Python 改动，跳过 Ruff 与 Pyright。" }
+    if ($requiresFullSuite -or $pythonTargets.Count -gt 0) {
+        & $pythonPath (Join-Path $repositoryRoot "scripts/check-data-entrypoints.py")
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
     if ($testTargets.Count -gt 0) {
         & $pythonPath -m pytest @testTargets -q "--basetemp=$(Join-Path $runDirectory 'basetemp')" -o "cache_dir=$(Join-Path $runDirectory 'cache')"
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

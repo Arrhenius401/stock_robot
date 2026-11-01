@@ -90,6 +90,10 @@ class TestFinancialScoring:
     def test_roe_sufficient(self):
         from analysis.financial import FinancialAnalyzer
         ctx = make_scoring_context()
+        ctx.financial_scoring_facts = {"annual_roe": {
+            "value": 0.12, "period_start": "2025-01-01", "period_end": "2025-12-31",
+            "source": "测试财报", "basis": "加权ROE", "reason": "",
+        }}
         result = FinancialAnalyzer().analyze(ctx, _load_config())
         assert result.score is not None
         assert 0 <= result.score <= 10

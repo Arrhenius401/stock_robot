@@ -16,14 +16,36 @@ from data.schemas import (
 from report.commentary import CommentaryContext, CommentaryStore, commentary_store
 
 
-def test_payload_does_not_trust_score_when_no_quality():
+def test_payload_keeps_valid_score_independent_of_original_quality_but_blocks_signal():
     from report.payload import build_stock_payload
     ctx = AnalysisContext(symbol="000001", name="样本")
     results = [AnalysisResult(dimension="financial", status="ok", summary="财务", score=8)]
     payload = build_stock_payload(ctx.symbol, ctx.name, results, {"bulk": "AI"}, ctx)
-    assert payload["score"]["base"] is None
-    assert payload["score"]["final"] is None
+    assert payload["score"]["base"] == 8
+    assert payload["score"]["final"] == 8
+    assert payload["commentary_status"] == "ok"
+    quality = payload["data_quality"]
+    assert quality["has_scored_data"] and quality["has_analysis_data"]
+    assert quality["status"] == "partial" and quality["coverage"] == 0
+    assert not quality["signal_allowed"] and payload["signal"] is None
+    assert any("财务：数据截止未记录" in item for item in quality["pending_verifications"])
+
+
+@pytest.mark.parametrize("residual_score", [None, 8])
+def test_actual_empty_financial_analysis_and_unavailable_residual_never_get_score(residual_score):
+    from analysis.financial import FinancialAnalyzer
+    from report.payload import build_stock_payload
+
+    ctx = AnalysisContext(symbol="000001", name="样本")
+    result = FinancialAnalyzer().analyze(ctx)
+    assert result.status == "unavailable" and result.score is None
+    if residual_score is not None:
+        result = result.model_copy(update={"score": residual_score})
+    payload = build_stock_payload(ctx.symbol, ctx.name, [result], {"bulk": "AI"}, ctx)
+    assert payload["score"]["base"] is None and payload["score"]["final"] is None
     assert payload["commentary_status"] == "insufficient"
+    assert not payload["data_quality"]["has_scored_data"]
+    assert payload["signal"] is None
 
 
 @pytest.mark.parametrize("bulk", ["", "（LLM 分析暂时不可用：超时）", "AI 解读不可用"])
@@ -76,7 +98,11 @@ async def test_unavailable_report_download_keeps_sections_and_no_signal(tmp_path
     monkeypatch.setattr("utils.symbols.resolve_name", lambda _: "样本")
     ctx = AnalysisContext(symbol="000001", name="样本")
     results = [AnalysisResult(dimension="financial", status="unavailable", summary="未获取")]
-    pipeline = SimpleNamespace(run=lambda *_: (results, {}, ctx))
+    def run(_symbol, _name, *, market):
+        assert market == "a-shares"
+        return results, {}, ctx
+
+    pipeline = SimpleNamespace(run=run)
     core = SimpleNamespace(pipeline=pipeline, llm=None)
     app = create_app(core=core, push=False)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -92,9 +118,9 @@ async def test_unavailable_report_download_keeps_sections_and_no_signal(tmp_path
         assert detail["stock_payload"] == report
         download = await client.get(f"/api/v1/reports/{listing['reports'][0]['id']}/download")
         assert download.status_code == 200
-        assert "待验证事项" in download.text
+        assert "待验证事项" not in download.text
         assert "数据覆盖与时效" in download.text
-        assert "操作信号：" not in download.text
+        assert "模型信号：暂未生成" in download.text
         assert "text/markdown" in download.headers["content-type"]
 
 
@@ -110,7 +136,11 @@ async def test_disabled_ai_archive_matches_markdown_with_configured_model(tmp_pa
     ctx = AnalysisContext(symbol="000001", name="样本")
     ctx.sufficiency.financial = DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT, sample_count=6)
     results = [AnalysisResult(dimension="financial", status="ok", summary="财务", score=8)]
-    core = SimpleNamespace(pipeline=SimpleNamespace(run=lambda *_: (results, {}, ctx)), llm=object())
+    def run(_symbol, _name, *, market):
+        assert market == "a-shares"
+        return results, {}, ctx
+
+    core = SimpleNamespace(pipeline=SimpleNamespace(run=run), llm=object())
     async with AsyncClient(transport=ASGITransport(app=create_app(core=core, push=False)),
                            base_url="http://test") as client:
         report = (await client.post("/api/v1/analyze", json={"symbol": "000001"})).json()
@@ -168,14 +198,16 @@ async def test_retry_only_calls_model_and_preserves_report(tmp_path, monkeypatch
     token = commentary_store.remember(record)
     calls = []
 
-    def generate(*args):
+    def generate(*args, context=None):
+        assert context is ctx
         calls.append(args)
         if case == "exception":
             raise TimeoutError("模型请求超时")
         return {"bulk": "恢复后的AI解读"} if success else {"bulk": "（LLM 分析暂时不可用：请求超时）"} if case == "fallback" else {}
 
     # 不提供run/collect，任何重新采集都会直接失败。
-    core = SimpleNamespace(pipeline=SimpleNamespace(_generate_commentary=generate), llm=object())
+    core = SimpleNamespace(pipeline=SimpleNamespace(_generate_commentary=generate,
+                           _extra_analysis_enabled=True, _llm_enabled=True), llm=object())
     sessions = SessionManager(SessionStore(tmp_path / "sessions.db"))
     sid, _ = sessions.get_or_create_for_message(None, "报告")
     artifact = sessions.save_artifact(sid, kind="stock_report", symbol="000001",

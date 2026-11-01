@@ -14,6 +14,49 @@ from backtest.models import (
     BenchmarkSpec,
 )
 from backtest.strategy import strategy_fingerprint
+from data.collection_state import make_record
+
+
+def test_publish_directory_retries_transient_windows_lock(tmp_path, monkeypatch):
+    from backtest import artifacts
+
+    source, target = tmp_path / "source", tmp_path / "target"
+    source.mkdir()
+    (source / "report.md").write_text("complete", encoding="utf-8")
+    original = artifacts.os.replace
+    calls = []
+
+    def once_busy(src, dst):
+        calls.append(1)
+        if len(calls) == 1:
+            error = PermissionError("busy")
+            error.winerror = 5
+            raise error
+        original(src, dst)
+
+    monkeypatch.setattr(artifacts.os, "replace", once_busy)
+    monkeypatch.setattr(artifacts.time, "sleep", lambda _: None)
+    artifacts._publish_directory(source, target)
+    assert len(calls) == 2
+    assert (target / "report.md").read_text("utf-8") == "complete"
+
+
+def test_publish_directory_does_not_hide_persistent_access_denial(tmp_path, monkeypatch):
+    from backtest import artifacts
+
+    calls = []
+
+    def always_denied(*args):
+        calls.append(1)
+        error = PermissionError("denied")
+        error.winerror = 5
+        raise error
+
+    monkeypatch.setattr(artifacts.os, "replace", always_denied)
+    monkeypatch.setattr(artifacts.time, "sleep", lambda _: None)
+    with pytest.raises(PermissionError, match="denied"):
+        artifacts._publish_directory(tmp_path / "source", tmp_path / "target")
+    assert len(calls) == 5
 
 
 def _strategy() -> BacktestStrategy:
@@ -87,6 +130,7 @@ def _build_result() -> BacktestResult:
         },
         data_start=date(2023, 9, 1),
         data_end=date(2024, 1, 4),
+        collection_records={"price": make_record("AkShare", "complete"), "benchmark": make_record("中证指数官网", "complete")},
     )
 
 
@@ -110,6 +154,8 @@ def test_manifest_snapshot_captures_run_context(tmp_path, result):
     output = write_backtest_artifacts(result, tmp_path)
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
 
+    assert manifest["collection_records"]["price"]["source"] == "AkShare"
+    assert manifest["collection_records"]["benchmark"]["result_state"] == "complete"
     assert manifest["request"]["symbol"] == "000001"
     assert manifest["request"]["benchmark_id"] == "money_fund"
     assert manifest["request"]["start_date"] == "2024-01-02"

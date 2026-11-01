@@ -28,7 +28,7 @@ def build_target_weights(
     )
     dates = [p.trade_date for p in prices]
     signals: list[str] = []
-    scores: list[float] = []
+    scores: list[float | None] = []
     targets: list[float] = []
     for i, price in enumerate(prices):
         # 只传截至当日的数据：AnalysisContext 必填 symbol/name，回测不解析公司名
@@ -36,6 +36,12 @@ def build_target_weights(
             symbol=price.symbol, name=price.symbol, price_data=prices[: i + 1]
         )
         score, _, _ = scorer.score_technical(ctx)
+        if score is None:
+            # 技术证据不足时不制造分数，按防御（不持仓）处理。
+            signals.append("defend")
+            scores.append(None)
+            targets.append(strategy.target_positions["defend"])
+            continue
         signal = derive_signal(score, strategy.thresholds)
         signals.append(signal)
         scores.append(score)

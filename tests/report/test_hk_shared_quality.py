@@ -1,0 +1,108 @@
+"""港股共享五维加权覆盖，有限事实与可评分项分别记录。"""
+from typing import Literal
+
+import pytest
+
+from data.schemas import (
+    AnalysisContext,
+    AnalysisResult,
+    DimensionSufficiency,
+    IndustryData,
+    SufficiencyLevel,
+)
+from report.quality import build_data_quality, hk_industry_label
+from report.scoring import build_report
+
+
+def context():
+    ctx = AnalysisContext(symbol="00700.HK", name="腾讯", market="hk")
+    for key in ("financial", "price", "valuation"):
+        setattr(ctx.sufficiency, key, DimensionSufficiency(level=SufficiencyLevel.PARTIAL))
+    return ctx
+
+
+@pytest.mark.parametrize("count", range(4))
+def test_coverage_weights_partial_facts_without_inventing_scores(count):
+    ctx = context()
+    facts: list[tuple[Literal["financial", "technical", "valuation"], str]] = [
+        ("financial", "revenue"), ("technical", "latest_close"), ("valuation", "pe_ttm")]
+    results = [AnalysisResult(dimension=dimension, status="partial", summary="部分字段缺失",
+                              metrics={key: 1 if index < count else None})
+               for index, (dimension, key) in enumerate(facts)]
+    quality = build_data_quality(ctx, results)
+    assert quality["coverage"] == [0, 15, 25, 37.5][count]
+    assert quality["available_dimensions"] == 0
+    assert quality["applicable_dimensions"] == 5
+    assert quality["coverage_basis"] == "五维原权重数据覆盖，不表示评分置信度"
+    assert quality["status"] == ("partial" if count else "unavailable")
+    assert not quality["signal_allowed"]
+    assert not quality["has_scored_data"]
+    industry = next(item for item in quality["dimensions"] if item["key"] == "industry")
+    assert industry["status"] == "unavailable"
+    news = next(item for item in quality["dimensions"] if item["key"] == "sentiment")
+    assert news["status"] == "unavailable"
+    assert news["title"] == "舆情"
+    assert any(item.startswith("舆情：") for item in quality["pending_verifications"])
+
+
+@pytest.mark.parametrize("value", [None, True, float("nan"), float("inf"), "12"])
+def test_non_facts_never_increase_coverage(value):
+    quality = build_data_quality(context(), [AnalysisResult(
+        dimension="financial", status="partial", summary="", metrics={"revenue": value})])
+    assert quality["coverage"] == 0
+    assert not quality["has_analysis_data"]
+
+
+def test_unavailable_residual_values_are_not_counted():
+    quality = build_data_quality(context(), [AnalysisResult(
+        dimension="technical", status="unavailable", summary="不足", metrics={"latest_close": 417.8})])
+    assert quality["coverage"] == 0
+
+
+def test_hk_industry_label_distinguishes_non_connect_and_mapped():
+    ctx = context()
+    non_connect = AnalysisResult(
+        dimension="industry", status="unavailable",
+        summary="非港股通标的，不参与港股行业对比", metrics={})
+    assert hk_industry_label(ctx, [non_connect]) == "非港股通（不支持行业对比）"
+
+    ctx.industry_data = IndustryData(
+        symbol="00700.HK", industry="软件服务", sector="Information Technology")
+    assert hk_industry_label(ctx, [non_connect]) == "恒生HSICS：软件服务"
+
+
+def test_markdown_shows_weighted_five_dimension_coverage_and_missing_reasons():
+    ctx = context()
+    results = [AnalysisResult(dimension="financial", status="partial", summary="利润为负",
+                              metrics={"net_profit": -10})]
+    text = build_report(ctx.symbol, ctx.name, results, {}, ctx, no_llm=True)
+    assert "计分维度覆盖：15.0%" in text
+    assert "五维原权重数据覆盖，不表示评分置信度" in text
+    assert "1/4" not in text
+    assert any("行业" in line and "数据不可用" in line for line in text.splitlines() if line.startswith("|"))
+    assert any("舆情" in line and "数据不可用" in line for line in text.splitlines() if line.startswith("|"))
+    assert "新闻暂时获取失败" in text
+
+
+def test_markdown_hides_hk_peer_list_and_keeps_pool_counts():
+    ctx = context()
+    peers = [f"{index:05d}.HK" for index in range(1, 13)]
+    result = AnalysisResult(
+        dimension="industry", status="ok", summary="行业可比",
+        metrics={
+            "peers": peers[:10],
+            "peer_names": {symbol: f"同行{index}" for index, symbol in enumerate(peers[:10], 1)},
+            "peer_total": 12,
+            "peer_display_note": "仅展示前10家，统计基于全部12家港股通同行",
+            "peer_count": 12,
+        },
+    )
+
+    text = build_report(ctx.symbol, ctx.name, [result], {}, ctx, no_llm=True)
+
+    assert "仅展示前10家" not in text
+    assert "同行10（00010.HK）" not in text
+    assert "12" in text
+    assert "00001.HK" not in text
+    assert "00011.HK" not in text
+    assert "00012.HK" not in text

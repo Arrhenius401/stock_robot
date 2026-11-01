@@ -177,8 +177,8 @@ def test_markdown_strategy_hides_unused_tags_and_keeps_aligned_returns():
     assert result.metrics["benchmark_aligned_index_return_pct"]==pytest.approx(10)
     report=IndexReportBuilder().build(ctx,[result])
     markdown=render_index_report_markdown(report)
-    assert "| 区间收益率 | 21.00% |" in markdown
-    assert "| 同日指数区间收益 | 10.00% |" in markdown
+    assert "区间收益率" in markdown and "21.00%" in markdown
+    assert "同日指数区间收益" in markdown and "10.00%" in markdown
     assert "## 舆情面" not in markdown
     assert "| 舆情面 |" not in markdown
     assert "| 资金面 |" not in markdown

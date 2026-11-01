@@ -1,5 +1,7 @@
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import MagicMock
+
+import pytest
 
 from core.pipeline import Pipeline
 from core.registry import Registry
@@ -7,7 +9,6 @@ from data.base import DataSource
 from data.schemas import (
     AnalysisContext,
     AnalysisResult,
-    DataSufficiency,
     FinancialData,
     IndustryData,
     NewsData,
@@ -17,12 +18,19 @@ from data.schemas import (
     ValuationData,
 )
 from llm.base import LLMBackend
+from tests.support import FetchResultMixin
 from utils.config import Config
+
+
+@pytest.fixture(autouse=True)
+def isolate_default_pipeline_state(tmp_path, monkeypatch):
+    """默认构造也隔离真实运行缓存，避免失败等待状态串入其他用例。"""
+    monkeypatch.setattr("utils.config.project_state_dir", lambda: tmp_path / "state")
 
 
 def make_test_registry():
     """构建测试用注册表"""
-    class MockDataSource(DataSource):
+    class MockDataSource(FetchResultMixin, DataSource):
         def supports(self, market, data_type):
             return True
 
@@ -37,7 +45,18 @@ def make_test_registry():
             elif data_type == "industry":
                 return [IndustryData(symbol=symbol, industry="银行", sector="金融", peers=["600036"])]
             elif data_type == "news":
-                return [NewsData(symbol=symbol, date=date(2026,7,1), headlines=["利好公告"])]
+                news = NewsData(
+                    symbol=symbol, date=date(2026, 7, 1), headlines=["利好公告"]
+                )
+                news._raw_sentiment = RawSentimentData(
+                    symbol=symbol,
+                    fetch_date=date(2026, 7, 1),
+                    items=[RawSentimentItem(
+                        title="利好公告", source="news", publish_date=date(2026, 7, 1)
+                    )],
+                )
+                return [news]
+
             return []
 
     reg = Registry()
@@ -167,6 +186,7 @@ def _make_hermetic_pipeline(reg, llm, provider="openai"):
     reg.register_llm_backend(llm, provider=provider)
     # 强制使用 openai provider，覆盖本地配置
     cfg = Config()
+    cfg.data["analysis"]["extra_enabled"] = True
     cfg.data["llm"]["provider"] = provider
     return Pipeline(registry=reg, config=cfg)
 
@@ -215,6 +235,7 @@ class TestCacheHealth:
 
         reg = Registry()
         cfg = Config(config_dir=tmp_path)
+        cfg.data["analysis"]["extra_enabled"] = True
         return Pipeline(registry=reg, config=cfg, llm_enabled=False)
 
     def test_industry_unknown_not_cached(self, tmp_path, mocker):
@@ -308,9 +329,9 @@ class TestCacheHealth:
 
         assert pipe._get_cached("000001", "news") is None
 
-    def test_news_uses_stale_cache_when_live_result_degraded(self, tmp_path, mocker):
-        """实时舆情为空时，使用过期旧缓存兜底并标注来源"""
-        class EmptyNewsSource(DataSource):
+    def test_successful_empty_news_does_not_revive_legacy_news(self, tmp_path, mocker):
+        """成功空新闻是正常结果，不复活无采集时间且已超窗口的旧新闻"""
+        class EmptyNewsSource(FetchResultMixin, DataSource):
             def supports(self, market, data_type):
                 return data_type == "news"
 
@@ -355,40 +376,28 @@ class TestCacheHealth:
 
         ctx = pipe.collect("000001", "平安银行", data_types=["news"])
         assert ctx.raw_sentiment is not None
-        assert len(ctx.raw_sentiment.items) == 3
-        assert ctx.raw_sentiment._from_stale_cache is True
-
-        from data.enrichers.sentiment_enricher import SentimentEnricher
-
-        enriched = SentimentEnricher().enrich(AnalysisContext(
-            symbol="000001", name="平安银行", raw_sentiment=ctx.raw_sentiment,
-            sufficiency=DataSufficiency(),
-        ))
-        assert enriched.sufficiency is not None
-        assert "过期缓存兜底" in enriched.sufficiency.sentiment.reason
+        assert ctx.raw_sentiment.items == []
+        assert ctx.collection_records["news"].cache_state == "complete"
+        assert ctx.reference_data == {}
 
     def test_cache_served_when_breaker_open(self, tmp_path, mocker):
         """断路器打开时，collect 仍从本地缓存返回健康数据"""
-        from data.schemas import IndustryData
+        from data.schemas import FinancialData
         pipe = self._make_pipeline(tmp_path, mocker)
         # 先写入健康缓存
-        ind = IndustryData(
-            symbol="000001", industry="银行", sector="金融", peers=["600000"],
-            peer_names={"600000": "浦发银行"},
-            peer_scope="申万二级", peer_industry="银行", top_peers=[],
-        )
-        pipe._set_cache("000001", "industry", [ind])
-        assert pipe._get_cached("000001", "industry") is not None
+        fin = FinancialData(symbol="000001", fiscal_quarter=date(2026, 6, 30),
+                            net_profit=10e8, basic_eps=0.5)
+        pipe._set_cache("000001", "financial", [fin])
+        assert pipe._get_cached("000001", "financial") is not None
         # 手动打开断路器
         for _ in range(3):
-            pipe._breaker.record_failure("000001", "industry")
-        assert pipe._breaker.is_open("000001", "industry")
+            pipe._breaker.record_failure("000001", "financial")
+        assert pipe._breaker.is_open("000001", "financial")
         # 断路器打开期间 collect：应命中缓存返回，而非被断路器屏蔽为 None
-        ctx = pipe.collect("000001", "平安银行", data_types=["industry"])
-        assert ctx.industry_data is not None
-        assert ctx.industry_data.industry == "银行"
+        ctx = pipe.collect("000001", "平安银行", data_types=["financial"])
+        assert ctx.financial_data == [fin]
         # 缓存命中走 record_success，断路器被重置
-        assert not pipe._breaker.is_open("000001", "industry")
+        assert not pipe._breaker.is_open("000001", "financial")
 
 
 class TestPipelineIndustryIntegration:
@@ -438,9 +447,9 @@ class TestPipelineIndustryIntegration:
                 return financials
             if data_type == "price":
                 return [PriceData(
-                    symbol=symbol, trade_date=date(2026, 8, 27), open=10,
-                    high=11, low=9.5, close=10.5, volume=1_000_000,
-                )]
+                    symbol=symbol, trade_date=date(2026, 7, 1) + timedelta(days=i), open=10 + i / 10,
+                    high=11 + i / 10, low=9.5 + i / 10, close=10.5 + i / 10, volume=1_000_000,
+                ) for i in range(60)]
             if data_type == "valuation":
                 return [ValuationData(
                     symbol=symbol, date=date(2026, 8, 27), pe_ttm=7.5, pb=0.85,
@@ -465,9 +474,9 @@ class TestPipelineIndustryIntegration:
         reg.register_analysis_module(TechnicalAnalyzer())
         reg.register_analysis_module(SentimentAnalyzer())
 
-        pipeline = Pipeline(
-            registry=reg, config=Config(config_dir=tmp_path), llm_enabled=False,
-        )
+        config = Config(config_dir=tmp_path)
+        config.data["analysis"]["extra_enabled"] = True
+        pipeline = Pipeline(registry=reg, config=config, llm_enabled=False)
         results, _, ctx = pipeline.run("000001", "平安银行")
 
         assert len(results) == 5
@@ -475,3 +484,28 @@ class TestPipelineIndustryIntegration:
         # 至少有一个维度有分数
         scored = [r for r in results if r.score is not None]
         assert len(scored) > 0
+
+
+def test_migrated_capability_is_rejected_by_legacy_branch(tmp_path, monkeypatch):
+    from core.registry import Registry
+    from tests.support import FetchResultMixin
+
+    class Source(FetchResultMixin, DataSource):
+        def __init__(self):
+            self.calls = []
+
+        def supports(self, market, data_type):
+            return True
+
+        def fetch(self, symbol, **kwargs):
+            self.calls.append(kwargs)
+            return []
+
+    source = Source()
+    registry = Registry()
+    registry.register_data_source(source)
+    pipeline = Pipeline(registry, Config(config_dir=tmp_path), llm_enabled=False)
+    monkeypatch.setattr("core.resilient_collection.supports", lambda market, kind: False)
+    ctx = pipeline.collect("000001", "测试", data_types=["financial"])
+    assert ctx.collection_records["financial"].error_kind == "contract_error"
+    assert source.calls == []

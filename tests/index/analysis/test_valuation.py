@@ -46,4 +46,4 @@ class TestIndexValuationAnalyzer:
         )
         result = IndexValuationAnalyzer().analyze(ctx)
         assert result.status == "partial"
-        assert "分位仅供参考" in result.summary
+        assert "不判断高低估" in result.summary

@@ -15,6 +15,11 @@ class TestNormalizeSymbol:
     def test_handles_already_normalized(self):
         assert normalize_symbol("600036") == "600036"
 
+    def test_normalizes_hk_symbol(self):
+        assert normalize_symbol("00700") == "00700.HK"
+        assert normalize_symbol("00700.HK") == "00700.HK"
+        assert normalize_symbol("hk00700") == "00700.HK"
+
 
 class TestValidateSymbol:
     def test_valid_shanghai(self):
@@ -48,6 +53,11 @@ class TestValidateSymbol:
     def test_invalid_prefix_mismatch_sz_on_sh_code(self):
         """sz 前缀不能用于上交所代码"""
         assert validate_symbol("sz600036") is False
+
+    def test_valid_hk_symbols(self):
+        assert validate_symbol("00700") is True
+        assert validate_symbol("00700.HK") is True
+        assert validate_symbol("hk00700") is True
 
 
 def test_resolve_name_retries_on_network_error(mocker):

@@ -1,5 +1,6 @@
 """充实器单元测试"""
 from datetime import date, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 
@@ -240,21 +241,25 @@ def make_raw_sentiment(n: int) -> RawSentimentData:
 
 
 class TestSentimentEnricher:
-    def test_sufficient_10_plus(self):
+    def test_many_items_without_model_still_unavailable(self):
         ctx = AnalysisContext(symbol="000001", name="测试",
                               raw_sentiment=make_raw_sentiment(15))
         ctx = PriceEnricher().enrich(ctx)
         ctx = SentimentEnricher().enrich(ctx)
-        assert ctx.sufficiency.sentiment.level == SufficiencyLevel.SUFFICIENT
-        assert ctx.sufficiency.sentiment.score_weight == 1.0
+        assert ctx.sufficiency.sentiment.level == SufficiencyLevel.INSUFFICIENT
+        assert ctx.sufficiency.sentiment.score_weight == 0.0
+        assert ctx.enriched_sentiment is not None
+        assert ctx.enriched_sentiment.risk_score is None
 
-    def test_partial_3_to_9(self):
+    def test_few_items_without_model_still_unavailable(self):
         ctx = AnalysisContext(symbol="000001", name="测试",
                               raw_sentiment=make_raw_sentiment(5))
         ctx = PriceEnricher().enrich(ctx)
         ctx = SentimentEnricher().enrich(ctx)
-        assert ctx.sufficiency.sentiment.level == SufficiencyLevel.PARTIAL
-        assert ctx.sufficiency.sentiment.score_weight == 0.5
+        assert ctx.sufficiency.sentiment.level == SufficiencyLevel.INSUFFICIENT
+        assert ctx.sufficiency.sentiment.score_weight == 0.0
+        assert ctx.enriched_sentiment is not None
+        assert ctx.enriched_sentiment.risk_score is None
 
     def test_insufficient_below_3(self):
         ctx = AnalysisContext(symbol="000001", name="测试",
@@ -282,7 +287,7 @@ class TestValuationAnchoring:
             f.total_equity = 200e8
         # 锚定路径只做离线估算偏差告警，不应触发 get_total_shares 网络链
         get_total_shares = mocker.patch(
-            "data.enrichers.valuation_enricher.get_total_shares")
+            "data.enrichers.valuation_enricher.get_total_shares_result")
         ctx = AnalysisContext(symbol="000001", name="测试",
                               price_data=prices, financial_data=financials)
         ctx.valuation_data = ValuationData(
@@ -311,8 +316,8 @@ class TestValuationAnchoring:
         ctx = AnalysisContext(symbol="000001", name="测试",
                               price_data=prices, financial_data=financials)
         # valuation_data 为空（快照失败）
-        mocker.patch("data.enrichers.valuation_enricher.get_total_shares",
-                     return_value=32e8)
+        mocker.patch("data.enrichers.valuation_enricher.get_total_shares_result",
+                     return_value=SimpleNamespace(value=32e8))
         ctx = PriceEnricher().enrich(ctx)
         ctx = FinancialEnricher().enrich(ctx)
         ctx = ValuationEnricher().enrich(ctx)
@@ -345,7 +350,7 @@ class TestTTMCumulative:
         ctx.valuation_data = ValuationData(
             symbol="000001", date=datetime.now().astimezone().date(),
             pe_ttm=8.0, pb=None, ps_ttm=None)
-        mocker.patch("data.enrichers.valuation_enricher.get_total_shares")
+        mocker.patch("data.enrichers.valuation_enricher.get_total_shares_result")
         ctx = PriceEnricher().enrich(ctx)
         ctx = FinancialEnricher().enrich(ctx)
         ctx = ValuationEnricher().enrich(ctx)
@@ -372,8 +377,8 @@ class TestTTMCumulative:
         ctx = AnalysisContext(symbol="000001", name="测试",
                               price_data=prices, financial_data=financials)
         # 无 valuation_data（快照失败）→ 三级链估算股本 184 亿股
-        mocker.patch("data.enrichers.valuation_enricher.get_total_shares",
-                     return_value=184e8)
+        mocker.patch("data.enrichers.valuation_enricher.get_total_shares_result",
+                     return_value=SimpleNamespace(value=184e8))
         ctx = PriceEnricher().enrich(ctx)
         ctx = FinancialEnricher().enrich(ctx)
         ctx = ValuationEnricher().enrich(ctx)
@@ -414,7 +419,7 @@ class TestTTMCumulative:
         ctx.valuation_data = ValuationData(
             symbol="000001", date=datetime.now().astimezone().date(),
             pe_ttm=8.0, pb=None, ps_ttm=None)
-        mocker.patch("data.enrichers.valuation_enricher.get_total_shares")
+        mocker.patch("data.enrichers.valuation_enricher.get_total_shares_result")
         ctx = PriceEnricher().enrich(ctx)
         ctx = FinancialEnricher().enrich(ctx)
         ctx = ValuationEnricher().enrich(ctx)
@@ -435,7 +440,7 @@ class TestTTMCumulative:
         ctx.valuation_data = ValuationData(
             symbol="000001", date=datetime.now().astimezone().date(),
             pe_ttm=8.0, pb=None, ps_ttm=None)
-        mocker.patch("data.enrichers.valuation_enricher.get_total_shares")
+        mocker.patch("data.enrichers.valuation_enricher.get_total_shares_result")
         ctx = PriceEnricher().enrich(ctx)
         ctx = FinancialEnricher().enrich(ctx)
         ctx = ValuationEnricher().enrich(ctx)

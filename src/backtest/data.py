@@ -1,12 +1,13 @@
 """回测历史行情与基准数据 — 日期裁剪与 DataFrame 标准化。"""
 
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 
 from backtest.models import BenchmarkSpec
-from data.akshare import AkShareAdapter, _ak_csindex
+from data.akshare import AkShareAdapter, fetch_index_history_result
+from data.collection_state import ValueResult, make_record
 from data.schemas import PriceData
 
 logger = logging.getLogger(__name__)
@@ -52,32 +53,59 @@ class HistoricalPriceProvider:
         self._adapter = adapter
 
     def fetch_stock(self, symbol: str, start: date, end: date) -> list[PriceData]:
-        """按指定区间获取个股日线行情，原样透传适配器结果。"""
+        """兼容包装：返回行情列表。"""
+        return self.fetch_stock_result(symbol, start, end).value or []
+
+    def fetch_stock_result(self, symbol: str, start: date, end: date) -> ValueResult[list[PriceData]]:
+        """按指定区间获取个股日线并返回采集记录。"""
         if start > end:
             raise BacktestDataError(f"日期区间无效: start={start} 晚于 end={end}")
-        return self._adapter.fetch(
+        result = self._adapter.fetch_result(
             symbol,
             data_type="price",
             start_date=start.strftime("%Y%m%d"),
             end_date=end.strftime("%Y%m%d"),
         )
+        rows = result.rows or []
+        if rows:
+            record = make_record(
+                result.record.source if result.record else "AkShare",
+                "complete",
+                collected_at=datetime.now().astimezone(),
+            )
+        elif result.record is not None:
+            record = make_record(
+                result.record.source or "AkShare",
+                "failed",
+                diagnostic=result.record,
+                collected_at=datetime.now().astimezone(),
+            )
+        else:
+            record = make_record("AkShare", "empty", collected_at=datetime.now().astimezone())
+        return ValueResult(rows, record, list(result.errors))
 
     def fetch_benchmark(self, benchmark: BenchmarkSpec, start: date, end: date) -> pd.Series:
-        """获取基准收盘点位序列，索引为交易日、值为收盘点位。
+        """兼容包装：返回基准收盘序列。"""
+        result = self.fetch_benchmark_result(benchmark, start, end)
+        assert result.value is not None
+        return result.value
 
-        中证接口仅返回日期与收盘两列，这里统一归一化为 date→close 序列；
-        基准只用于净值比较，不要求 OHLCV。
-        """
+    def fetch_benchmark_result(self, benchmark: BenchmarkSpec, start: date, end: date) -> ValueResult[pd.Series]:
+        """获取基准收盘点位序列并返回采集记录。"""
         if start > end:
             raise BacktestDataError(f"日期区间无效: start={start} 晚于 end={end}")
-        df = _ak_csindex(
-            symbol=benchmark.symbol,
-            start_date=start.strftime("%Y%m%d"),
-            end_date=end.strftime("%Y%m%d"),
+        result = fetch_index_history_result(
+            benchmark.symbol,
+            start.strftime("%Y%m%d"),
+            end.strftime("%Y%m%d"),
         )
-        if df is None or len(df) == 0:
+        if result.record.result_state == "failed":
+            raise BacktestDataError(
+                f"基准 {benchmark.id} 行情请求失败：{result.record.error_message}"
+            )
+        if result.value is None:
             raise BacktestDataError(f"基准 {benchmark.id} 在 {start} 至 {end} 内无数据")
-
+        df = result.value
         # 防御性兼容中文（日期/收盘）与英文（date/close）两种列名
         date_col = "date" if "date" in df.columns else "日期"
         close_col = "close" if "close" in df.columns else "收盘"
@@ -87,7 +115,6 @@ class HistoricalPriceProvider:
                 "close": pd.to_numeric(df[close_col], errors="coerce"),
             }
         )
-        # 非关键缺失产生 warning：非法日期/收盘值在丢弃前记录行数
         dropped = int(frame.isna().any(axis=1).sum())
         if dropped:
             logger.warning(
@@ -96,19 +123,13 @@ class HistoricalPriceProvider:
                 dropped,
             )
         frame = frame.dropna()
-        # 提取纯 Python 值：区间裁剪、排序去重与连续性校验在列表上进行，
-        # 规避 pandas 类型推断歧义
         dates: list[date] = [ts.date() for ts in frame["trade_date"]]
         closes = frame["close"].to_numpy()
         rows = [(d, float(c)) for d, c in zip(dates, closes, strict=True)]
         rows = [(d, c) for d, c in rows if start <= d <= end]
-        rows = sorted(dict(rows).items())  # 按键排序并按日期去重（保留最后值）
+        rows = sorted(dict(rows).items())
         if not rows:
             raise BacktestDataError(f"基准 {benchmark.id} 在 {start} 至 {end} 内无数据")
-
-        # 区间边界校验：基准序列必须覆盖请求区间 [start, end] 两端（含容差）。
-        # 边界判定基准是请求区间本身而非股票数据；H11001/H11025 基日均早于
-        # 一般回测起点，正常请求不会触发。首/末日超出容差说明区间边界数据缺失。
         first_day, last_day = rows[0][0], rows[-1][0]
         if first_day - start > timedelta(days=BOUNDARY_TOLERANCE_DAYS):
             raise BacktestDataError(
@@ -120,8 +141,6 @@ class HistoricalPriceProvider:
                 f"基准 {benchmark.id} 缺少 {last_day} 后至 {end} 的行情"
                 f"（序列止于 {last_day}，早于回测终点 {BOUNDARY_TOLERANCE_DAYS} 天）"
             )
-
-        # 基准交易日缺口：股票有交易日而基准在该日缺失时无法对齐净值日
         trade_dates = [d for d, _ in rows]
         for i in range(1, len(trade_dates)):
             prev, cur = trade_dates[i - 1], trade_dates[i]
@@ -131,9 +150,9 @@ class HistoricalPriceProvider:
                     f"基准 {benchmark.id} 在 {prev} 至 {cur} 间存在缺口"
                     f"（间隔 {gap} 天），无法对齐股票净值日计算连续净值"
                 )
-
-        return pd.Series(
+        series = pd.Series(
             [close for _, close in rows],
             index=pd.Index(trade_dates, name="trade_date"),
             name=benchmark.name,
         )
+        return ValueResult(series, result.record)

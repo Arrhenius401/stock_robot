@@ -1,13 +1,14 @@
 """回测策略实体、请求与运行结果。"""
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from typing import Literal
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, ValidationInfo, field_validator
 
+from data.schemas import DataCollectionRecord
 from report.signal import Signal
 
 ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
@@ -147,3 +148,4 @@ class BacktestResult:
     costs: dict[str, float]
     data_start: date
     data_end: date
+    collection_records: dict[str, DataCollectionRecord] = field(default_factory=dict)

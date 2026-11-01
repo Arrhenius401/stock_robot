@@ -13,7 +13,13 @@ from typing import Any, cast
 
 import pandas as pd
 
-from radar.data import FallbackETFDataProvider, RadarDataError, RadarDataProvider
+from data.collection_state import ValueResult, make_record
+from radar.data import (
+    FallbackETFDataProvider,
+    RadarDataError,
+    RadarDataProvider,
+    provider_label,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -150,10 +156,12 @@ class HistorySynchronizer:
         self.provider = provider
         self.provider_id = type(provider).__name__
 
-    def prepare(self, symbol: str, market: str, start: date, end: date, *, reuse: bool = False, trading_days: Sequence[date] | None = None) -> tuple[pd.DataFrame, str]:
+    def prepare_result(
+        self, symbol: str, market: str, start: date, end: date, *, reuse: bool = False,
+        trading_days: Sequence[date] | None = None,
+    ) -> tuple[pd.DataFrame, str, Any]:
         key = self.store.selected(symbol, market, self.provider_id, end)
         coverage = self.store.coverage(key) if key else None
-        # 同步范围保留原实际覆盖前缀；评分仍只返回调用者窗口。
         sync_start = min(start, date.fromisoformat(coverage["first_date"])) if coverage else start
         cached = self.store.read(key, sync_start, end) if key else pd.DataFrame(columns=_COLUMNS)
         known_gaps = {date.fromisoformat(day) for day in coverage["missing_dates"] if date.fromisoformat(day) <= end} if coverage else set()
@@ -164,17 +172,21 @@ class HistorySynchronizer:
             unresolved = known_gaps - set(cached["date"])
             if unresolved:
                 raise RadarDataError("行情缺失交易日: " + ", ".join(str(day) for day in sorted(unresolved)[:5]))
-            return self.store.read(key, start, end), key.source
+            record = make_record(
+                key.source, "complete", cache_status="cache",
+                collected_at=datetime.fromisoformat(coverage["updated_at"]) if coverage.get("updated_at") else None,
+            )
+            return self.store.read(key, start, end), key.source, record
         request_start = sync_start
         if coverage and coverage["requested_start"] <= start.isoformat() and not cached.empty:
             request_start = max(sync_start, end - timedelta(days=10))
         missing = set(self._gaps(cached, sync_start, end, trading_days)) | (known_gaps - set(cached["date"]))
         if missing:
             request_start = min(request_start, min(missing))
-        downloaded, source, adjustment = self._fetch(symbol, request_start, end, trading_days)
+        downloaded, source, adjustment, record = self._fetch_result(symbol, request_start, end, trading_days)
         new_key = HistoryKey(source, market, adjustment, symbol)
         if key != new_key and request_start > sync_start:
-            downloaded, source, adjustment = self._fetch(symbol, sync_start, end, trading_days)
+            downloaded, source, adjustment, record = self._fetch_result(symbol, sync_start, end, trading_days)
             new_key = HistoryKey(source, market, adjustment, symbol)
             request_start = sync_start
         downloaded = normalize_history(downloaded, request_start, end)
@@ -184,13 +196,13 @@ class HistorySynchronizer:
         if changed_adjustment:
             previous_coverage = self.store.coverage(new_key)
             request_start = min(sync_start, date.fromisoformat(previous_coverage["first_date"])) if previous_coverage else sync_start
-            # 较早历史查询也必须重建已缓存尾部，避免原子失效删除最近目标日。
             sync_end = max(end, date.fromisoformat(previous_coverage["last_date"])) if previous_coverage else end
-            downloaded, refetched_source, refetched_adjustment = self._fetch(symbol, request_start, sync_end, trading_days)
+            downloaded, refetched_source, refetched_adjustment, record = self._fetch_result(
+                symbol, request_start, sync_end, trading_days
+            )
             if (refetched_source, refetched_adjustment) != (source, adjustment):
                 raise RadarDataError("复权修订重取时数据源发生变化，请重试")
             downloaded = normalize_history(downloaded, request_start, sync_end)
-            # 重建成功且完整后才能失效旧序列；失败时保留原健康缓存。
             self._validate(downloaded, request_start, sync_end, trading_days)
             rebuild_gaps = {date.fromisoformat(day) for day in previous_coverage["missing_dates"]} if previous_coverage else set()
             if unresolved := rebuild_gaps - set(downloaded["date"]):
@@ -206,7 +218,16 @@ class HistorySynchronizer:
         if gaps:
             raise RadarDataError("行情缺失交易日: " + ", ".join(str(day) for day in sorted(gaps)[:5]))
         self.store.select(new_key, self.provider_id, end)
-        return self.store.read(new_key, start, end), source
+        return self.store.read(new_key, start, end), source, record
+
+    def prepare(
+        self, symbol: str, market: str, start: date, end: date, *, reuse: bool = False,
+        trading_days: Sequence[date] | None = None,
+    ) -> tuple[pd.DataFrame, str]:
+        frame, source, _ = self.prepare_result(
+            symbol, market, start, end, reuse=reuse, trading_days=trading_days
+        )
+        return frame, source
 
     def read_or_sync(self, symbol: str, market: str, start: date, end: date, *, trading_days: Sequence[date] | None = None) -> tuple[pd.DataFrame, str]:
         """查询先使用覆盖缓存；仅缺口、陈旧或更早范围才补齐。"""
@@ -216,14 +237,34 @@ class HistorySynchronizer:
             logger.debug("历史区间缓存需补齐 %s: %s", symbol, exc)
         return self.prepare(symbol, market, start, end, trading_days=trading_days)
 
-    def _fetch(self, symbol: str, start: date, end: date, trading_days: Sequence[date] | None = None) -> tuple[pd.DataFrame, str, str]:
+    def _fetch_result(
+        self, symbol: str, start: date, end: date,
+        trading_days: Sequence[date] | None = None,
+    ) -> tuple[pd.DataFrame, str, str, Any]:
         if isinstance(self.provider, FallbackETFDataProvider):
-            frame, source = self.provider.fetch_daily_with_source(symbol, start, end, require_target=True, trading_days=trading_days)
+            result = self.provider.fetch_daily_result(
+                symbol, start, end, require_target=True, trading_days=trading_days
+            )
+            if result.value is None:
+                raise RadarDataError(result.record.error_message)
+            frame = result.value
         else:
-            frame = self.provider.fetch_daily(symbol, start, end)
-            source = str(getattr(self.provider, "source_label", type(self.provider).__name__))
+            method = getattr(self.provider, "fetch_daily_result", None)
+            if callable(method):
+                result = cast(ValueResult[pd.DataFrame], method(symbol, start, end))
+                if result.value is None:
+                    raise RadarDataError(result.record.error_message)
+                frame = result.value
+            else:
+                frame = self.provider.fetch_daily(symbol, start, end)
+                result = ValueResult(
+                    frame,
+                    make_record(provider_label(self.provider), "complete",
+                                collected_at=datetime.now().astimezone()),
+                )
         adjustment = str(frame.attrs.get("adjustment", getattr(self.provider, "adjustment", "unknown")))
-        return frame, source, adjustment
+        source = result.record.source or provider_label(self.provider)
+        return frame, source, adjustment, result.record
 
     @staticmethod
     def _overlap_changed(old: pd.DataFrame, new: pd.DataFrame) -> bool:

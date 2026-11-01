@@ -6,5 +6,7 @@ meta:
   version: "1.0"
 
 financial:
+  debt_ratio:
+    enabled: false
   gross_margin_stability:
     enabled: false

@@ -1,0 +1,5 @@
+20261023 Hang Seng Composite Index 0001.HK CKH HOLDINGS 長和 Hong Kong 香港 80 Conglomerates 綜合企業 HKD 64.35 -0.39 -0.09 0.72
+20261023 Hang Seng Composite Index 0005.HK HSBC HOLDINGS 滙豐控股 Hong Kong 香港 50 Financials 金融業 HKD 142.5 -1.04 -3.49 9.84
+20261023 Hang Seng Composite Index 0700.HK TENCENT 騰訊控股 Hong Kong 香港 70 Information Technology 資訊科技業 HKD 382.4 -2.89 -0.39 8.12
+20261023 Hang Seng Composite Index 9988.HK BABA-W 阿里巴巴-W Hong Kong 香港 23 Consumer Discretionary 非必需性消費 HKD 97.35 -2.31 -0.32 5.83
+20261023 Hang Seng Composite Index 0700.HK TENCENT 騰訊控股 Hong Kong 香港 23 Consumer Discretionary 非必需性消費 HKD 382.4 -2.89 -0.39 8.12

@@ -25,6 +25,13 @@ def make_ctx(**kwargs) -> AnalysisContext:
     return ctx
 
 
+def known_periods(rows):
+    """合成同比用例显式提供口径，不给真实旧缓存猜币种。"""
+    return [row.model_copy(update={"period_start": date(row.fiscal_quarter.year, 1, 1),
+                                  "period_basis": "cumulative", "report_currency": "CNY",
+                                  "reporting_basis": "测试同源财报"}) for row in rows]
+
+
 
 class TestFinancialAnalyzer:
     def test_dimension_is_financial(self):
@@ -39,7 +46,7 @@ class TestFinancialAnalyzer:
             FinancialData(symbol="000001", fiscal_quarter=date(2025,3,31), revenue=11e9, net_profit=2.0e9, total_assets=475e9, total_equity=43e9, operating_cash_flow=3e9, roe=0.047, gross_margin=None),
             FinancialData(symbol="000001", fiscal_quarter=date(2024,12,31), revenue=42e9, net_profit=7.8e9, total_assets=460e9, total_equity=41e9, operating_cash_flow=11e9, roe=0.190, gross_margin=None),
         ]
-        ctx = make_ctx(symbol="000001", name="平安银行", financial_data=financials)
+        ctx = make_ctx(symbol="000001", name="平安银行", financial_data=known_periods(financials))
         result = FinancialAnalyzer().analyze(ctx)
         assert result.status == "ok"
         assert "revenue_growth_yoy" in result.metrics
@@ -67,7 +74,7 @@ class TestFinancialAnalyzer:
                           revenue=None, net_profit=7.0e8, total_assets=None,
                           total_equity=43e8, operating_cash_flow=None, roe=0.16),
         ]
-        ctx = make_ctx(symbol="600350", name="山东高速", financial_data=financials)
+        ctx = make_ctx(symbol="600350", name="山东高速", financial_data=known_periods(financials))
         result = FinancialAnalyzer().analyze(ctx)
         assert result.status in ("ok", "partial")
         assert "revenue_growth_yoy" not in result.metrics
@@ -82,7 +89,7 @@ class TestFinancialAnalyzer:
             FinancialData(symbol="002714", fiscal_quarter=date(2025, 9, 30), revenue=1117.90e8),
             FinancialData(symbol="002714", fiscal_quarter=date(2025, 6, 30), revenue=764.63e8),
         ]
-        result = FinancialAnalyzer().analyze(make_ctx(symbol="002714", name="牧原股份", financial_data=financials))
+        result = FinancialAnalyzer().analyze(make_ctx(symbol="002714", name="牧原股份", financial_data=known_periods(financials)))
         assert result.metrics["revenue_growth_yoy"] == pytest.approx(-0.2230)
         assert result.metrics["operating_cash_flow_per_share"] == pytest.approx(-0.39)
         assert "operating_cash_flow" not in result.metrics

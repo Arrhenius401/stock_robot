@@ -41,28 +41,31 @@ class TestIndexCommand:
         result = runner.invoke(main, ["index", "000300", "--style", "broad"])
         assert result.exit_code in (0, 1)
 
-    def test_index_markdown_output_saves_under_index_category(self, mocker, tmp_path):
+    def test_index_markdown_output_saves_under_index_category(self, mocker, tmp_path, monkeypatch):
         mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
         mocker.patch("src.stock_robot.cli._check_disclaimer", return_value=True)
         mocker.patch("data.index_mapping.IndexMapping.lookup", return_value=None)
+        from datetime import datetime
+
+        from data.schemas import AnalysisTarget, IndexAnalysisContext
+        from index.archives import load_index_snapshot
+        from index.build_single import IndexReportBuilder
+
+        report = IndexReportBuilder().build(IndexAnalysisContext(target=AnalysisTarget(
+            target_type="index", symbol="000300", name="测试指数", index_style="broad")), [])
         mocker.patch("index.pipeline.IndexPipeline.run", return_value=SimpleNamespace(
-            reports=[SimpleNamespace(code="000300", name="测试指数")],
-            compare=None,
-            errors=[],
-        ))
-        mocker.patch("stock_robot.cli._render_index_report_md", return_value="# 指数报告")
-        mocker.patch("src.stock_robot.cli._render_index_report_md", return_value="# 指数报告")
-        mock_save = mocker.patch(
-            "report.formatter.ReportFormatter.save",
-            return_value=tmp_path / "index" / "000300" / "2026-08" / "000300.md",
-        )
-
-        result = CliRunner().invoke(
-            main, ["index", "000300", "--style", "broad", "--output", "markdown"]
-        )
-
-        assert result.exit_code == 0
-        assert mock_save.call_args.kwargs["category"] == "index"
+            reports=[report], compare=None, errors=[]))
+        mocker.patch("index.archives.datetime").now.return_value = datetime(2026, 10, 29).astimezone()
+        # 新保存器使用隔离cwd，验证真实Markdown与摘要绑定快照。
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(main, ["index", "000300", "--style", "broad", "--output", "markdown"])
+        assert result.exit_code == 0, result.output
+        paths = list((tmp_path / "reports" / "index" / "000300" / "2026-10").glob("*.md"))
+        assert len(paths) == 1
+        text = paths[0].read_text(encoding="utf-8")
+        assert "## 七、免责声明" in text
+        snapshot = load_index_snapshot(paths[0], text, "000300")
+        assert snapshot is not None and snapshot["report_version"] == 2
 
     def test_index_invalid_symbol(self, mocker):
         mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
@@ -84,3 +87,24 @@ def test_cli_strategy_name_and_etf_routing(mocker, query, expected):
     assert target.index_style == "strategy"
     if query == "515300":
         assert target.requested_instrument["symbol"] == "515300"
+
+
+def test_cli_namespaced_hk_uses_official_code_and_blocks_unknown(mocker):
+    from data.index_mapping import IndexMappingEntry
+
+    mocker.patch('src.stock_robot.cli._check_disclaimer', return_value=True)
+    lookup = mocker.patch('data.index_mapping.IndexMapping.resolve')
+    run = mocker.patch('index.pipeline.IndexPipeline.run', return_value=SimpleNamespace(reports=[], compare=None, errors=[]))
+    lookup.return_value = IndexMappingEntry(symbol='HSI:01067.00', name='恒生高股息', index_style='overseas', market='hk', provider='hsi', price_symbol='01067.00')
+    result = CliRunner().invoke(main, ['index', 'HSI:01067.00'])
+    assert result.exit_code == 0, result.output
+    assert run.call_args.args[0][0].official_index_code == '01067.00'
+    lookup.return_value = IndexMappingEntry(symbol='CSI:999999', name='未知', index_style='broad', market='unknown')
+    run.reset_mock()
+    result = CliRunner().invoke(main, ['index', 'CSI:999999'])
+    assert result.exit_code != 0 and '尚未核验' in result.output
+    run.assert_not_called()
+    lookup.return_value = None
+    result = CliRunner().invoke(main, ['index', 'HSI:99999.00'])
+    assert result.exit_code != 0 and '刷新目录' in result.output
+    run.assert_not_called()

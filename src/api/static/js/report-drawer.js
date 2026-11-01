@@ -1,7 +1,7 @@
 // 完整研报右侧抽屉：管理焦点、局部错误与请求竞态。
 import { api } from "./api.js";
 import { el } from "./components.js";
-import { normalizeArtifactReport, renderStockReport } from "./report-renderer.js?v=20261012-report-library-1";
+import { normalizeArtifactReport, renderStockReport } from "./report-renderer.js?v=20261031-analysis-mode-1";
 import { store, switchView } from "./state.js";
 import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js";
 
@@ -73,7 +73,8 @@ async function retryCommentary(artifact) {
   const report = normalizeArtifactReport(artifact);
   renderDrawerContent(artifact, { commentaryBusy: true });
   try {
-    const payload = await api.retryCommentary(report.commentary_retry_id, {
+    const retry = report.report_version >= 2 && report.code ? api.retryIndexCommentary : api.retryCommentary;
+    const payload = await retry(report.commentary_retry_id, {
       artifact_id: id, session_id: artifact.session_id ?? store.currentSessionId,
     });
     if (artifact.payload?.commentary_retry_id !== report.commentary_retry_id) return;
@@ -173,7 +174,7 @@ async function refreshReport() {
   const sequence = ++requestSequence;
   clearError();
   try {
-    const payload = await api.analyze(symbol);
+    const payload = await api.analyze(symbol, true);
     if (!isCurrent(sequence, id)) return;
     artifact.payload = payload;
     store.currentArtifact = artifact;

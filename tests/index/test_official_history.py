@@ -23,7 +23,7 @@ def test_prices_then_valuation_share_history_across_instances(tmp_path, monkeypa
     monkeypatch.setattr(StrategyValuationProvider, "_factsheet", lambda *_: {})
     assert StrategyDataProvider(path).fetch_prices("930740", end=END)
     result = StrategyValuationProvider(path).fetch("930740", end=END)
-    assert result is not None and result.pe_ttm == 10
+    assert result is not None and result.pe_snapshot == 10
     assert len(calls) == 1
     assert calls[0][2]["startDate"] == "20210930"
 
@@ -133,9 +133,9 @@ def test_real_collector_reuses_target_history(tmp_path, monkeypatch):
         source="官方", as_of=END, strategy_kind="dividend_low_volatility", members=[]))
     monkeypatch.setattr("index.valuation_data.StrategyValuationProvider", lambda: provider)
     target = AnalysisTarget(target_type="index", symbol="930740", name="红利低波", index_style="strategy")
-    context = IndexDataCollector().collect(target)
+    context = IndexDataCollector(isolate_requests=False).collect(target)
     assert context.price_data
-    assert context.valuation_data is not None and context.valuation_data.pe_ttm == 10
+    assert context.valuation_data is not None and context.valuation_data.pe_snapshot == 10
     assert calls.count("930740") == 1
     assert calls.count("000300") == 1
 
@@ -234,3 +234,21 @@ def test_historical_slice_recalibrates_after_thirty_days(tmp_path, monkeypatch):
     assert len(calls) == 3
     assert calls[-1]["startDate"] == "20210929"
     assert calls[-1]["endDate"] == "20260929"
+
+
+def test_manual_refresh_preserves_completed_history_on_failure(tmp_path, monkeypatch):
+    provider = StrategyDataProvider(tmp_path / "cache.db")
+    calls = []
+    def get(_url, params):
+        calls.append(params)
+        if len(calls) == 1:
+            return {"data": [row()]}
+        raise OSError("offline")
+    monkeypatch.setattr(provider, "_get_json", get)
+    assert provider.fetch_official_history("930740", END) == [row()]
+    original = provider._cache.get_stale("csi_history_artifact", "930740", "v2")
+    provider.refresh_cache = True
+    assert provider.fetch_official_history("930740", END) == [row()]
+    assert len(calls) == 2
+    assert provider._cache.get_stale("csi_history_artifact", "930740", "v2") == original
+    assert "刷新失败" in provider.refresh_notes[0]

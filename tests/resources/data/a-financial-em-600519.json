@@ -1,0 +1,820 @@
+{
+  "responses": [
+    {
+      "label": "importance",
+      "payload": {
+        "result": {
+          "data": [
+            {
+              "SECUCODE": "600519.SH",
+              "SECURITY_CODE": "600519",
+              "ORG_TYPE": "通用",
+              "REPORT_DATE": "2026-06-30 00:00:00",
+              "REPORT_TYPE": "中报",
+              "NOTICE_DATE": "2026-08-15 00:00:00",
+              "UPDATE_DATE": "2026-08-15 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": 35.57,
+              "MGJYXJJE": 56.54890853726,
+              "TOTALOPERATEREVE": 92278072083.21,
+              "PARENTNETPROFIT": 44516880421.86,
+              "KCFJCXSYJLR": 44464207646.01,
+              "ROEJQ": 16.75,
+              "XSMLL": 89.5552128279
+            },
+            {
+              "SECUCODE": "600519.SH",
+              "SECURITY_CODE": "600519",
+              "ORG_TYPE": "通用",
+              "REPORT_DATE": "2026-03-31 00:00:00",
+              "REPORT_TYPE": "一季报",
+              "NOTICE_DATE": "2026-04-25 00:00:00",
+              "UPDATE_DATE": "2026-04-25 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": 21.76,
+              "MGJYXJJE": 21.488885503142,
+              "TOTALOPERATEREVE": 54702912385.23,
+              "PARENTNETPROFIT": 27242512886.45,
+              "KCFJCXSYJLR": 27239985194.41,
+              "ROEJQ": 10.57,
+              "XSMLL": 89.7592176242
+            },
+            {
+              "SECUCODE": "600519.SH",
+              "SECURITY_CODE": "600519",
+              "ORG_TYPE": "通用",
+              "REPORT_DATE": "2025-12-31 00:00:00",
+              "REPORT_TYPE": "年报",
+              "NOTICE_DATE": "2026-04-17 00:00:00",
+              "UPDATE_DATE": "2026-04-17 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": 65.66,
+              "MGJYXJJE": 49.128538116153,
+              "TOTALOPERATEREVE": 172054171890.91,
+              "PARENTNETPROFIT": 82320067101.68,
+              "KCFJCXSYJLR": 82293107655.25,
+              "ROEJQ": 32.53,
+              "XSMLL": 91.1795516835
+            },
+            {
+              "SECUCODE": "600519.SH",
+              "SECURITY_CODE": "600519",
+              "ORG_TYPE": "通用",
+              "REPORT_DATE": "2025-09-30 00:00:00",
+              "REPORT_TYPE": "三季报",
+              "NOTICE_DATE": "2025-10-30 00:00:00",
+              "UPDATE_DATE": "2025-10-30 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": 51.53,
+              "MGJYXJJE": 30.502044764572,
+              "TOTALOPERATEREVE": 130903889634.88,
+              "PARENTNETPROFIT": 64626746712.18,
+              "KCFJCXSYJLR": 64680616431.2,
+              "ROEJQ": 24.64,
+              "XSMLL": 91.2933832134
+            },
+            {
+              "SECUCODE": "600519.SH",
+              "SECURITY_CODE": "600519",
+              "ORG_TYPE": "通用",
+              "REPORT_DATE": "2025-06-30 00:00:00",
+              "REPORT_TYPE": "中报",
+              "NOTICE_DATE": "2025-08-13 00:00:00",
+              "UPDATE_DATE": "2026-08-15 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": 36.18,
+              "MGJYXJJE": 10.44346760624,
+              "TOTALOPERATEREVE": 91093762553.97,
+              "PARENTNETPROFIT": 45402962298.1,
+              "KCFJCXSYJLR": 45390247623.82,
+              "ROEJQ": 17.89,
+              "XSMLL": 91.2993094819
+            },
+            {
+              "SECUCODE": "600519.SH",
+              "SECURITY_CODE": "600519",
+              "ORG_TYPE": "通用",
+              "REPORT_DATE": "2025-03-31 00:00:00",
+              "REPORT_TYPE": "一季报",
+              "NOTICE_DATE": "2025-04-30 00:00:00",
+              "UPDATE_DATE": "2026-04-25 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": 21.38,
+              "MGJYXJJE": 7.012586430561,
+              "TOTALOPERATEREVE": 51443450583.77,
+              "PARENTNETPROFIT": 26847474238.76,
+              "KCFJCXSYJLR": 26849883702.9,
+              "ROEJQ": 10.92,
+              "XSMLL": 91.9736093542
+            },
+            {
+              "SECUCODE": "600519.SH",
+              "SECURITY_CODE": "600519",
+              "ORG_TYPE": "通用",
+              "REPORT_DATE": "2024-12-31 00:00:00",
+              "REPORT_TYPE": "年报",
+              "NOTICE_DATE": "2025-04-03 00:00:00",
+              "UPDATE_DATE": "2026-04-17 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": 68.64,
+              "MGJYXJJE": 73.605997533533,
+              "TOTALOPERATEREVE": 174144069958.25,
+              "PARENTNETPROFIT": 86228146421.62,
+              "KCFJCXSYJLR": 86240905977.42,
+              "ROEJQ": 36.02,
+              "XSMLL": 91.9312166361
+            },
+            {
+              "SECUCODE": "600519.SH",
+              "SECURITY_CODE": "600519",
+              "ORG_TYPE": "通用",
+              "REPORT_DATE": "2024-09-30 00:00:00",
+              "REPORT_TYPE": "三季报",
+              "NOTICE_DATE": "2024-10-26 00:00:00",
+              "UPDATE_DATE": "2025-10-30 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": 48.42,
+              "MGJYXJJE": 35.36177679777,
+              "TOTALOPERATEREVE": 123122542625.45,
+              "PARENTNETPROFIT": 60827552118.51,
+              "KCFJCXSYJLR": 60778641454.76,
+              "ROEJQ": 26.09,
+              "XSMLL": 91.5313752514
+            },
+            {
+              "SECUCODE": "600519.SH",
+              "SECURITY_CODE": "600519",
+              "ORG_TYPE": "通用",
+              "REPORT_DATE": "2024-06-30 00:00:00",
+              "REPORT_TYPE": "中报",
+              "NOTICE_DATE": "2024-08-09 00:00:00",
+              "UPDATE_DATE": "2025-08-13 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": 33.19,
+              "MGJYXJJE": 29.152919876655,
+              "TOTALOPERATEREVE": 83451164646.53,
+              "PARENTNETPROFIT": 41695610983.37,
+              "KCFJCXSYJLR": 41670097819.99,
+              "ROEJQ": 17.63,
+              "XSMLL": 91.7602847624
+            },
+            {
+              "SECUCODE": "600519.SH",
+              "SECURITY_CODE": "600519",
+              "ORG_TYPE": "通用",
+              "REPORT_DATE": "2024-03-31 00:00:00",
+              "REPORT_TYPE": "一季报",
+              "NOTICE_DATE": "2024-04-27 00:00:00",
+              "UPDATE_DATE": "2025-04-30 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": 19.16,
+              "MGJYXJJE": 7.313674976258,
+              "TOTALOPERATEREVE": 46484738134.23,
+              "PARENTNETPROFIT": 24065262374.15,
+              "KCFJCXSYJLR": 24051471185.69,
+              "ROEJQ": 10.57,
+              "XSMLL": 92.6133169925
+            },
+            {
+              "SECUCODE": "600519.SH",
+              "SECURITY_CODE": "600519",
+              "ORG_TYPE": "通用",
+              "REPORT_DATE": "2023-12-31 00:00:00",
+              "REPORT_TYPE": "年报",
+              "NOTICE_DATE": "2024-04-03 00:00:00",
+              "UPDATE_DATE": "2025-04-03 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": 59.49,
+              "MGJYXJJE": 53.011753181776,
+              "TOTALOPERATEREVE": 150560330316.45,
+              "PARENTNETPROFIT": 74734071550.75,
+              "KCFJCXSYJLR": 74752564425.52,
+              "ROEJQ": 34.19,
+              "XSMLL": 91.9649372414
+            },
+            {
+              "SECUCODE": "600519.SH",
+              "SECURITY_CODE": "600519",
+              "ORG_TYPE": "通用",
+              "REPORT_DATE": "2023-09-30 00:00:00",
+              "REPORT_TYPE": "三季报",
+              "NOTICE_DATE": "2023-10-21 00:00:00",
+              "UPDATE_DATE": "2024-10-26 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": 42.09,
+              "MGJYXJJE": 39.80424660723,
+              "TOTALOPERATEREVE": 105315900448.1,
+              "PARENTNETPROFIT": 52876217064.12,
+              "KCFJCXSYJLR": 52815640756.86,
+              "ROEJQ": 24.82,
+              "XSMLL": 91.7074711036
+            }
+          ]
+        }
+      },
+      "params": {
+        "type": "RPT_F10_FINANCE_MAINFINADATA",
+        "sty": "APP_F10_MAINFINADATA",
+        "filter": "(SECUCODE=\"600519.SH\")",
+        "p": "1",
+        "ps": "12",
+        "sr": "-1",
+        "st": "REPORT_DATE",
+        "source": "HSF10",
+        "client": "PC"
+      }
+    },
+    {
+      "label": "company_type",
+      "payload": {
+        "company_type": "4"
+      },
+      "params": {
+        "type": "web",
+        "code": "sh600519"
+      }
+    },
+    {
+      "label": "balance",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2026-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2026-08-15 00:00:00",
+            "UPDATE_DATE": "2026-08-15 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 309050784569.31,
+            "TOTAL_EQUITY": 262096352174.36
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2026-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2026-04-25 00:00:00",
+            "UPDATE_DATE": "2026-04-25 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 319918844905.58,
+            "TOTAL_EQUITY": 281135886435.69
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2025-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2026-04-17 00:00:00",
+            "UPDATE_DATE": "2026-08-15 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 303834844021.44,
+            "TOTAL_EQUITY": 253959253909.07
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2025-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2025-10-30 00:00:00",
+            "UPDATE_DATE": "2025-10-30 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 304738184929.86,
+            "TOTAL_EQUITY": 265705024872.85
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2025-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2025-08-13 00:00:00",
+            "UPDATE_DATE": "2025-08-13 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 292257789095.51,
+            "TOTAL_EQUITY": 249135586262.75
+          }
+        ]
+      },
+      "params": {
+        "companyType": "4",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2026-06-30,2026-03-31,2025-12-31,2025-09-30,2025-06-30,2025-03-31,2024-12-31,2024-09-30,2024-06-30,2024-03-31,2023-12-31,2023-09-30",
+        "code": "SH600519"
+      }
+    },
+    {
+      "label": "income",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2026-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2026-08-15 00:00:00",
+            "UPDATE_DATE": "2026-08-15 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": 44464207646.01,
+            "TOTAL_OPERATE_INCOME": 92278072083.21,
+            "OPERATE_INCOME": 90703260964.48,
+            "PARENT_NETPROFIT": 44516880421.86,
+            "BASIC_EPS": 35.57
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2026-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2026-04-25 00:00:00",
+            "UPDATE_DATE": "2026-04-25 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": 27239985194.41,
+            "TOTAL_OPERATE_INCOME": 54702912385.23,
+            "OPERATE_INCOME": 53909252220.51,
+            "PARENT_NETPROFIT": 27242512886.45,
+            "BASIC_EPS": 21.76
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2025-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2026-04-17 00:00:00",
+            "UPDATE_DATE": "2026-04-17 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": 82293107655.25,
+            "TOTAL_OPERATE_INCOME": 172054171890.91,
+            "OPERATE_INCOME": 168838102514.79,
+            "PARENT_NETPROFIT": 82320067101.68,
+            "BASIC_EPS": 65.66
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2025-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2025-10-30 00:00:00",
+            "UPDATE_DATE": "2025-10-30 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": 64680616431.2,
+            "TOTAL_OPERATE_INCOME": 130903889634.88,
+            "OPERATE_INCOME": 128453707655.86,
+            "PARENT_NETPROFIT": 64626746712.18,
+            "BASIC_EPS": 51.53
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2025-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2025-08-13 00:00:00",
+            "UPDATE_DATE": "2026-08-15 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": 45390247623.82,
+            "TOTAL_OPERATE_INCOME": 91093762553.97,
+            "OPERATE_INCOME": 89389354416.84,
+            "PARENT_NETPROFIT": 45402962298.1,
+            "BASIC_EPS": 36.18
+          }
+        ]
+      },
+      "params": {
+        "companyType": "4",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2026-06-30,2026-03-31,2025-12-31,2025-09-30,2025-06-30,2025-03-31,2024-12-31,2024-09-30,2024-06-30,2024-03-31,2023-12-31,2023-09-30",
+        "code": "SH600519"
+      }
+    },
+    {
+      "label": "cash",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2026-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2026-08-15 00:00:00",
+            "UPDATE_DATE": "2026-08-15 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": 70690750119.06
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2026-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2026-04-25 00:00:00",
+            "UPDATE_DATE": "2026-04-25 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": 26909891269.13
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2025-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2026-04-17 00:00:00",
+            "UPDATE_DATE": "2026-04-17 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": 61522204989.35
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2025-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2025-10-30 00:00:00",
+            "UPDATE_DATE": "2025-10-30 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": 38196802155.27
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2025-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2025-08-13 00:00:00",
+            "UPDATE_DATE": "2026-08-15 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": 13119061031.33
+          }
+        ]
+      },
+      "params": {
+        "companyType": "4",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2026-06-30,2026-03-31,2025-12-31,2025-09-30,2025-06-30,2025-03-31,2024-12-31,2024-09-30,2024-06-30,2024-03-31,2023-12-31,2023-09-30",
+        "code": "SH600519"
+      }
+    },
+    {
+      "label": "balance",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2025-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2025-04-30 00:00:00",
+            "UPDATE_DATE": "2025-04-30 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 312368697395.05,
+            "TOTAL_EQUITY": 268190335170.39
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2024-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2025-04-03 00:00:00",
+            "UPDATE_DATE": "2026-04-17 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 298944579918.7,
+            "TOTAL_EQUITY": 242011315120.6
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2024-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2024-10-26 00:00:00",
+            "UPDATE_DATE": "2024-10-26 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 286770722957.69,
+            "TOTAL_EQUITY": 247688164238.17
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2024-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2024-08-09 00:00:00",
+            "UPDATE_DATE": "2024-08-09 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 279207261166.63,
+            "TOTAL_EQUITY": 228044809649.28
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2024-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2024-04-27 00:00:00",
+            "UPDATE_DATE": "2024-04-27 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 285524543268.38,
+            "TOTAL_EQUITY": 248536768550.53
+          }
+        ]
+      },
+      "params": {
+        "companyType": "4",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2025-03-31,2024-12-31,2024-09-30,2024-06-30,2024-03-31",
+        "code": "SH600519"
+      }
+    },
+    {
+      "label": "income",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2025-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2025-04-30 00:00:00",
+            "UPDATE_DATE": "2026-04-25 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": 26849883702.9,
+            "TOTAL_OPERATE_INCOME": 51443450583.77,
+            "OPERATE_INCOME": 50600957885.78,
+            "PARENT_NETPROFIT": 26847474238.76,
+            "BASIC_EPS": 21.38
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2024-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2025-04-03 00:00:00",
+            "UPDATE_DATE": "2026-04-17 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": 86240905977.42,
+            "TOTAL_OPERATE_INCOME": 174144069958.25,
+            "OPERATE_INCOME": 170899152276.34,
+            "PARENT_NETPROFIT": 86228146421.62,
+            "BASIC_EPS": 68.64
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2024-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2024-10-26 00:00:00",
+            "UPDATE_DATE": "2025-10-30 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": 60778641454.76,
+            "TOTAL_OPERATE_INCOME": 123122542625.45,
+            "OPERATE_INCOME": 120776131874.69,
+            "PARENT_NETPROFIT": 60827552118.51,
+            "BASIC_EPS": 48.42
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2024-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2024-08-09 00:00:00",
+            "UPDATE_DATE": "2025-08-13 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": 41670097819.99,
+            "TOTAL_OPERATE_INCOME": 83451164646.53,
+            "OPERATE_INCOME": 81930977667.75,
+            "PARENT_NETPROFIT": 41695610983.37,
+            "BASIC_EPS": 33.19
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2024-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2024-04-27 00:00:00",
+            "UPDATE_DATE": "2025-04-30 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": 24051471185.69,
+            "TOTAL_OPERATE_INCOME": 46484738134.23,
+            "OPERATE_INCOME": 45775517043.29,
+            "PARENT_NETPROFIT": 24065262374.15,
+            "BASIC_EPS": 19.16
+          }
+        ]
+      },
+      "params": {
+        "companyType": "4",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2025-03-31,2024-12-31,2024-09-30,2024-06-30,2024-03-31",
+        "code": "SH600519"
+      }
+    },
+    {
+      "label": "cash",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2025-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2025-04-30 00:00:00",
+            "UPDATE_DATE": "2026-04-25 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": 8809195646.38
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2024-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2025-04-03 00:00:00",
+            "UPDATE_DATE": "2026-04-17 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": 92463692168.43
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2024-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2024-10-26 00:00:00",
+            "UPDATE_DATE": "2025-10-30 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": 44421386217.45
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2024-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2024-08-09 00:00:00",
+            "UPDATE_DATE": "2025-08-13 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": 36621833812.63
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2024-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2024-04-27 00:00:00",
+            "UPDATE_DATE": "2025-04-30 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": 9187422415.09
+          }
+        ]
+      },
+      "params": {
+        "companyType": "4",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2025-03-31,2024-12-31,2024-09-30,2024-06-30,2024-03-31",
+        "code": "SH600519"
+      }
+    },
+    {
+      "label": "balance",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2023-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2024-04-03 00:00:00",
+            "UPDATE_DATE": "2025-04-03 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 272699660092.25,
+            "TOTAL_EQUITY": 223656469294.82
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2023-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2023-10-21 00:00:00",
+            "UPDATE_DATE": "2023-10-21 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 262076424771.47,
+            "TOTAL_EQUITY": 225018799759.41
+          }
+        ]
+      },
+      "params": {
+        "companyType": "4",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2023-12-31,2023-09-30",
+        "code": "SH600519"
+      }
+    },
+    {
+      "label": "income",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2023-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2024-04-03 00:00:00",
+            "UPDATE_DATE": "2025-04-03 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": 74752564425.52,
+            "TOTAL_OPERATE_INCOME": 150560330316.45,
+            "OPERATE_INCOME": 147693604994.14,
+            "PARENT_NETPROFIT": 74734071550.75,
+            "BASIC_EPS": 59.49
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2023-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2023-10-21 00:00:00",
+            "UPDATE_DATE": "2024-10-26 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": 52815640756.86,
+            "TOTAL_OPERATE_INCOME": 105315900448.1,
+            "OPERATE_INCOME": 103268354688.44,
+            "PARENT_NETPROFIT": 52876217064.12,
+            "BASIC_EPS": 42.09
+          }
+        ]
+      },
+      "params": {
+        "companyType": "4",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2023-12-31,2023-09-30",
+        "code": "SH600519"
+      }
+    },
+    {
+      "label": "cash",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2023-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2024-04-03 00:00:00",
+            "UPDATE_DATE": "2025-04-03 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": 66593247721.09
+          },
+          {
+            "SECUCODE": "600519.SH",
+            "SECURITY_CODE": "600519",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2023-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2023-10-21 00:00:00",
+            "UPDATE_DATE": "2024-10-26 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": 50002007018.66
+          }
+        ]
+      },
+      "params": {
+        "companyType": "4",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2023-12-31,2023-09-30",
+        "code": "SH600519"
+      }
+    }
+  ]
+}

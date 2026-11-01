@@ -1,8 +1,9 @@
 from datetime import date, datetime
+from datetime import date as DateType
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel, Field, PrivateAttr, ValidationInfo, field_validator
 
 
 class SufficiencyLevel(StrEnum):
@@ -45,6 +46,19 @@ class DailyValuationPoint(BaseModel):
     ps: float | None = None
 
 
+class ValuationHistorySummary(BaseModel):
+    """单个估值指标的同源历史统计，不以其他来源快照作为分位参照。"""
+    source: str = ""
+    sample_count: int = 0
+    start: date | None = None
+    as_of: date | None = None
+    reference: float | None = None
+    median: float | None = None
+    high: float | None = None
+    low: float | None = None
+    reason: str = ""
+
+
 class EnrichedValuation(BaseModel):
     """充实后的估值数据 — 日频 PE/PB/PS 序列"""
     daily_points: list[DailyValuationPoint] = Field(default_factory=list)
@@ -55,6 +69,8 @@ class EnrichedValuation(BaseModel):
     pe_high: float | None = None
     pe_low: float | None = None
     validated: bool = False  # 是否经实测 PE 锚定校验
+    pe_history_summary: ValuationHistorySummary = Field(default_factory=ValuationHistorySummary)
+    pb_history_summary: ValuationHistorySummary = Field(default_factory=ValuationHistorySummary)
 
 
 class PeerComparison(BaseModel):
@@ -79,6 +95,11 @@ class EnrichedIndustry(BaseModel):
     industry_median_net_margin: float | None = None
     target_pe_premium: float | None = None      # 正数=溢价，负数=折价
     target_market_cap_rank: int | None = None
+    target_pe_percentile: float | None = None
+    target_pb_percentile: float | None = None
+    peer_pe_sample: int = 0
+    peer_pb_sample: int = 0
+    comparison: dict[str, Any] = Field(default_factory=dict)
 
 
 class RawSentimentItem(BaseModel):
@@ -87,6 +108,8 @@ class RawSentimentItem(BaseModel):
     source: str  # "news" 或 "announcement"
     publish_date: date
     content: str = ""
+    url: str = ""
+    media: str = ""
 
 
 class RawSentimentData(BaseModel):
@@ -105,6 +128,12 @@ class SentimentItem(BaseModel):
     severity: str  # "minor" / "moderate" / "major"
     event_type: str = ""
     source: str = ""
+    item_id: str = ""
+    related: bool | None = None
+    assessable: bool | None = None
+    evidence: str = ""
+    publish_date: "date | None" = None
+    url: str = ""
 
 
 class EnrichedSentiment(BaseModel):
@@ -115,6 +144,12 @@ class EnrichedSentiment(BaseModel):
     negative_count: int = 0
     major_events: list[SentimentItem] = Field(default_factory=list)
     all_items: list[SentimentItem] = Field(default_factory=list)
+    assessment_status: Literal["legacy", "complete", "failed", "unavailable"] = "legacy"
+    assessment_reason: str = ""
+    evaluated_count: int = 0
+    window_start: "date | None" = None
+    window_end: "date | None" = None
+    risk_score: float | None = None
 
 
 class FinancialData(BaseModel):
@@ -132,7 +167,51 @@ class FinancialData(BaseModel):
     operating_cash_flow_per_share: float | None = None
     roe: float | None = None
     gross_margin: float | None = None
+    gross_margin_basis: str = ""  # 派生毛利率的计算口径；旧缓存及直接披露值默认为空
     basic_eps: float | None = None  # 基本每股收益，用于总股本反推
+    # 趋势专用口径；旧缓存缺失时保持未知，不凭市场或日期补造。
+    period_start: "date | None" = None
+    period_basis: Literal["unknown", "cumulative", "single"] = "unknown"
+    reporting_basis: str = ""
+    # 港股目录列报币种不能证明三表 AMOUNT 币种；旧缓存默认没有金额证据。
+    amount_currency_verified: bool = False
+    report_currency: str = ""
+    disclosure_currency: str = ""
+    revenue_basis: str = ""
+    cash_flow_basis: Literal["unknown", "reported", "estimated"] = "unknown"
+    cash_flow_period_start: "date | None" = None
+    # 显式持久化来源，不依赖不会进入 model_dump 的 _data_source。
+    financial_source: str = ""
+    field_sources: dict[str, str] = Field(default_factory=dict)
+    field_positions: dict[str, dict[str, str]] = Field(default_factory=dict)
+    financial_selection_status: Literal["unknown", "complete", "partial"] = "unknown"
+    financial_selection_note: str = ""
+
+    @field_validator("report_currency", "disclosure_currency", mode="before")
+    @classmethod
+    def normalize_report_currency(cls, value: Any) -> str:
+        """只规范明确的币种标识，不将占位或市场信息当作币种。"""
+        if not isinstance(value, str):
+            return ""
+        code = {"人民币": "CNY", "人民币元": "CNY", "港币": "HKD", "港元": "HKD", "美元": "USD"}.get(
+            value.strip(), value.strip().upper())
+        return code if len(code) == 3 and code.isascii() and code.isalpha() and code not in {"NAN", "XXX"} else ""
+
+    @field_validator("report_currency")
+    @classmethod
+    def require_hk_amount_evidence(cls, value: str, info: ValidationInfo) -> str:
+        """旧港股缓存的目录币种不能恢复为已核实的金额币种；A 股保持兼容。"""
+        if str(info.data.get("symbol", "")).endswith(".HK") and not info.data.get("amount_currency_verified"):
+            return ""
+        return value
+
+    @field_validator("gross_margin_basis")
+    @classmethod
+    def remove_legacy_hk_conversion_claim(cls, value: str, info: ValidationInfo) -> str:
+        """旧缓存仍可能保存旧版毛利率说明，读取时移除无证据的断言。"""
+        if str(info.data.get("symbol", "")).endswith(".HK") and value.endswith("；未换汇"):
+            return value.removesuffix("；未换汇") + "；不推断上游换汇情况"
+        return value
 
 
 class PriceData(BaseModel):
@@ -156,6 +235,17 @@ class ValuationData(BaseModel):
     pe_ttm: float | None = None
     pb: float | None = None
     ps_ttm: float | None = None
+    pe_as_of: "date | None" = None
+    pb_as_of: "date | None" = None
+    ps_as_of: "date | None" = None
+    ps_source: str = ""
+    pe_history: dict[DateType, float] = Field(default_factory=dict)
+    pb_history: dict[DateType, float] = Field(default_factory=dict)
+    history_source: str = ""
+    valuation_notes: list[str] = Field(default_factory=list)
+    cache_degraded: bool = False  # 请求失败导致的残缺结果，仅短 TTL 缓存
+    failed_components: list[Literal["snapshot", "comparison", "pe_history", "pb_history"]] = Field(
+        default_factory=list)  # 区分接口故障和来源明确无值，避免错误复活旧指标
 
 
 class PeerBasicInfo(BaseModel):
@@ -182,9 +272,40 @@ class IndustryData(BaseModel):
     resolved_sw_level2: str = ""
     # 新增：头部同行详细数据
     top_peers: list[PeerBasicInfo] = Field(default_factory=list)
+    comparison_ready: bool = False
+    comparison_snapshot: dict[str, Any] = Field(default_factory=dict)
     # 采集层扩展字段（不参与序列化）
     _target_mcap: float | None = PrivateAttr(default=None)
     _target_rank: int | None = PrivateAttr(default=None)
+    _peer_valuations: dict[str, PeerBasicInfo] = PrivateAttr(default_factory=dict)
+    _target_pe: float | None = PrivateAttr(default=None)
+    _target_pb: float | None = PrivateAttr(default=None)
+    _data_date: str = PrivateAttr(default="")
+    _comparison_deadline: float | None = PrivateAttr(default=None)
+
+
+class HKNewsLink(BaseModel):
+    """关键词候选新闻的可追溯来源。"""
+    media: str
+    url: str
+
+
+class HKNewsItem(BaseModel):
+    """不附带情绪标签的港股新闻候选。"""
+    title: str
+    published_at: datetime
+    links: list[HKNewsLink] = Field(default_factory=list)
+    content: str = ""
+
+
+class HKNewsSnapshot(BaseModel):
+    """持久化关键词检索快照，空结果与查询失败分别表达。"""
+    fetched_at: datetime
+    queries: list[str] = Field(default_factory=list)
+    query_errors: list[str] = Field(default_factory=list)
+    candidate_count: int = 0
+    limit_reached: bool = False
+    items: list[HKNewsItem] = Field(default_factory=list)
 
 
 class NewsData(BaseModel):
@@ -193,6 +314,8 @@ class NewsData(BaseModel):
     symbol: str
     date: date
     headlines: list[str] = Field(default_factory=list)
+    index_items: list[dict[str, Any]] = Field(default_factory=list)
+    hk_news: HKNewsSnapshot | None = None
     _raw_sentiment: RawSentimentData | None = PrivateAttr(default=None)
     _from_stale_cache: bool = PrivateAttr(default=False)
 
@@ -218,6 +341,9 @@ class AnalysisResult(BaseModel):
     industry_note: str = ""
 
 
+ResultState = Literal["complete", "partial", "empty", "not_applicable", "failed", "unknown"]
+
+
 class DataCollectionRecord(BaseModel):
     """采集出处与时效，旧缓存未知值保持空缺。"""
     source: str = ""
@@ -225,6 +351,18 @@ class DataCollectionRecord(BaseModel):
     cache_status: Literal["live", "cache", "stale", "unknown"] = "unknown"
     error_kind: str = ""
     error_message: str = ""
+    cache_state: Literal["complete", "degraded", "not_applicable", "unknown"] = "unknown"
+    result_state: ResultState = "unknown"
+
+
+class DataReference(BaseModel):
+    """独立历史参考，不回填当前事实，不进入充实器、评分或交易信号。"""
+    data_type: Literal["financial", "price", "news"]
+    record: DataCollectionRecord
+    financial_data: list[FinancialData] = Field(default_factory=list)
+    price_data: list[PriceData] = Field(default_factory=list)
+    news_data: NewsData | None = None
+    reason: str = ""
 
 
 class AnalysisContext(BaseModel):
@@ -232,6 +370,8 @@ class AnalysisContext(BaseModel):
     symbol: str
     name: str
     market: str = "a-shares"
+    # 历史直接构造上下文保持旧语义；正式管道按配置显式覆盖。
+    extra_analysis_enabled: bool = True
     financial_data: list[FinancialData] | None = None
     price_data: list[PriceData] | None = None
     valuation_data: ValuationData | None = None  # 只存当日单时点，日频序列走 enriched_valuation
@@ -239,6 +379,7 @@ class AnalysisContext(BaseModel):
     news_data: NewsData | None = None
     collected_at: datetime = Field(default_factory=lambda: datetime.now().astimezone())
     collection_records: dict[str, DataCollectionRecord] = Field(default_factory=dict)
+    reference_data: dict[str, DataReference] = Field(default_factory=dict)
 
     # 采集层 — 舆情原始数据
     raw_sentiment: RawSentimentData | None = None
@@ -248,6 +389,7 @@ class AnalysisContext(BaseModel):
     enriched_valuation: EnrichedValuation | None = None
     enriched_industry: EnrichedIndustry | None = None
     enriched_sentiment: EnrichedSentiment | None = None
+    financial_scoring_facts: dict[str, Any] = Field(default_factory=dict)
 
     # 新增 — 行业分类信息
     sw_industry: str = ""
@@ -270,11 +412,22 @@ class AnalysisTarget(BaseModel):
     market: str = "a-shares"
     index_style: Literal["broad", "sector", "overseas", "strategy"] | None = None
     requested_instrument: dict[str, Any] | None = None
+    official_index_code: str | None = None
+    return_type: str = "price"
 
 
 class IndexPriceData(PriceData):
     """指数日线行情（继承 PriceData 的 OHLCV 字段）"""
     turnover: float | None = None
+    change_pct: float | None = None
+
+
+class IndexClosePriceData(BaseModel):
+    """只有收盘价的指数记录，不构造未披露的 OHLC。"""
+    _data_source: str = PrivateAttr(default="")
+    symbol: str
+    trade_date: date
+    close: float = Field(ge=0)
     change_pct: float | None = None
 
 
@@ -295,6 +448,7 @@ class IndexValuationData(BaseModel):
     pe_as_of: "date | None" = None
     pb_as_of: "date | None" = None
     pe_snapshot_as_of: "date | None" = None
+    pe_snapshot_period: str = ""  # 月频来源仅披露年月时，不推断具体交易日
     pe_snapshot_basis: str = ""
     pe_snapshot_source_url: str = ""
     pe_basis: str = ""
@@ -313,6 +467,9 @@ class CapitalFlowData(BaseModel):
     north_bound: float | None = None
     main_net_inflow: float | None = None
     margin_balance: float | None = None
+    southbound_sh_yi: float | None = None
+    southbound_sz_yi: float | None = None
+    notes: list[str] = Field(default_factory=list)
 
 
 class MacroContext(BaseModel):
@@ -320,9 +477,14 @@ class MacroContext(BaseModel):
     symbol: str
     fetch_date: date
     shibor_3m: float | None = None
+    hibor_1m: float | None = None
+    hk_base_rate: float | None = None
+    hk_closing_balance_million: float | None = None
     cpi_yoy: float | None = None
     pmi: float | None = None
     usd_cny: float | None = None
+    indicator_dates: dict[str, str] = Field(default_factory=dict)
+    notes: list[str] = Field(default_factory=list)
     shibor_percentile: float | None = None
     pmi_percentile: float | None = None
 
@@ -365,10 +527,13 @@ class StrategySnapshot(BaseModel):
 class IndexAnalysisContext(BaseModel):
     """指数分析上下文 — 管道的核心数据容器"""
     target: AnalysisTarget
-    price_data: list[IndexPriceData] = Field(default_factory=list)
+    extra_analysis_enabled: bool = True
+    collection_records: dict[str, DataCollectionRecord] = Field(default_factory=dict)
+    price_data: list[IndexPriceData | IndexClosePriceData] = Field(default_factory=list)
     valuation_data: IndexValuationData | None = None
     capital_flow: CapitalFlowData | None = None
     macro: MacroContext | None = None
+    news_items: list[dict[str, Any]] = Field(default_factory=list)
     raw_sentiment: RawSentimentData | None = None
     sufficiency: DataSufficiency | None = None
     enriched_sentiment: EnrichedSentiment | None = None
@@ -382,6 +547,7 @@ class IndexAnalysisContext(BaseModel):
 class IndexReport(BaseModel):
     """指数分析报告"""
     code: str
+    analysis_mode: Literal["objective", "extra"] = "extra"
     name: str
     date: date
     overview: dict
@@ -394,14 +560,21 @@ class IndexReport(BaseModel):
     section_performance: dict | None = None
     requested_instrument: dict[str, Any] | None = None
 
-    tag_technical: Literal["bull", "shake", "bear"]
-    tag_valuation: Literal["undervalued", "neutral", "overvalued", "invalid"]
-    tag_capital: Literal["positive", "neutral", "negative"]
-    tag_macro: Literal["positive", "neutral", "negative", "na"]
-    tag_sentiment: Literal["positive", "neutral", "negative"]
+    tag_technical: Literal["bull", "shake", "bear"] | None
+    tag_valuation: Literal["undervalued", "neutral", "overvalued", "invalid"] | None
+    tag_capital: Literal["positive", "neutral", "negative"] | None
+    tag_macro: Literal["positive", "neutral", "negative", "na"] | None
+    tag_sentiment: Literal["positive", "neutral", "negative"] | None
 
     composite_comment: str
     position_coeff: float | None
 
     risk_list: list[str]
     visible_sections: set[str]
+    report_version: int = 1  # 新报告使用版本2，历史结构继续兼容
+    generated_at: str = ""
+    data_quality: dict[str, Any] = Field(default_factory=dict)
+    commentary: str = ""
+    commentary_status: str = "disabled"
+    commentary_retry_id: str | None = None
+    disclaimer: list[str] = Field(default_factory=list)

@@ -1,0 +1,49 @@
+{
+  "symbol": "01810",
+  "success": true,
+  "count": 27,
+  "pages": 1,
+  "subjects": [
+    {
+      "SECUCODE": "01810.HK",
+      "SECURITY_CODE": "01810",
+      "SECURITY_NAME_ABBR": "小米集团-W",
+      "ORG_CODE": "10932245",
+      "REPORT_DATE": "2026-06-30 00:00:00",
+      "DATE_TYPE_CODE": "002",
+      "FISCAL_YEAR": "12-31",
+      "START_DATE": "2026-01-01 00:00:00",
+      "STD_ITEM_CODE": "004001001",
+      "STD_ITEM_NAME": "营业额",
+      "AMOUNT": 208063227000
+    },
+    {
+      "SECUCODE": "01810.HK",
+      "SECURITY_CODE": "01810",
+      "SECURITY_NAME_ABBR": "小米集团-W",
+      "ORG_CODE": "10932245",
+      "REPORT_DATE": "2026-06-30 00:00:00",
+      "DATE_TYPE_CODE": "002",
+      "FISCAL_YEAR": "12-31",
+      "START_DATE": "2026-01-01 00:00:00",
+      "STD_ITEM_CODE": "004001999",
+      "STD_ITEM_NAME": "营运收入",
+      "AMOUNT": 208063227000
+    },
+    {
+      "SECUCODE": "01810.HK",
+      "SECURITY_CODE": "01810",
+      "SECURITY_NAME_ABBR": "小米集团-W",
+      "ORG_CODE": "10932245",
+      "REPORT_DATE": "2026-06-30 00:00:00",
+      "DATE_TYPE_CODE": "002",
+      "FISCAL_YEAR": "12-31",
+      "START_DATE": "2026-01-01 00:00:00",
+      "STD_ITEM_CODE": "004007999",
+      "STD_ITEM_NAME": "毛利",
+      "AMOUNT": 43419038000
+    }
+  ],
+  "margin": 0.20868194070641805,
+  "identity_difference": null
+}

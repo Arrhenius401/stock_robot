@@ -5,8 +5,12 @@
 失败行业最多重试 3 轮。一次性运维脚本，不进测试套件。
 """
 import json
+import logging
 import time
+from dataclasses import asdict
+from datetime import datetime
 
+from data.collection_state import make_refresh_record
 from data.industry_mapping_builder import (
     DEFAULT_DELAY,
     _csv_path,
@@ -16,6 +20,7 @@ from data.industry_mapping_builder import (
     fetch_taxonomy,
 )
 
+logger = logging.getLogger(__name__)
 BATCH_SIZE = 8    # 每批行业数（实测限流窗口容量）
 BATCH_REST = 300  # 批间休息秒（窗口完全恢复所需）
 RETRY_REST = 15   # 单行业失败后休息秒
@@ -38,7 +43,7 @@ def _wait_until_available(max_minutes: int = 30) -> None:
     raise SystemExit("等待站点恢复超时")
 
 
-def main():
+def _run(publish_status: dict[str, bool], attempted_at: datetime):
     _wait_until_available()
     level2_map, level3_map = fetch_taxonomy(refresh=True)
     style_map = _load_style_mapping()
@@ -80,6 +85,7 @@ def main():
 
     rows = list(stock_rows.values())
     _write_csv(rows)
+    publish_status["published"] = True
 
     known_total: int | None = None
     if _csv_path().exists():
@@ -92,7 +98,25 @@ def main():
         "stock_count": len(rows),
         "failed_industries": [code for code, _ in pending],
         "coverage_pct": coverage_pct,
-    }, ensure_ascii=False), flush=True)
+        "refresh_record": asdict(make_refresh_record(
+            "乐咕申万", "partial" if pending else "complete", attempted_at=attempted_at,
+            error_message="部分行业未获取" if pending else "", published=True)),
+    }, ensure_ascii=False, default=str), flush=True)
+
+
+def main():
+    attempted_at = datetime.now().astimezone()
+    publish_status = {"published": False}
+    try:
+        _run(publish_status, attempted_at)
+    except (Exception, SystemExit) as error:  # 运维脚本边界，记录后保留原异常
+        logger.warning("行业映射刷新未完成：%s", type(error).__name__)
+        record = make_refresh_record(
+            "乐咕申万", "partial" if publish_status["published"] else "failed",
+            attempted_at=attempted_at, error_kind="refresh_failed",
+            error_message="行业映射刷新未完成", published=publish_status["published"])
+        print(json.dumps({"refresh_record": asdict(record)}, ensure_ascii=False, default=str), flush=True)
+        raise
 
 
 if __name__ == "__main__":

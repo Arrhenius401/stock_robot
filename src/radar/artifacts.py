@@ -3,14 +3,31 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
+import time
 from collections.abc import Mapping
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 from radar.backtest import RadarBacktestResult
+
+logger = logging.getLogger(__name__)
+
+
+def _replace_with_retry(source: Path, target: Path) -> None:
+    """短暂文件占用时有限重试，保留原子替换及最终异常语义。"""
+    for attempt in range(3):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if attempt == 2:
+                raise
+            logger.debug("雷达产物原子替换暂遇权限错误，第 %d 次失败，50 毫秒后重试", attempt + 1)
+            time.sleep(0.05)
 
 
 def write_radar_backtest_artifacts(
@@ -65,7 +82,7 @@ def write_radar_backtest_artifacts(
         report_warnings = "\n".join(f"- ⚠ {warning}" for warning in result.warnings)
         warning_section = f"\n## 运行警告\n\n{report_warnings}\n" if report_warnings else ""
         (temporary / "report.md").write_text("# 配置雷达 ETF 回测\n\n> 仅供研究，不构成投资建议。\n\n" + report_metrics + warning_section, encoding="utf-8")
-        os.replace(temporary, final_dir)
+        _replace_with_retry(temporary, final_dir)
     except Exception:  # 产物写入边界需清理临时目录后重新抛出
         shutil.rmtree(temporary, ignore_errors=True)
         raise

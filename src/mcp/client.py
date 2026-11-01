@@ -4,6 +4,7 @@ import logging
 import subprocess
 
 from mcp.schemas import MCPToolDefinition
+from stock_robot.metadata import DISTRIBUTION_NAME, VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ class ExternalMCPClient:
         init_req = json.dumps({
             "jsonrpc": "2.0", "id": self._next_id(), "method": "initialize",
             "params": {"protocolVersion": "2024-11-05",
-                       "clientInfo": {"name": "stock-robot", "version": "0.1.0"}},
+                       "clientInfo": {"name": DISTRIBUTION_NAME, "version": VERSION}},
         }, ensure_ascii=False)
         if proc.stdin is None or proc.stdout is None:
             raise RuntimeError("MCP Server 管道初始化失败")

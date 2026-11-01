@@ -3,6 +3,7 @@ import hashlib
 import os
 import sqlite3
 import tempfile
+import time
 from contextlib import closing
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,7 @@ from filelock import FileLock
 from utils.paths import project_state_dir
 
 DEFAULT_CONFIG = {
+    "analysis": {"extra_enabled": False},
     "llm": {
         "provider": "openai",
         "model": "gpt-4o",
@@ -31,6 +33,10 @@ DEFAULT_CONFIG = {
             "news": 21600,
         },
         "disclaimer_accepted": False,
+    },
+    "maintenance": {
+        "report_cleanup_enabled": True,
+        "sweep_interval_minutes": 360,
     },
     "api": {
         "host": "127.0.0.1",
@@ -192,7 +198,15 @@ class Config:
                 stream.write(source)
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(name, self._config_path)
+            for attempt in range(3):
+                try:
+                    os.replace(name, self._config_path)
+                    break
+                except PermissionError:
+                    # Windows 上病毒扫描或短暂句柄占用会让原子替换瞬时失败。
+                    if attempt == 2:
+                        raise
+                    time.sleep(0.05)
         finally:
             if os.path.exists(name):
                 os.unlink(name)

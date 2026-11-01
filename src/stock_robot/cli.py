@@ -28,6 +28,7 @@ from stock_robot.interim_documents import (
     extract_interims,
     prepare_interim_packet,
 )
+from stock_robot.metadata import APP_NAME, VERSION
 from stock_robot.stock_admission import admission_evaluate, style_evaluate
 from stock_robot.stock_annual_collect import annual_collect
 from stock_robot.stock_annual_reparse import annual_reparse
@@ -58,7 +59,8 @@ from stock_robot.stock_structured_financial import (
     structured_screen_command,
 )
 from stock_robot.stock_updates import enqueue_update, list_updates, run_one_update
-from utils.config import Config
+from utils.config import DEFAULT_CONFIG, Config
+from utils.paths import resource_root, runtime_root
 
 _RUNTIME_LOG_HANDLER_NAME = "stock-robot-runtime-log"
 
@@ -105,9 +107,11 @@ def _get_registry():
     from analysis.valuation import ValuationAnalyzer
     from core.registry import Registry
     from data.akshare import AkShareAdapter
+    from data.hk_hsics_peers import HKIndustryAdapter
 
     reg = Registry()
     reg.register_data_source(AkShareAdapter())
+    reg.register_data_source(HKIndustryAdapter())
     reg.register_analysis_module(FinancialAnalyzer())
     reg.register_analysis_module(TechnicalAnalyzer())
     reg.register_analysis_module(ValuationAnalyzer())
@@ -225,8 +229,9 @@ class _HelpHintGroup(click.Group):
 
 
 @click.group(cls=_HelpHintGroup, invoke_without_command=True, no_args_is_help=False,
+             help=f"{APP_NAME} — AI 驱动的股票分析研报助手",
              epilog="运行 stock-robot help <命令> 查看详细用法。")
-@click.version_option(version="0.1.0")
+@click.version_option(version=VERSION)
 @click.pass_context
 def main(ctx: click.Context):
     """Stock Robot — AI 驱动的股票分析研报助手"""
@@ -265,7 +270,12 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
     """分析股票并生成研报"""
     from report.formatter import ReportFormatter
     from utils.config import Config
-    from utils.symbols import normalize_symbol, resolve_name, validate_symbol
+    from utils.symbols import (
+        normalize_symbol,
+        resolve_name,
+        symbol_market,
+        validate_symbol,
+    )
 
     config = Config()
     if not _check_disclaimer(config):
@@ -280,6 +290,7 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
         sys.exit(1)
 
     symbol = normalize_symbol(symbol)
+    market = symbol_market(symbol)
 
     llm_enabled = not no_llm and config.get("llm.enabled", True)
     pipeline = _build_pipeline(llm_enabled=llm_enabled)
@@ -298,7 +309,7 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
                                description=f"[{stage}] {label}")
 
             results, commentary, ctx = pipeline.run(
-                symbol, name,
+                symbol, name, market=market,
                 dimension=dimension,
                 refresh_cache=refresh_cache,
                 on_progress=on_progress,
@@ -342,6 +353,35 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
     console.print(f"\n[dim]报告已保存至: {saved_path}[/dim]")
 
 
+@main.command()
+@click.option("--refresh", "--refresh-cache", "refresh_cache", is_flag=True,
+              help="强制刷新黄金数据缓存")
+@click.option("--no-llm", is_flag=True, help="兼容旧用法；黄金简报使用确定性解释")
+@click.option("--output", "-o", type=click.Choice(["terminal", "markdown"]),
+              default="terminal", show_default=True, help="输出格式；两种格式均归档完整报告")
+@click.option("--output-dir", type=click.Path(file_okay=False, path_type=Path),
+              default=None, help="报告根目录（默认当前目录的 reports）")
+def gold(refresh_cache: bool, no_llm: bool, output: str, output_dir: Path | None) -> None:
+    """生成以国内与国际金价为核心的黄金市场观察简报。"""
+    from gold.service import GoldService
+    from report.formatter import ReportFormatter
+
+    config = Config()
+    if not _check_disclaimer(config):
+        return
+    report_root = output_dir or Path.cwd() / "reports"
+    try:
+        payload = GoldService(config=config, output_dir=report_root).run(
+            refresh_cache=refresh_cache, no_llm=no_llm,
+        )
+    except (OSError, ValueError, RuntimeError) as exc:
+        logger.warning("黄金 CLI 生成报告失败：%s", exc)
+        raise click.ClickException(f"黄金研报生成失败：{exc}") from exc
+    if output == "terminal":
+        console.print(ReportFormatter.to_rich_markdown(payload["markdown"]))
+    click.echo("\n报告已保存至: " + str(report_root / payload["report_path"]))
+
+
 def _render_index_report(report):
     """终端与下载报告复用同一渲染入口。"""
     from rich.markdown import Markdown
@@ -369,11 +409,12 @@ def _render_compare_table(compare) -> Table | str:
         "PE 分位": "pe_pct", "PB 分位": "pb_pct", "趋势": "trend",
         "估值": "valuation", "资金": "capital", "综合评级": "composite",
     }
-    table = Table(title="指数横向对比")
+    table = Table(title="指数横向对比", caption=getattr(compare, "valuation_cutoff", ""))
     for h in compare.headers:
         table.add_column(h)
     for row in compare.rows:
-        table.add_row(*[str(row.get(header_key_map.get(h, h), "")) for h in compare.headers])
+        table.add_row(*[str(row["capital_display"]["label"] if h == "资金" and row.get("capital_display")
+                            else row.get(header_key_map.get(h, h), "")) for h in compare.headers])
     return table
 
 
@@ -409,6 +450,8 @@ def index(symbols, style, output, compare_only):
             entry = mapping.resolve(raw_index)
         except ValueError as exc:
             raise click.ClickException(str(exc)) from exc
+        if entry is None and ":" in raw_index:
+            raise click.ClickException(f"指数 {raw_index} 不在已验证目录中，请先刷新目录")
         if entry is None and not validate_index_symbol(raw_index):
             raise click.ClickException(f"无效的指数代码或名称: {raw}")
         normalized = normalize_index_symbol(raw_index)
@@ -418,15 +461,21 @@ def index(symbols, style, output, compare_only):
                     f"无法识别指数 {normalized}，请用 --style 指定类别 (broad/sector/overseas/strategy)")
             index_style, name, market = style, raw, "a-shares"
         else:
+            if entry.market not in ("a-shares", "hk", "us"):
+                raise click.ClickException(f"指数 {entry.symbol} 的市场尚未核验，暂不可分析")
             index_style, name, market = entry.index_style, entry.name, entry.market
             normalized = entry.symbol
         targets.append(AnalysisTarget(
             target_type="index", symbol=normalized, name=name,
             market=market, index_style=index_style,
             requested_instrument=asdict(etf) if etf else None,
+            return_type=(entry.return_type or "price") if entry is not None else "unknown",
+            official_index_code=entry.price_symbol if entry is not None and entry.provider == "hsi" else None,
         ))
 
-    pipeline = IndexPipeline()
+    from api.bootstrap import build_llm
+
+    pipeline = IndexPipeline(config=config, llm=build_llm(config))
     with _create_cli_progress() as progress:
         task_id = progress.add_task("正在分析指数...", total=None)
 
@@ -437,18 +486,14 @@ def index(symbols, style, output, compare_only):
         result = pipeline.run(targets, on_progress=on_progress)
         progress.update(task_id, visible=False)
 
-    from report.formatter import ReportFormatter
 
     if not compare_only:
         for report in result.reports:
             if output == "terminal":
                 console.print(_render_index_report(report))
             elif output == "markdown":
-                saved = ReportFormatter.save(
-                    _render_index_report_md(report),
-                    report.code,
-                    category="index",
-                )
+                from index.archives import save_index_report
+                saved = save_index_report(report)
                 console.print(f"[green]报告已保存: {saved}[/green]")
 
     if result.compare is not None:
@@ -501,7 +546,7 @@ def backtest(symbol, strategy, start, end, benchmark):
         sys.exit(1)
 
     try:
-        strategies_dir = Path(__file__).parents[2] / "config" / "strategies"
+        strategies_dir = resource_root() / "config" / "strategies"
         strategy_repo = StrategyRepository(strategies_dir)
         strategy_repo.get(strategy_id)  # 提前校验策略存在，失败时快速红字退出
 
@@ -554,6 +599,7 @@ def industry_mapping(action_or_symbol, resume, delay, verbose):
     migrate-placeholders → 将旧占位分类迁移为显式缺失；
     股票代码 → 单只秒级更新。
     """
+    from data.collection_state import make_refresh_record
     from data.industry_mapping_builder import (
         IndustryMappingError,
         migrate_placeholder_rows,
@@ -569,8 +615,8 @@ def industry_mapping(action_or_symbol, resume, delay, verbose):
     if not _check_disclaimer(config):
         return
 
+    action = action_or_symbol or "rebuild"
     try:
-        action = action_or_symbol or "rebuild"
         if action == "validate":
             result = validate_sample()
             console.print(
@@ -583,6 +629,9 @@ def industry_mapping(action_or_symbol, resume, delay, verbose):
                 f"[green]✓ 候选映射已发布：{result['stock_count']} 只股票，"
                 f"有效分类率 {result['valid_classification_rate']}%[/green]"
             )
+            record = result.get("refresh_record")
+            if record is not None:
+                console.print(f"刷新记录: {record.source} {record.result_state} published={record.published} {record.error_message}")
         elif action == "migrate-placeholders":
             result = migrate_placeholder_rows()
             console.print(
@@ -626,6 +675,9 @@ def industry_mapping(action_or_symbol, resume, delay, verbose):
                 f"覆盖率 {coverage}%，有效分类率 {result['valid_classification_rate']}%[/green]"
             )
             console.print(f"[dim]候选文件：{result['candidate_path']}；确认后执行 industry-mapping publish[/dim]")
+            record = result.get("refresh_record")
+            if record is not None:
+                console.print(f"刷新记录: {record.source} {record.result_state} published={record.published} {record.error_message}")
             if result["failed_industries"]:
                 console.print(
                     f"[yellow]⚠ 失败行业 {len(result['failed_industries'])} 个: "
@@ -634,8 +686,74 @@ def industry_mapping(action_or_symbol, resume, delay, verbose):
             if verbose:
                 console.print(f"[dim]遍历行业 {result['total_industries']} 个[/dim]")
     except IndustryMappingError as e:
+        if action in ("rebuild", "publish"):
+            record = make_refresh_record("乐咕申万", "failed", error_kind="refresh_failed",
+                                         error_message="行业映射操作失败")
+            console.print(f"刷新记录: {record.source} {record.result_state} published={record.published} {record.error_message}")
         console.print(f"[red]✗ 行业映射操作失败: {e}[/red]")
         sys.exit(1)
+    except OSError:
+        if action in ("rebuild", "publish"):
+            record = make_refresh_record("乐咕申万", "failed", error_kind="refresh_failed",
+                                         error_message="行业映射文件操作失败")
+            console.print(f"刷新记录: {record.source} {record.result_state} published={record.published} {record.error_message}")
+        raise
+
+
+@main.command("hk-industry-refresh")
+def hk_industry_refresh() -> None:
+    """依次刷新港股通成员资格和恒生 HSICS 行业快照。"""
+    from datetime import datetime
+
+    from filelock import Timeout
+
+    from data.collection_state import make_refresh_record
+    from data.hk_hsics_industry import HsicsIndustryError, load_connect_symbols, refresh
+    from data.hk_stock_connect import (
+        HKStockConnectError,
+        fetch_sse_snapshot,
+        publish_snapshot,
+    )
+    from utils.paths import (
+        hk_hsics_industry_path,
+        hk_hsics_snapshot_path,
+        hk_stock_connect_path,
+    )
+
+    attempted_at = datetime.now().astimezone()
+    connect_path = hk_stock_connect_path(writable=True)
+    try:
+        connect_snapshot = fetch_sse_snapshot()
+        publish_snapshot(connect_snapshot, connect_path)
+    except (HKStockConnectError, OSError, ValueError, Timeout) as exc:
+        record = make_refresh_record("上交所港股通+东财F10+HSCI", "failed", attempted_at=attempted_at,
+                                     error_kind="fetch_failed", error_message="港股通刷新失败")
+        click.echo(f"刷新记录: {record.source} {record.result_state} published={record.published}")
+        raise click.ClickException(f"港股通成员快照刷新失败：{exc}") from exc
+
+    try:
+        symbols = load_connect_symbols()
+        hsics_snapshot = refresh(
+            hk_hsics_industry_path(writable=True),
+            hk_hsics_snapshot_path(writable=True),
+            connect_symbols=symbols,
+        )
+    except (HsicsIndustryError, OSError, ValueError, Timeout) as exc:
+        record = make_refresh_record("上交所港股通+东财F10+HSCI", "partial", attempted_at=attempted_at,
+                                     error_kind="fetch_failed", error_message="HSICS 刷新失败")
+        click.echo(f"刷新记录: {record.source} {record.result_state} published={record.published}")
+        raise click.ClickException(
+            f"港股通成员快照已更新（{connect_snapshot.total} 只）；HSICS 行业快照刷新失败：{exc}"
+        ) from exc
+
+    click.echo(
+        f"港股通成员 {connect_snapshot.total} 只；HSICS 总数 {hsics_snapshot.total}，"
+        f"二级 {hsics_snapshot.sector_count}，一级 {hsics_snapshot.industry_count}，"
+        f"数据日期 {hsics_snapshot.data_date.isoformat()}"
+    )
+    record = make_refresh_record("上交所港股通+东财F10+HSCI", "complete", attempted_at=attempted_at,
+                                 published=True)
+    click.echo(f"刷新记录: {record.source} {record.result_state} published={record.published}")
 
 
 @main.group()
@@ -700,8 +818,8 @@ def cache_status():
 
 def _resolve_api_bind(host: str | None, port: int | None, config: Config) -> tuple[str, int]:
     """解析 API 监听地址：CLI 显式参数 > 配置文件 > 默认值"""
-    resolved_host = host or config.get("api.host", "127.0.0.1")
-    resolved_port = port if port is not None else config.get("api.port", 25618)
+    resolved_host = host or config.get("api.host", DEFAULT_CONFIG["api"]["host"])
+    resolved_port = port if port is not None else config.get("api.port", DEFAULT_CONFIG["api"]["port"])
     return resolved_host, resolved_port
 
 
@@ -750,12 +868,13 @@ def _run_web_server(app, host: str, port: int, runtime_log_path: Path) -> None:
 
 
 @main.command("run")
-@click.option("--host", default=None, help="监听地址（默认读配置 api.host，缺省 127.0.0.1）")
-@click.option("--port", default=None, type=int, help="监听端口（默认读配置 api.port，缺省 25618）")
+@click.option("--host", default=None, help=f"监听地址（默认读配置 api.host，缺省 {DEFAULT_CONFIG['api']['host']}）")
+@click.option("--port", default=None, type=int, help=f"监听端口（默认读配置 api.port，缺省 {DEFAULT_CONFIG['api']['port']}）")
 def run(host, port):
     """启动 Web API 服务（含 Web UI）"""
     from api.app import create_app
     from api.bootstrap import build_agent_core
+    from maintenance.runner import MaintenanceRunner
 
     config = Config()
     runtime_log_path = _configure_runtime_log(config)
@@ -772,11 +891,14 @@ def run(host, port):
             core=core,
             log_start_offset=runtime_log_offset,
             runtime_log_path=runtime_log_path,
+            maintenance=MaintenanceRunner(
+                Path.cwd() / "reports", state_dir=config.config_dir
+            ),
         )
         progress.update(task_id, completed=3, description="正在启动 HTTP 服务")
 
     web_url = f"http://{bind_host}:{bind_port}"
-    logger.info("Stock Robot API 启动于 %s", web_url)
+    logger.info("%s API 启动于 %s", APP_NAME, web_url)
     logger.info("Web 服务正在运行: %s", web_url)
     console.print(f"[green]Web 服务正在运行: {web_url}[/green]")
     _run_web_server(app, bind_host, bind_port, runtime_log_path)
@@ -840,7 +962,7 @@ def _run_agent_query(query, planner, executor, memory, renderer, chat_responder)
 
 def _run_interactive_chat(planner, executor, memory, renderer, chat_responder):
     """交互式对话循环"""
-    console.print("[bold]Stock Robot Agent[/bold] — AI 驱动的投资研究助手")
+    console.print(f"[bold]{APP_NAME} Agent[/bold] — AI 驱动的投资研究助手")
     console.print("输入你的投研问题；输入 /help 查看聊天命令，输入 /exit 退出。")
     console.print("[dim]终端命令帮助：stock-robot help[/dim]\n")
 
@@ -1275,7 +1397,7 @@ def _radar_services():
     from radar.universe import UniverseRepository
 
     config = Config()
-    root = Path(__file__).parents[2]
+    root = resource_root()
     repository = UniverseRepository(root / "config" / "radar_universes")
     provider = FallbackETFDataProvider((
         LocalETFDataProvider(config.config_dir / "radar_local_data" / "etf"),
@@ -1531,7 +1653,7 @@ def radar_backtest(universe_id, start, end, strategy, rerun):
         return
     if start.date() >= end.date():
         raise click.ClickException("start 必须早于 end")
-    root = Path(__file__).parents[2]
+    root = resource_root()
     universe = UniverseRepository(root / "config" / "radar_universes").active_on(universe_id, end.date())
     try:
         selected_strategy = StrategyRepository(root / "config" / "radar_strategies").get(strategy)
@@ -1562,7 +1684,7 @@ def radar_backtest(universe_id, start, end, strategy, rerun):
     benchmark_specs = [item.model_dump() for item in benchmark_catalog.benchmarks]
     if not rerun:
         existing = find_reusable_radar_backtest(
-            root / "reports",
+            runtime_root() / "reports",
             universe_id=universe.id,
             strategy_id=strategy,
             strategy_fingerprint=selected_strategy.fingerprint,
@@ -1710,7 +1832,7 @@ def radar_backtest_walkforward(ctx, universe_id, start, end, window_years, strat
         start_date=start.date(),
         end_date=end.date(),
         window_years=window_years,
-        reports_dir=Path(__file__).parents[2] / "reports",
+        reports_dir=runtime_root() / "reports",
     )
     console.print(f"[green]稳健性报告已保存: {output}[/green]")
     return output

@@ -1,0 +1,808 @@
+{
+  "responses": [
+    {
+      "label": "importance",
+      "payload": {
+        "result": {
+          "data": [
+            {
+              "SECUCODE": "000001.SZ",
+              "SECURITY_CODE": "000001",
+              "ORG_TYPE": "银行",
+              "REPORT_DATE": "2026-06-30 00:00:00",
+              "REPORT_TYPE": "中报",
+              "NOTICE_DATE": "2026-08-15 00:00:00",
+              "UPDATE_DATE": "2026-08-15 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": 1.24,
+              "MGJYXJJE": 11.079666082655,
+              "TOTALOPERATEREVE": 70617000000,
+              "PARENTNETPROFIT": 25696000000,
+              "KCFJCXSYJLR": 25633000000,
+              "ROEJQ": 5.22,
+              "XSMLL": null
+            },
+            {
+              "SECUCODE": "000001.SZ",
+              "SECURITY_CODE": "000001",
+              "ORG_TYPE": "银行",
+              "REPORT_DATE": "2026-03-31 00:00:00",
+              "REPORT_TYPE": "一季报",
+              "NOTICE_DATE": "2026-04-25 00:00:00",
+              "UPDATE_DATE": "2026-04-25 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": 0.67,
+              "MGJYXJJE": 1.947954240956,
+              "TOTALOPERATEREVE": 35277000000,
+              "PARENTNETPROFIT": 14523000000,
+              "KCFJCXSYJLR": 14488000000,
+              "ROEJQ": 2.83,
+              "XSMLL": null
+            },
+            {
+              "SECUCODE": "000001.SZ",
+              "SECURITY_CODE": "000001",
+              "ORG_TYPE": "银行",
+              "REPORT_DATE": "2025-12-31 00:00:00",
+              "REPORT_TYPE": "年报",
+              "NOTICE_DATE": "2026-03-21 00:00:00",
+              "UPDATE_DATE": "2026-03-21 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": 2.07,
+              "MGJYXJJE": 16.28,
+              "TOTALOPERATEREVE": 131442000000,
+              "PARENTNETPROFIT": 42633000000,
+              "KCFJCXSYJLR": 42624000000,
+              "ROEJQ": 9.15,
+              "XSMLL": null
+            },
+            {
+              "SECUCODE": "000001.SZ",
+              "SECURITY_CODE": "000001",
+              "ORG_TYPE": "银行",
+              "REPORT_DATE": "2025-09-30 00:00:00",
+              "REPORT_TYPE": "三季报",
+              "NOTICE_DATE": "2025-10-25 00:00:00",
+              "UPDATE_DATE": "2025-10-25 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": 1.87,
+              "MGJYXJJE": 3.699010615274,
+              "TOTALOPERATEREVE": 100668000000,
+              "PARENTNETPROFIT": 38339000000,
+              "KCFJCXSYJLR": 38269000000,
+              "ROEJQ": 8.28,
+              "XSMLL": null
+            },
+            {
+              "SECUCODE": "000001.SZ",
+              "SECURITY_CODE": "000001",
+              "ORG_TYPE": "银行",
+              "REPORT_DATE": "2025-06-30 00:00:00",
+              "REPORT_TYPE": "中报",
+              "NOTICE_DATE": "2025-08-23 00:00:00",
+              "UPDATE_DATE": "2026-08-15 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": 1.18,
+              "MGJYXJJE": 9,
+              "TOTALOPERATEREVE": 69385000000,
+              "PARENTNETPROFIT": 24870000000,
+              "KCFJCXSYJLR": 24930000000,
+              "ROEJQ": 5.25,
+              "XSMLL": null
+            },
+            {
+              "SECUCODE": "000001.SZ",
+              "SECURITY_CODE": "000001",
+              "ORG_TYPE": "银行",
+              "REPORT_DATE": "2025-03-31 00:00:00",
+              "REPORT_TYPE": "一季报",
+              "NOTICE_DATE": "2025-04-19 00:00:00",
+              "UPDATE_DATE": "2026-04-25 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": 0.62,
+              "MGJYXJJE": 8.4,
+              "TOTALOPERATEREVE": 33709000000,
+              "PARENTNETPROFIT": 14096000000,
+              "KCFJCXSYJLR": 14043000000,
+              "ROEJQ": 2.8,
+              "XSMLL": null
+            },
+            {
+              "SECUCODE": "000001.SZ",
+              "SECURITY_CODE": "000001",
+              "ORG_TYPE": "银行",
+              "REPORT_DATE": "2024-12-31 00:00:00",
+              "REPORT_TYPE": "年报",
+              "NOTICE_DATE": "2025-03-15 00:00:00",
+              "UPDATE_DATE": "2026-03-21 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": 2.15,
+              "MGJYXJJE": 3.263732866124,
+              "TOTALOPERATEREVE": 146695000000,
+              "PARENTNETPROFIT": 44508000000,
+              "KCFJCXSYJLR": 44838000000,
+              "ROEJQ": 10.08,
+              "XSMLL": null
+            },
+            {
+              "SECUCODE": "000001.SZ",
+              "SECURITY_CODE": "000001",
+              "ORG_TYPE": "银行",
+              "REPORT_DATE": "2024-09-30 00:00:00",
+              "REPORT_TYPE": "三季报",
+              "NOTICE_DATE": "2024-10-19 00:00:00",
+              "UPDATE_DATE": "2025-10-25 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": 1.94,
+              "MGJYXJJE": 7.06781407812,
+              "TOTALOPERATEREVE": 111582000000,
+              "PARENTNETPROFIT": 39729000000,
+              "KCFJCXSYJLR": 39748000000,
+              "ROEJQ": 9.1,
+              "XSMLL": null
+            },
+            {
+              "SECUCODE": "000001.SZ",
+              "SECURITY_CODE": "000001",
+              "ORG_TYPE": "银行",
+              "REPORT_DATE": "2024-06-30 00:00:00",
+              "REPORT_TYPE": "中报",
+              "NOTICE_DATE": "2024-08-16 00:00:00",
+              "UPDATE_DATE": "2025-08-23 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": 1.23,
+              "MGJYXJJE": 5.86,
+              "TOTALOPERATEREVE": 77132000000,
+              "PARENTNETPROFIT": 25879000000,
+              "KCFJCXSYJLR": 25880000000,
+              "ROEJQ": 5.79,
+              "XSMLL": null
+            },
+            {
+              "SECUCODE": "000001.SZ",
+              "SECURITY_CODE": "000001",
+              "ORG_TYPE": "银行",
+              "REPORT_DATE": "2024-03-31 00:00:00",
+              "REPORT_TYPE": "一季报",
+              "NOTICE_DATE": "2024-04-20 00:00:00",
+              "UPDATE_DATE": "2025-04-19 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": 0.66,
+              "MGJYXJJE": -1.1,
+              "TOTALOPERATEREVE": 38770000000,
+              "PARENTNETPROFIT": 14932000000,
+              "KCFJCXSYJLR": 14906000000,
+              "ROEJQ": 3.15,
+              "XSMLL": null
+            },
+            {
+              "SECUCODE": "000001.SZ",
+              "SECURITY_CODE": "000001",
+              "ORG_TYPE": "银行",
+              "REPORT_DATE": "2023-12-31 00:00:00",
+              "REPORT_TYPE": "年报",
+              "NOTICE_DATE": "2024-03-15 00:00:00",
+              "UPDATE_DATE": "2025-03-15 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": 2.25,
+              "MGJYXJJE": 4.76,
+              "TOTALOPERATEREVE": 164699000000,
+              "PARENTNETPROFIT": 46455000000,
+              "KCFJCXSYJLR": 46431000000,
+              "ROEJQ": 11.38,
+              "XSMLL": null
+            },
+            {
+              "SECUCODE": "000001.SZ",
+              "SECURITY_CODE": "000001",
+              "ORG_TYPE": "银行",
+              "REPORT_DATE": "2023-09-30 00:00:00",
+              "REPORT_TYPE": "三季报",
+              "NOTICE_DATE": "2023-10-25 00:00:00",
+              "UPDATE_DATE": "2024-10-19 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": 1.94,
+              "MGJYXJJE": 5.973925590024,
+              "TOTALOPERATEREVE": 127634000000,
+              "PARENTNETPROFIT": 39635000000,
+              "KCFJCXSYJLR": 39568000000,
+              "ROEJQ": 9.88,
+              "XSMLL": null
+            }
+          ]
+        }
+      },
+      "params": {
+        "type": "RPT_F10_FINANCE_MAINFINADATA",
+        "sty": "APP_F10_MAINFINADATA",
+        "filter": "(SECUCODE=\"000001.SZ\")",
+        "p": "1",
+        "ps": "12",
+        "sr": "-1",
+        "st": "REPORT_DATE",
+        "source": "HSF10",
+        "client": "PC"
+      }
+    },
+    {
+      "label": "company_type",
+      "payload": {
+        "company_type": "3"
+      },
+      "params": {
+        "type": "web",
+        "code": "sz000001"
+      }
+    },
+    {
+      "label": "balance",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2026-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2026-08-15 00:00:00",
+            "UPDATE_DATE": "2026-08-15 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 6028785000000,
+            "TOTAL_EQUITY": 548214000000
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2026-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2026-04-25 00:00:00",
+            "UPDATE_DATE": "2026-04-25 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 6033962000000,
+            "TOTAL_EQUITY": 544083000000
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2025-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2026-03-21 00:00:00",
+            "UPDATE_DATE": "2026-08-15 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 5925777000000,
+            "TOTAL_EQUITY": 551184000000
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2025-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2025-10-25 00:00:00",
+            "UPDATE_DATE": "2025-10-25 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 5766764000000,
+            "TOTAL_EQUITY": 517930000000
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2025-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2025-08-23 00:00:00",
+            "UPDATE_DATE": "2025-08-23 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 5874961000000,
+            "TOTAL_EQUITY": 510062000000
+          }
+        ]
+      },
+      "params": {
+        "companyType": "3",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2026-06-30,2026-03-31,2025-12-31,2025-09-30,2025-06-30,2025-03-31,2024-12-31,2024-09-30,2024-06-30,2024-03-31,2023-12-31,2023-09-30",
+        "code": "SZ000001"
+      }
+    },
+    {
+      "label": "income",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2026-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2026-08-15 00:00:00",
+            "UPDATE_DATE": "2026-08-15 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": 25633000000,
+            "OPERATE_INCOME": 70617000000,
+            "PARENT_NETPROFIT": 25696000000,
+            "BASIC_EPS": 1.24
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2026-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2026-04-25 00:00:00",
+            "UPDATE_DATE": "2026-04-25 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": 14488000000,
+            "OPERATE_INCOME": 35277000000,
+            "PARENT_NETPROFIT": 14523000000,
+            "BASIC_EPS": 0.67
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2025-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2026-03-21 00:00:00",
+            "UPDATE_DATE": "2026-03-21 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": 42624000000,
+            "OPERATE_INCOME": 131442000000,
+            "PARENT_NETPROFIT": 42633000000,
+            "BASIC_EPS": 2.07
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2025-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2025-10-25 00:00:00",
+            "UPDATE_DATE": "2025-10-25 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": 38269000000,
+            "OPERATE_INCOME": 100668000000,
+            "PARENT_NETPROFIT": 38339000000,
+            "BASIC_EPS": 1.87
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2025-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2025-08-23 00:00:00",
+            "UPDATE_DATE": "2026-08-15 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": 24930000000,
+            "OPERATE_INCOME": 69385000000,
+            "PARENT_NETPROFIT": 24870000000,
+            "BASIC_EPS": 1.18
+          }
+        ]
+      },
+      "params": {
+        "companyType": "3",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2026-06-30,2026-03-31,2025-12-31,2025-09-30,2025-06-30,2025-03-31,2024-12-31,2024-09-30,2024-06-30,2024-03-31,2023-12-31,2023-09-30",
+        "code": "SZ000001"
+      }
+    },
+    {
+      "label": "cash",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2026-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2026-08-15 00:00:00",
+            "UPDATE_DATE": "2026-08-15 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": 215012000000
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2026-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2026-04-25 00:00:00",
+            "UPDATE_DATE": "2026-04-25 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": 37802000000
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2025-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2026-03-21 00:00:00",
+            "UPDATE_DATE": "2026-03-21 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": 315858000000
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2025-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2025-10-25 00:00:00",
+            "UPDATE_DATE": "2025-10-25 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": 71783000000
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2025-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2025-08-23 00:00:00",
+            "UPDATE_DATE": "2026-08-15 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": 174682000000
+          }
+        ]
+      },
+      "params": {
+        "companyType": "3",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2026-06-30,2026-03-31,2025-12-31,2025-09-30,2025-06-30,2025-03-31,2024-12-31,2024-09-30,2024-06-30,2024-03-31,2023-12-31,2023-09-30",
+        "code": "SZ000001"
+      }
+    },
+    {
+      "label": "balance",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2025-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2025-04-19 00:00:00",
+            "UPDATE_DATE": "2025-04-19 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 5777858000000,
+            "TOTAL_EQUITY": 506112000000
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2024-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2025-03-15 00:00:00",
+            "UPDATE_DATE": "2026-03-21 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 5769270000000,
+            "TOTAL_EQUITY": 494842000000
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2024-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2024-10-19 00:00:00",
+            "UPDATE_DATE": "2024-10-19 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 5745988000000,
+            "TOTAL_EQUITY": 490469000000
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2024-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2024-08-16 00:00:00",
+            "UPDATE_DATE": "2024-08-16 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 5754033000000,
+            "TOTAL_EQUITY": 481869000000
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2024-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2024-04-20 00:00:00",
+            "UPDATE_DATE": "2024-04-20 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 5729398000000,
+            "TOTAL_EQUITY": 485576000000
+          }
+        ]
+      },
+      "params": {
+        "companyType": "3",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2025-03-31,2024-12-31,2024-09-30,2024-06-30,2024-03-31",
+        "code": "SZ000001"
+      }
+    },
+    {
+      "label": "income",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2025-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2025-04-19 00:00:00",
+            "UPDATE_DATE": "2026-04-25 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": 14043000000,
+            "OPERATE_INCOME": 33709000000,
+            "PARENT_NETPROFIT": 14096000000,
+            "BASIC_EPS": 0.62
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2024-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2025-03-15 00:00:00",
+            "UPDATE_DATE": "2026-03-21 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": 44838000000,
+            "OPERATE_INCOME": 146695000000,
+            "PARENT_NETPROFIT": 44508000000,
+            "BASIC_EPS": 2.15
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2024-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2024-10-19 00:00:00",
+            "UPDATE_DATE": "2025-10-25 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": 39748000000,
+            "OPERATE_INCOME": 111582000000,
+            "PARENT_NETPROFIT": 39729000000,
+            "BASIC_EPS": 1.94
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2024-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2024-08-16 00:00:00",
+            "UPDATE_DATE": "2025-08-23 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": 25880000000,
+            "OPERATE_INCOME": 77132000000,
+            "PARENT_NETPROFIT": 25879000000,
+            "BASIC_EPS": 1.23
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2024-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2024-04-20 00:00:00",
+            "UPDATE_DATE": "2025-04-19 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": 14906000000,
+            "OPERATE_INCOME": 38770000000,
+            "PARENT_NETPROFIT": 14932000000,
+            "BASIC_EPS": 0.66
+          }
+        ]
+      },
+      "params": {
+        "companyType": "3",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2025-03-31,2024-12-31,2024-09-30,2024-06-30,2024-03-31",
+        "code": "SZ000001"
+      }
+    },
+    {
+      "label": "cash",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2025-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2025-04-19 00:00:00",
+            "UPDATE_DATE": "2026-04-25 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": 162946000000
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2024-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2025-03-15 00:00:00",
+            "UPDATE_DATE": "2026-03-21 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": 63336000000
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2024-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2024-10-19 00:00:00",
+            "UPDATE_DATE": "2025-10-25 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": 137158000000
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2024-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2024-08-16 00:00:00",
+            "UPDATE_DATE": "2025-08-23 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": 113722000000
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2024-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2024-04-20 00:00:00",
+            "UPDATE_DATE": "2025-04-19 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": -21382000000
+          }
+        ]
+      },
+      "params": {
+        "companyType": "3",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2025-03-31,2024-12-31,2024-09-30,2024-06-30,2024-03-31",
+        "code": "SZ000001"
+      }
+    },
+    {
+      "label": "balance",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2023-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2024-03-15 00:00:00",
+            "UPDATE_DATE": "2025-03-15 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 5587116000000,
+            "TOTAL_EQUITY": 472328000000
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2023-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2023-10-25 00:00:00",
+            "UPDATE_DATE": "2023-10-25 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 5516388000000,
+            "TOTAL_EQUITY": 465860000000
+          }
+        ]
+      },
+      "params": {
+        "companyType": "3",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2023-12-31,2023-09-30",
+        "code": "SZ000001"
+      }
+    },
+    {
+      "label": "income",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2023-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2024-03-15 00:00:00",
+            "UPDATE_DATE": "2025-03-15 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": 46431000000,
+            "OPERATE_INCOME": 164699000000,
+            "PARENT_NETPROFIT": 46455000000,
+            "BASIC_EPS": 2.25
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2023-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2023-10-25 00:00:00",
+            "UPDATE_DATE": "2024-10-19 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": 39568000000,
+            "OPERATE_INCOME": 127634000000,
+            "PARENT_NETPROFIT": 39635000000,
+            "BASIC_EPS": 1.94
+          }
+        ]
+      },
+      "params": {
+        "companyType": "3",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2023-12-31,2023-09-30",
+        "code": "SZ000001"
+      }
+    },
+    {
+      "label": "cash",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2023-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2024-03-15 00:00:00",
+            "UPDATE_DATE": "2025-03-15 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": 92461000000
+          },
+          {
+            "SECUCODE": "000001.SZ",
+            "SECURITY_CODE": "000001",
+            "ORG_TYPE": "银行",
+            "REPORT_DATE": "2023-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2023-10-25 00:00:00",
+            "UPDATE_DATE": "2024-10-19 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": 115930000000
+          }
+        ]
+      },
+      "params": {
+        "companyType": "3",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2023-12-31,2023-09-30",
+        "code": "SZ000001"
+      }
+    }
+  ]
+}

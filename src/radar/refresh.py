@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Sequence
 from datetime import date, datetime, timedelta
-from pathlib import Path
 from typing import Any, Literal, cast
 
 import pandas as pd
@@ -17,6 +16,7 @@ from radar.score_profile import ScoreProfileRepository
 from radar.scoring import score_etfs
 from radar.store import RadarStore
 from radar.universe import UniverseRepository
+from utils.paths import resource_root
 
 logger = logging.getLogger(__name__)
 
@@ -72,13 +72,13 @@ class RadarRefresher:
             for instrument in universe.instruments:
                 self._check_cancel(should_cancel)
                 try:
-                    history, source = self.history.prepare(
+                    history, source, record = self.history.prepare_result(
                         instrument.symbol, instrument.market, start, target_date,
                         reuse=retry_symbols is not None and instrument.symbol not in retry_symbols,
                         trading_days=trading_days,
                     )
                     histories[instrument.symbol] = history
-                    data_sources[instrument.symbol] = source
+                    data_sources[instrument.symbol] = record.source or source
                 except Exception as exc:  # noqa: BLE001 — 单标的网络或 SDK 失败不阻断其他项
                     logger.warning("标的 %s 行情准备失败: %s", instrument.symbol, exc)
                     failures[instrument.symbol] = str(exc)
@@ -96,7 +96,7 @@ class RadarRefresher:
             if on_phase:
                 on_phase("scoring")
             categories = {item.symbol: item.category for item in universe.instruments if item.symbol in histories}
-            profile = ScoreProfileRepository(Path(__file__).parents[2] / "config" / "radar_score_profiles").get(universe.score_profile)
+            profile = ScoreProfileRepository(resource_root() / "config" / "radar_score_profiles").get(universe.score_profile)
             scores = score_etfs(histories, categories, profile.weights, profile).set_index("symbol")
             for instrument in universe.instruments:
                 if instrument.symbol in failures:

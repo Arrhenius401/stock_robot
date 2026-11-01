@@ -153,3 +153,77 @@ def test_malformed_date_falls_back_to_healthy_provider(provider_name):
     )
     assert frame.iloc[-1]["date"] == date(2026, 9, 30)
     assert source == "SinaETFDataProvider"
+
+
+def test_akshare_daily_result_reports_source_and_state():
+    daily = pd.DataFrame({"日期": ["2024-01-02"], "开盘": [3.7], "最高": [3.9], "最低": [3.6], "收盘": [3.8], "成交量": [10], "成交额": [100]})
+    provider = AkShareETFDataProvider(daily_fetcher=lambda **_: daily)
+    result = provider.fetch_daily_result("510300", date(2024, 1, 1), date(2024, 1, 31))
+    assert result.record.source == "AkShareETFDataProvider"
+    assert result.record.result_state == "complete"
+    assert result.value is not None
+    assert result.value.loc[0, "close"] == 3.8
+
+
+def test_akshare_daily_result_keeps_safe_failure_and_compatibility():
+    provider = AkShareETFDataProvider(daily_fetcher=lambda **_: (_ for _ in ()).throw(ConnectionError("敏感细节")))
+    result = provider.fetch_daily_result("510300", date(2024, 1, 1), date(2024, 1, 31))
+    assert result.value is None
+    assert result.record.result_state == "failed"
+    assert result.record.error_kind == "fetch_failed"
+    assert "敏感细节" not in result.record.error_message
+    with pytest.raises(RadarDataError, match="熔断"):
+        provider.fetch_daily("510500", date(2024, 1, 1), date(2024, 1, 31))
+
+
+def test_sina_daily_result_reports_empty_and_wrapper_raises():
+    raw = pd.DataFrame({
+        "date": ["2023-01-02"], "open": [3.7], "high": [3.9], "low": [3.6],
+        "close": [3.8], "volume": [100],
+    })
+    provider = SinaETFDataProvider(fetcher=lambda symbol: raw)
+
+    result = provider.fetch_daily_result("159915", date(2024, 2, 1), date(2024, 2, 29))
+
+    assert result.value is None
+    assert result.record.source == "SinaETFDataProvider"
+    assert result.record.result_state == "empty"
+    with pytest.raises(RadarDataError, match="没有数据"):
+        provider.fetch_daily("159915", date(2024, 2, 1), date(2024, 2, 29))
+
+
+def test_fallback_result_is_partial_when_backup_succeeds():
+    primary = AkShareETFDataProvider(
+        daily_fetcher=lambda **_: (_ for _ in ()).throw(ConnectionError("offline"))
+    )
+    raw = pd.DataFrame({
+        "date": ["2024-01-02"], "open": [3.7], "high": [3.9], "low": [3.6],
+        "close": [3.8], "volume": [100],
+    })
+    provider = FallbackETFDataProvider((primary, SinaETFDataProvider(fetcher=lambda symbol: raw)))
+
+    result = provider.fetch_daily_result("510300", date(2024, 1, 1), date(2024, 1, 31))
+
+    assert result.record.result_state == "partial"
+    assert result.record.source == "SinaETFDataProvider"
+    assert result.errors
+    assert result.value is not None
+
+
+def test_fallback_result_reports_failed_and_empty():
+    failed = FallbackETFDataProvider((
+        AkShareETFDataProvider(daily_fetcher=lambda **_: (_ for _ in ()).throw(ConnectionError("offline"))),
+    ))
+    result = failed.fetch_daily_result("510300", date(2024, 1, 1), date(2024, 1, 31))
+    assert result.value is None
+    assert result.record.result_state == "failed"
+    assert "AkShareETFDataProvider" in result.record.error_message
+
+    raw = pd.DataFrame({
+        "date": ["2023-01-02"], "open": [3.7], "high": [3.9], "low": [3.6],
+        "close": [3.8], "volume": [100],
+    })
+    empty = FallbackETFDataProvider((SinaETFDataProvider(fetcher=lambda symbol: raw),))
+    result = empty.fetch_daily_result("510300", date(2024, 2, 1), date(2024, 2, 29))
+    assert result.value is None
+    assert result.record.result_state == "empty"

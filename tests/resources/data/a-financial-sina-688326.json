@@ -1,0 +1,1480 @@
+{
+  "responses": [
+    {
+      "label": "lrb",
+      "payload": {
+        "result": {
+          "status": {
+            "code": 0
+          },
+          "data": {
+            "report_list": {
+              "20230930": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "2858539889.770000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "2858539889.770000"
+                  },
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-140211061.260000"
+                  },
+                  {
+                    "item_field": "BASICEPS",
+                    "item_value": "-1.170000"
+                  }
+                ]
+              },
+              "20231231": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "4677580155.400000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "4677580155.400000"
+                  },
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-217256574.550000"
+                  },
+                  {
+                    "item_field": "BASICEPS",
+                    "item_value": "-1.820000"
+                  }
+                ]
+              },
+              "20240331": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "889351090.140000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "889351090.140000"
+                  },
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-191700101.570000"
+                  },
+                  {
+                    "item_field": "BASICEPS",
+                    "item_value": "-1.640000"
+                  }
+                ]
+              },
+              "20240630": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "2027001258.370000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "2027001258.370000"
+                  },
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-333375951.070000"
+                  },
+                  {
+                    "item_field": "BASICEPS",
+                    "item_value": "-2.880000"
+                  }
+                ]
+              },
+              "20240930": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "3546024524.100000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "3546024524.100000"
+                  },
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-410153847.950000"
+                  },
+                  {
+                    "item_field": "BASICEPS",
+                    "item_value": "-3.560000"
+                  }
+                ]
+              },
+              "20241231": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "5541122189.630000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "5541122189.630000"
+                  },
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-550318210.960000"
+                  },
+                  {
+                    "item_field": "BASICEPS",
+                    "item_value": "-4.780000"
+                  }
+                ]
+              },
+              "20250331": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "1328168875.200000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "1328168875.200000"
+                  },
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-119966107.470000"
+                  },
+                  {
+                    "item_field": "BASICEPS",
+                    "item_value": "-1.050000"
+                  }
+                ]
+              },
+              "20250630": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "2908372336.980000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "2908372336.980000"
+                  },
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-86964423.480000"
+                  },
+                  {
+                    "item_field": "BASICEPS",
+                    "item_value": "-0.770000"
+                  }
+                ]
+              },
+              "20250930": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "4463802946.490000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "4463802946.490000"
+                  },
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-75046008.440000"
+                  },
+                  {
+                    "item_field": "BASICEPS",
+                    "item_value": "-0.670000"
+                  }
+                ]
+              },
+              "20251231": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "6848097114.290000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "6848097114.290000"
+                  },
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "100239645.810000"
+                  },
+                  {
+                    "item_field": "BASICEPS",
+                    "item_value": "0.890000"
+                  }
+                ]
+              },
+              "20260331": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "1171006587.720000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "1171006587.720000"
+                  },
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-177475003.520000"
+                  },
+                  {
+                    "item_field": "BASICEPS",
+                    "item_value": "-1.580000"
+                  }
+                ]
+              },
+              "20260630": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "2623186406.570000"
+                  },
+                  {
+                    "item_field": "BIZINCO",
+                    "item_value": "2623186406.570000"
+                  },
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-381992695.690000"
+                  },
+                  {
+                    "item_field": "BASICEPS",
+                    "item_value": "-3.400000"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "params": {
+        "paperCode": "sh688326",
+        "source": "lrb",
+        "type": "0",
+        "page": "1",
+        "num": "12"
+      }
+    },
+    {
+      "label": "fzb",
+      "payload": {
+        "result": {
+          "status": {
+            "code": 0
+          },
+          "data": {
+            "report_list": {
+              "20230930": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "TOTASSET",
+                    "item_value": "9182002299.430000"
+                  },
+                  {
+                    "item_field": "RIGHAGGR",
+                    "item_value": "5105129136.790000"
+                  }
+                ]
+              },
+              "20231231": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "TOTASSET",
+                    "item_value": "9327735166.290000"
+                  },
+                  {
+                    "item_field": "RIGHAGGR",
+                    "item_value": "5001780598.030000"
+                  }
+                ]
+              },
+              "20240331": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "TOTASSET",
+                    "item_value": "8978937586.480000"
+                  },
+                  {
+                    "item_field": "RIGHAGGR",
+                    "item_value": "4580372074.520000"
+                  }
+                ]
+              },
+              "20240630": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "TOTASSET",
+                    "item_value": "8888084006.720000"
+                  },
+                  {
+                    "item_field": "RIGHAGGR",
+                    "item_value": "4387760225.070000"
+                  }
+                ]
+              },
+              "20240930": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "TOTASSET",
+                    "item_value": "9117677203.070000"
+                  },
+                  {
+                    "item_field": "RIGHAGGR",
+                    "item_value": "4363212788.720000"
+                  }
+                ]
+              },
+              "20241231": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "TOTASSET",
+                    "item_value": "9407025551.040000"
+                  },
+                  {
+                    "item_field": "RIGHAGGR",
+                    "item_value": "4275997161.230000"
+                  }
+                ]
+              },
+              "20250331": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "TOTASSET",
+                    "item_value": "9219888181.500000"
+                  },
+                  {
+                    "item_field": "RIGHAGGR",
+                    "item_value": "3976850595.130000"
+                  }
+                ]
+              },
+              "20250630": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "TOTASSET",
+                    "item_value": "9461613415.910000"
+                  },
+                  {
+                    "item_field": "RIGHAGGR",
+                    "item_value": "4044757525.950000"
+                  }
+                ]
+              },
+              "20250930": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "TOTASSET",
+                    "item_value": "9705296037.480000"
+                  },
+                  {
+                    "item_field": "RIGHAGGR",
+                    "item_value": "4063421539.410000"
+                  }
+                ]
+              },
+              "20251231": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "TOTASSET",
+                    "item_value": "10433168227.660000"
+                  },
+                  {
+                    "item_field": "RIGHAGGR",
+                    "item_value": "4258048022.710000"
+                  }
+                ]
+              },
+              "20260331": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "TOTASSET",
+                    "item_value": "10078319111.390000"
+                  },
+                  {
+                    "item_field": "RIGHAGGR",
+                    "item_value": "4075276275.690000"
+                  }
+                ]
+              },
+              "20260630": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "TOTASSET",
+                    "item_value": "10379654530.440000"
+                  },
+                  {
+                    "item_field": "RIGHAGGR",
+                    "item_value": "3835138144.850000"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "params": {
+        "paperCode": "sh688326",
+        "source": "fzb",
+        "type": "0",
+        "page": "1",
+        "num": "12"
+      }
+    },
+    {
+      "label": "llb",
+      "payload": {
+        "result": {
+          "status": {
+            "code": 0
+          },
+          "data": {
+            "report_list": {
+              "20230930": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "-911725457.490000"
+                  }
+                ]
+              },
+              "20231231": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "-559288381.000000"
+                  }
+                ]
+              },
+              "20240331": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "-472190223.510000"
+                  }
+                ]
+              },
+              "20240630": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "-726513424.270000"
+                  }
+                ]
+              },
+              "20240930": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "-874716740.840000"
+                  }
+                ]
+              },
+              "20241231": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "-537534363.710000"
+                  }
+                ]
+              },
+              "20250331": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "-179226458.550000"
+                  }
+                ]
+              },
+              "20250630": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "-299218061.800000"
+                  }
+                ]
+              },
+              "20250930": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "-313070704.770000"
+                  }
+                ]
+              },
+              "20251231": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "55483998.400000"
+                  }
+                ]
+              },
+              "20260331": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "-143819768.130000"
+                  }
+                ]
+              },
+              "20260630": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "-656595619.240000"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "params": {
+        "paperCode": "sh688326",
+        "source": "llb",
+        "type": "0",
+        "page": "1",
+        "num": "12"
+      }
+    },
+    {
+      "label": "gjzb",
+      "payload": {
+        "result": {
+          "status": {
+            "code": 0
+          },
+          "data": {
+            "report_list": {
+              "20230930": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-140211061.260000"
+                  },
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "2858539889.770000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "-170065236.240000"
+                  },
+                  {
+                    "item_field": "RIGHAGGR",
+                    "item_value": "5105129136.790000"
+                  },
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "-911725457.490000"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "-1.170000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "-7.597712"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "-2.690000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "27.516528"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "-1.170000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "-7.597712"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "-2.690000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "27.516528"
+                  },
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-140211061.260000"
+                  },
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "2858539889.770000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "-170065236.240000"
+                  }
+                ]
+              },
+              "20231231": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-217256574.550000"
+                  },
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "4677580155.400000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "-283809420.650000"
+                  },
+                  {
+                    "item_field": "RIGHAGGR",
+                    "item_value": "5001780598.030000"
+                  },
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "-559288381.000000"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "-1.820000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "-4.660736"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "-4.210000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "25.596695"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "-1.820000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "-4.660736"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "-4.210000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "25.596695"
+                  },
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-217256574.550000"
+                  },
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "4677580155.400000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "-283809420.650000"
+                  }
+                ]
+              },
+              "20240331": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-191700101.570000"
+                  },
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "889351090.140000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "-219909155.540000"
+                  },
+                  {
+                    "item_field": "RIGHAGGR",
+                    "item_value": "4580372074.520000"
+                  },
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "-472190223.510000"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "-1.640000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "-3.934918"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "-4.020000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "24.684721"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "-1.640000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "-3.934918"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "-4.020000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "24.684721"
+                  },
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-191700101.570000"
+                  },
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "889351090.140000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "-219909155.540000"
+                  }
+                ]
+              },
+              "20240630": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-333375951.070000"
+                  },
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "2027001258.370000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "-387212723.210000"
+                  },
+                  {
+                    "item_field": "RIGHAGGR",
+                    "item_value": "4387760225.070000"
+                  },
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "-726513424.270000"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "-2.880000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "-6.054702"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "-7.220000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "22.563689"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "-2.880000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "-6.054702"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "-7.220000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "22.563689"
+                  },
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-333375951.070000"
+                  },
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "2027001258.370000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "-387212723.210000"
+                  }
+                ]
+              },
+              "20240930": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-410153847.950000"
+                  },
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "3546024524.100000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "-474818485.400000"
+                  },
+                  {
+                    "item_field": "RIGHAGGR",
+                    "item_value": "4363212788.720000"
+                  },
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "-874716740.840000"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "-3.560000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "-7.289816"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "-9.020000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "23.155957"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "-3.560000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "-7.289816"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "-9.020000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "23.155957"
+                  },
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-410153847.950000"
+                  },
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "3546024524.100000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "-474818485.400000"
+                  }
+                ]
+              },
+              "20241231": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-550318210.960000"
+                  },
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "5541122189.630000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "-618400739.730000"
+                  },
+                  {
+                    "item_field": "RIGHAGGR",
+                    "item_value": "4275997161.230000"
+                  },
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "-537534363.710000"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "-4.780000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "-4.480349"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "-12.330000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "21.511269"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "-4.780000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "-4.480349"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "-12.330000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "21.511269"
+                  },
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-550318210.960000"
+                  },
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "5541122189.630000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "-618400739.730000"
+                  }
+                ]
+              },
+              "20250331": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-119966107.470000"
+                  },
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "1328168875.200000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "-134475487.960000"
+                  },
+                  {
+                    "item_field": "RIGHAGGR",
+                    "item_value": "3976850595.130000"
+                  },
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "-179226458.550000"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "-1.050000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "-1.493960"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "-9.160000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "21.390625"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "-1.050000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "-1.493960"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "-9.160000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "21.390625"
+                  },
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-119966107.470000"
+                  },
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "1328168875.200000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "-134475487.960000"
+                  }
+                ]
+              },
+              "20250630": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-86964423.480000"
+                  },
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "2908372336.980000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "-115221315.300000"
+                  },
+                  {
+                    "item_field": "RIGHAGGR",
+                    "item_value": "4044757525.950000"
+                  },
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "-299218061.800000"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "-0.770000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "-2.494162"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "-2.150000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "23.154629"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "-0.770000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "-2.494162"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "-2.150000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "23.154629"
+                  },
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-86964423.480000"
+                  },
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "2908372336.980000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "-115221315.300000"
+                  }
+                ]
+              },
+              "20250930": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-75046008.440000"
+                  },
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "4463802946.490000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "-123022865.190000"
+                  },
+                  {
+                    "item_field": "RIGHAGGR",
+                    "item_value": "4063421539.410000"
+                  },
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "-313070704.770000"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "-0.670000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "-2.609813"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "-1.870000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "22.796132"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "-0.670000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "-2.609813"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "-1.870000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "22.796132"
+                  },
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-75046008.440000"
+                  },
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "4463802946.490000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "-123022865.190000"
+                  }
+                ]
+              },
+              "20251231": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "100239645.810000"
+                  },
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "6848097114.290000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "31434877.850000"
+                  },
+                  {
+                    "item_field": "RIGHAGGR",
+                    "item_value": "4258048022.710000"
+                  },
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "55483998.400000"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "0.890000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "0.462524"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "2.440000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "23.399889"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "0.890000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "0.462524"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "2.440000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "23.399889"
+                  },
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "100239645.810000"
+                  },
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "6848097114.290000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "31434877.850000"
+                  }
+                ]
+              },
+              "20260331": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-177475003.520000"
+                  },
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "1171006587.720000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "-175809747.030000"
+                  },
+                  {
+                    "item_field": "RIGHAGGR",
+                    "item_value": "4075276275.690000"
+                  },
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "-143819768.130000"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "-1.580000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "-1.199088"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "-4.330000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "16.272036"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "-1.580000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "-1.199088"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "-4.330000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "16.272036"
+                  },
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-177475003.520000"
+                  },
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "1171006587.720000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "-175809747.030000"
+                  }
+                ]
+              },
+              "20260630": {
+                "rType": "合并期末",
+                "rCurrency": "CNY",
+                "data": [
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-381992695.690000"
+                  },
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "2623186406.570000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "-395844537.550000"
+                  },
+                  {
+                    "item_field": "RIGHAGGR",
+                    "item_value": "3835138144.850000"
+                  },
+                  {
+                    "item_field": "MANANETR",
+                    "item_value": "-656595619.240000"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "-3.400000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "-5.474323"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "-9.560000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "16.095330"
+                  },
+                  {
+                    "item_field": "EPSBASIC",
+                    "item_value": "-3.400000"
+                  },
+                  {
+                    "item_field": "OPNCFPS",
+                    "item_value": "-5.474323"
+                  },
+                  {
+                    "item_field": "ROEWEIGHTED",
+                    "item_value": "-9.560000"
+                  },
+                  {
+                    "item_field": "SGPMARGIN",
+                    "item_value": "16.095330"
+                  },
+                  {
+                    "item_field": "PARENETP",
+                    "item_value": "-381992695.690000"
+                  },
+                  {
+                    "item_field": "BIZTOTINCO",
+                    "item_value": "2623186406.570000"
+                  },
+                  {
+                    "item_field": "NPCUT",
+                    "item_value": "-395844537.550000"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "params": {
+        "paperCode": "sh688326",
+        "source": "gjzb",
+        "type": "0",
+        "page": "1",
+        "num": "12"
+      }
+    }
+  ]
+}

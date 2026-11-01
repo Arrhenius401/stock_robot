@@ -53,12 +53,20 @@ def _run(*arguments: str):
     ("config/radar_stock_pools/value.yaml", "tests/radar/test_pool_catalog.py"),
     ("config/radar_stock_pools/value.yaml", "tests/api/test_radar_pools.py"),
     ("src/api/static/js/radar-pool-picker.js", "tests/api/test_radar_pools_ui.py"),
+
+    ("config/gold.yaml", "tests/gold"),
+    ("src/gold/analysis.py", "tests/gold"),
+    ("tests/resources/gold/sge-au9999-daily.json", "tests/gold"),
     ("scripts/verify.ps1", "tests/test_verify_script.py"),
+    ("tests/resources/hk/eastmoney-00005-financial-20261022.json", "tests/data/test_hk_bank_currency.py"),
     ("src/radar/calendar.py", "tests/radar"),
     ("pyproject.toml", "tests/test_integration.py"),
     ("tests/api/deleted_test.py", "tests/api"),
     ("tests/resources/index/csi-930740-price-pe-history.json", "tests/index"),
     ("tests/resources/index/cni-980092-valuation-factsheet-layout.txt", "tests/index"),
+    ("tests/resources/data/eastmoney-00700-income-report.json", "tests/data"),
+    ("tests/resources/report/qq-00700-unavailable-report.md", "tests/report"),
+    ("tests/resources/industry/eastmoney-hk-main-indicators.json", "tests/analysis/test_industry_comparison.py"),
 ])
 def test_changed_scope_never_expands_to_full(path, expected):
     result = _run("-PlanOnly", "-Files", path)
@@ -77,6 +85,35 @@ def test_full_scope_is_explicit():
     plan = json.loads(result.stdout)
     assert plan["TestTargets"] == ["tests"]
     assert plan["PythonTargets"] == ["."]
+
+
+def test_shared_financial_validity_covers_report_and_cache():
+    result = _run("-PlanOnly", "-Files", "src/data/validation.py")
+    assert result.returncode == 0, result.stderr
+    targets = {item.replace("\\", "/") for item in json.loads(result.stdout)["TestTargets"]}
+    assert {"tests/core/test_financial_cache_facts.py", "tests/core/test_pipeline.py", "tests/report"} <= targets
+
+
+@pytest.mark.parametrize("path,expected", [
+    ("src/core/collection_contract.py", "tests/core"),
+    ("src/core/resilient_collection.py", "tests/report"),
+    ("src/data/collection_policies.py", "tests/core"),
+    ("src/data/akshare.py", "tests/core"),
+    ("scripts/check-data-entrypoints.py", "tests/test_data_entrypoints.py"),
+])
+def test_contract_changes_pull_related_tests(path, expected):
+    result = _run("-PlanOnly", "-Files", path)
+    assert result.returncode == 0, result.stderr
+    targets = [item.replace("\\", "/") for item in json.loads(result.stdout)["TestTargets"]]
+    assert expected in targets
+
+
+def test_version_only_change_checks_metadata_and_installed_distribution():
+    result = _run("-PlanOnly", "-Files", "src/stock_robot/metadata.py")
+    assert result.returncode == 0, result.stderr
+    plan = json.loads(result.stdout)
+    assert set(plan["TestTargets"]) == {"tests/test_release_metadata.py", "tests/test_distribution.py"}
+    assert plan["UnmappedFiles"] == []
 
 
 def test_docs_only_check_does_not_require_virtual_environment():
@@ -337,3 +374,15 @@ def test_stock_index_scope_has_bounded_mapping(source_file):
     assert plan['UnmappedFiles'] == []
     assert set(plan['TestTargets']) == {'tests/radar/test_stock_index_scope.py',
         'tests/radar/test_stock_index_discovery.py', 'tests/radar/test_stock_index_scope_cli.py'}
+
+@pytest.mark.parametrize("path,expected", [
+    ("src/core/pipeline.py", {"tests/core", "tests/data", "tests/report", "tests/agent"}),
+    ("src/data/collection_policies.py", {"tests/core", "tests/data"}),
+    ("src/data/collection_state.py", {"tests/core", "tests/data"}),
+    ("src/data/hk_hsics_peers.py", {"tests/core", "tests/data"}),
+])
+def test_phase1_paths_cover_related_tests(path, expected):
+    result = _run("-PlanOnly", "-Files", path)
+    assert result.returncode == 0, result.stderr
+    targets = {item.replace("\\", "/") for item in json.loads(result.stdout)["TestTargets"]}
+    assert expected <= targets

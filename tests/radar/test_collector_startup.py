@@ -32,6 +32,11 @@ def test_task_name_is_project_specific(tmp_path):
     assert CollectorStartup(tmp_path).name != CollectorStartup(tmp_path / 'other').name
 
 
+def test_linux_description_uses_public_name(tmp_path, monkeypatch):
+    monkeypatch.setattr("radar.collector_startup.APP_NAME", "测试应用")
+    assert "Description=测试应用 radar collector" in CollectorStartup(tmp_path).linux_unit("stockrobot")
+
+
 def test_linux_unit_escapes_paths_and_requires_regular_user(tmp_path):
     startup = CollectorStartup(tmp_path / 'space % folder', python=Path('/srv/venv/bin/python'), platform='linux')
     unit = startup.linux_unit('stockrobot')

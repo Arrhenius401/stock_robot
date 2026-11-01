@@ -52,6 +52,25 @@ class TestAnalyzeStockTool:
         mock_pipeline.run.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_execute_normalizes_hk_symbol_and_sets_hk_market(self, mocker):
+        mock_pipeline = mocker.Mock()
+        mock_report = mocker.Mock()
+        mock_report.code = "00700.HK"
+        mock_report.name = "腾讯控股"
+        mock_report.overview = {}
+        mock_report.comments = []
+        mock_report.dimensions = {}
+        mock_pipeline.run.return_value = mocker.Mock(reports=[mock_report], errors=[])
+
+        result = await AnalyzeStockTool(pipeline=mock_pipeline).execute(symbol="hk00700")
+
+        assert result.status == "success"
+        target = mock_pipeline.run.call_args.kwargs["targets"][0]
+        assert target.symbol == "00700.HK"
+        assert target.market == "hk"
+        assert result.metadata == {"source": "pipeline", "symbol": "00700.HK"}
+
+    @pytest.mark.asyncio
     async def test_execute_returns_error_for_empty_symbol(self):
         tool = AnalyzeStockTool()
         result = await tool.execute(symbol="")
@@ -103,6 +122,8 @@ class TestAnalyzeIndexTool:
         mock_report.overview = {"pe_ttm": 12.5}
         mock_report.composite_comment = "谨慎看多"
         mock_report.position_coeff = 0.7
+        mock_report.model_dump.return_value = {"code":"000300", "name":"沪深300", "overview":{"pe_ttm":12.5}}
+        mocker.patch("index.archives.save_index_report")
         mock_pipeline.run.return_value = mocker.Mock(
             reports=[mock_report],
             errors=[],
@@ -198,3 +219,20 @@ class TestScreenStocksTool:
         result = await tool.execute(industry="")
         assert result.status == "error"
         assert "行业" in (result.error or "")
+
+@pytest.mark.asyncio
+async def test_index_agent_preserves_hk_identity_and_rejects_unknown(mocker):
+    from agent.pipeline_tools import AnalyzeIndexTool
+    from data.index_mapping import IndexMappingEntry
+    pipeline = mocker.Mock()
+    pipeline.run.return_value = mocker.Mock(reports=[], errors=[])
+    entry = IndexMappingEntry(symbol="HSI:10068.00", name="恒指总收益", index_style="overseas", market="hk", provider="hsi", price_symbol="10068.00", return_type="gross_total_return")
+    lookup = mocker.patch("data.index_mapping.IndexMapping.resolve", return_value=entry)
+    await AnalyzeIndexTool(pipeline).execute(symbol="HSI:10068.00")
+    target = pipeline.run.call_args.kwargs["targets"][0]
+    assert (target.market, target.symbol, target.official_index_code, target.return_type) == ("hk", "HSI:10068.00", "10068.00", "gross_total_return")
+    lookup.return_value = None
+    pipeline.reset_mock()
+    result = await AnalyzeIndexTool(pipeline).execute(symbol="UNKNOWN")
+    assert result.status == "error"
+    pipeline.run.assert_not_called()

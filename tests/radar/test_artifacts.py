@@ -6,9 +6,64 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pandas as pd
+import pytest
 
-from radar.artifacts import write_radar_backtest_artifacts
+from radar.artifacts import _replace_with_retry, write_radar_backtest_artifacts
 from radar.backtest import RadarBacktestResult
+
+
+@pytest.mark.parametrize("failures", [0, 1, 2])
+def test_atomic_replace_retries_only_transient_permission_errors(tmp_path, monkeypatch, failures):
+    source, target = tmp_path / "run.tmp", tmp_path / "run"
+    calls = []
+    waits = []
+
+    def replace(source_path, target_path):
+        calls.append((source_path, target_path))
+        if len(calls) <= failures:
+            raise PermissionError("模拟文件扫描短暂占用")
+
+    monkeypatch.setattr("radar.artifacts.os.replace", replace)
+    monkeypatch.setattr("radar.artifacts.time.sleep", waits.append)
+    _replace_with_retry(source, target)
+    assert calls == [(source, target)] * (failures + 1)
+    assert waits == [0.05] * failures
+
+
+def test_atomic_replace_permission_failure_is_bounded_and_preserves_exception(tmp_path, monkeypatch):
+    error = PermissionError("模拟持续权限错误")
+    calls = []
+    waits = []
+
+    def replace(source, target):
+        calls.append((source, target))
+        raise error
+
+    monkeypatch.setattr("radar.artifacts.os.replace", replace)
+    monkeypatch.setattr("radar.artifacts.time.sleep", waits.append)
+    with pytest.raises(PermissionError) as raised:
+        _replace_with_retry(tmp_path / "run.tmp", tmp_path / "run")
+    assert raised.value is error
+    assert len(calls) == 3
+    assert waits == [0.05, 0.05]
+
+
+@pytest.mark.parametrize("error", [FileNotFoundError("临时目录丢失"), FileExistsError("目标冲突"), OSError("其他 I/O 错误")])
+def test_atomic_replace_does_not_retry_unrelated_errors(tmp_path, monkeypatch, error):
+    calls = []
+    waits = []
+
+    def replace(source, target):
+        calls.append((source, target))
+        raise error
+
+    monkeypatch.setattr("radar.artifacts.os.replace", replace)
+    monkeypatch.setattr("radar.artifacts.time.sleep", waits.append)
+    with pytest.raises(type(error)) as raised:
+        _replace_with_retry(tmp_path / "run.tmp", tmp_path / "run")
+    assert raised.value is error
+    assert len(calls) == 1
+    assert waits == []
 
 
 def test_writes_auditable_radar_backtest_artifacts():

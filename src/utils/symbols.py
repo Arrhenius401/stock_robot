@@ -1,8 +1,10 @@
 """股票代码工具 — 标准化、校验、名称解析"""
 import logging
 import re
+from datetime import datetime
 from typing import Any
 
+from data.collection_state import ValueResult, make_record
 from utils.retry import retry_on_network_error
 
 logger = logging.getLogger(__name__)
@@ -22,6 +24,16 @@ def _extract_prefix_and_digits(raw: str) -> tuple[str, str]:
     return (m.group(1) or "").lower(), m.group(2)
 
 
+def _hk_digits(raw: str) -> str:
+    matched = re.fullmatch(r"(?i)(?:hk)?(\d{5})(?:\.hk)?", raw.strip())
+    return matched.group(1) if matched else ""
+
+
+def symbol_market(symbol: str) -> str:
+    """返回已校验个股代码的市场标识。"""
+    return "hk" if _hk_digits(symbol) else "a-shares"
+
+
 def _code_to_market(code: str) -> str:
     """根据代码首位判断所属交易所"""
     first = code[0]
@@ -34,12 +46,17 @@ def _code_to_market(code: str) -> str:
 
 def normalize_symbol(raw: str) -> str:
     """清理前缀并补零到 6 位"""
+    hk_code = _hk_digits(raw)
+    if hk_code:
+        return f"{hk_code}.HK"
     cleaned = re.sub(r"^(sh|sz|SH|SZ)", "", raw.strip())
     return cleaned.zfill(6)
 
 
 def validate_symbol(symbol: str) -> bool:
     """校验 A 股代码格式，前缀与代码交易所必须一致"""
+    if _hk_digits(symbol):
+        return True
     prefix, digits = _extract_prefix_and_digits(symbol)
     if len(digits) < 5:
         return False
@@ -56,16 +73,30 @@ def validate_symbol(symbol: str) -> bool:
     return True
 
 
-def resolve_name(symbol: str) -> str:
-    """解析股票代码对应的公司名称"""
+def resolve_name_result(symbol: str) -> ValueResult[str]:
+    """解析名称并保留来源和安全诊断。"""
+    source = "东财港股快照" if symbol_market(symbol) == "hk" else "AkShare A股代码名称"
     try:
-        df: Any = _ak_code_name()
-        row = df[df["code"] == normalize_symbol(symbol)]
-        if not row.empty:
-            return str(row["name"].iloc[0])
-    except Exception as e:  # noqa: BLE001 — 第三方接口异常类型不可预测，降级返回空名
-        logger.warning(f"股票名称解析失败 {symbol}: {e}")
-    return ""
+        if symbol_market(symbol) == "hk":
+            from data.hk_eastmoney import stock_snapshot
+
+            snapshot = stock_snapshot(normalize_symbol(symbol).removesuffix(".HK"))
+            name = str(snapshot.get("f58") or "").strip()
+        else:
+            df: Any = _ak_code_name()
+            row = df[df["code"] == normalize_symbol(symbol)]
+            name = str(row["name"].iloc[0]) if not row.empty else ""
+        if name:
+            return ValueResult(name, make_record(source, "complete", collected_at=datetime.now().astimezone()))
+    except Exception as e:  # noqa: BLE001 — 第三方接口边界，返回安全诊断
+        logger.warning("股票名称解析失败 %s: %s", symbol, type(e).__name__)
+    return ValueResult(None, make_record(source, "failed", error_kind="fetch_failed",
+                                         error_message="股票名称解析失败"))
+
+
+def resolve_name(symbol: str) -> str:
+    """兼容旧调用方，未取得名称时返回空字符串。"""
+    return resolve_name_result(symbol).value or ""
 
 
 def validate_index_symbol(symbol: str) -> bool:
@@ -73,6 +104,8 @@ def validate_index_symbol(symbol: str) -> bool:
     import re
     # 支持 sh000001 / sz399001 / 000001 / HSI / SPX 等格式
     cleaned = symbol.strip().upper()
+    if re.fullmatch(r"HSI:\d{5}\.\d{2}", cleaned):
+        return True
     # 中证策略指数允许 H 加五位数字，避免放宽任意混合代码。
     if re.fullmatch(r"H\d{5}", cleaned):
         return True
@@ -91,6 +124,8 @@ def normalize_index_symbol(symbol: str) -> str:
     """清理前缀，A 股指数补零到 6 位；海外指数保留大写"""
     import re
     cleaned = symbol.strip().upper()
+    if re.fullmatch(r"HSI:\d{5}\.\d{2}", cleaned):
+        return cleaned
     # 中证字母数字代码保留大写。
     if re.fullmatch(r"H\d{5}", cleaned):
         return cleaned

@@ -188,7 +188,7 @@ def _module_url(path: str) -> str:
     url = Path(path).resolve().as_uri()
     # 与聊天模块的正式导入保持同一 URL，避免产生两份抽屉状态单例。
     if path.endswith("/report-drawer.js"):
-        url += "?v=20261012-report-library-1"
+        url += "?v=20261031-analysis-mode-1"
     return url
 
 
@@ -209,6 +209,109 @@ async def client():
 
 
 class TestStaticUI:
+    def test_negative_equity_risk_is_localized_in_cards_and_legacy_markdown(self, tmp_path):
+        script = _DOM_STUB + r"""
+const {riskText, localizeReportMarkdown, renderStockReport} = await import(__RENDERER__);
+const expected = "净资产为负（资不抵债风险）";
+if (riskText("negative_equity") !== expected) throw new Error("负权益风险没有中文标签");
+const markdown = localizeReportMarkdown("- negative_equity\n- roe_low");
+if (markdown.includes("negative_equity") || !markdown.includes(expected)) {
+  throw new Error("旧 Markdown 中的负权益风险没有本地化");
+}
+const article = renderStockReport({symbol: "00001.HK", market: "hk", dimensions: {
+  financial: {status: "partial", risk_flags: ["negative_equity", "negative_equity"]},
+}});
+if (article.textContent.includes("negative_equity") || !article.textContent.includes(expected)) {
+  throw new Error("结构化报告暴露风险代码");
+}
+const financial = article.children.find(section => section.id === "report-financial");
+const flags = financial ? byClass(financial, "flag") : [];
+if (flags.length !== 1 || !flags[0].textContent.includes(expected)) {
+  throw new Error("维度风险没有使用中文标签或没有去重");
+}
+"""
+        _run_node(tmp_path, script.replace("__RENDERER__", json.dumps(_module_url("src/api/static/js/report-renderer.js"))))
+
+    def test_hk_news_reuses_plain_list_and_hides_links(self, tmp_path):
+        script = _DOM_STUB + r"""
+const {renderStockReport} = await import(__RENDERER__);
+const article = renderStockReport({symbol: "00700.HK",market:"hk",dimensions:{sentiment:{status:"ok",metrics:{
+  news_fetched_at:"2026-10-23T20:41:00+08:00",
+  news_notes:["部分关键词查询失败或未执行，检索不完整。","已达到单关键词100条候选上限，不保证覆盖窗口内全部新闻。"],
+  news_items:[{title:"公司回购股份",published_at:"2026-10-23T18:21:00+08:00",links:[
+    {media:"媒体甲",url:"https://example.com/a"},{media:"媒体乙",url:"https://example.com/b"}
+  ]}]}}}});
+const news = descendants(article).find(node => node.id === "report-sentiment");
+if (!news) throw new Error("新闻区缺失");
+if (!byClass(news,"report-metric-list").length) throw new Error("应复用原新闻项目列表样式");
+if (!news.textContent.includes("公司回购股份（2026-10-23 18:21 · 媒体甲、媒体乙）")) throw new Error("标题、时间、媒体应紧凑展示");
+if (descendants(news).some(node => node.tagName.toLowerCase() === "a")) throw new Error("新闻区不应展示链接");
+if (news.textContent.includes("https://") || news.textContent.includes("· 原文")) throw new Error("链接文字泄露");
+for (const diagnostic of ["原采集时间", "部分关键词", "候选上限"]) {
+  if (news.textContent.includes(diagnostic)) throw new Error(`采集诊断不应出现在新闻正文：${diagnostic}`);
+}
+""".replace("__RENDERER__", json.dumps(_module_url("src/api/static/js/report-renderer.js")))
+        _run_node(tmp_path, script)
+
+    def test_hk_live_report_cache_expires_and_filters_dates(self, tmp_path):
+        """港股实时缓存不续期旧新闻；A股及归档渲染不受影响。"""
+        report_url = json.dumps(_module_url("src/api/static/js/report.js"))
+        state_url = json.dumps(_module_url("src/api/static/js/state.js"))
+        script = _DOM_STUB + r"""
+makeElement("reportContent");
+const { store } = await import(__STATE_URL__);
+const { openReport } = await import(__REPORT_URL__);
+let now = Date.parse("2026-10-23T10:00:00+08:00");
+Date.now = () => now;
+const calls = [];
+function data(symbol, market = "hk", fetched = now) {
+  return {symbol, name: symbol, market, generated_at: new Date(now).toISOString(),
+    data_quality: {dimensions:[{key:"sentiment",fields:[{label:"检索状态",value:"旧状态"}]}]},
+    dimensions: {sentiment: {status: "ok", metrics: {news_fetched_at: new Date(fetched).toISOString(),
+      news_notes:["部分关键词查询失败或未执行，检索不完整。","已达到单关键词100条候选上限"],
+      news_items: [
+        {title: "有效新闻", published_at: "2026-10-23T09:00:00+08:00", links: []},
+        {title: "过期新闻不应展示", published_at: "2026-09-23T09:00:00+08:00", links: []},
+        {title: "未来新闻不应展示", published_at: "2026-10-24T09:00:00+08:00", links: []}
+      ]}}}};
+}
+globalThis.fetch = async (url, options) => {
+  calls.push(JSON.parse(options.body));
+  return {ok: true, json: async () => data(calls.at(-1).symbol)};
+};
+await openReport("00700.HK");
+if (calls.length !== 1) throw new Error("首次必须请求");
+if (document.getElementById("reportContent").textContent.includes("不应展示")) throw new Error("展示前必须过滤日期");
+if (document.getElementById("reportContent").textContent.includes("候选上限")) throw new Error("缓存过滤不能将后台诊断重新带入附录");
+const original = store.reportCache["00700.HK"];
+if (original.dimensions.sentiment.metrics.news_items.length !== 3) throw new Error("展示不能改写缓存原文或归档事实");
+now += 3599000;
+await openReport("00700.HK");
+if (calls.length !== 1) throw new Error("一小时内应复用");
+if (document.getElementById("reportContent").textContent.includes("部分关键词")) throw new Error("复用缓存不能展示诊断文案");
+now += 1000;
+await openReport("00700.HK");
+if (calls.length !== 2) throw new Error("一小时到期必须请求");
+await openReport("00700.HK", "stockInput", true);
+if (calls.length !== 3 || !calls.at(-1).refresh_cache) throw new Error("手动刷新必须透传");
+store.reportCache["09988.HK"] = data("09988.HK", "hk", now - 3600001);
+await openReport("09988.HK");
+if (calls.length !== 4) throw new Error("新报告不能续期旧采集时间");
+now = Date.parse("2026-10-23T23:59:30+08:00");
+await openReport("00005.HK");
+const beforeDayChange = calls.length;
+now += 60000;
+await openReport("00005.HK");
+if (calls.length !== beforeDayChange + 1) throw new Error("跨香港日期必须刷新");
+store.reportCache["600519"] = data("600519", "a-shares", now - 864000000);
+const beforeA = calls.length;
+await openReport("600519");
+if (calls.length !== beforeA) throw new Error("不改变A股缓存语义");
+await byClass(document.getElementById("reportContent"), "btn-refresh")[0].click();
+if (calls.length !== beforeA + 1 || !calls.at(-1).refresh_cache) throw new Error("A股手动刷新必须跳过新鲜缓存");
+""".replace("__REPORT_URL__", report_url).replace("__STATE_URL__", state_url)
+        _run_node(tmp_path, script)
+
     @pytest.mark.asyncio
     async def test_index_html_served(self, client):
         resp = await client.get("/")
@@ -309,7 +412,7 @@ class TestStaticUI:
         app_js = (await client.get("/js/app.js")).text
         api_js = (await client.get("/js/api.js")).text
 
-        assert 'import { initReportLibrary } from "./report-library.js?v=20261012-report-library-1";' in app_js
+        assert 'import { initReportLibrary } from "./report-library.js?v=20261031-analysis-mode-1";' in app_js
         assert "initReportLibrary();" in app_js
         assert "listReports(" in api_js
         assert "getReport(" in api_js
@@ -346,7 +449,7 @@ class TestStaticUI:
     async def test_app_initializes_report_drawer(self, client):
         resp = await client.get("/js/app.js")
 
-        assert 'import { initReportDrawer } from "./report-drawer.js?v=20261012-report-library-1";' in resp.text
+        assert 'import { initReportDrawer } from "./report-drawer.js?v=20261031-analysis-mode-1";' in resp.text
         assert "initReportDrawer();" in resp.text
 
     def test_markdown_renderer_escapes_untrusted_input_and_formats_safe_blocks(self):
@@ -401,6 +504,47 @@ if (!code.includes("**代码原样** [不应解析](https://example.com)")
             check=False,
         )
         assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+
+    def test_hk_report_renderer_explains_unscored_metrics_and_currency(self, tmp_path):
+        renderer_url = json.dumps(_module_url("src/api/static/js/report-renderer.js"))
+        script = _DOM_STUB + r'''
+const { renderStockReport } = await import(__RENDERER_URL__);
+const report = {
+  market: "hk", symbol: "00700.HK", name: "腾讯控股",
+  score: { final: null }, score_rows: [{ label: "财务健康", score: "N/A", weight: "30%" }],
+  data_quality: { status: "partial", signal_allowed: false, has_analysis_data: true, coverage: 47.5 },
+  dimensions: { financial: { status: "partial", metrics: { latest_quarter: "2026-06-30", revenue: 396431000000 } } },
+};
+const article = renderStockReport(report);
+if (!article.textContent.includes("最新报告期") || !article.textContent.includes("原币")) throw new Error("港股期间或币种说明缺失");
+if (!article.textContent.includes("评分不适用") || !article.textContent.includes("分析数据覆盖")) throw new Error("港股仍被当作待完成A股评分");
+if (article.textContent.includes("计分数据覆盖") || byClass(article, "score-rows").length) throw new Error("港股展示了A股计分控件");
+'''.replace("__RENDERER_URL__", renderer_url)
+        _run_node(tmp_path, script)
+
+    def test_hk_shared_coverage_and_indicators_are_localized(self, tmp_path):
+        renderer_url = json.dumps(_module_url("src/api/static/js/report-renderer.js"))
+        script = _DOM_STUB + r'''
+const { renderStockReport } = await import(__RENDERER_URL__);
+const report = {
+  market: "hk", symbol: "00700.HK", name: "腾讯控股", score: {final: null},
+  data_quality: {status: "partial", has_analysis_data: true, coverage: 100,
+    available_dimensions: 3, applicable_dimensions: 3,
+    dimensions: [{key: "industry", title: "行业", status: "not_applicable", applicable: false,
+      fields: [{label: "适用范围", value: "本期港股分析不支持"}]}]},
+  dimensions: {technical: {status: "ok", metrics: {ma_5: 443.2266666666667, macd_dif: -5.305251657462463, volume_ratio: 0.8621968458224063}},
+    industry: {status: "unavailable", summary: "不应当作为数据缺失", metrics: {}}},
+};
+const article = renderStockReport(report);
+for (const text of ["可用维度覆盖：3/3（100%）", "不代表字段完整", "5 日均线", "MACD DIF", "近5日与此前20日均量比", "不适用", "443.23", "-5.305", "0.86"]) {
+  if (!article.textContent.includes(text)) throw new Error(`缺少港股共享事实展示: ${text}`);
+}
+for (const raw of ["443.2266666666667", "-5.305251657462463", "0.8621968458224063"]) {
+  if (article.textContent.includes(raw)) throw new Error(`技术指标未按显示精度格式化: ${raw}`);
+}
+if (article.textContent.includes("不应当作为数据缺失") || article.textContent.includes("not_applicable")) throw new Error("不适用状态未正确显示");
+'''.replace("__RENDERER_URL__", renderer_url)
+        _run_node(tmp_path, script)
 
     def test_report_renderer_handles_variants_and_unsafe_text(self, tmp_path):
         renderer_url = json.dumps(_module_url("src/api/static/js/report-renderer.js"))
@@ -457,7 +601,7 @@ if (article.tagName !== "ARTICLE" || !article.classList.contains("stock-report")
 const sectionIds = article.querySelectorAll("section[id]").map((section) => section.id);
 const expectedIds = [
   "report-summary", "report-score", "report-financial", "report-technical",
-  "report-valuation", "report-industry", "report-sentiment", "report-risks",
+  "report-valuation", "report-industry", "report-sentiment",
   "report-commentary",
 ];
 for (const id of expectedIds) {
@@ -480,15 +624,9 @@ if (!article.textContent.includes("最新收盘价") || !article.textContent.inc
     || article.textContent.includes('{\n  "value": 3\n}')) {
   throw new Error("对象指标应拆为可读字段，不能展示 JSON");
 }
-if (!article.textContent.includes("同行业公司") || !article.textContent.includes("同行范围")
-    || !article.textContent.includes("工商银行（601398）")
-    || !article.textContent.includes("建设银行（601939）")
-    || article.textContent.includes("peer_names")) {
-  throw new Error("行业字段必须显示中文标签与公司名（代码）");
-}
-if (!article.textContent.includes("头部同行公司")
-    || !article.textContent.includes("招商银行（600036）：市值 603.30 亿元 · PE(TTM) 6.2 · PB 0.8")) {
-  throw new Error("头部同行应以公司名、代码和指标的结构化格式展示");
+if (!article.textContent.includes("同行范围") || !article.textContent.includes("银行")
+    || ["同行业公司", "工商银行", "建设银行", "头部同行公司", "招商银行", "peer_names"].some(text=>article.textContent.includes(text))) {
+  throw new Error("历史行业报告只保留范围与汇总，不能展开同行名单");
 }
 if (article.textContent.includes("roe_low") || article.textContent.includes("bearish_ma")
     || !article.textContent.includes("净资产收益率偏低")
@@ -509,17 +647,15 @@ if (!headlines || headlines.children.length !== 2
     || !headlines.textContent.includes("机构上调目标价")) {
   throw new Error("舆情标题必须逐条纵向展示");
 }
-const riskRows = byClass(article, "report-risk-item");
-if (riskRows.length !== 3 || !riskRows.every((row) =>
-    row.classList.contains("report-detail-row"))
-    || !article.textContent.includes("风险 01")) {
-  throw new Error("风险应跨维度去重并使用统一字段行布局");
+const riskFlags = byClass(article, "flag").map((node) => node.textContent);
+if (riskFlags.length !== 3 || new Set(riskFlags).size !== 3
+    || !["净资产收益率偏低", "均线呈空头排列", "舆情波动"].every(
+      (text) => riskFlags.some((value) => value.includes(text)))) {
+  throw new Error("风险应在对应维度跨维度去重展示");
 }
-const commentaryRows = byClass(article, "report-commentary-item");
-if (commentaryRows.length !== 2 || !commentaryRows.every((row) =>
-    row.classList.contains("report-detail-row"))
-    || !article.textContent.includes("要点 01")) {
-  throw new Error("AI 解读分点应使用统一字段行布局");
+const commentary = byClass(article, "report-commentary-intro")[0];
+if (!commentary || !commentary.innerHTML.includes("第一段结论") || !commentary.innerHTML.includes("第二段")) {
+  throw new Error("综合研判应保留原解读段落");
 }
 const legacyMarkdown = localizeReportMarkdown("- roe_low\n趋势：bear\n估值：undervalued");
 if (legacyMarkdown.includes("roe_low") || legacyMarkdown.includes("bear")
@@ -1777,6 +1913,7 @@ const payload = {
       temperature: 0.3, max_tokens: 2000, retry_times: 2, timeout_seconds: 60 },
     data: { disclaimer_accepted: false,
       cache_ttl: { daily: 86400, quarterly: 604800, news: 21600 } },
+    maintenance: { report_cleanup_enabled: true, sweep_interval_minutes: 360 },
     api: { host: "127.0.0.1", port: 25618 },
     push: { enabled: true, max_symbols_per_subscription: 20,
       email: { smtp_host: "smtp.qq.com", smtp_port: 465, smtp_user: "user",
@@ -1824,6 +1961,13 @@ if (!byClass(settingsContent, "settings-module")[0].hidden) throw new Error("切
 await moduleButtons[0].click();
 for (const heading of ["模型连接", "数据与缓存", "服务设置", "推送设置", "信号策略"]) {
   if (!settingsContent.textContent.includes(heading)) throw new Error(`缺少分区: ${heading}`);
+}
+const retentionToggle = document.getElementById("settings-maintenance-report_cleanup_enabled");
+if (!retentionToggle || retentionToggle.checked !== true) {
+  throw new Error("报告清理开关未按配置渲染");
+}
+if (document.getElementById("settings-maintenance-report_retention_days")) {
+  throw new Error("保留期固定 7 天，不应提供天数输入框");
 }
 if (!settingsContent.textContent.includes("D:/project/.stock_robot")) {
   throw new Error("未显示只读路径");
@@ -2132,7 +2276,8 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         assert 'id="subName"' not in html
         assert 'id="subChannel"' not in html
         assert "企业微信" not in html
-        assert 'href="/css/app.css?v=20261022-financial-task-1"' in html
+        assert 'href="/css/app.css?v=20261101-dev-sync-1"' in html
+        assert 'src="/js/app.js?v=20261101-dev-sync-1"' in html
         script = (await client.get("/js/subscriptions.js")).text
         assert "searchPushSymbols" in script
         assert "批量添加" not in script

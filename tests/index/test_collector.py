@@ -4,6 +4,7 @@ from datetime import date
 
 import pytest
 
+from data.base import CollectionResult
 from data.schemas import (
     AnalysisTarget,
     CapitalFlowData,
@@ -35,7 +36,7 @@ def sector_target():
 @pytest.fixture
 def collector(mocker):
     """使用确定性数据源，验证采集编排而非第三方网络可用性。"""
-    instance = IndexDataCollector()
+    instance = IndexDataCollector(isolate_requests=False)
     responses = {
         "index_price": [IndexPriceData(
             symbol="000300", trade_date=date(2026, 8, 27),
@@ -56,9 +57,9 @@ def collector(mocker):
     }
 
     def fetch(_symbol, *, data_type, **_kwargs):
-        return responses[data_type]
+        return CollectionResult(responses[data_type])
 
-    mocker.patch.object(instance._adapter, "fetch", side_effect=fetch)
+    mocker.patch.object(instance._adapter, "fetch_result", side_effect=fetch)
     return instance
 
 
@@ -102,7 +103,7 @@ class TestIndexDataCollector:
             calls.append((stage, current, total, label))
 
         collector.collect(sector_target, on_progress=track)
-        assert len(calls) == 4  # sector: no macro step
+        assert len(calls) == 5  # 行业新增共同日期基准，无宏观步骤
 
     def test_collect_without_on_progress_still_works(self, broad_target, collector):
         ctx = collector.collect(broad_target)  # no on_progress

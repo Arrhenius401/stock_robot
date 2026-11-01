@@ -69,6 +69,28 @@ class _Config:
 
 
 class TestPushExecutor:
+    def test_hk_stock_push_preserves_market(self, monkeypatch):
+        from types import SimpleNamespace
+
+        calls = []
+
+        def run(symbol, name, *, market):
+            calls.append(market)
+            return [], {}, AnalysisContext(symbol=symbol, name=name, market=market,
+                                            extra_analysis_enabled=False)
+
+        core = SimpleNamespace(pipeline=SimpleNamespace(run=run))
+        backend = _Backend()
+        PushExecutor(core, None, _Config())._push_stock("00700.HK", "email", backend, "腾讯")
+        assert calls == ["hk"]
+        assert "市场：港股" in backend.calls[0]["content"]
+
+    def test_email_subject_uses_public_name(self, monkeypatch):
+        monkeypatch.setattr("push.executor.APP_NAME", "测试应用")
+        backend = _Backend()
+        PushExecutor(_Core(), None, _Config())._push_stock("600519", "email", backend, "样本")
+        assert backend.calls[0]["title"] == "[测试应用] 样本 分析报告"
+
     def test_stock_email_without_main_data_suppresses_ai(self, mocker, tmp_path):
         from push.store import PushStore
 
@@ -91,7 +113,7 @@ class TestPushExecutor:
         assert result["ok"] == 1
         content = backend.calls[0]["content"]
         assert "不应输出的AI结论" not in content
-        assert "操作信号：" not in content
+        assert "模型信号：暂未生成" in content
         assert "数据覆盖与时效" in content
 
     def test_backend_initialization_failure_is_recorded(self, mocker, tmp_path):
@@ -257,3 +279,25 @@ class TestPushExecutor:
         assert result["ok"] == 1
         assert len(result["failures"]) == 1
         assert "ABC123" in result["failures"][0]
+
+
+def test_push_index_routes_hk_official_identity_and_blocks_unknown(mocker):
+    import pytest
+
+    from data.index_mapping import IndexMappingEntry
+
+    core = _Core()
+    executor = PushExecutor(core, None, _Config())
+    entry = IndexMappingEntry(symbol='HSI:01067.00', name='恒生高股息', index_style='overseas', market='hk', provider='hsi', price_symbol='01067.00')
+    run = mocker.patch.object(core.index_pipeline, 'run', return_value=type('Result', (), {'reports': [], 'errors': []})())
+    with pytest.raises(RuntimeError):
+        executor._push_index(entry.symbol, entry, None, 'email', _Backend())
+    assert run.call_args.args[0][0].official_index_code == '01067.00'
+    entry = IndexMappingEntry(symbol='CSI:999999', name='未知', index_style='broad', market='unknown')
+    run.reset_mock()
+    with pytest.raises(ValueError, match='尚未核验'):
+        executor._push_index(entry.symbol, entry, None, 'email', _Backend())
+    run.assert_not_called()
+    with pytest.raises(ValueError, match='刷新目录'):
+        executor._push_index('HSI:99999.00', None, None, 'email', _Backend())
+    run.assert_not_called()

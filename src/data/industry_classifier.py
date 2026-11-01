@@ -2,6 +2,8 @@
 import csv
 from pathlib import Path
 
+from utils.paths import industry_mapping_path
+
 
 class IndustryClassification:
     """行业分类结果"""
@@ -27,7 +29,7 @@ class IndustryClassifier:
 
     def __init__(self, csv_path: str | Path | None = None):
         if csv_path is None:
-            csv_path = Path(__file__).parent.parent.parent / "data" / "industry_mapping.csv"
+            csv_path = industry_mapping_path()
         self._csv_path = Path(csv_path)
         self._mapping: dict[str, IndustryClassification] = {}
         self._load()

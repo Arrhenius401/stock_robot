@@ -1,6 +1,15 @@
 import sqlite3
 import time
+from dataclasses import dataclass
 from pathlib import Path
+
+
+@dataclass(frozen=True)
+class CacheEntry:
+    value: str
+    created_at: float
+    ttl_seconds: int
+    metadata: str | None
 
 
 class CacheManager:
@@ -53,7 +62,19 @@ class CacheManager:
             ).fetchone()
             return row[0] if row else None
 
-    def get(self, data_type: str, symbol: str, date_key: str) -> str | None:
+    def get_entry(self, data_type: str, symbol: str, date_key: str) -> CacheEntry | None:
+        """原子读取值、写入时间和采集记录，不删除过期参考。"""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT c.value,c.created_at,c.ttl_seconds,m.metadata FROM cache c "
+                "LEFT JOIN cache_metadata m USING(data_type,symbol,date_key) "
+                "WHERE c.data_type=? AND c.symbol=? AND c.date_key=?",
+                (data_type, symbol, date_key),
+            ).fetchone()
+            return CacheEntry(*row) if row else None
+
+    def get(self, data_type: str, symbol: str, date_key: str, *,
+            preserve_expired: bool = False) -> str | None:
         with self._get_conn() as conn:
             row = conn.execute(
                 "SELECT value, created_at, ttl_seconds FROM cache WHERE data_type=? AND symbol=? AND date_key=?",
@@ -63,7 +84,8 @@ class CacheManager:
                 return None
             value, created_at, ttl_seconds = row
             if ttl_seconds >= 0 and (time.time() - created_at) > ttl_seconds:
-                self.invalidate(data_type, symbol, date_key)
+                if not preserve_expired:
+                    self.invalidate(data_type, symbol, date_key)
                 return None
             return value
 
@@ -125,16 +147,35 @@ class CacheManager:
             conn.execute("DELETE FROM cache")
             conn.execute("DELETE FROM cache_metadata")
 
-    def cleanup_old_entries(self, data_type: str, symbol: str, keep_date_key: str):
-        """删除同一 (data_type, symbol) 下非当前 date_key 的旧条目"""
+    def copy_entry(self, data_type: str, symbol: str, source_key: str, target_key: str):
+        """保留值、原写入时间及采集记录，供完整快照与当前降级值分别保存。"""
         with self._get_conn() as conn:
             conn.execute(
-                "DELETE FROM cache WHERE data_type=? AND symbol=? AND date_key!=?",
-                (data_type, symbol, keep_date_key),
+                "INSERT OR REPLACE INTO cache SELECT data_type, symbol, ?, value, created_at, ttl_seconds "
+                "FROM cache WHERE data_type=? AND symbol=? AND date_key=?",
+                (target_key, data_type, symbol, source_key),
+            )
+            conn.execute("DELETE FROM cache_metadata WHERE data_type=? AND symbol=? AND date_key=?",
+                         (data_type, symbol, target_key))
+            conn.execute(
+                "INSERT INTO cache_metadata SELECT data_type, symbol, ?, metadata "
+                "FROM cache_metadata WHERE data_type=? AND symbol=? AND date_key=?",
+                (target_key, data_type, symbol, source_key),
+            )
+
+    def cleanup_old_entries(self, data_type: str, symbol: str, keep_date_key: str, *,
+                            preserve_date_keys: tuple[str, ...] = ()):
+        """删除同一 (data_type, symbol) 下非当前 date_key 的旧条目"""
+        keys = (keep_date_key, *preserve_date_keys)
+        placeholders = ",".join("?" for _ in keys)
+        with self._get_conn() as conn:
+            conn.execute(
+                f"DELETE FROM cache WHERE data_type=? AND symbol=? AND date_key NOT IN ({placeholders})",
+                (data_type, symbol, *keys),
             )
             conn.execute(
-                "DELETE FROM cache_metadata WHERE data_type=? AND symbol=? AND date_key!=?",
-                (data_type, symbol, keep_date_key),
+                f"DELETE FROM cache_metadata WHERE data_type=? AND symbol=? AND date_key NOT IN ({placeholders})",
+                (data_type, symbol, *keys),
             )
 
     def stats(self) -> dict:

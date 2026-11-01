@@ -1,7 +1,5 @@
 """CLI 与网页控制接口共享的采集依赖构造。"""
 
-from pathlib import Path
-
 from radar.calendar import TradingCalendar
 from radar.collector_store import CollectorStore
 from radar.collector_worker import CollectorWorker
@@ -20,12 +18,13 @@ from radar.store import RadarStore
 from radar.universe import UniverseRepository
 from radar.update_service import UpdateService
 from utils.config import Config
+from utils.paths import resource_root
 
 
 def build_collector(*, refresh_calendar: bool = True) -> CollectorWorker:
     """状态目录由固定 cwd 决定，不从 Web 生命周期派生采集进程。"""
     config = Config()
-    root = Path(__file__).parents[2]
+    root = resource_root()
     repository = UniverseRepository(root / 'config' / 'radar_universes')
     provider = FallbackETFDataProvider((
         LocalETFDataProvider(config.config_dir / 'radar_local_data' / 'etf'),

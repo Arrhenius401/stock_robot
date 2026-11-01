@@ -121,22 +121,33 @@ class TestBuildReportSignal:
     def test_report_contains_attack_banner(self, tmp_path):
         report = self._build(tmp_path, 8.0)  # final_score=8.0 → 进攻
         assert "信号：进攻" in report
-        assert "可考虑建仓/加仓" in report
-        assert "60%-80%" in report
+        assert "可考虑建仓/加仓" not in report
+        assert "生成依据：" in report
+        assert "60%-80%" not in report
 
     def test_report_contains_defend_banner(self, tmp_path):
         report = self._build(tmp_path, 2.0)  # final_score=2.0 → 防御
         assert "信号：防御" in report
-        assert "减仓或回避" in report
+        assert "减仓或回避" not in report
+        assert "生成依据：" in report
 
-    def test_report_without_signal_cfg_has_no_banner(self, tmp_path):
-        """signal_cfg=None 时不渲染横幅（兼容现有调用）"""
-        from data.schemas import AnalysisContext, AnalysisResult
+    def test_report_without_signal_cfg_has_placeholder_without_fabricated_signal(self, tmp_path):
+        """信号规则未传入时保留占位，不将充分数据误标为不足。"""
+        from data.schemas import (
+            AnalysisContext,
+            AnalysisResult,
+            DimensionSufficiency,
+            SufficiencyLevel,
+        )
         from report.scoring import build_report
 
-        results = [AnalysisResult(dimension="financial", status="ok",
-                                  summary="财务健康", score=8.0)]
+        results = [AnalysisResult(dimension=dim, status="ok", summary="样本充分", score=8)
+                   for dim in ("financial", "technical", "valuation")]
         ctx = AnalysisContext(symbol="000001", name="平安银行")
+        for key in ("financial", "price", "valuation"):
+            setattr(ctx.sufficiency, key, DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT))
         report = build_report("000001", "平安银行", results, {"bulk": "解读"},
                               ctx, no_llm=True)
-        assert "信号：" not in report
+        assert "模型信号：暂未生成" in report
+        assert "当前报告未生成模型信号，请核对数据覆盖与评分条件" in report
+        assert "信号：进攻" not in report

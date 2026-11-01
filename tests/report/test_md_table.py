@@ -12,19 +12,19 @@ class TestMdTableDict:
         assert "营业收入" in result
         assert "100" in result
         assert "ROE" in result
-        assert "0.12" in result
+        assert "12.00%" in result
 
     def test_with_none_value(self):
         data = {"ps_ttm": None}
         result = _md_table(data)
-        assert "N/A" in result
+        assert "暂无数据" in result
 
     def test_filters_list_values(self):
         data = {"peers": ["000001", "600036"], "roe": 0.12}
         result = _md_table(data)
         assert "peers" not in result  # list 字段被过滤
         assert "ROE" in result
-        assert "0.12" in result
+        assert "12.00%" in result
 
     def test_empty_dict(self):
         result = _md_table({})
@@ -33,6 +33,20 @@ class TestMdTableDict:
     def test_only_list_values_dict(self):
         result = _md_table({"headlines": ["新闻1", "新闻2"]})
         assert result == ""
+
+    def test_technical_metrics_are_display_rounded(self):
+        result = _md_table({
+            "ma_60": 443.2266666666667,
+            "volume_ratio": 0.8621968458224063,
+            "macd_dif": -5.305251657462463,
+            "roe": 0.12,
+        })
+        assert "443.23" in result
+        assert "0.86" in result
+        assert "-5.305" in result
+        assert "12.00%" in result
+        for raw in ("443.2266666666667", "0.8621968458224063", "-5.305251657462463"):
+            assert raw not in result
 
 
 class TestMdTableColumnAlignment:

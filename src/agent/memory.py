@@ -6,6 +6,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal, NotRequired, TypedDict
 
+from agent.tools import model_tool_message
 from utils.paths import project_state_dir
 
 
@@ -126,7 +127,9 @@ class Memory:
 
     def get_context_window(self, n: int = 20) -> list[MemoryMessage]:
         """返回最近 N 轮对话，供 Planner 使用"""
-        return self.messages[-n:] if len(self.messages) > n else list(self.messages)
+        window = self.messages[-n:] if len(self.messages) > n else list(self.messages)
+        return [{**message, "content": model_tool_message(message["content"])}
+                if message["role"] == "tool" else message for message in window]
 
     def set_fact(self, key: str, value: Any) -> None:
         self.facts[key] = value

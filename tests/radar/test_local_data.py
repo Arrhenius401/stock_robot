@@ -60,3 +60,15 @@ def test_fallback_prefers_local_history_and_reports_local_source(tmp_path):
 
     assert len(result) == 2
     assert source_name == "本地导入 CSV"
+
+
+def test_local_provider_result_reports_missing_file(tmp_path):
+    provider = LocalETFDataProvider(tmp_path / "local")
+
+    result = provider.fetch_daily_result("510300", date(2024, 1, 1), date(2024, 1, 31))
+
+    assert result.value is None
+    assert result.record.source == "本地导入 CSV"
+    assert result.record.result_state == "failed"
+    with pytest.raises(RadarDataError, match="未导入"):
+        provider.fetch_daily("510300", date(2024, 1, 1), date(2024, 1, 31))

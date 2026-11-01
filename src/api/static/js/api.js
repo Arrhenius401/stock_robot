@@ -71,8 +71,8 @@ export const api = {
     return consumeSSE("/api/v1/chat/stream",
                       { message, session_id: sessionId }, handlers);
   },
-  analyze(symbol) {
-    return request("/api/v1/analyze", { method: "POST", body: JSON.stringify({ symbol }) });
+  analyze(symbol, refreshCache = false) {
+    return request("/api/v1/analyze", { method: "POST", body: JSON.stringify({ symbol, ...(refreshCache ? {refresh_cache: true} : {}) }) });
   },
   retryCommentary(reportToken, artifact = {}) {
     return request("/api/v1/commentary/retry", {
@@ -80,12 +80,24 @@ export const api = {
       body: JSON.stringify({ report_token: reportToken, ...artifact }),
     });
   },
-  indices(query = "") {
-    const suffix = query ? `?q=${encodeURIComponent(query)}` : "";
+  retryIndexCommentary(reportToken, artifact = {}) {
+    return request("/api/v1/index/commentary/retry", {
+      method: "POST", body: JSON.stringify({ report_token: reportToken, ...artifact }),
+    });
+  },
+  indices(query = "", options = {}) {
+    const params = new URLSearchParams();
+    if (query) params.set("q", query);
+    if (options.market) params.set("market", options.market);
+    if (options.offset) params.set("offset", String(options.offset));
+    const suffix = params.toString() ? `?${params.toString()}` : "";
     return request(`/api/v1/indices${suffix}`);
   },
-  index(symbols) {
-    return request("/api/v1/index", { method: "POST", body: JSON.stringify({ symbols }) });
+  refreshIndices(source = "hsi") {
+    return request(`/api/v1/indices/refresh?source=${encodeURIComponent(source)}`, { method: "POST" });
+  },
+  index(symbols, refreshCache = false) {
+    return request("/api/v1/index", { method: "POST", body: JSON.stringify({ symbols, ...(refreshCache ? {refresh_cache: true} : {}) }) });
   },
   listReports(params = {}) {
     const search = new URLSearchParams();

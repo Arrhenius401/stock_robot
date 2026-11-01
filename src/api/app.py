@@ -5,6 +5,7 @@ import json
 import logging
 import threading
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,7 @@ from agent.planner import Planner
 from agent.react import ReActExecutor
 from api.configuration import create_configuration_router
 from api.logs import create_logs_router
+from api.maintenance import create_maintenance_router
 from api.message_content import encode_message_content, normalize_message_content
 from api.report_library import (
     ReportLibraryError,
@@ -32,11 +34,13 @@ from api.report_library import (
 from api.runtime import RuntimeManager, RuntimeSnapshot
 from api.session_titles import SessionTitleRefiner, derive_session_title
 from api.sessions import is_draft_session_id
+from gold.service import GoldService, is_gold_request
 from push.backends.base import get_backend
 from push.models import Subscription
 from push.names import resolve_subscription
 from push.store import ActiveRunError, MissingSubscriptionError
 from push.symbol_search import search_symbols
+from stock_robot.metadata import APP_NAME, VERSION
 
 logger = logging.getLogger(__name__)
 _TITLE_REFINE_TIMEOUT_SECONDS = 0.25
@@ -134,7 +138,7 @@ def _extract_stock_reports(
             "commentary": commentary,
             "generated_at": report.get("generated_at"),
         }
-        for key in ("data_quality", "pending_verifications", "signal", "commentary_status",
+        for key in ("analysis_mode", "market", "scoring_method", "data_quality", "pending_verifications", "disclaimer", "signal", "commentary_status",
                     "commentary_retry_id"):
             if key in report:
                 payload[key] = report[key]
@@ -151,16 +155,55 @@ def _persist_artifacts_if_present(
         manager, session_id: str, tool_results: list[dict], *, memory) -> list[dict]:
     """逐项保存工具结果中的报告；单项故障不影响其他成果与聊天。"""
     events = []
-    for symbol, payload, message_id in _extract_stock_reports(tool_results):
+    reports = [("stock_report", *report) for report in _extract_stock_reports(tool_results)]
+    for result in tool_results:
+        if result.get("tool") != "analyze_gold" or result.get("status") not in ("done", "success"):
+            continue
+        payload = result.get("content")
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload.removeprefix("[analyze_gold] success:").strip())
+            except ValueError:
+                try:
+                    payload = ast.literal_eval(payload.removeprefix("[analyze_gold] success:").strip())
+                except (ValueError, SyntaxError):
+                    logger.debug("黄金工具结果不是结构化报告")
+                    continue
+        if (isinstance(payload, dict) and payload.get("report_type") == "gold"
+                and payload.get("symbol") == "GOLD"):
+            reports.append(("gold_report", "GOLD", payload, result.get("message_id")))
+    for result in tool_results:
+        if result.get("tool") != "analyze_index" or result.get("status") not in ("done", "success"):
+            continue
+        payload = result.get("content")
+        if isinstance(payload, str):
+            raw = payload.removeprefix("[analyze_index] success:").strip()
+            try:
+                payload = json.loads(raw)
+            except ValueError:
+                try:
+                    payload = ast.literal_eval(raw)
+                except (ValueError, SyntaxError):
+                    logger.debug("指数工具结果不是结构化报告")
+                    continue
+        if isinstance(payload, dict) and payload.get("report_version") == 2 and payload.get("code"):
+            reports.append(("index_report", payload["code"], payload, result.get("message_id")))
+    for kind, symbol, payload, message_id in reports:
         try:
             artifact = manager.save_artifact(
                 session_id,
-                kind="stock_report",
+                kind=kind,
                 symbol=symbol,
                 payload=payload,
                 message_id=message_id,
                 memory=memory,
             )
+            if kind == "index_report":
+                from index.commentary import commentary_store as index_store
+                record = index_store.get(payload.get("commentary_retry_id") or "")
+                if record:
+                    record.session_id = session_id
+                    record.artifact_id = artifact.get("artifact_id")
             events.append({"artifact": artifact, "persisted": True})
         except Exception as exc:  # noqa: BLE001 — 持久化边界失败不能中断聊天
             logger.error("报告成果持久化失败，会话 %s: %s", session_id, exc)
@@ -170,7 +213,7 @@ def _persist_artifacts_if_present(
                     "artifact_id": None,
                     "session_id": session_id,
                     "message_id": message_id,
-                    "kind": "stock_report",
+                    "kind": kind,
                     "symbol": symbol,
                     "payload": _json_safe(payload),
                     "created_at": now,
@@ -282,6 +325,22 @@ def _initial_core_factory(core: Any):
     return build
 
 
+def _maintenance_lifespan(maintenance: Any):
+    """只对显式注入的维护任务启停后台线程；测试与模块级 app 不启动清理。"""
+    if maintenance is None:
+        return None
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        maintenance.start()
+        try:
+            yield
+        finally:
+            await asyncio.to_thread(maintenance.stop)
+
+    return lifespan
+
+
 def create_app(
     core=None,
     sessions=None,
@@ -289,6 +348,8 @@ def create_app(
     runtime: RuntimeManager | None = None,
     log_start_offset: int | None = None,
     runtime_log_path: Path | None = None,
+    gold_service: Any = None,
+    maintenance: Any = None,
 ):
     # 生产路径由 RuntimeManager 独占 core、执行器和推送调度器的初始所有权。
     # 测试传入 push=False、推送桩或 runtime 桩时保持既有注入行为，不创建真实依赖。
@@ -303,12 +364,14 @@ def create_app(
         push_executor = snapshot.push_executor
         push = snapshot.push_scheduler
 
-    app = FastAPI(title="Stock Robot API", version="0.1.0",
-                  description="AI 驱动的股票分析研报助手 HTTP API")
+    app = FastAPI(title=f"{APP_NAME} API", version=VERSION,
+                  description="AI 驱动的股票分析研报助手 HTTP API",
+                  lifespan=_maintenance_lifespan(maintenance))
 
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
                        allow_headers=["*"])
     app.include_router(create_configuration_router(runtime=runtime))
+    app.include_router(create_maintenance_router(maintenance))
     # 正式服务启动前的历史日志不属于本次运行；测试和直接导入 app 时保留默认读取行为。
     runtime_log_offset = log_start_offset
     if runtime_log_offset is None and core is not None:
@@ -342,6 +405,24 @@ def create_app(
             return snapshot.core
         return core
 
+    async def _run_gold(snapshot, *, refresh_cache: bool = False) -> dict:
+        from utils.config import Config
+
+        current_core = _snapshot_core(snapshot)
+        service = gold_service if gold_service is not None else GoldService(
+            config=snapshot.config if snapshot is not None else Config(),
+            llm=getattr(current_core, "llm", None), output_dir=Path.cwd() / "reports",
+        )
+        return await asyncio.to_thread(service.run, refresh_cache=refresh_cache)
+
+    async def _gold_chat(snapshot, manager, sid, memory) -> tuple[dict, list[dict]]:
+        payload = await _run_gold(snapshot)
+        message_id = memory.add_message("assistant", encode_message_content(payload["markdown"]))
+        results = [{"tool": "analyze_gold", "symbol": "GOLD", "status": "done",
+                    "content": payload, "message_id": message_id}]
+        artifacts = _persist_artifacts_if_present(manager, sid, results, memory=memory)
+        return payload, artifacts
+
     def _build_agent(session_memory, agent_core):
         """按会话现建轻量 Planner/Executor/ChatResponder（无状态，构造廉价）"""
         # 调用方已在请求入口冻结快照并校验 core 注入，复制到局部变量并断言收窄类型
@@ -360,7 +441,7 @@ def create_app(
 
     @app.get("/health")
     async def health():
-        return {"status": "ok", "version": "0.1.0"}
+        return {"status": "ok", "version": VERSION}
 
     @app.get("/api/v1/tools")
     async def list_tools():
@@ -405,15 +486,8 @@ def create_app(
 
     def _save_web_index_report(report) -> Path:
         """将网页指数分析保存为与 CLI 一致的 Markdown 报告。"""
-        from index.build_single import render_index_report_markdown
-        from report.formatter import ReportFormatter
-
-        saved_path = ReportFormatter.save(
-            render_index_report_markdown(report),
-            report.code,
-            output_dir=_reports_root(),
-            category="index",
-        )
+        from index.archives import save_index_report
+        saved_path = save_index_report(report, _reports_root())
         logger.info("网页指数报告已保存: %s", saved_path)
         return saved_path
 
@@ -424,7 +498,7 @@ def create_app(
     async def reports(
             report_type: str | None = Query(default=None, alias="type"),
             query: str | None = None):
-        if report_type not in (None, "stock", "index", "backtest"):
+        if report_type not in (None, "stock", "index", "backtest", "gold"):
             raise HTTPException(status_code=422, detail="报告类型无效")
         items = list_reports(_reports_root(), report_type=report_type, query=query)
         return JSONResponse({"reports": [item.to_dict() for item in items],
@@ -461,6 +535,12 @@ def create_app(
 
         try:
             sid, memory = sessions.get_or_create_for_message(session_id, message)
+            if is_gold_request(message):
+                payload, _ = await _gold_chat(snapshot, sessions, sid, memory)
+                return JSONResponse({"response": payload["markdown"], "session_id": sid,
+                                     "plan": {"goal": "黄金市场观察简报", "mode": "plan", "steps": []},
+                                     "tool_results": [{"tool": "analyze_gold", "symbol": "GOLD",
+                                                       "status": "done", "content": payload}]})
             planner, executor, chat_responder = _build_agent(memory, agent_core)
             plan = await asyncio.to_thread(planner.plan, message)
             if plan.mode == "chat":
@@ -618,6 +698,17 @@ def create_app(
                             current_core.model, queue,
                         )
 
+                    if is_gold_request(message):
+                        await queue.put({"type": "plan", "goal": "黄金市场观察简报",
+                                         "mode": "gold", "steps": [], "session_id": sid})
+                        await queue.put({"type": "progress", "stage": "gold", "current": 0,
+                                         "total": 1, "label": "采集黄金价格与观察数据，生成简报"})
+                        payload, artifacts = await _gold_chat(snapshot, manager, sid, memory)
+                        await queue.put({"type": "text", "content": payload["markdown"]})
+                        for artifact_event in artifacts:
+                            await queue.put({"type": "artifact", **artifact_event})
+                        await queue.put({"type": "done"})
+                        return
                     planner, executor, chat_responder = _build_agent(memory, current_core)
                     plan = await asyncio.to_thread(planner.plan, message)
                     if plan.mode == "chat":
@@ -749,7 +840,9 @@ def create_app(
                                  headers={"Cache-Control": "no-cache", "Connection": "keep-alive"})
 
     @app.get("/api/v1/indices")
-    async def index_catalog(q: str = ""):
+    async def index_catalog(q: str = "", offset: int = Query(default=0, ge=0),
+                            limit: int = Query(default=100, ge=1, le=100),
+                            market: str = ""):
         """公开指数目录与人工核验的ETF跟踪关系，查询不触发行情采集。"""
         from dataclasses import asdict
 
@@ -758,13 +851,40 @@ def create_app(
         mapping = IndexMapping()
         etfs = [item for item in ETFIndexMapping().entries()
                 if not q.strip() or q.strip().casefold() in f"{item.symbol} {item.name}".casefold()]
-        matches = {entry.symbol: entry for entry in mapping.search(q)}
+        if market not in ("", "a-shares", "hk", "unknown"):
+            raise HTTPException(status_code=422, detail="market 无效")
+        matches = {entry.symbol: entry for entry in mapping.search(q) if not market or entry.market == market}
         for item in etfs:
             entry = mapping.lookup(item.index_symbol)
-            if entry is not None:
+            if entry is not None and (not market or entry.market == market):
                 matches[entry.symbol] = entry
-        return {"indices": [asdict(entry) for entry in matches.values()],
+        entries = list(matches.values())
+        return {"indices": [asdict(entry) for entry in entries[offset:offset + limit]],
+                "total": len(entries), "indices_total": len(entries), "offset": offset, "limit": limit,
                 "etfs": [asdict(item) for item in etfs]}
+
+    @app.post("/api/v1/indices/refresh")
+    async def refresh_index_catalog(source: str = "hsi"):
+        """按来源刷新官方目录；源失败时保留上次成功快照。"""
+        from data.index_catalog_sources import (
+            fetch_cni_catalog,
+            fetch_csi_catalog,
+            fetch_hsi_catalog,
+            sync_catalog,
+        )
+
+        fetchers = {"hsi": fetch_hsi_catalog, "cni": fetch_cni_catalog,
+                    "csi1": lambda: fetch_csi_catalog("1"), "csi2": lambda: fetch_csi_catalog("2")}
+        fetch = fetchers.get(source)
+        if fetch is None:
+            raise HTTPException(status_code=422, detail="不支持的指数目录来源")
+        path = Path.cwd() / ".stock_robot" / f"index-catalog-{source}.json"
+        try:
+            entries, state = await asyncio.to_thread(sync_catalog, path, fetch, refresh=True)
+            return {"source": source, "state": state, "total": len(entries)}
+        except Exception as error:  # noqa: BLE001 — 第三方接口隔离，保留安全错误
+            logger.warning("指数目录更新失败 %s：%s", source, error)
+            return JSONResponse({"source": source, "state": "failed", "error": "目录更新失败"}, status_code=502)
 
     @app.post("/api/v1/analyze")
     async def analyze(request: Request):
@@ -773,20 +893,36 @@ def create_app(
         if not symbol:
             raise HTTPException(status_code=422, detail="symbol 不能为空")
         snapshot = _runtime_snapshot()
+        if is_gold_request(symbol):
+            try:
+                return JSONResponse(await _run_gold(snapshot, refresh_cache=body.get("refresh_cache") is True))
+            except Exception as exc:  # noqa: BLE001, RUF100 — 分析入口服务隔离
+                logger.exception("黄金报告生成失败")
+                raise HTTPException(status_code=500, detail="黄金报告生成失败，请重试") from exc
         agent_core = _snapshot_core(snapshot)
         if agent_core is None:
             raise HTTPException(status_code=503, detail="Agent 核心未注入")
 
-        from utils.symbols import normalize_symbol, resolve_name, validate_symbol
+        from utils.symbols import (
+            normalize_symbol,
+            resolve_name,
+            symbol_market,
+            validate_symbol,
+        )
         if not validate_symbol(symbol):
             raise HTTPException(status_code=422, detail=f"无效的股票代码: {symbol}")
         symbol = normalize_symbol(symbol)
+        market = symbol_market(symbol)
         name = await asyncio.to_thread(resolve_name, symbol) or symbol
 
         try:
-            results, commentary, ctx = await asyncio.to_thread(
-                agent_core.pipeline.run, symbol, name
-            )
+            # 两市场显式刷新都跳过数据缓存，同行专用快照同步刷新。
+            if body.get("refresh_cache") is True:
+                results, commentary, ctx = await asyncio.to_thread(
+                    agent_core.pipeline.run, symbol, name, market=market, refresh_cache=True)
+            else:
+                results, commentary, ctx = await asyncio.to_thread(
+                    agent_core.pipeline.run, symbol, name, market=market)
             from report.commentary import CommentaryContext, commentary_store
             from report.payload import build_stock_payload
             from report.signal import load_signal_config
@@ -810,6 +946,15 @@ def create_app(
             logger.error("个股分析失败: %s", e)
             return JSONResponse({"symbol": symbol, "error": str(e)}, status_code=500)
 
+    @app.post("/api/v1/gold")
+    async def gold(request: Request):
+        body = await request.json()
+        try:
+            return JSONResponse(await _run_gold(_runtime_snapshot(), refresh_cache=body.get("refresh_cache") is True))
+        except Exception as exc:  # noqa: BLE001, RUF100 — 黄金服务边界，提供可重试错误
+            logger.exception("黄金报告生成失败")
+            raise HTTPException(status_code=500, detail="黄金报告生成失败，请重试") from exc
+
     @app.post("/api/v1/commentary/retry")
     async def retry_commentary(request: Request):
         """重用本次分析上下文，仅调用模型；不采集或重新计算指标。"""
@@ -830,12 +975,17 @@ def create_app(
             if (artifact is None or artifact.get("session_id") != body.get("session_id")
                     or artifact.get("payload", {}).get("commentary_retry_id") != token):
                 raise HTTPException(status_code=404, detail="本次报告成果不存在或不属于该会话")
-        if not build_data_quality(record.context, record.results)["has_scored_data"]:
+        if not build_data_quality(record.context, record.results)["has_analysis_data"]:
             raise HTTPException(status_code=422, detail="主要数据不足，暂不生成 AI 结论")
         snapshot = _runtime_snapshot()
         agent_core = _snapshot_core(snapshot)
+        if (not record.context.extra_analysis_enabled
+                or not getattr(getattr(agent_core, "pipeline", None), "_extra_analysis_enabled", False)):
+            raise HTTPException(status_code=403, detail="当前未启用额外分析或 AI 解读，请重新分析")
         if agent_core is None or agent_core.llm is None:
             raise HTTPException(status_code=503, detail="模型未配置或不可用，请检查模型配置")
+        if not getattr(agent_core.pipeline, "_llm_enabled", False):
+            raise HTTPException(status_code=403, detail="当前未启用 AI 解读，请重新分析")
         if not record.lock.acquire(blocking=False):
             raise HTTPException(status_code=409, detail="此报告正在重试 AI 解读")
         try:
@@ -843,6 +993,7 @@ def create_app(
                 agent_core.pipeline._generate_commentary,
                 record.symbol, record.name, record.results,
                 record.context.sw_industry, record.context.style_category,
+                context=record.context,
             )
             bulk = (commentary.get("bulk") or "").strip()
             if not bulk or bulk.startswith(LLM_UNAVAILABLE_PREFIXES):
@@ -866,6 +1017,62 @@ def create_app(
         except Exception as exc:  # noqa: BLE001, RUF100 — 模型重试隔离边界，SDK 异常类型不可预测
             logger.exception("AI 解读重试失败")
             raise HTTPException(status_code=502, detail="AI 解读重试失败，请稍后重试") from exc
+        finally:
+            record.lock.release()
+
+    @app.post("/api/v1/index/commentary/retry")
+    async def retry_index_commentary(request: Request):
+        """只重试冻结指数事实，不重新取行情，也不切换报告批次。"""
+        from index.archives import update_index_report
+        from index.commentary import commentary_store as index_store
+        from index.commentary import generate
+
+        body = await request.json()
+        token = str(body.get("report_token", ""))
+        record = index_store.get(token)
+        if record is None:
+            raise HTTPException(status_code=410, detail="本次指数解读已过期，请重新分析")
+        artifact_id = body.get("artifact_id")
+        if record.artifact_id or artifact_id:
+            artifact = sessions.get_artifact(str(artifact_id)) if sessions is not None else None
+            pending_payload = record.pending_report.model_dump(mode="json") if record.pending_report is not None else None
+            if (artifact is None or artifact_id != record.artifact_id
+                    or body.get("session_id") != record.session_id
+                    or artifact.get("session_id") != record.session_id
+                    or (artifact.get("payload", {}).get("commentary_retry_id") != token
+                        and artifact.get("payload") != pending_payload)):
+                raise HTTPException(status_code=404, detail="报告成果不属于本次会话")
+        current = _snapshot_core(_runtime_snapshot())
+        if (record.report.analysis_mode == "objective"
+                or not getattr(getattr(current, "index_pipeline", None), "_extra_analysis_enabled", False)):
+            raise HTTPException(status_code=403, detail="当前未启用额外分析，请重新分析")
+        if (current is None or getattr(current, "llm", None) is None
+                or getattr(getattr(current, "index_pipeline", None), "_llm_enabled", None) is False):
+            raise HTTPException(status_code=503, detail="模型未配置或不可用")
+        if not record.lock.acquire(blocking=False):
+            raise HTTPException(status_code=409, detail="此指数报告正在重试")
+        try:
+            if record.report.commentary_status == "ready":
+                return JSONResponse(_json_safe(record.report.model_dump(mode="json")))
+            if record.pending_report is None:
+                text = await asyncio.to_thread(generate, record, current.llm)
+                report = record.report.model_copy(deep=True)
+                report.commentary = text
+                report.commentary_status = "ready"
+                report.commentary_retry_id = None
+                record.pending_report = report
+            else:
+                report = record.pending_report
+            payload = report.model_dump(mode="json")
+            if record.output_path:
+                update_index_report(report, record.output_path, token)
+            if artifact_id and sessions is not None:
+                sessions.update_artifact_payload(str(artifact_id), payload)
+            record.report = report
+            return JSONResponse(_json_safe(payload))
+        except Exception as exc:
+            logger.exception("指数解读重试失败")
+            raise HTTPException(status_code=502, detail="指数解读重试失败，量化报告仍可查看") from exc
         finally:
             record.lock.release()
 
@@ -911,6 +1118,9 @@ def create_app(
             except ValueError as exc:
                 errors.append(str(exc))
                 continue
+            if entry is None and ":" in raw_index:
+                errors.append(f"指数 {raw_index} 不在已验证目录中，请先刷新目录")
+                continue
             if entry is None and not validate_index_symbol(raw_index):
                 errors.append(f"无效的指数代码或名称: {sym}，请在指数目录中选择")
                 continue
@@ -924,9 +1134,15 @@ def create_app(
                     target_type="index", symbol=normalized, name=normalized,
                     market="a-shares", index_style=index_style)
             else:
+                if entry.market not in ("a-shares", "hk", "us"):
+                    errors.append(f"指数 {entry.symbol} 的市场尚未核验，暂不可分析")
+                    continue
                 target = AnalysisTarget(
                     target_type="index", symbol=getattr(entry, "symbol", normalized),
-                    name=entry.name, market=entry.market, index_style=entry.index_style)
+                    name=entry.name, market=entry.market, index_style=entry.index_style,
+                    return_type=getattr(entry, "return_type", "") or "price",
+                    official_index_code=getattr(entry, "price_symbol", None)
+                    if getattr(entry, "provider", "") == "hsi" else None)
             if any(existing.symbol == target.symbol for existing in targets):
                 errors.append(f"重复指数 {target.symbol} 已跳过，请分别分析ETF与其指数")
                 continue
@@ -938,14 +1154,14 @@ def create_app(
             raise HTTPException(status_code=422, detail="；".join(errors))
 
         try:
-            result = await asyncio.to_thread(agent_core.index_pipeline.run, targets)
+            result = await asyncio.to_thread(agent_core.index_pipeline.run, targets, refresh_cache=True) if body.get("refresh_cache") is True else await asyncio.to_thread(agent_core.index_pipeline.run, targets)
             for report in result.reports:
                 if report.code in requested:
                     report.requested_instrument = requested[report.code]
                 _save_web_index_report(report)
             compare = None
             if result.compare is not None:
-                compare = {"headers": result.compare.headers,
+                compare = {"headers": result.compare.headers, "valuation_cutoff": getattr(result.compare, "valuation_cutoff", ""),
                            "rows": result.compare.rows}
             payload = {
                 "reports": [r.model_dump(mode="json") for r in result.reports],
@@ -1265,7 +1481,7 @@ def create_app(
         def send_test() -> None:
             backend = get_backend("email", snapshot.config)
             backend.send(
-                title="[Stock Robot] 邮箱排版测试",
+                title=f"[{APP_NAME}] 邮箱排版测试",
                 content=(
                     "# 邮箱推送测试\n\n邮件发送与报告排版均已启用。\n\n"
                     "| 项目 | 示例 |\n|---|---|\n| 表格 | 可见边框与表头 |\n\n"

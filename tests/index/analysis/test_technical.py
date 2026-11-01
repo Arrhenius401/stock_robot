@@ -28,6 +28,12 @@ def tech_ctx():
 
 
 class TestIndexTechnicalAnalyzer:
+    def test_summary_includes_price_data_date(self, tech_ctx):
+        result = IndexTechnicalAnalyzer().analyze(tech_ctx)
+        assert result.summary.startswith(
+            f"行情数据截至 {tech_ctx.price_data[-1].trade_date.isoformat()}；最新价 "
+        )
+
     def test_dimension(self):
         analyzer = IndexTechnicalAnalyzer()
         assert analyzer.dimension == "index_technical"
@@ -38,7 +44,7 @@ class TestIndexTechnicalAnalyzer:
         assert result.status in ("ok", "partial")
         assert "tag" in result.metrics
         assert result.metrics["tag"] in ("bull", "shake", "bear")
-        assert "多头" in result.summary
+        assert "高于MA60" in result.summary
 
     def test_analyze_no_data(self):
         target = AnalysisTarget(

@@ -11,7 +11,7 @@ import pandas as pd
 import yaml
 from pydantic import BaseModel, ValidationError
 
-from data.akshare import _ak_csindex
+from data.akshare import fetch_index_history_result
 
 logger = logging.getLogger(__name__)
 
@@ -135,16 +135,16 @@ def fetch_benchmark_closes(
             return LocalBenchmarkStore(local_directory).fetch_closes(benchmark, start, end)
         except LocalBenchmarkUnavailable:
             logger.debug("本地基准未覆盖 %s，降级请求网络数据", benchmark.id)
-    try:
-        raw = _ak_csindex(
-            symbol=benchmark.symbol,
-            start_date=start.strftime("%Y%m%d"),
-            end_date=end.strftime("%Y%m%d"),
-        )
-    except Exception as exc:  # 上游 AkShare 边界需统一为领域错误
-        raise RadarBenchmarkError(f"基准 {benchmark.name} 行情请求失败") from exc
-    if raw is None or raw.empty:
+    result = fetch_index_history_result(
+        benchmark.symbol,
+        start.strftime("%Y%m%d"),
+        end.strftime("%Y%m%d"),
+    )
+    if result.record.result_state == "failed":
+        raise RadarBenchmarkError(f"基准 {benchmark.name} 行情请求失败")
+    if result.value is None:
         raise RadarBenchmarkError(f"基准 {benchmark.name} 在请求区间无数据")
+    raw = result.value
     date_column = "date" if "date" in raw.columns else "日期"
     close_column = "close" if "close" in raw.columns else "收盘"
     if date_column not in raw.columns or close_column not in raw.columns:

@@ -32,6 +32,8 @@ class TestGeneralScorerFinancial:
     def ctx(self):
         return AnalysisContext(
             symbol="000333", name="美的集团",
+            financial_scoring_facts={"annual_roe": {"value": .15, "period_start": "2025-01-01",
+                "period_end": "2025-12-31", "source": "同源财报", "basis": "加权ROE", "reason": ""}},
             financial_data=[
                 FinancialData(symbol="000333", fiscal_quarter=date(2025,12,31),
                               revenue=100e9, net_profit=12e9, total_assets=200e9,
@@ -55,15 +57,58 @@ class TestGeneralScorerFinancial:
     def test_roe_15pct_gets_full_score(self, config, ctx):
         scorer = GeneralScorer(config, {})
         score, detail, _ = scorer.score_financial(ctx)
-        assert score > 0
+        assert score is not None and score > 0
         assert "ROE" in detail
 
-    def test_no_financial_data_zero_score(self, config):
+    def test_no_financial_data_has_no_score(self, config):
         ctx = AnalysisContext(symbol="000333", name="测试")
         scorer = GeneralScorer(config, {})
         score, detail, _ = scorer.score_financial(ctx)
-        assert score == 0.0
+        assert score is None
         assert "数据不可用" in detail
+
+    @pytest.mark.parametrize("field", ["common_equity", "total_equity"])
+    def test_negative_equity_is_sourced_latest_fact_without_extra_score_penalty(self, config, ctx, field):
+        config["financial"]["debt_ratio"]["enabled"] = False
+        baseline = GeneralScorer(config, {}).score_financial(ctx)[0]
+        assert ctx.financial_data is not None
+        latest = ctx.financial_data[0]
+        latest.financial_source = "同源财报"
+        setattr(latest, field, -10)
+        score, detail, risks = GeneralScorer(config, {}).score_financial(ctx)
+        assert "negative_equity" in risks
+        assert "2025-12-31" in detail and "-10" in detail and "不扣分" in detail
+        assert score == baseline
+
+    def test_negative_equity_without_source_does_not_create_risk(self, config, ctx):
+        assert ctx.financial_data is not None
+        ctx.financial_data[0].total_equity = -10
+        assert "negative_equity" not in GeneralScorer(config, {}).score_financial(ctx)[2]
+
+    def test_equity_field_source_is_sufficient_for_risk(self, config, ctx):
+        assert ctx.financial_data is not None
+        ctx.financial_data[0].common_equity = -10
+        ctx.financial_data[0].field_sources["common_equity"] = "直接披露的资产负债表"
+        assert "negative_equity" in GeneralScorer(config, {}).score_financial(ctx)[2]
+
+    def test_older_negative_equity_and_negative_pb_do_not_override_latest_financials(self, config, ctx):
+        assert ctx.financial_data is not None and ctx.valuation_data is not None
+        ctx.financial_data[1].total_equity = -10
+        ctx.financial_data[1].financial_source = "同源财报"
+        ctx.valuation_data.pb = -2
+        assert "negative_equity" not in GeneralScorer(config, {}).score_financial(ctx)[2]
+
+    @pytest.mark.parametrize("invalid", ["wrong_symbol", "future", "conflict"])
+    def test_untrusted_negative_equity_does_not_create_risk(self, config, ctx, invalid):
+        assert ctx.financial_data is not None
+        negative = ctx.financial_data[0].model_copy(update={
+            "total_equity": -10, "financial_source": "同源财报"})
+        if invalid == "wrong_symbol":
+            negative.symbol = "000001"
+        elif invalid == "future":
+            negative.fiscal_quarter = date(2099, 12, 31)
+        ctx.financial_data.append(negative)
+        assert "negative_equity" not in GeneralScorer(config, {}).score_financial(ctx)[2]
 
 
 class TestGeneralScorerValuation:
@@ -77,7 +122,7 @@ class TestGeneralScorerValuation:
             symbol="000333", name="美的集团",
             valuation_data=ValuationData(symbol="000333", date=date(2025,12,31), pe_ttm=18.5, pb=3.2),
             enriched_valuation=EnrichedValuation(pe_percentile=25.0, pb_percentile=40.0),
-            enriched_industry=EnrichedIndustry(target_pe_premium=-10.0),
+            enriched_industry=EnrichedIndustry(target_pe_premium=-10.0, industry_median_pe=20.56),
         )
 
     def test_score_valuation_returns_tuple(self, config, ctx):
@@ -91,12 +136,12 @@ class TestGeneralScorerIndustry:
     def config(self):
         return ConfigLoader(CONFIG_DIR).load("家用电器")
 
-    def test_no_enriched_industry_returns_base_score(self, config):
+    def test_missing_industry_comparison_has_no_score(self, config):
         ctx = AnalysisContext(symbol="000333", name="测试")
         scorer = GeneralScorer(config, {})
         score, detail, _ = scorer.score_industry(ctx)
-        assert score >= 5.0
-        assert "基础分" in detail
+        assert score is None
+        assert "缺少足够" in detail
 
 
 class TestGeneralScorerSentiment:
@@ -104,23 +149,25 @@ class TestGeneralScorerSentiment:
     def config(self):
         return ConfigLoader(CONFIG_DIR).load("家用电器")
 
-    def test_no_enriched_sentiment_returns_base_score(self, config):
+    def test_no_enriched_sentiment_has_no_risk_score(self, config):
         ctx = AnalysisContext(symbol="000333", name="测试")
         scorer = GeneralScorer(config, {})
         score, _, _ = scorer.score_sentiment(ctx)
-        assert score == 5.0
+        assert score is None
 
-    def test_positive_sentiment_scores_higher(self, config):
+    def test_complete_positive_assessment_has_zero_identified_risk(self, config):
         ctx = AnalysisContext(
             symbol="000333", name="测试",
             enriched_sentiment=EnrichedSentiment(
-                total_count=15, positive_count=10, neutral_count=3, negative_count=2,
-                all_items=[SentimentItem(title="t", summary="s", tendency="positive", severity="minor")],
+                total_count=1, positive_count=1, assessment_status="complete",
+                evaluated_count=1, risk_score=0,
+                all_items=[SentimentItem(title="t", summary="s", tendency="positive", severity="minor",
+                                        item_id="id-1", related=True, assessable=True, evidence="t")],
             ),
         )
         scorer = GeneralScorer(config, {})
         score, _, _ = scorer.score_sentiment(ctx)
-        assert score > 5.0
+        assert score == 0.0
 
 
 def test_macd_dea_is_not_equal_to_dif_for_non_linear_prices():
@@ -250,5 +297,5 @@ def test_score_technical_macd_band_is_stable_with_realistic_config():
 
     score, detail, _ = scorer.score_technical(ctx)
 
-    assert score == 1.0
+    assert score == pytest.approx(10 / 3)
     assert "MACD 空头" in detail

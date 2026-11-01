@@ -9,6 +9,7 @@ from backtest.data import BacktestDataError, HistoricalPriceProvider
 from backtest.models import BacktestRequest
 from backtest.runner import BacktestRunner
 from backtest.strategy import StrategyConfigError, StrategyRepository
+from data.collection_state import ValueResult, make_record
 from data.schemas import PriceData
 from utils.config import Config
 
@@ -101,6 +102,14 @@ class _FixedProvider(HistoricalPriceProvider):
         series = self._benchmark.loc[pd.Timestamp(start):pd.Timestamp(end)]
         series.index.name = "trade_date"
         return series
+
+
+    def fetch_stock_result(self, symbol: str, start: date, end: date):
+        rows = self.fetch_stock(symbol, start, end)
+        return ValueResult(rows, make_record("测试行情", "complete" if rows else "empty"))
+
+    def fetch_benchmark_result(self, benchmark, start: date, end: date):
+        return ValueResult(self.fetch_benchmark(benchmark, start, end), make_record("测试基准", "complete"))
 
 
 def _request() -> BacktestRequest:
@@ -313,3 +322,10 @@ def test_warmup_sufficient_data_passes(tmp_path):
     )
     result = long_runner.run(request)
     assert result.data_start == _price_series()[0].trade_date
+
+
+def test_runner_exposes_collection_records(runner):
+    result = runner.run(_request())
+    assert set(result.collection_records) == {"price", "benchmark"}
+    assert result.collection_records["price"].source == "测试行情"
+    assert result.collection_records["benchmark"].source == "测试基准"

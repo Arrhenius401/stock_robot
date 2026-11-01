@@ -89,6 +89,7 @@ def build_agent_core(
     from core.pipeline import Pipeline
     from core.registry import Registry
     from data.akshare import AkShareAdapter
+    from data.hk_hsics_peers import HKIndustryAdapter
     from index.pipeline import IndexPipeline
     from utils.config import Config
 
@@ -97,6 +98,7 @@ def build_agent_core(
 
     reg = Registry()
     reg.register_data_source(AkShareAdapter())
+    reg.register_data_source(HKIndustryAdapter())
     reg.register_analysis_module(FinancialAnalyzer())
     reg.register_analysis_module(TechnicalAnalyzer())
     reg.register_analysis_module(ValuationAnalyzer())
@@ -109,11 +111,15 @@ def build_agent_core(
         llm_enabled = config.get("llm.enabled", True)
     pipeline = Pipeline(registry=reg, config=config,
                         llm_enabled=llm_enabled and llm is not None)
-    index_pipeline = IndexPipeline()
+    index_pipeline = IndexPipeline(registry=reg, config=config, llm=llm, llm_enabled=llm_enabled)
 
     registry = ToolRegistry()
     registry.register(AnalyzeStockTool(pipeline=_wrap_pipeline(pipeline)))
     registry.register(AnalyzeIndexTool(index_pipeline=index_pipeline))
+    from gold.service import GoldService
+    from gold.tool import AnalyzeGoldTool
+
+    registry.register(AnalyzeGoldTool(GoldService(config=config, llm=llm)))
     registry.register(GetSnapshotTool(index_pipeline=index_pipeline))
     registry.register(ScreenStocksTool())
 

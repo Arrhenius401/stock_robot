@@ -28,6 +28,7 @@ const SECTIONS = [
       { path: "data.cache_ttl.daily", label: "日线缓存秒数", type: "number", min: 1, step: 1 },
       { path: "data.cache_ttl.quarterly", label: "季报缓存秒数", type: "number", min: 1, step: 1 },
       { path: "data.cache_ttl.news", label: "新闻缓存秒数", type: "number", min: 1, step: 1 },
+      { path: "maintenance.report_cleanup_enabled", label: "自动清理过期报告", type: "checkbox" },
     ],
   },
   {
@@ -69,9 +70,12 @@ SECTIONS.push({ title: "自动采集计划", fields: [
   { path: "radar.collector.hour", label: "采集时间 · 时（北京时间）", type: "number", min: 0, max: 23, step: 1 },
   { path: "radar.collector.minute", label: "采集时间 · 分", type: "number", min: 0, max: 59, step: 1 },
 ] });
+SECTIONS.push({ title: "分析模式", fields: [
+  { path: "analysis.extra_enabled", label: "启用额外分析", type: "checkbox" },
+] });
 const MODULES = [
   { title: "AI 模型", icon: "✦", description: "配置模型连接与生成参数。", tabs: ["模型连接", "生成与重试"] },
-  { title: "分析与数据", icon: "◈", description: "配置分析信号与数据缓存。", tabs: ["信号策略", "数据缓存"] },
+  { title: "分析与数据", icon: "◈", description: "配置分析信号与数据缓存。", tabs: ["分析模式", "信号策略", "数据缓存"] },
   { title: "订阅推送", icon: "↗", description: "配置订阅推送与邮件发送。", tabs: ["通用", "邮箱"] },
   { title: "运行与采集", icon: "⚙", description: "配置雷达采集计划与服务运行。", tabs: ["雷达采集", "服务设置"] },
 ];
@@ -117,6 +121,7 @@ function setValue(target, path, value) {
 }
 
 const FIELD_DESCRIPTIONS = {
+  "analysis.extra_enabled": "为个股和指数增加规则判断及 AI 解读；个股另提供评分与模型信号。默认关闭。",
   "llm.enabled": "开启后使用模型生成自然语言解读。",
   "llm.provider": "选择模型服务提供方。",
   "llm.model": "配置服务商提供的模型名称。",
@@ -126,6 +131,7 @@ const FIELD_DESCRIPTIONS = {
   "llm.max_tokens": "留空自动选择输出预算；填写正整数限制单次输出。已有数值会保留，清空后切换自动。",
   "llm.retry_times": "请求失败后允许重试的次数。",
   "llm.timeout_seconds": "一次生成的总等待上限，包含能力查询、重试和截断恢复。",
+  "maintenance.report_cleanup_enabled": "由分析服务自己清理超过 7 天的个股、指数和黄金研报；删除不可恢复，符合报告单元识别的文件才会处理。",
   "radar.collector.enabled": "关闭后仍可手动采集。",
   "radar.collector.hour": "北京时间，24 小时制。",
   "radar.collector.minute": "每小时的计划分钟。",
@@ -582,7 +588,7 @@ export function renderSettings(payload) {
       if (index === 0) section = { title,
         description: tabIndex === 0 ? "配置用于研报解读与会话研究的模型。" : "控制生成长度与请求重试策略。",
         fields: tabIndex === 0 ? SECTIONS[0].fields.slice(0, 5) : SECTIONS[0].fields.slice(5) };
-      else if (index === 1) section = SECTIONS[tabIndex === 0 ? 4 : 1];
+      else if (index === 1) section = SECTIONS[tabIndex === 0 ? 6 : tabIndex === 1 ? 4 : 1];
       else if (index === 2) section = { title: tabIndex === 0 ? "推送设置" : "邮箱",
         fields: SECTIONS[3].fields.filter(field => tabIndex === 0 ? !field.group : field.group) };
       else section = SECTIONS[tabIndex === 0 ? 5 : 2];

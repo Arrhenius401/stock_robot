@@ -1,4 +1,6 @@
 """行业映射表构建器单元测试"""
+import json
+
 import pytest
 
 from data.industry_mapping_builder import (
@@ -167,6 +169,65 @@ OLD_CSV = (
 )
 
 
+def test_legacy_runner_reports_published_result(mocker, tmp_path, capsys):
+    from scripts import rebuild_industry_mapping_runner as runner
+
+    mocker.patch.object(runner, "_wait_until_available")
+    mocker.patch.object(runner, "fetch_taxonomy", return_value=(LEVEL2_MAP, {"850111.SI": LEVEL3_MAP["850111.SI"]}))
+    mocker.patch.object(runner, "fetch_constituents", return_value=[STOCK_A])
+    mocker.patch.object(runner, "_load_style_mapping", return_value={})
+    mocker.patch.object(runner, "_write_csv")
+    mocker.patch.object(runner, "_csv_path", return_value=tmp_path / "mapping.csv")
+    mocker.patch.object(runner.time, "sleep")
+    runner.main()
+    output = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert output["refresh_record"]["result_state"] == "complete"
+    assert output["refresh_record"]["published"] is True
+
+
+def test_legacy_runner_reports_failure_and_preserves_exception(mocker, capsys):
+    from scripts import rebuild_industry_mapping_runner as runner
+
+    mocker.patch.object(runner, "_wait_until_available", side_effect=RuntimeError("模拟异常"))
+    with pytest.raises(RuntimeError, match="模拟异常"):
+        runner.main()
+    output = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert output["refresh_record"]["result_state"] == "failed"
+    assert output["refresh_record"]["published"] is False
+
+
+def test_legacy_runner_records_partial_after_write_failure(mocker, capsys):
+    from scripts import rebuild_industry_mapping_runner as runner
+
+    mocker.patch.object(runner, "_wait_until_available")
+    mocker.patch.object(runner, "fetch_taxonomy", return_value=(LEVEL2_MAP, {}))
+    mocker.patch.object(runner, "_load_style_mapping", return_value={})
+    mocker.patch.object(runner, "_write_csv")
+    mocker.patch.object(runner, "_csv_path", side_effect=OSError("模拟读取失败"))
+    with pytest.raises(OSError, match="模拟读取失败"):
+        runner.main()
+    output = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert output["refresh_record"]["result_state"] == "partial"
+    assert output["refresh_record"]["published"] is True
+
+
+def test_legacy_runner_reports_failed_industry_after_publishing(mocker, tmp_path, capsys):
+    from scripts import rebuild_industry_mapping_runner as runner
+
+    mocker.patch.object(runner, "_wait_until_available")
+    mocker.patch.object(runner, "fetch_taxonomy", return_value=(LEVEL2_MAP, {"850111.SI": LEVEL3_MAP["850111.SI"]}))
+    mocker.patch.object(runner, "fetch_constituents", side_effect=IndustryMappingError("模拟限流"))
+    mocker.patch.object(runner, "_load_style_mapping", return_value={})
+    mocker.patch.object(runner, "_write_csv")
+    mocker.patch.object(runner, "_csv_path", return_value=tmp_path / "mapping.csv")
+    mocker.patch.object(runner.time, "sleep")
+    runner.main()
+    output = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert output["failed_industries"] == ["850111.SI"]
+    assert output["refresh_record"]["result_state"] == "partial"
+    assert output["refresh_record"]["published"] is True
+
+
 class TestRebuildAll:
     def test_rebuild_writes_csv(self, mocker, tmp_path):
         old_csv = tmp_path / "industry_mapping.csv"
@@ -189,6 +250,9 @@ class TestRebuildAll:
         assert result["stock_count"] == 2
         assert result["failed_industries"] == []
         assert result["coverage_pct"] == 100.0
+        record = result["refresh_record"]
+        assert (record.source, record.result_state, record.published) == ("乐咕申万", "partial", False)
+        assert record.attempted_at.utcoffset() is not None
 
         import csv as _csv
         assert old_csv.read_text(encoding="utf-8") == OLD_CSV
@@ -203,6 +267,62 @@ class TestRebuildAll:
         assert by_symbol["600097"]["sw_level1"] == "农林牧渔"
         assert by_symbol["600097"]["sw_level2"] == "渔业"
         assert result["valid_classification_rate"] == 100.0
+
+    def test_coverage_ignores_hk_placeholders(self, mocker, tmp_path):
+        old_csv = tmp_path / "industry_mapping.csv"
+        old_csv.write_text(
+            "symbol,sw_level1,sw_level2,style_category,mapping_status\n"
+            "000001,综合,,高端制造,missing\n"
+            "600036,综合,,高端制造,missing\n"
+            "00700.HK,,,,missing\n",
+            encoding="utf-8",
+        )
+        mocker.patch("data.industry_mapping_builder.fetch_taxonomy",
+                     return_value=(LEVEL2_MAP, LEVEL3_MAP))
+        mocker.patch("data.industry_mapping_builder.fetch_constituents",
+                     side_effect=[[STOCK_A], [STOCK_B]])
+        mocker.patch("data.industry_mapping_builder._csv_path", return_value=old_csv)
+        mocker.patch("data.industry_mapping_builder._candidate_path",
+                     return_value=tmp_path / "industry_mapping.candidate.csv")
+        mocker.patch("data.industry_mapping_builder._checkpoint_path",
+                     return_value=tmp_path / "industry_mapping.candidate.state.json")
+        mocker.patch("data.industry_mapping_builder.time.sleep")
+
+        result = rebuild_all(delay=0.0)
+
+        assert result["coverage_pct"] == 100.0
+        assert set(_read_csv(tmp_path / "industry_mapping.candidate.csv")) == {"000998", "600097"}
+
+    def test_publish_preserves_hk_placeholders(self, mocker, tmp_path):
+        current = tmp_path / "industry_mapping.csv"
+        candidate = tmp_path / "industry_mapping.candidate.csv"
+        state = tmp_path / "industry_mapping.candidate.state.json"
+        valid = (
+            "symbol,sw_level1,sw_level2,style_category,mapping_status\n"
+            "000998,农林牧渔,种植业,必选消费,verified\n"
+            "600097,农林牧渔,渔业,必选消费,verified\n"
+        )
+        current.write_text(valid + "00700.HK,,,,missing\n", encoding="utf-8")
+        candidate.write_text(valid, encoding="utf-8")
+        state.write_text(
+            '{"version": 1, "completed": ["850111.SI", "850121.SI"], "failed": [], '
+            '"expected_codes": ["850111.SI", "850121.SI"], '
+            '"level2_map": {"种植业": "农林牧渔", "渔业": "农林牧渔"}}',
+            encoding="utf-8",
+        )
+        mocker.patch("data.industry_mapping_builder._csv_path", return_value=current)
+        mocker.patch("data.industry_mapping_builder._candidate_path", return_value=candidate)
+        mocker.patch("data.industry_mapping_builder._checkpoint_path", return_value=state)
+
+        result = publish_candidate()
+
+        rows = _read_csv(current)
+        assert list(rows) == ["000998", "600097", "00700.HK"]
+        assert rows["00700.HK"]["mapping_status"] == "missing"
+        assert rows["00700.HK"]["sw_level1"] == ""
+        assert result["stock_count"] == 2
+        record = result["refresh_record"]
+        assert (record.source, record.result_state, record.published) == ("乐咕申万", "complete", True)
 
     def test_rebuild_skips_failed_industry(self, mocker, tmp_path):
         old_csv = tmp_path / "industry_mapping.csv"

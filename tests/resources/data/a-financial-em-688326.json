@@ -1,0 +1,820 @@
+{
+  "responses": [
+    {
+      "label": "importance",
+      "payload": {
+        "result": {
+          "data": [
+            {
+              "SECUCODE": "688326.SH",
+              "SECURITY_CODE": "688326",
+              "ORG_TYPE": "通用",
+              "REPORT_DATE": "2026-06-30 00:00:00",
+              "REPORT_TYPE": "中报",
+              "NOTICE_DATE": "2026-08-26 00:00:00",
+              "UPDATE_DATE": "2026-08-26 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": -3.4,
+              "MGJYXJJE": -5.474323527509,
+              "TOTALOPERATEREVE": 2623186406.57,
+              "PARENTNETPROFIT": -381992695.69,
+              "KCFJCXSYJLR": -395844537.55,
+              "ROEJQ": -9.56,
+              "XSMLL": 16.0953309457
+            },
+            {
+              "SECUCODE": "688326.SH",
+              "SECURITY_CODE": "688326",
+              "ORG_TYPE": "通用",
+              "REPORT_DATE": "2026-03-31 00:00:00",
+              "REPORT_TYPE": "一季报",
+              "NOTICE_DATE": "2026-04-25 00:00:00",
+              "UPDATE_DATE": "2026-04-25 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": -1.58,
+              "MGJYXJJE": -1.199088019055,
+              "TOTALOPERATEREVE": 1171006587.72,
+              "PARENTNETPROFIT": -177475003.52,
+              "KCFJCXSYJLR": -175809747.03,
+              "ROEJQ": -4.33,
+              "XSMLL": 16.2720369525
+            },
+            {
+              "SECUCODE": "688326.SH",
+              "SECURITY_CODE": "688326",
+              "ORG_TYPE": "通用",
+              "REPORT_DATE": "2025-12-31 00:00:00",
+              "REPORT_TYPE": "年报",
+              "NOTICE_DATE": "2026-04-25 00:00:00",
+              "UPDATE_DATE": "2026-04-25 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": 0.89,
+              "MGJYXJJE": 0.462524528372,
+              "TOTALOPERATEREVE": 6848097114.29,
+              "PARENTNETPROFIT": 100239645.81,
+              "KCFJCXSYJLR": 31434877.85,
+              "ROEJQ": 2.44,
+              "XSMLL": 23.3998892613
+            },
+            {
+              "SECUCODE": "688326.SH",
+              "SECURITY_CODE": "688326",
+              "ORG_TYPE": "通用",
+              "REPORT_DATE": "2025-09-30 00:00:00",
+              "REPORT_TYPE": "三季报",
+              "NOTICE_DATE": "2025-10-29 00:00:00",
+              "UPDATE_DATE": "2025-10-29 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": -0.67,
+              "MGJYXJJE": -2.609813356042,
+              "TOTALOPERATEREVE": 4463802946.49,
+              "PARENTNETPROFIT": -75046008.44,
+              "KCFJCXSYJLR": -123022865.19,
+              "ROEJQ": -1.87,
+              "XSMLL": 22.7961329346
+            },
+            {
+              "SECUCODE": "688326.SH",
+              "SECURITY_CODE": "688326",
+              "ORG_TYPE": "通用",
+              "REPORT_DATE": "2025-06-30 00:00:00",
+              "REPORT_TYPE": "中报",
+              "NOTICE_DATE": "2025-08-27 00:00:00",
+              "UPDATE_DATE": "2026-08-26 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": -0.77,
+              "MGJYXJJE": -2.494162260468,
+              "TOTALOPERATEREVE": 2908372336.98,
+              "PARENTNETPROFIT": -86964423.48,
+              "KCFJCXSYJLR": -115221315.3,
+              "ROEJQ": -2.15,
+              "XSMLL": 23.1546296115
+            },
+            {
+              "SECUCODE": "688326.SH",
+              "SECURITY_CODE": "688326",
+              "ORG_TYPE": "通用",
+              "REPORT_DATE": "2025-03-31 00:00:00",
+              "REPORT_TYPE": "一季报",
+              "NOTICE_DATE": "2025-04-29 00:00:00",
+              "UPDATE_DATE": "2026-04-25 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": -1.05,
+              "MGJYXJJE": -1.493960178419,
+              "TOTALOPERATEREVE": 1328168875.2,
+              "PARENTNETPROFIT": -119966107.47,
+              "KCFJCXSYJLR": -134475487.96,
+              "ROEJQ": -9.16,
+              "XSMLL": 21.3906252973
+            },
+            {
+              "SECUCODE": "688326.SH",
+              "SECURITY_CODE": "688326",
+              "ORG_TYPE": "通用",
+              "REPORT_DATE": "2024-12-31 00:00:00",
+              "REPORT_TYPE": "年报",
+              "NOTICE_DATE": "2025-04-29 00:00:00",
+              "UPDATE_DATE": "2026-04-25 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": -4.78,
+              "MGJYXJJE": -4.480349100737,
+              "TOTALOPERATEREVE": 5541122189.63,
+              "PARENTNETPROFIT": -550318210.96,
+              "KCFJCXSYJLR": -618400739.73,
+              "ROEJQ": -12.33,
+              "XSMLL": 21.5112699574
+            },
+            {
+              "SECUCODE": "688326.SH",
+              "SECURITY_CODE": "688326",
+              "ORG_TYPE": "通用",
+              "REPORT_DATE": "2024-09-30 00:00:00",
+              "REPORT_TYPE": "三季报",
+              "NOTICE_DATE": "2024-10-30 00:00:00",
+              "UPDATE_DATE": "2025-10-29 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": -3.56,
+              "MGJYXJJE": -7.289816460819,
+              "TOTALOPERATEREVE": 3546024524.1,
+              "PARENTNETPROFIT": -410153847.95,
+              "KCFJCXSYJLR": -474818485.4,
+              "ROEJQ": -9.02,
+              "XSMLL": 21.7775516315
+            },
+            {
+              "SECUCODE": "688326.SH",
+              "SECURITY_CODE": "688326",
+              "ORG_TYPE": "通用",
+              "REPORT_DATE": "2024-06-30 00:00:00",
+              "REPORT_TYPE": "中报",
+              "NOTICE_DATE": "2024-08-28 00:00:00",
+              "UPDATE_DATE": "2025-08-27 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": -2.88,
+              "MGJYXJJE": -6.054702364749,
+              "TOTALOPERATEREVE": 2027001258.37,
+              "PARENTNETPROFIT": -333375951.07,
+              "KCFJCXSYJLR": -387212723.21,
+              "ROEJQ": -7.22,
+              "XSMLL": 20.9333537672
+            },
+            {
+              "SECUCODE": "688326.SH",
+              "SECURITY_CODE": "688326",
+              "ORG_TYPE": "通用",
+              "REPORT_DATE": "2024-03-31 00:00:00",
+              "REPORT_TYPE": "一季报",
+              "NOTICE_DATE": "2024-04-27 00:00:00",
+              "UPDATE_DATE": "2025-04-29 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": -1.64,
+              "MGJYXJJE": -3.93491852925,
+              "TOTALOPERATEREVE": 889351090.14,
+              "PARENTNETPROFIT": -191700101.57,
+              "KCFJCXSYJLR": -219909155.54,
+              "ROEJQ": -4.02,
+              "XSMLL": 22.3889668971
+            },
+            {
+              "SECUCODE": "688326.SH",
+              "SECURITY_CODE": "688326",
+              "ORG_TYPE": "通用",
+              "REPORT_DATE": "2023-12-31 00:00:00",
+              "REPORT_TYPE": "年报",
+              "NOTICE_DATE": "2024-04-27 00:00:00",
+              "UPDATE_DATE": "2025-04-29 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": -1.82,
+              "MGJYXJJE": -4.660736508333,
+              "TOTALOPERATEREVE": 4677580155.4,
+              "PARENTNETPROFIT": -217256574.55,
+              "KCFJCXSYJLR": -283809420.65,
+              "ROEJQ": -4.21,
+              "XSMLL": 24.6018569516
+            },
+            {
+              "SECUCODE": "688326.SH",
+              "SECURITY_CODE": "688326",
+              "ORG_TYPE": "通用",
+              "REPORT_DATE": "2023-09-30 00:00:00",
+              "REPORT_TYPE": "三季报",
+              "NOTICE_DATE": "2023-10-28 00:00:00",
+              "UPDATE_DATE": "2024-10-30 00:00:00",
+              "CURRENCY": "CNY",
+              "EPSJB": -1.17,
+              "MGJYXJJE": -7.59771214575,
+              "TOTALOPERATEREVE": 2858539889.77,
+              "PARENTNETPROFIT": -140211061.26,
+              "KCFJCXSYJLR": -170065236.24,
+              "ROEJQ": -2.69,
+              "XSMLL": 27.5165286066
+            }
+          ]
+        }
+      },
+      "params": {
+        "type": "RPT_F10_FINANCE_MAINFINADATA",
+        "sty": "APP_F10_MAINFINADATA",
+        "filter": "(SECUCODE=\"688326.SH\")",
+        "p": "1",
+        "ps": "12",
+        "sr": "-1",
+        "st": "REPORT_DATE",
+        "source": "HSF10",
+        "client": "PC"
+      }
+    },
+    {
+      "label": "company_type",
+      "payload": {
+        "company_type": "4"
+      },
+      "params": {
+        "type": "web",
+        "code": "sh688326"
+      }
+    },
+    {
+      "label": "balance",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2026-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2026-08-26 00:00:00",
+            "UPDATE_DATE": "2026-08-26 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 10379654530.44,
+            "TOTAL_EQUITY": 3835138144.85
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2026-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2026-04-25 00:00:00",
+            "UPDATE_DATE": "2026-04-25 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 10078319111.39,
+            "TOTAL_EQUITY": 4075276275.69
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2025-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2026-04-25 00:00:00",
+            "UPDATE_DATE": "2026-08-26 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 10433168227.66,
+            "TOTAL_EQUITY": 4258048022.71
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2025-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2025-10-29 00:00:00",
+            "UPDATE_DATE": "2025-10-29 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 9705296037.48,
+            "TOTAL_EQUITY": 4063421539.41
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2025-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2025-08-27 00:00:00",
+            "UPDATE_DATE": "2025-08-27 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 9461613415.91,
+            "TOTAL_EQUITY": 4044757525.95
+          }
+        ]
+      },
+      "params": {
+        "companyType": "4",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2026-06-30,2026-03-31,2025-12-31,2025-09-30,2025-06-30,2025-03-31,2024-12-31,2024-09-30,2024-06-30,2024-03-31,2023-12-31,2023-09-30",
+        "code": "SH688326"
+      }
+    },
+    {
+      "label": "income",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2026-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2026-08-26 00:00:00",
+            "UPDATE_DATE": "2026-08-26 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": -395844537.55,
+            "TOTAL_OPERATE_INCOME": 2623186406.57,
+            "OPERATE_INCOME": 2623186406.57,
+            "PARENT_NETPROFIT": -381992695.69,
+            "BASIC_EPS": -3.4
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2026-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2026-04-25 00:00:00",
+            "UPDATE_DATE": "2026-04-25 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": -175809747.03,
+            "TOTAL_OPERATE_INCOME": 1171006587.72,
+            "OPERATE_INCOME": 1171006587.72,
+            "PARENT_NETPROFIT": -177475003.52,
+            "BASIC_EPS": -1.58
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2025-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2026-04-25 00:00:00",
+            "UPDATE_DATE": "2026-04-25 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": 31434877.85,
+            "TOTAL_OPERATE_INCOME": 6848097114.29,
+            "OPERATE_INCOME": 6848097114.29,
+            "PARENT_NETPROFIT": 100239645.81,
+            "BASIC_EPS": 0.89
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2025-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2025-10-29 00:00:00",
+            "UPDATE_DATE": "2025-10-29 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": -123022865.19,
+            "TOTAL_OPERATE_INCOME": 4463802946.49,
+            "OPERATE_INCOME": 4463802946.49,
+            "PARENT_NETPROFIT": -75046008.44,
+            "BASIC_EPS": -0.67
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2025-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2025-08-27 00:00:00",
+            "UPDATE_DATE": "2026-08-26 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": -115221315.3,
+            "TOTAL_OPERATE_INCOME": 2908372336.98,
+            "OPERATE_INCOME": 2908372336.98,
+            "PARENT_NETPROFIT": -86964423.48,
+            "BASIC_EPS": -0.77
+          }
+        ]
+      },
+      "params": {
+        "companyType": "4",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2026-06-30,2026-03-31,2025-12-31,2025-09-30,2025-06-30,2025-03-31,2024-12-31,2024-09-30,2024-06-30,2024-03-31,2023-12-31,2023-09-30",
+        "code": "SH688326"
+      }
+    },
+    {
+      "label": "cash",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2026-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2026-08-26 00:00:00",
+            "UPDATE_DATE": "2026-08-26 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": -656595619.24
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2026-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2026-04-25 00:00:00",
+            "UPDATE_DATE": "2026-04-25 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": -143819768.13
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2025-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2026-04-25 00:00:00",
+            "UPDATE_DATE": "2026-04-25 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": 55483998.4
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2025-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2025-10-29 00:00:00",
+            "UPDATE_DATE": "2025-10-29 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": -313070704.77
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2025-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2025-08-27 00:00:00",
+            "UPDATE_DATE": "2026-08-26 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": -299218061.8
+          }
+        ]
+      },
+      "params": {
+        "companyType": "4",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2026-06-30,2026-03-31,2025-12-31,2025-09-30,2025-06-30,2025-03-31,2024-12-31,2024-09-30,2024-06-30,2024-03-31,2023-12-31,2023-09-30",
+        "code": "SH688326"
+      }
+    },
+    {
+      "label": "balance",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2025-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2025-04-29 00:00:00",
+            "UPDATE_DATE": "2025-04-29 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 9219888181.5,
+            "TOTAL_EQUITY": 3976850595.13
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2024-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2025-04-29 00:00:00",
+            "UPDATE_DATE": "2026-04-25 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 9407025551.04,
+            "TOTAL_EQUITY": 4275997161.23
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2024-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2024-10-30 00:00:00",
+            "UPDATE_DATE": "2024-10-30 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 9117677203.07,
+            "TOTAL_EQUITY": 4363212788.72
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2024-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2024-08-28 00:00:00",
+            "UPDATE_DATE": "2024-08-28 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 8888084006.72,
+            "TOTAL_EQUITY": 4387760225.07
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2024-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2024-04-27 00:00:00",
+            "UPDATE_DATE": "2024-04-27 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 8978937586.48,
+            "TOTAL_EQUITY": 4580372074.52
+          }
+        ]
+      },
+      "params": {
+        "companyType": "4",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2025-03-31,2024-12-31,2024-09-30,2024-06-30,2024-03-31",
+        "code": "SH688326"
+      }
+    },
+    {
+      "label": "income",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2025-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2025-04-29 00:00:00",
+            "UPDATE_DATE": "2026-04-25 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": -134475487.96,
+            "TOTAL_OPERATE_INCOME": 1328168875.2,
+            "OPERATE_INCOME": 1328168875.2,
+            "PARENT_NETPROFIT": -119966107.47,
+            "BASIC_EPS": -1.05
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2024-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2025-04-29 00:00:00",
+            "UPDATE_DATE": "2026-04-25 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": -618400739.73,
+            "TOTAL_OPERATE_INCOME": 5541122189.63,
+            "OPERATE_INCOME": 5541122189.63,
+            "PARENT_NETPROFIT": -550318210.96,
+            "BASIC_EPS": -4.78
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2024-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2024-10-30 00:00:00",
+            "UPDATE_DATE": "2025-10-29 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": -474818485.4,
+            "TOTAL_OPERATE_INCOME": 3546024524.1,
+            "OPERATE_INCOME": 3546024524.1,
+            "PARENT_NETPROFIT": -410153847.95,
+            "BASIC_EPS": -3.56
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2024-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2024-08-28 00:00:00",
+            "UPDATE_DATE": "2025-08-27 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": -387212723.21,
+            "TOTAL_OPERATE_INCOME": 2027001258.37,
+            "OPERATE_INCOME": 2027001258.37,
+            "PARENT_NETPROFIT": -333375951.07,
+            "BASIC_EPS": -2.88
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2024-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2024-04-27 00:00:00",
+            "UPDATE_DATE": "2025-04-29 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": -219909155.54,
+            "TOTAL_OPERATE_INCOME": 889351090.14,
+            "OPERATE_INCOME": 889351090.14,
+            "PARENT_NETPROFIT": -191700101.57,
+            "BASIC_EPS": -1.64
+          }
+        ]
+      },
+      "params": {
+        "companyType": "4",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2025-03-31,2024-12-31,2024-09-30,2024-06-30,2024-03-31",
+        "code": "SH688326"
+      }
+    },
+    {
+      "label": "cash",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2025-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2025-04-29 00:00:00",
+            "UPDATE_DATE": "2026-04-25 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": -179226458.55
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2024-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2025-04-29 00:00:00",
+            "UPDATE_DATE": "2026-04-25 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": -537534363.71
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2024-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2024-10-30 00:00:00",
+            "UPDATE_DATE": "2025-10-29 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": -874716740.84
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2024-06-30 00:00:00",
+            "REPORT_TYPE": "中报",
+            "NOTICE_DATE": "2024-08-28 00:00:00",
+            "UPDATE_DATE": "2025-08-27 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": -726513424.27
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2024-03-31 00:00:00",
+            "REPORT_TYPE": "一季报",
+            "NOTICE_DATE": "2024-04-27 00:00:00",
+            "UPDATE_DATE": "2025-04-29 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": -472190223.51
+          }
+        ]
+      },
+      "params": {
+        "companyType": "4",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2025-03-31,2024-12-31,2024-09-30,2024-06-30,2024-03-31",
+        "code": "SH688326"
+      }
+    },
+    {
+      "label": "balance",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2023-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2024-04-27 00:00:00",
+            "UPDATE_DATE": "2025-04-29 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 9327735166.29,
+            "TOTAL_EQUITY": 5001780598.03
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2023-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2023-10-28 00:00:00",
+            "UPDATE_DATE": "2023-10-28 00:00:00",
+            "CURRENCY": "CNY",
+            "TOTAL_ASSETS": 9182002299.43,
+            "TOTAL_EQUITY": 5105129136.79
+          }
+        ]
+      },
+      "params": {
+        "companyType": "4",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2023-12-31,2023-09-30",
+        "code": "SH688326"
+      }
+    },
+    {
+      "label": "income",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2023-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2024-04-27 00:00:00",
+            "UPDATE_DATE": "2025-04-29 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": -283809420.65,
+            "TOTAL_OPERATE_INCOME": 4677580155.4,
+            "OPERATE_INCOME": 4677580155.4,
+            "PARENT_NETPROFIT": -217256574.55,
+            "BASIC_EPS": -1.82
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2023-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2023-10-28 00:00:00",
+            "UPDATE_DATE": "2024-10-30 00:00:00",
+            "CURRENCY": "CNY",
+            "DEDUCT_PARENT_NETPROFIT": -170065236.24,
+            "TOTAL_OPERATE_INCOME": 2858539889.77,
+            "OPERATE_INCOME": 2858539889.77,
+            "PARENT_NETPROFIT": -140211061.26,
+            "BASIC_EPS": -1.17
+          }
+        ]
+      },
+      "params": {
+        "companyType": "4",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2023-12-31,2023-09-30",
+        "code": "SH688326"
+      }
+    },
+    {
+      "label": "cash",
+      "payload": {
+        "data": [
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2023-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "NOTICE_DATE": "2024-04-27 00:00:00",
+            "UPDATE_DATE": "2025-04-29 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": -559288381
+          },
+          {
+            "SECUCODE": "688326.SH",
+            "SECURITY_CODE": "688326",
+            "ORG_TYPE": "通用",
+            "REPORT_DATE": "2023-09-30 00:00:00",
+            "REPORT_TYPE": "三季报",
+            "NOTICE_DATE": "2023-10-28 00:00:00",
+            "UPDATE_DATE": "2024-10-30 00:00:00",
+            "CURRENCY": "CNY",
+            "NETCASH_OPERATE": -911725457.49
+          }
+        ]
+      },
+      "params": {
+        "companyType": "4",
+        "reportDateType": "0",
+        "reportType": "1",
+        "dates": "2023-12-31,2023-09-30",
+        "code": "SH688326"
+      }
+    }
+  ]
+}

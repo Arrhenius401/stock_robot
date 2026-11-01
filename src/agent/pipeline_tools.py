@@ -96,14 +96,14 @@ class AnalyzeStockTool:
     """单股全维度分析工具"""
     name = "analyze_stock"
     description = (
-        "对单只 A 股进行全面分析，返回财务、技术面、估值、行业、舆情五个维度的分析报告。"
+        "对单只 A 股或港股进行全面分析，返回财务、技术面、估值、行业、舆情五个维度的分析报告。"
         "适用于需要深入了解某只股票的完整画像时使用。"
-        "参数: symbol(6位股票代码)"
+        "参数: symbol(A 股 6 位代码，或港股 5 位代码，如 00700.HK)"
     )
     parameters = {
         "type": "object",
         "properties": {
-            "symbol": {"type": "string", "description": "A股代码，6位数字，如 000001 或 600519"},
+            "symbol": {"type": "string", "description": "A 股 6 位代码，或港股 5 位代码，如 000001、600519、00700.HK"},
         },
         "required": ["symbol"],
     }
@@ -124,11 +124,13 @@ class AnalyzeStockTool:
                              metadata={"source": "pipeline"})
 
         from data.schemas import AnalysisTarget
+        from utils.symbols import normalize_symbol, symbol_market
 
         try:
+            normalized_symbol = normalize_symbol(symbol)
             target = AnalysisTarget(
-                target_type="stock", symbol=symbol,
-                name=symbol, market="a-shares",
+                target_type="stock", symbol=normalized_symbol,
+                name=normalized_symbol, market=symbol_market(normalized_symbol),
             )
             pipe_result = await asyncio.to_thread(
                 self._pipeline.run, targets=[target]
@@ -138,11 +140,11 @@ class AnalyzeStockTool:
 
             if errors:
                 return ToolResult(status="error", error="; ".join(errors),
-                                 metadata={"source": "pipeline", "symbol": symbol})
+                                 metadata={"source": "pipeline", "symbol": normalized_symbol})
             if not reports:
                 return ToolResult(status="error",
-                                 error=f"未能生成 {symbol} 的分析报告",
-                                 metadata={"source": "pipeline", "symbol": symbol})
+                                 error=f"未能生成 {normalized_symbol} 的分析报告",
+                                 metadata={"source": "pipeline", "symbol": normalized_symbol})
 
             report = reports[0]
             return ToolResult(
@@ -154,7 +156,7 @@ class AnalyzeStockTool:
                     "comments": getattr(report, "comments", []),
                     "dimensions": getattr(report, "dimensions", {}),
                 },
-                metadata={"source": "pipeline", "symbol": symbol},
+                metadata={"source": "pipeline", "symbol": normalized_symbol},
             )
         except Exception as e:  # noqa: BLE001 — 工具执行隔离，失败以 ToolResult 返回
             logger.error(f"analyze_stock 执行失败: {e}")
@@ -198,12 +200,15 @@ class AnalyzeIndexTool:
 
         try:
             mapping = IndexMapping()
-            entry = mapping.lookup(symbol)
+            entry = mapping.resolve(symbol)
+            if entry is None or entry.market not in ("a-shares", "hk", "us"):
+                return ToolResult(status="error", error=f"无法确定指数 {symbol} 的市场，请先选择已核验目录项",
+                                  metadata={"source": "pipeline", "symbol": symbol})
             target = AnalysisTarget(
-                target_type="index", symbol=symbol,
-                name=entry.name if entry else symbol,
-                market="a-shares",
-                index_style=entry.index_style if entry else "broad",
+                target_type="index", symbol=entry.symbol, name=entry.name,
+                market=entry.market, index_style=entry.index_style,
+                return_type=(entry.return_type or "price") if entry is not None else "unknown",
+            official_index_code=entry.price_symbol if entry.market == "hk" and entry.provider == "hsi" else None,
             )
             result = await asyncio.to_thread(self._pipeline.run, targets=[target])
 
@@ -216,17 +221,10 @@ class AnalyzeIndexTool:
                                  metadata={"source": "pipeline", "symbol": symbol})
 
             report = result.reports[0]
-            return ToolResult(
-                status="success",
-                data={
-                    "code": report.code,
-                    "name": report.name,
-                    "overview": report.overview,
-                    "composite_comment": getattr(report, "composite_comment", ""),
-                    "position_coeff": getattr(report, "position_coeff", None),
-                },
-                metadata={"source": "pipeline", "symbol": symbol},
-            )
+            from index.archives import save_index_report
+            save_index_report(report)
+            return ToolResult(status="success", data=report.model_dump(mode="json"),
+                              metadata={"source": "pipeline", "symbol": symbol})
         except Exception as e:  # noqa: BLE001 — 工具执行隔离，失败以 ToolResult 返回
             logger.error(f"analyze_index 执行失败: {e}")
             return ToolResult(status="error", error=str(e),

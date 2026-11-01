@@ -68,7 +68,10 @@ class BacktestRunner:
 
         # 取数区间：start 前推 warmup 个交易日（自然日双倍兜底），供信号预热
         fetch_start = request.start_date - timedelta(days=int(strategy.warmup_days * 2))
-        prices = self._provider.fetch_stock(request.symbol, fetch_start, request.end_date)
+        stock_result = self._provider.fetch_stock_result(request.symbol, fetch_start, request.end_date)
+        prices = stock_result.value or []
+        if not prices and stock_result.record.error_message:
+            raise BacktestDataError(stock_result.record.error_message)
         validate_price_history(prices, fetch_start, request.end_date)
         data_start, data_end = prices[0].trade_date, prices[-1].trade_date
         # 预热覆盖校验：行情首日至回测起点须足 warmup_days（次新股/上市晚则明确失败）
@@ -99,7 +102,7 @@ class BacktestRunner:
         value: pd.Series = pf.value()
 
         # 基准收盘序列前向对齐到净值日，从 1.0 起算；对齐后仍有缺口则终止
-        bench_net = self._align_benchmark(benchmark, idx, data_start, data_end)
+        bench_net, benchmark_record = self._align_benchmark(benchmark, idx, data_start, data_end)
 
         # 净值曲线：策略/基准净值（1.0 起算）+ 目标仓位与当日信号
         equity = pd.DataFrame(
@@ -125,6 +128,7 @@ class BacktestRunner:
             costs=costs,
             data_start=data_start,
             data_end=data_end,
+            collection_records={"price": stock_result.record, "benchmark": benchmark_record},
         )
 
     def _resolve_benchmark(self, benchmark_id: str) -> BenchmarkSpec:
@@ -282,9 +286,11 @@ class BacktestRunner:
 
     def _align_benchmark(
         self, benchmark: BenchmarkSpec, idx: pd.DatetimeIndex, data_start: date, data_end: date
-    ) -> pd.Series:
+    ) -> tuple[pd.Series, Any]:
         """基准收盘序列前向对齐到策略净值日，统一从 1.0 起算。"""
-        raw = self._provider.fetch_benchmark(benchmark, data_start, data_end)
+        result = self._provider.fetch_benchmark_result(benchmark, data_start, data_end)
+        raw = result.value
+        assert raw is not None
         bench = pd.Series(raw.to_numpy(), index=pd.DatetimeIndex(raw.index))
         aligned = bench.reindex(idx).ffill()
         na_mask = aligned.isna()
@@ -294,7 +300,7 @@ class BacktestRunner:
                 f"基准 {benchmark.id} 在 {pd.Timestamp(missing[0]).date()} 至 "
                 f"{pd.Timestamp(missing[-1]).date()} 无数据，无法对齐净值日"
             )
-        return aligned / aligned.iloc[0]
+        return aligned / aligned.iloc[0], result.record
 
     @staticmethod
     def _compute_metrics(

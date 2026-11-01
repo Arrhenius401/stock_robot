@@ -1,8 +1,8 @@
 // 指数分析视图：多指数对比表 + 逐指数纵向研报
 import { store, switchView } from "./state.js";
-import { api } from "./api.js";
-import { renderMarkdown } from "./markdown.js";
-import { appendReadableMetric, riskText } from "./report-renderer.js?v=20261012-report-library-1";
+import { api } from "./api.js?v=20261030-index-refresh";
+import { renderMarkdown } from "./markdown.js?v=20261029-index-news-quality";
+import { appendReadableMetric, riskText, formatMetricValue, renderIndexReport } from "./report-renderer.js?v=20261031-analysis-mode-1";
 import { el, kv, tagChip, priceBar, errorCard, skeleton,
          showEntryError, clearEntryError } from "./components.js";
 
@@ -47,7 +47,7 @@ export async function openIndex(codes) {
   box.innerHTML = "";
   box.appendChild(skeleton());
   try {
-    const data = await api.index(symbols);
+    const data = await api.index(symbols, document.getElementById("indexRefreshCache")?.checked === true);
     if (seq !== reqSeq) return;  // 已有更新请求，迟到响应不覆盖新视图
     renderIndex(data);
   } catch (err) {
@@ -87,6 +87,7 @@ function compareCell(header, row) {
     return tdWithTag(TAGS.valuation[text]);
   }
   if (header === "资金") {
+    if (row.capital_display) return tdWithTag([row.capital_display.label, row.capital_display.tone]);
     return tdWithTag(TAGS.capital[text]);
   }
   if (header === "综合评级") {
@@ -108,6 +109,7 @@ function compareCard(compare) {
   const table = el("table");
   const thead = el("thead");
   const headRow = el("tr");
+  if (compare.valuation_cutoff) card.appendChild(el("p", "dim-sum", compare.valuation_cutoff));
   for (const h of compare.headers) headRow.appendChild(el("th", "", String(h)));
   thead.appendChild(headRow);
   table.appendChild(thead);
@@ -125,6 +127,24 @@ function compareCard(compare) {
 }
 
 function reportCard(r) {
+  if (r.report_version >= 2) {
+    const container = el("div", "index-report-container");
+    let current = r;
+    let busy = false;
+    let error = "";
+    const draw = () => container.replaceChildren(renderIndexReport(current, {
+      commentaryBusy: busy, commentaryError: error, onConfigure: () => switchView("config"),
+      onRetryCommentary: current.commentary_retry_id ? async () => {
+        if (busy) return;
+        busy = true; error = ""; draw();
+        try { current = await api.retryIndexCommentary(current.commentary_retry_id); }
+        catch (err) { error = err.message || "重试失败"; }
+        finally { busy = false; draw(); }
+      } : null,
+    }));
+    draw();
+    return container;
+  }
   const card = el("div", "report");
   const hdr = el("div", "report-header");
   hdr.appendChild(el("span", "stock-name", r.name || r.code));
@@ -132,11 +152,11 @@ function reportCard(r) {
   const o = r.overview || {};
   const priceBox = el("div", "price-box");
   if (o.latest_close != null) {
-    priceBox.appendChild(el("span", "stock-price", String(o.latest_close)));
+    priceBox.appendChild(el("span", "stock-price", formatMetricValue('latest_close',o.latest_close)));
   }
   if (o.change_pct != null) {
     const cls = o.change_pct > 0 ? "up" : o.change_pct < 0 ? "down" : "flat";
-    priceBox.appendChild(el("span", `chg ${cls}`, `${o.change_pct > 0 ? "+" : ""}${o.change_pct}%`));
+    priceBox.appendChild(el("span", `chg ${cls}`, `${o.change_pct > 0 ? "+" : ""}${formatMetricValue('change_pct',o.change_pct)}`));
   }
   hdr.appendChild(priceBox);
   card.appendChild(hdr);
@@ -161,15 +181,18 @@ function reportCard(r) {
   if (o.pe_ttm != null || o.pe_snapshot != null || o.pb != null || o.pe_percentile != null) {
     const panel = el("div", "panel");
     panel.appendChild(el("div", "panel-title", "概览"));
+    const dateDisplay = o.valuation_display || {};
+    if (dateDisplay.cutoff) panel.appendChild(el("p", "dim-sum", dateDisplay.cutoff));
+    const dated = (key, value) => dateDisplay.metrics?.[key] ?? formatMetricValue(key, value);
     const kvs = el("div", "kv");
-    if (o.pe_ttm != null) kvs.appendChild(kv("PE-TTM", `${o.pe_ttm}x`));
-    if (o.pe_ttm == null && o.pe_snapshot != null) kvs.appendChild(kv("官方单张PE", `${o.pe_snapshot}x`));
-    if (o.pb != null) kvs.appendChild(kv("PB", String(o.pb)));
-    if (o.pe_percentile != null) {
+    if (o.pe_ttm != null) kvs.appendChild(kv("PE-TTM", dated('pe_ttm',o.pe_ttm)));
+    if (o.pe_ttm == null && o.pe_snapshot != null) kvs.appendChild(kv("官方单张PE", dated('pe_snapshot',o.pe_snapshot)));
+    if (o.pb != null) kvs.appendChild(kv("PB", dated('pb',o.pb)));
+    if (o.valuation_valid && o.pe_percentile != null) {
       const box = el("div");
       box.appendChild(el("div", "k", o.strategy_valuation ? `PE 分位（近 ${o.percentile_lookback_years || 5} 年窗口内 ${o.pe_sample_count || 0} 个交易日）` : `PE 分位（近 ${o.percentile_lookback_years || 5} 年）`));
       const val = el("div", "v");
-      val.appendChild(el("span", "", `${o.pe_percentile}%`));
+      val.appendChild(el("span", "", dated('pe_percentile',o.pe_percentile)));
       val.appendChild(priceBar(o.pe_percentile));
       box.appendChild(val);
       kvs.appendChild(box);
@@ -183,7 +206,15 @@ function reportCard(r) {
     const section = r[field];
     if (!section) continue;
     if (Array.isArray(visible) && visible.length && !visible.includes(key)) continue;
-    card.appendChild(sectionCard(label, section, tagFor(key, r[tagField])));
+    const display = key === 'capital' ? section.display : null;
+    card.appendChild(sectionCard(label, display ? {...section, summary:display.summary} : section,
+      display ? tagChip(display.label,display.tone) : tagFor(key, r[tagField])));
+  }
+  if (r.section_valuation?.display?.details?.length) {
+    const details = el("div", "panel");
+    details.appendChild(el("div", "panel-title", "估值数据说明"));
+    for (const text of r.section_valuation.display.details) details.appendChild(el("p", "dim-sum", text));
+    card.appendChild(details);
   }
   card.appendChild(compositeCard(r));
   const risks = riskCard(r.risk_list || []);
@@ -198,6 +229,7 @@ function tagFor(kind, tag) {
 }
 
 function sectionCard(label, section, tag) {
+  section = section.display?.summary ? {...section, summary:section.display.summary} : section;
   const card = el("div", "panel");
   const head = el("div", "dim-head");
   head.appendChild(el("span", "dim-name", label));
@@ -211,7 +243,7 @@ function sectionCard(label, section, tag) {
     sum.innerHTML = renderMarkdown(section.summary);
     card.appendChild(sum);
   }
-  const metrics = section.metrics || {};
+  const metrics = section.display?.metrics || section.metrics || {};
   const keys = Object.keys(metrics).filter((k) => k !== "tag");
   if (keys.length) {
     const mtr = el("div", "mtr");
@@ -284,13 +316,14 @@ function appendIndustryWeights(grid, weights) {
 let directory = null;
 let directoryRequest = null;
 let directorySequence = 0;
+let directoryPage = null;
 const initializedInputs = new WeakSet();
 
 export function getIndexDirectory() {
   if (directory) return Promise.resolve(directory);
   if (!directoryRequest) {
     const request = api.indices().then((data) => {
-      const result = { indices: Array.isArray(data.indices) ? data.indices : [], etfs: Array.isArray(data.etfs) ? data.etfs : [] };
+      const result = { indices: Array.isArray(data.indices) ? data.indices : [], etfs: Array.isArray(data.etfs) ? data.etfs : [], total: data.indices_total ?? data.total ?? 0, offset: data.offset ?? 0 };
       if (directoryRequest === request) directory = result;
       return result;
     }).finally(() => { if (directoryRequest === request) directoryRequest = null; });
@@ -301,34 +334,41 @@ export function getIndexDirectory() {
 
 function matchesDirectory(item, query) {
   const aliases = Array.isArray(item.aliases) ? item.aliases : [item.aliases || ""];
-  return [item.symbol, item.name, item.index_symbol, ...aliases].join(" ").toLowerCase().includes(query.toLowerCase());
+  return [item.symbol, item.identity, item.name, item.index_symbol, ...aliases].join(" ").toLowerCase().includes(query.toLowerCase());
 }
 
 function renderDirectory() {
   const box = document.getElementById("indexDirectoryResults");
-  if (!box || !directory) return;
+  const current = directoryPage || directory;
+  if (!box || !current) return;
   box.replaceChildren();
   const query = document.getElementById("indexDirectorySearch")?.value.trim() || "";
   const groups = new Map();
   const labels = { broad: "宽基指数", sector: "行业指数", overseas: "海外指数", strategy: "策略指数" };
-  for (const item of directory.indices) {
+  for (const item of current.indices) {
     if (!matchesDirectory(item, query)) continue;
-    const group = labels[item.index_style] || "其他指数";
+    const group = item.market === "unknown" ? "市场待核验（暂不能分析）" : labels[item.index_style] || "其他指数";
     if (!groups.has(group)) groups.set(group, []);
     groups.get(group).push(item);
   }
-  const etfs = directory.etfs.filter((item) => matchesDirectory(item, query));
+  const selectedMarket = document.getElementById("indexDirectoryMarket")?.value || "";
+  const etfs = selectedMarket && selectedMarket !== "a-shares" ? [] : current.etfs.filter((item) => matchesDirectory(item, query));
   if (etfs.length) groups.set("ETF（分析跟踪指数）", etfs);
   for (const [label, items] of groups) {
     const group = el("section", "index-directory-group");
     group.appendChild(el("h3", "panel-title", label));
     const list = el("div", "index-directory-list");
     for (const item of items) {
-      const button = el("button", "index-directory-item", `${item.name} · ${item.symbol}${item.index_symbol ? ` → ${item.index_symbol}` : ""}`);
+      const market = item.market === "hk" ? "港股" : item.market === "a-shares" ? "A股" : item.market === "unknown" ? "市场待核验，暂不能分析" : "";
+      const version = ({ price: "价格指数", gross_total_return: "含税总收益", net_total_return: "净总收益", PI: "价格指数", TRI_Grs: "含税总收益", TRI_Net: "净总收益" })[item.return_type] || "";
+      const status = item.capability === "complete" ? "数据已验证" : item.capability === "partial" ? "数据受限" : item.capability === "failed" ? "数据不可用" : "数据待验证";
+      const checked = item.verified_at ? `验证时间 ${item.verified_at}` : "";
+      const detail = [market, version, item.index_symbol ? "" : status, checked].filter(Boolean).join(" · ");
+      const button = el("button", "index-directory-item", `${item.name} · ${item.symbol}${item.index_symbol ? ` → ${item.index_symbol}` : ""}${detail ? `（${detail}）` : ""}`);
       button.type = "button";
       button.addEventListener("click", () => {
         const input = document.getElementById("indexInput");
-        input.value = item.symbol;
+        input.value = item.identity || item.symbol;
         clearEntryError("indexInput");
         input.focus();
       });
@@ -338,13 +378,48 @@ function renderDirectory() {
     box.appendChild(group);
   }
   if (!groups.size) box.appendChild(el("p", "dim-sum", "没有匹配的指数或 ETF"));
+  if (current.offset > 0) {
+    const previous = el("button", "btn-refresh", "上一页");
+    previous.type = "button";
+    previous.addEventListener("click", () => loadDirectoryPage(Math.max(0, current.offset - 100)));
+    box.appendChild(previous);
+  }
+  if (current.total > (current.offset || 0) + current.indices.length) {
+    const more = el("button", "btn-refresh", "下一页");
+    more.type = "button";
+    more.addEventListener("click", () => loadDirectoryPage((current.offset || 0) + current.indices.length));
+    box.appendChild(more);
+  }
+}
+
+async function loadDirectoryPage(offset = 0) {
+  const seq = ++directorySequence;
+  const box = document.getElementById("indexDirectoryResults");
+  const query = document.getElementById("indexDirectorySearch")?.value.trim() || "";
+  const market = document.getElementById("indexDirectoryMarket")?.value || "";
+  if (!box) return;
+  box.replaceChildren(el("p", "dim-sum", "正在读取指数目录…"));
+  try {
+    const data = await api.indices(query, { market, offset });
+    if (seq !== directorySequence) return;
+    directoryPage = { indices: Array.isArray(data.indices) ? data.indices : [], etfs: Array.isArray(data.etfs) ? data.etfs : [], total: data.indices_total ?? data.total ?? 0, offset: data.offset ?? offset };
+    renderDirectory();
+    return true;
+  } catch (error) {
+    if (seq !== directorySequence) return false;
+    const retry = el("button", "btn-refresh", "重试读取目录");
+    retry.type = "button";
+    retry.addEventListener("click", () => loadDirectoryPage(offset));
+    box.replaceChildren(el("p", "dim-sum", `指数目录读取失败：${error.message}`), retry);
+    return false;
+  }
 }
 
 export async function loadIndexDirectory(force = false) {
   const seq = ++directorySequence;
   const box = document.getElementById("indexDirectoryResults");
   if (!box) return;
-  if (force) { directory = null; directoryRequest = null; }
+  if (force) { directory = null; directoryPage = null; directoryRequest = null; }
   box.replaceChildren(el("p", "dim-sum", "正在读取指数目录…"));
   try {
     await getIndexDirectory();
@@ -363,7 +438,32 @@ export function initIndexView() {
   const btn = document.getElementById("indexBtn");
   if (!input || !btn || initializedInputs.has(input)) return;
   initializedInputs.add(input);
-  document.getElementById("indexDirectorySearch")?.addEventListener("input", renderDirectory);
+  document.getElementById("indexDirectorySearch")?.addEventListener("input", () => loadDirectoryPage());
+  document.getElementById("indexDirectoryMarket")?.addEventListener("change", () => loadDirectoryPage());
+  const refresh = document.getElementById("indexDirectoryRefresh");
+  const refreshStatus = document.getElementById("indexDirectoryRefreshStatus");
+  refresh?.addEventListener("click", async () => {
+    refresh.disabled = true;
+    if (refreshStatus) refreshStatus.textContent = "正在更新所选指数目录…";
+    try {
+      const source = document.getElementById("indexDirectorySource")?.value || "hsi";
+      const result = await api.refreshIndices(source);
+      if (result.state === "stale") {
+        if (refreshStatus) refreshStatus.textContent = "刷新失败，继续使用上次成功目录。";
+      } else if (result.state === "live") {
+        directory = null;
+        directoryRequest = null;
+        const loaded = await loadDirectoryPage();
+        if (refreshStatus) refreshStatus.textContent = loaded ? "所选指数目录更新完成。" : "目录已更新，但列表读取失败，请重试。";
+      } else {
+        throw new Error("目录更新状态无效");
+      }
+    } catch (error) {
+      if (refreshStatus) refreshStatus.textContent = `目录刷新失败：${error.message}`;
+    } finally {
+      refresh.disabled = false;
+    }
+  });
   btn.addEventListener("click", () => {
     clearEntryError("indexInput");  // 重新分析前清除上次校验红字
     // 空输入不触发：否则令牌自增会丢弃在途响应、骨架屏永久残留

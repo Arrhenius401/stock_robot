@@ -38,20 +38,20 @@ class TestComputeScoreSummary:
             _result("industry", 9.0),
         ]
         summary = compute_score_summary(results)
-        # 8.0*0.30 + 6.0*0.20 + 4.0*0.25 + 9.0*0.25 = 6.85 → round(…, 1) = 6.8
-        assert summary.base_score == 6.8
+        # 四个有效维度保持30:20:25:20原相对权重。
+        assert summary.base_score == 6.7
         assert summary.risk_deduction == 0
-        assert summary.final_score == 6.8
+        assert summary.final_score == 6.7
 
-    def test_risk_flags_deduct_capped_at_10(self):
+    def test_risk_flags_are_displayed_without_extra_deduction(self):
         flags = [f"风险{i}" for i in range(12)]
         results = [
             _result("financial", 8.0, risk_flags=flags),
         ]
         summary = compute_score_summary(results)
-        assert summary.risk_deduction == 10
+        assert summary.risk_deduction == 0
         assert summary.base_score is not None
-        assert summary.final_score == max(0, summary.base_score - 10)
+        assert summary.final_score == 8
         assert len(summary.risk_flags) == 12
 
     def test_missing_dimension_not_scored(self):
@@ -152,7 +152,7 @@ class TestBuildReport:
 
         assert mock_builder.build.call_args.kwargs["commentary"]["bulk"] == "真实 AI 解读"
 
-    def test_build_report_no_llm_does_not_add_fallback(self, mocker):
+    def test_build_report_no_llm_adds_quantitative_summary(self, mocker):
         mock_builder_cls = mocker.patch("report.builder.ReportBuilder")
         mock_builder = mock_builder_cls.return_value
         mock_builder.build.return_value = "RENDERED_REPORT"
@@ -160,4 +160,27 @@ class TestBuildReport:
         build_report("000001", "平安银行", [_result("financial", 8.0)], {}, _ctx(),
                      no_llm=True)
 
-        assert mock_builder.build.call_args.kwargs["commentary"] == {}
+        assert "量化摘要" in mock_builder.build.call_args.kwargs["commentary"]["bulk"]
+
+
+def test_new_runtime_industry_score_and_risks_enter_summary():
+    results = [_result("financial", 8), _result("technical", 6), _result("valuation", 4),
+               _result("industry", 10, risk_flags=["industry_weak_margin"]), _result("sentiment", 10)]
+    summary = compute_score_summary(results)
+    assert summary.base_score == 6.9
+    assert summary.final_score == 6.9
+    assert summary.risk_deduction == 0
+    assert "industry_weak_margin" in summary.risk_flags
+    industry = next(row for row in summary.score_rows if row["label"] == "行业对比")
+    assert industry["weight"] == "20%"
+    assert industry["score"] == "10.0"
+
+
+def test_negative_equity_risk_is_chinese_and_does_not_deduct_composite():
+    from report.formatter import risk_display_name
+
+    assert risk_display_name("negative_equity") == "净资产为负（资不抵债风险）"
+    summary = compute_score_summary([_result("financial", 8, risk_flags=["negative_equity"])])
+    assert summary.final_score == 8
+    assert summary.risk_deduction == 0
+    assert summary.risk_flags == ["negative_equity"]

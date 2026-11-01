@@ -1,6 +1,41 @@
 """工具系统 — ToolProtocol 协议、ToolResult 结构、ToolRegistry 注册表"""
+import ast
+import json
+import logging
+import re
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
+
+logger = logging.getLogger(__name__)
+
+
+def model_tool_data(data: Any) -> Any:
+    """只生成模型视图；原始工具结果保留给用户报告与成果归档。"""
+    if isinstance(data, dict):
+        return {key: model_tool_data(value) for key, value in data.items()
+                if not (isinstance(value, dict) and value.get("reference_only") is True)}
+    if isinstance(data, list):
+        return [model_tool_data(value) for value in data
+                if not (isinstance(value, dict) and value.get("reference_only") is True)]
+    return data
+
+
+def model_tool_message(content: str) -> str:
+    """兼容已持久化的 JSON/Python 字典工具消息，原始消息不被改写。"""
+    if "reference_only" not in content:
+        return content
+    match = re.match(r"^(\[[^\]]+\]\s+\w+:\s*)", content)
+    prefix = match[0] if match else ""
+    body = content[len(prefix):]
+    try:
+        try:
+            data = json.loads(body)
+        except json.JSONDecodeError:
+            data = ast.literal_eval(body)
+        return prefix + json.dumps(model_tool_data(data), ensure_ascii=False, default=str)
+    except (ValueError, SyntaxError, TypeError, RecursionError):
+        logger.debug("含历史参考的旧工具消息无法完整解析，模型上下文省略该条原始内容")
+        return prefix + "工具历史含仅供用户查看的参考，原始内容已从模型上下文省略"
 
 
 @dataclass

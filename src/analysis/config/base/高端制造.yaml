@@ -13,9 +13,9 @@ financial:
     max_score: 3
     threshold_mode: tier
     tiers:
-      - { min: 15, score: 3 }
-      - { min: 10, score: 2 }
-      - { min: 5, score: 1 }
+      - { min: 0.15, score: 3 }
+      - { min: 0.1, score: 2 }
+      - { min: 0.05, score: 1 }
       - { score: 0 }
     extra_config:
       negative_to_zero: true
@@ -86,7 +86,7 @@ valuation:
       - { score: 0 }
 
 industry:
-  weight: 0.15
+  weight: 0.20
   enabled: true
   base_score: 5
   peer_count_bonus:
@@ -127,7 +127,7 @@ technical:
       - { condition: "bearish", score: 1 }
 
 sentiment:
-  weight: 0.10
+  weight: 0.05
   enabled: true
   base_score: 5
   msg_count_bonus:
