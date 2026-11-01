@@ -229,6 +229,22 @@ def test_refresh_failure_retains_blob_but_does_not_reuse_success(tmp_path,monkey
     assert (tmp_path/'cache'/f'{hashlib.sha256(raw).hexdigest()}.jsonbody').read_bytes()==raw
 
 
+@pytest.mark.parametrize('failure', ['http', 'incomplete'])
+def test_refresh_failure_preserves_success_index_and_capture(tmp_path, monkeypatch, failure):
+    first, _, _ = collect(tmp_path, monkeypatch, responses())
+    manifests = {path: path.read_bytes() for path in (tmp_path / 'cache').glob('*.json')}
+    bad = [Response(status=400), Response(status=400)] if failure == 'http' else [
+        Response(body(sample('600900', complete=False))), Response(body(sample('601318', complete=False)))]
+    failed, _, _ = collect(tmp_path, monkeypatch, bad, refresh=True)
+    assert all(item['complete'] is False for item in failed['items'])
+    for path, before in manifests.items():
+        assert path.read_bytes() == before
+        assert json.loads(path.with_suffix('.attempt').read_bytes())['status'] in {'source_error', 'partial'}
+    cached, calls, _ = collect(tmp_path, monkeypatch, [])
+    assert calls == [] and all(item['status'] == 'cached' for item in cached['items'])
+    assert [item['fetched_at'] for item in cached['items']] == [item['fetched_at'] for item in first['items']]
+
+
 def test_invalid_dates_or_company_inputs_rejected_before_cache_or_network(tmp_path):
     for companies,as_of,start in [([{'symbol':'bad'}],NOW.date(),START),
          ([{'symbol':'600900'}]*2,NOW.date(),START),([{'symbol':'600900'}],date(2026,10,16),START),

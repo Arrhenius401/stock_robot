@@ -178,6 +178,28 @@ def test_oversize_response_closed_and_failure_refresh_never_reuses_old_success(t
     assert 'liquidity_fact' not in result['items'][0]
 
 
+@pytest.mark.parametrize('failure', ['http', 'incomplete'])
+def test_refresh_failure_preserves_success_index_and_original_capture(tmp_path, monkeypatch, failure):
+    first, _, _ = collect(tmp_path, monkeypatch, [Response()])
+    manifest = next((tmp_path / 'cache').glob('*.json'))
+    before = manifest.read_bytes()
+    if failure == 'http':
+        response = Response(status=400)
+    else:
+        response = Response(body=b'var KLC_K2_sh600900="partial";')
+        monkeypatch.setattr(module, 'decode_sina_body', lambda *args: decoded()[:-1])
+    failed = module.collect_stock_history([{'symbol': '600900'}], WINDOW, tmp_path / 'cache', as_of=NOW.date(),
+                                         http_get=lambda *args, **kwargs: response, sleep=lambda _: None, refresh=True)
+    assert 'liquidity_fact' not in failed['items'][0]
+    assert manifest.read_bytes() == before
+    attempt = json.loads(manifest.with_suffix('.attempt').read_bytes())
+    assert attempt['status'] in {'source_error', 'partial'}
+    monkeypatch.setattr(module, 'decode_sina_body', lambda *args: decoded())
+    cached, calls, _ = collect(tmp_path, monkeypatch, [])
+    assert calls == [] and cached['items'][0]['status'] == 'cached'
+    assert cached['items'][0]['fetched_at'] == first['items'][0]['fetched_at']
+
+
 def test_corrupt_cached_blob_is_refetched(tmp_path,monkeypatch):
     collect(tmp_path,monkeypatch,[Response()])
     blob=tmp_path/'cache'/f'{hashlib.sha256(BODY).hexdigest()}.js'
@@ -424,7 +446,7 @@ def test_invalid_assignment_200_still_archived_but_never_success_cache(tmp_path,
     assert (tmp_path/'cache'/item['raw_artifact']).read_bytes()==body
     assert 'liquidity_fact' not in item
     assert response.closed
-    manifest=json.loads(next((tmp_path/'cache').glob('*.json')).read_text(encoding='utf-8'))
+    manifest=json.loads(next((tmp_path/'cache').glob('*.attempt')).read_text(encoding='utf-8'))
     assert manifest['status']=='source_error'
     assert manifest['content_sha256']==digest
     retried,calls,_=collect(tmp_path,monkeypatch,[Response()])

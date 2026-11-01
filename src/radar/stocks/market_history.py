@@ -321,8 +321,12 @@ def collect_stock_history(companies: list[dict[str, Any]], market_window: list[d
                 parsed = parse_sina_history(raw, symbol, days)
                 item.update(**parsed)
                 if item['status'] == 'downloaded':
-                    _atomic(manifest, json.dumps({'status': 'downloaded', 'url': url, 'content_sha256': sha,
-                                                 'fetched_at': fetched_at}, ensure_ascii=False).encode())
+                    metadata = {'status': 'downloaded' if parsed['window_complete'] else 'partial',
+                                'url': url, 'content_sha256': sha, 'fetched_at': fetched_at}
+                    _atomic(manifest.with_suffix('.attempt'), json.dumps(metadata, ensure_ascii=False).encode())
+                    # 不完整的新响应只能留作本次尝试，不能替换完整缓存索引。
+                    if parsed['window_complete']:
+                        _atomic(manifest, json.dumps(metadata, ensure_ascii=False).encode())
                 if parsed['window_complete']:
                     item['liquidity_fact'] = {'symbol': symbol, 'kind': 'style_liquidity', 'payload': {'currency': 'CNY',
                         'scope': 'a_share_raw_turnover', 'daily': [{'date': row['date'], 'amount_yuan': row['amount_yuan']} for row in parsed['rows']],
@@ -334,7 +338,7 @@ def collect_stock_history(companies: list[dict[str, Any]], market_window: list[d
             item.update(status='source_error', error=str(exc))
             item.pop('liquidity_fact', None)
             try:
-                _atomic(manifest, json.dumps({'status': 'source_error', 'url': url, 'error': str(exc),
+                _atomic(manifest.with_suffix('.attempt'), json.dumps({'status': 'source_error', 'url': url, 'error': str(exc),
                                                  'content_sha256': item.get('content_sha256'), 'fetched_at': item.get('fetched_at')}, ensure_ascii=False).encode())
             except (OSError, ValueError) as cache_exc:
                 logger.warning('股票日线失败记录未能保存 %s: %s', symbol, cache_exc)
