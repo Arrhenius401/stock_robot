@@ -77,7 +77,7 @@ def extract_dividend_text(text: str, *, symbol: str, source_url: str,
     if symbol not in codes or any(code != symbol for code in codes):
         result['reasons'].append('证券代码缺失、冲突或与候选不符')
         return result
-    title = re.search(r'(20\d{2})年?(年度|中期|半年度)(?:A股)?(?:权益分派|利润分配)实施公告', header)
+    title = re.search(r'(20\d{2})年?(年度|中期|半年度)(?:A股)?(?:权益分派|利润分配|分红派息)实施公告', header)
     if not title or re.search(r'(?:取消|终止|更正|预案|议案).{0,20}实施公告|实施公告.{0,15}(?:更正|取消|终止)', header):
         result['reasons'].append('未匹配可支持的原始实施公告标题')
         return result
@@ -91,8 +91,11 @@ def extract_dividend_text(text: str, *, symbol: str, source_url: str,
                              for value, part in explicit_year):
         result['reasons'].append('标题与发放年度冲突')
         return result
+    bank_title = re.search(r'20\d{2}年?(?:年度|中期|半年度)A股分红派息实施公告', header) is not None
     # 上交所分配方案和深交所特别提示分段，排除历史审议金额与税后金额。
     scheme = re.search(r'3[.、]分配方案:(.*?)(?:三[、.]相关日期|三、)', compact)
+    if bank_title and scheme is None:
+        scheme = re.search(r'(?:\(三\)|（三）)分配方案:(.*?)(?:三[、.]相关日期|三、)', compact)
     tip = re.search(r'特特别别提提示示:?(.*?)(?:一一、、|一、股东)', compact)
     if tip is None:
         tip = re.search(r'(?:特别提示|重要内容提示):?(.*?)(?:一、股东)', compact)
@@ -105,6 +108,16 @@ def extract_dividend_text(text: str, *, symbol: str, source_url: str,
     a_total = _one_amount(r'派发A股现金红利(?:人民币)?', current)
     share_class = 'A' if a_total or (total and 'A股' in compact and 'H股' not in compact) or 'A股利润分配方案' in current else 'ALL'
     amount = a_total or total
+    approximate_amount = None
+    if bank_title:
+        candidates = re.findall(r'派发A股现金红利约人民币' + _NUMBER + r'(亿元|百万元|万元|元)', current)
+        unique = set(candidates)
+        if len(unique) == 1:
+            number, unit = next(iter(unique))
+            approximate_amount = {'value': number.replace(',', ''), 'unit': unit, 'currency': 'CNY'}
+        # 公司总额不是A股金额；近似值不进入精确金额字段。
+        share_class = 'A' if candidates or a_total else 'ALL'
+        amount = None if candidates else a_total
     per_matches = re.findall(r'每股(?:派发)?现金红利(?:人民币)?' + _NUMBER + r'元', current)
     if not per_matches:
         tens = re.findall(r'每10股派发现金' + _NUMBER + r'元', current)
@@ -139,6 +152,7 @@ def extract_dividend_text(text: str, *, symbol: str, source_url: str,
     proposal = {'symbol': symbol, 'fiscal_year': year, 'kind': 'current_distribution', 'distribution_period': period,
                 'amount_scope': 'distribution_event', 'share_class': share_class,
                 'amount_yuan': amount, 'per_share_yuan': per_share,
+                **({'approximate_amount': approximate_amount} if bank_title else {}),
                 'eligible_shares': eligible.replace(',', '') if eligible else None,
                 'paid_on': paid if share_class == 'A' else None, 'source_url': source_url,
                 'disclosed_on': disclosed_on, 'status': 'matched_template' if complete else 'pending_verification',
@@ -147,13 +161,13 @@ def extract_dividend_text(text: str, *, symbol: str, source_url: str,
     result['event_proposals'].append(proposal)
     # 全年合计与本次事件分开，绝不把本次 A 股日期赋给公司全年总额。
     annual = _one_amount(str(year) + r'年度合计派发现金红利', section)
-    if annual:
+    if annual and not bank_title:
         result['event_proposals'].append({**proposal, 'kind': 'annual_total',
             'amount_scope': 'fiscal_year_total', 'share_class': 'ALL', 'amount_yuan': annual,
             'per_share_yuan': None, 'eligible_shares': None, 'paid_on': None,
             'status': 'pending_verification'})
     interim = re.findall(str(year) + r'年度中期现金红利每股' + _NUMBER + r'元', section)
-    if len(set(interim)) == 1:
+    if len(set(interim)) == 1 and not bank_title:
         result['event_proposals'].append({**proposal, 'kind': 'interim_reference',
             'amount_scope': 'distribution_event', 'amount_yuan': None, 'per_share_yuan': interim[0],
             'eligible_shares': None, 'paid_on': None, 'status': 'pending_verification'})

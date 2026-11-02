@@ -112,7 +112,7 @@ def build_review_packet(companies: list[dict[str, Any]], extraction: dict[str, A
         if symbol not in results:
             unresolved.append("缺少该公司的支付率研究结果")
         if not evidence["required_share_classes"]:
-            unresolved.append("全部股类范围尚未核实")
+            unresolved.append("分红股类范围尚未核实")
         checks = []
         for year in years:
             counts = {

@@ -38,7 +38,7 @@ def facts():
                   'parent_profit_scope_reconciled': True,
                   'annual': [{'year': year, 'operating_cash_flow_yuan': '80', 'disclosed_on': f'{year+1}-04-01'} for year in YEARS]}),
             fact('style_cash_review', {'issuer_type': 'ordinary', 'verdict': 'clear', 'basis': '合成现金专项'}),
-            fact('style_dividend_history', {'currency': 'CNY', 'scope': 'company_all_shares', 'share_classes_complete': True,
+            fact('style_dividend_history', {'currency': 'CNY', 'scope': 'a_share', 'a_share_coverage_complete': True,
                   'coverage_through': AS_OF.isoformat(), 'annual': [{'year': year, 'implemented_cash_yuan': amount,
                   'coverage_complete': True, 'latest_paid_on': f'{year+1}-05-01', 'disclosed_on': f'{year+1}-06-01'}
                   for year, amount in zip(YEARS, ['10', '8', '9'], strict=True)]}),
@@ -392,3 +392,23 @@ def test_structured_cash_financial_issuer_still_uses_special_review():
     for pool in result['pools'].values():
         assert check(pool, 'cash_ratio')['outcome'] == 'not_applicable'
         assert check(pool, 'cash_review')['outcome'] == 'passed'
+
+
+def test_dividend_a_share_evidence_and_legacy_total_are_distinct():
+    rows = facts()
+    dividend = group(rows, 'style_dividend_history')
+    dividend.update(scope='a_share', a_share_coverage_complete=True)
+    result = evaluate(rows)
+    assert check(result['pools']['dividend_value'], 'dividend_history')['outcome'] == 'passed'
+    dividend.update(scope='company_all_shares', share_classes_complete=True)
+    assert check(evaluate(rows)['pools']['dividend_value'], 'dividend_history')['outcome'] == 'pending_verification'
+
+
+def test_dividend_a_share_coverage_requires_explicit_true():
+    rows = facts()
+    dividend = group(rows, 'style_dividend_history')
+    for invalid in (False, None, 'true'):
+        dividend['a_share_coverage_complete'] = invalid
+        result = evaluate(rows)
+        assert check(result['pools']['dividend_value'], 'dividend_history')['outcome'] == 'pending_verification'
+        assert result['pools']['dividend_value']['branches']['value']['approved_conditions_status'] == 'passed'

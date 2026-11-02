@@ -229,3 +229,29 @@ def test_conflicting_actual_share_bases_cannot_fall_back_to_gross_shares():
     assert result['status'] == 'pending_verification'
     assert result['event_proposals'][0]['eligible_shares'] is None
     assert any('实际参与股本存在冲突' in reason for reason in result['reasons'])
+
+@pytest.mark.parametrize(('filename', 'year', 'period', 'paid', 'amount'), [
+    ('cninfo-600036-2025-annual-implementation.txt', 2025, 'annual', '2026-07-10', '206.91'),
+    ('cninfo-600036-2025-interim-implementation.txt', 2025, 'interim', '2026-01-16', '208.97'),
+    ('cninfo-600036-2024-annual-implementation.txt', 2024, 'annual', '2025-07-11', '412.58'),
+])
+def test_real_bank_a_share_approximate_amount_never_becomes_exact(filename, year, period, paid, amount):
+    # 巨潮招商银行原PDF于2026-11-02采样，裁切至相关日期；来源与SHA见项目实施记录。
+    result = extract((RESOURCES / filename).read_text(encoding='utf-8'), symbol='600036')
+    assert result['status'] == 'pending_verification'
+    assert len(result['event_proposals']) == 1
+    proposal = result['event_proposals'][0]
+    assert (proposal['fiscal_year'], proposal['distribution_period'], proposal['share_class'], proposal['paid_on']) == (year, period, 'A', paid)
+    assert proposal['amount_yuan'] is None
+    assert proposal['approximate_amount'] == {'value': amount, 'unit': '亿元', 'currency': 'CNY'}
+    assert proposal['financial_verified'] is False
+
+
+def test_bank_correction_and_conflicting_approximate_values_never_pass():
+    text = (RESOURCES / 'cninfo-600036-2025-interim-implementation.txt').read_text(encoding='utf-8')
+    corrected = text.replace('分红派息实施公告', '分红派息实施公告更正公告')
+    assert extract(corrected, symbol='600036')['event_proposals'] == []
+    conflicted = text.replace('208.97', '208.97亿元，派发A股现金红利约人民币209.97')
+    result = extract(conflicted, symbol='600036')
+    assert result['status'] == 'pending_verification'
+    assert result['event_proposals'][0]['approximate_amount'] is None

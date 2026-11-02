@@ -17,7 +17,7 @@ from radar.stocks.admission import (
 )
 from radar.stocks.dividend_payout import _sum_amounts
 
-STYLE_RULE_VERSION = 'styles-research-2026-11-02-v5'
+STYLE_RULE_VERSION = 'styles-research-2026-11-02-v6'
 _STYLE_KINDS = ('cash_flow', 'cash_review', 'dividend_history', 'liquidity')
 
 
@@ -151,9 +151,9 @@ def _cash_review(groups: dict[str, Any], issuer: Any) -> tuple[str, str, list[st
 def _dividend_history(groups: dict[str, Any], cutoff: date, years: list[int]) -> dict[str, Any]:
     payload, identifiers, reason = groups['dividend_history']
     role = 'dividend_branch_condition'
-    if (payload is None or payload.get('currency') != 'CNY' or payload.get('scope') != 'company_all_shares'
-            or payload.get('share_classes_complete') is not True or _day(payload.get('coverage_through')) != cutoff):
-        return _check('dividend_history', 'pending_verification', reason or '缺少截至评估日的全股类已实施分红完整性核验', identifiers, role)
+    if (payload is None or payload.get('currency') != 'CNY' or payload.get('scope') != 'a_share'
+            or payload.get('a_share_coverage_complete') is not True or _day(payload.get('coverage_through')) != cutoff):
+        return _check('dividend_history', 'pending_verification', reason or '缺少截至评估日的A股已实施分红完整性核验', identifiers, role)
     indexed = _annual(payload.get('annual'), years)
     if indexed is None:
         return _check('dividend_history', 'pending_verification', '分红财政年度缺失、重复或不是最近三个完整年度', identifiers, role)
@@ -177,7 +177,7 @@ def _dividend_history(groups: dict[str, Any], cutoff: date, years: list[int]) ->
             continue
         amounts[str(year)] = str(amount)
     status = 'failed' if zero else ('pending_verification' if unknown else 'passed')
-    return _check('dividend_history', status, '逐年已实施分红须为正；不要求金额逐年增长，也不代表支付率核验', identifiers,
+    return _check('dividend_history', status, '逐年A股已实施分红须为正；不要求金额逐年增长，也不代表支付率核验', identifiers,
                   role, {'annual_implemented_cash_yuan': amounts, 'years': years})
 
 

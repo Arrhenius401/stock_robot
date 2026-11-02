@@ -34,7 +34,7 @@ def test_packet_keeps_empty_companies_and_does_not_promote_proposals():
     assert first["evidence"]["events"] == first["evidence"]["profits"] == first["evidence"]["coverage"] == []
     assert second["proposals"] == []
     assert second["research_status"] == "pending_verification"
-    assert "全部股类范围尚未核实" in second["unresolved"]
+    assert "分红股类范围尚未核实" in second["unresolved"]
     assert packet["requires_review"] is True
     assert packet["rule_enabled"] is packet["financial_verified"] is False
     assert args == original
