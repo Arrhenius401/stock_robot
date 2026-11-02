@@ -264,6 +264,12 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
             raise StockRevisionConflict('读取详情期间成长来源变化，请重新读取')
         return {'company': row, 'evidence': evidence, 'reviews': reviews, 'evaluation': report, 'publication_enabled': False}
 
+    @router.get('/companies/{symbol}/manual-review-packet')
+    def manual_review_packet(symbol: str):
+        from radar.stocks.manual_review_packet import build_manual_review_packet
+
+        return build_manual_review_packet(detail(symbol))
+
     @router.post('/companies/{symbol}/reviews')
     def save_review(symbol: str, body: ReviewInput):
         company(research(), symbol)

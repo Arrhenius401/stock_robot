@@ -305,6 +305,11 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_facts_cli.py"
         continue
     }
+    if ($path -eq "src\radar\stocks\manual_review_packet.py") {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_manual_review_packet.py"
+        Add-UniqueTarget $testTargets "tests/api/test_stock_radar_management.py"
+        continue
+    }
     if ($path -eq "src\radar\stocks\turnover_source.py") {
         Add-UniqueTarget $testTargets "tests/radar/test_stock_turnover_source.py"
         Add-UniqueTarget $testTargets "tests/radar/test_stock_market_history.py"

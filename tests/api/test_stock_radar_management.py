@@ -429,3 +429,18 @@ def test_detail_and_draft_bind_dividend_source_even_when_unavailable(tmp_path):
             'request_id': 'dividend-source-binding', 'actor': '测试', 'reason': '测试分红来源', 'pool_id': 'dividend_value'})
         assert draft.status_code == 200, draft.text
         assert draft.json()['status'] == 'blocked'
+
+
+def test_manual_review_packet_is_on_demand_and_read_only(tmp_path):
+    state = tmp_path/'state'
+    store = seed(state)
+    before = (store.get_company('600000'), store.list_evidence('600000'), store.review_history('600000'))
+    with client(state) as web:
+        result = web.get('/api/v1/radar/stocks/companies/600000/manual-review-packet')
+        assert result.status_code == 200, result.text
+        packet = result.json()
+        assert packet['symbol'] == '600000' and len(packet['checks']) == 6
+        assert packet['formal_screening_enabled'] is False and packet['members_published'] == 0
+        assert web.get('/api/v1/radar/stocks/companies/600001/manual-review-packet').status_code == 404
+    after = (store.get_company('600000'), store.list_evidence('600000'), store.review_history('600000'))
+    assert after == before
