@@ -158,6 +158,80 @@ def test_cninfo_record_without_company_identity_cannot_be_trusted():
         validate_source('cninfo', '600900', json.dumps({'records': records()}).encode())
 
 
+def test_rejected_raw_response_is_preserved_without_false_success_or_retry(tmp_path):
+    import base64
+    import hashlib
+    import json
+
+    from radar.stocks.dividend_collect import collect_dividend, request_identity
+
+    raw = json.dumps({'records': records()}).encode()
+    calls = []
+    def fetch(source, symbol):
+        calls.append(source)
+        if source == 'cninfo':
+            return 200, raw
+        return 200, json.dumps({'success': True, 'result': {'pages': 1, 'data': []}}).encode()
+    result = collect_dividend('600900', DAY, tmp_path, fetch=fetch, sleep=lambda _: pytest.fail('结构错误不应重试'))
+    rejected = result['sources']['cninfo']
+    assert calls == ['cninfo', 'eastmoney']
+    assert result['status'] == 'partial' and rejected['status'] == 'failed'
+    assert rejected['reason'] == 'invalid_data' and rejected['request'] == request_identity('cninfo', '600900')
+    assert rejected['diagnostic'] == '分红记录公司身份缺失或不一致'
+    assert rejected['sha256'] == hashlib.sha256(raw).hexdigest() and base64.b64decode(rejected['raw']) == raw
+    assert not (tmp_path / f'cninfo-600900-{DAY.isoformat()}.json').exists()
+
+
+def test_partial_task_archives_rejected_original_as_unverified(tmp_path):
+    import base64
+    import json
+
+    from radar.stocks.dividend_collect import VERSION, collect_dividend
+    from radar.stocks.dividend_source import load_dividend_source
+    from radar.stocks.financial_task import read_financial_artifact
+    from radar.stocks.update_runner import StockUpdateRunner
+    from tests.radar.test_stock_financial_source import environment
+
+    research, _, tasks, _ = environment(tmp_path)
+    snapshot = {'kind': 'dividend_review', 'pool_ids': ['dividend_value'], 'scope_complete': True,
+                'scope_as_of': DAY.isoformat(), 'scope_sha256': 'b'*64, 'source_run_id': 'scope',
+                'companies': [{'symbol': '600900', 'name': '合成公司'}]}
+    tasks.enqueue(kind='dividend_review', pool_ids=['dividend_value'], target_date=DAY,
+                  rule_version=VERSION, snapshot=snapshot)
+    raw = json.dumps({'records': records()}).encode()
+    def fetch(source, symbol):
+        return (200, raw) if source == 'cninfo' else (200, json.dumps({'success': True, 'result': {'pages': 1, 'data': []}}).encode())
+    def collector(symbol, as_of, cache_dir, **kwargs):
+        return collect_dividend(symbol, as_of, cache_dir, fetch=fetch, sleep=lambda _: None, **kwargs)
+    runner = StockUpdateRunner(tasks, tmp_path/'cache', tmp_path/'stock-updates/artifacts', dividend_collector=collector)
+    finished = runner.execute_one('isolated')
+    assert finished is not None and finished['status'] == 'partial'
+    saved = read_financial_artifact(finished['results'][0], tmp_path/'stock-updates/artifacts')
+    assert base64.b64decode(saved['collection']['sources']['cninfo']['raw']) == raw
+    source = load_dividend_source(research.db_path, '600900', DAY)
+    assert source['status'] == 'partial' and source['result'] is None
+
+
+def test_cache_write_failure_cannot_report_completed(tmp_path, monkeypatch):
+    import json
+
+    from radar.stocks import dividend_collect as module
+
+    atomic = module._atomic
+    def write(path, data):
+        if path.name.startswith('cninfo-'):
+            raise OSError('合成写入失败')
+        return atomic(path, data)
+    monkeypatch.setattr(module, '_atomic', write)
+    def fetch(source, symbol):
+        value = {'records': [{**row, 'SECURITY_CODE': symbol} for row in records()]} if source == 'cninfo' else {
+            'success': True, 'result': {'pages': 1, 'data': []}}
+        return 200, json.dumps(value).encode()
+    result = module.collect_dividend('600900', DAY, tmp_path, fetch=fetch, sleep=lambda _: None)
+    assert result['status'] == 'partial' and result['sources']['cninfo']['status'] == 'failed'
+    assert result['sources']['eastmoney']['status'] == 'complete'
+
+
 def test_dividend_task_and_source_bind_raw_artifact(tmp_path):
     import base64
     import hashlib

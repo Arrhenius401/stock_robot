@@ -140,11 +140,23 @@ def collect_dividend(symbol: str, as_of: date, cache_dir: Path, *,
                     continue
                 if status != 200:
                     raise ValueError(f'来源HTTP {status}')
-                validate_source(source, symbol, raw)
+                if not isinstance(raw, bytes) or not 0 < len(raw) <= MAX_BYTES:
+                    raise ValueError('来源原文类型或大小无效')
                 result = {'version': VERSION, 'source': source, 'symbol': symbol, 'as_of': as_of.isoformat(),
-                          'url': url, 'request': request_identity(source, symbol), 'status': 'complete', 'fetched_at': datetime.now(UTC).isoformat(),
-                          'sha256': hashlib.sha256(raw).hexdigest(), 'raw': base64.b64encode(raw).decode('ascii')}
-                _atomic(manifest, json.dumps(result, ensure_ascii=False).encode())
+                          'url': url, 'request': request_identity(source, symbol), 'status': 'failed',
+                          'fetched_at': datetime.now(UTC).isoformat(), 'sha256': hashlib.sha256(raw).hexdigest(),
+                          'raw': base64.b64encode(raw).decode('ascii')}
+                try:
+                    validate_source(source, symbol, raw)
+                except (ValueError, TypeError, KeyError, RecursionError) as exc:
+                    logger.warning('分红原文校验未通过 %s %s: %s', source, symbol, exc)
+                    result['reason'] = 'invalid_data'
+                    result['diagnostic'] = ('分红记录公司身份缺失或不一致' if '公司身份' in str(exc)
+                                            else '分红原文结构或完整性校验未通过')
+                    break
+                complete = {**result, 'status': 'complete'}
+                _atomic(manifest, json.dumps(complete, ensure_ascii=False).encode())
+                result = complete
                 result['cache_status'] = 'live'
                 break
             except Exception as exc:  # noqa: BLE001 第三方网络与子进程隔离，失败不覆盖成功缓存。
