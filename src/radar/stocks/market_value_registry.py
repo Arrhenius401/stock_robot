@@ -135,6 +135,7 @@ def load_market_value_source(state_dir: Path, symbol: str, as_of: date, *, db: P
     """基础资料新任务优先，无适用任务时兼容旧登记。"""
     from radar.stocks.reference_task import select_reference_manifest
 
+    state_dir = Path(state_dir).absolute()
     path, identity = select_reference_manifest(state_dir, symbol, as_of, 'market_value', db=db)
     if identity is None:
         return _registered_load_market_value_source(state_dir, symbol, as_of)

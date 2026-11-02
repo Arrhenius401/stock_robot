@@ -56,6 +56,23 @@ def test_task_snapshot_name_is_rechecked_instead_of_legacy_manifest(tmp_path, mo
     assert result['status'] == 'current'
 
 
+def test_task_market_source_works_with_relative_state_path(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from radar.stocks import reference_task
+
+    root, _ = make_registry(tmp_path, monkeypatch)
+    (root / 'manifest.json').rename(root / 'market-600900.json')
+    monkeypatch.setattr(reference_task, 'select_reference_manifest',
+        lambda state, *args, **kwargs: (state/'stock-market-value/market-600900.json', {'status': 'available'}))
+    def calculate(**kwargs):
+        return {'symbol': kwargs['symbol'], 'as_of': DAY.isoformat(),
+                'status': 'current' if kwargs['scope_path'].is_absolute() else 'invalid', 'checks': [], 'source': {}}
+    monkeypatch.setattr(registry, 'evaluate_supplier_market_value', calculate)
+    monkeypatch.chdir(tmp_path.parent)
+    assert registry.load_market_value_source(Path(tmp_path.name), '600900', DAY)['status'] == 'current'
+
+
 def test_current_historical_and_no_path_leak(tmp_path, monkeypatch):
     make_registry(tmp_path, monkeypatch)
     current = registry.load_market_value_source(tmp_path, '600900', DAY)
