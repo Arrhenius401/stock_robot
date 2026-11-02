@@ -24,6 +24,7 @@ from radar.stocks.research_store import (
     _sha,
     _symbol,
 )
+from radar.stocks.turnover_source import load_turnover_source
 
 
 def _copy(value: Any) -> Any:
@@ -154,6 +155,11 @@ class StockEvaluationStore:
             if type(revision) is not int or not 0 <= revision <= 2**63 - 1:
                 raise StockResearchError('公司来源revision无效')
             self.research._date(company.get('data_as_of'))
+            if 'turnover_source' in entry or 'turnover_as_of' in entry:
+                turnover = entry.get('turnover_source')
+                turnover_as_of = self.research._date(entry.get('turnover_as_of'))
+                if not isinstance(turnover, dict) or turnover.get('symbol') != symbol or turnover.get('evaluation_as_of') != turnover_as_of:
+                    raise StockResearchError('公司成交额来源的身份或评估截点无效')
             if 'dividend_source' in entry or 'dividend_as_of' in entry:
                 dividend = entry.get('dividend_source')
                 dividend_as_of = self.research._date(entry.get('dividend_as_of'))
@@ -204,6 +210,10 @@ class StockEvaluationStore:
             live = current.get(symbol)
             if live is None or live['revision'] != expected['revision']:
                 raise StockRevisionConflict(f'公司来源版本已变化：{symbol}')
+            if 'turnover_source' in entry:
+                cutoff = date.fromisoformat(entry['turnover_as_of'])
+                if _json(load_turnover_source(self.research.db_path, symbol, cutoff)) != _json(entry['turnover_source']):
+                    raise StockRevisionConflict(f'公司成交额来源已变化：{symbol}')
             if 'dividend_source' in entry:
                 cutoff = date.fromisoformat(entry['dividend_as_of'])
                 if _json(load_dividend_source(self.research.db_path, symbol, cutoff)) != _json(entry['dividend_source']):
@@ -281,6 +291,9 @@ class StockEvaluationStore:
             if ('dividend_source' in source or 'dividend_source' in item) and (
                     source.get('dividend_as_of') != as_of or _json(source.get('dividend_source')) != _json(item.get('dividend_source'))):
                 raise StockResearchError('报告分红来源与归档输入不匹配')
+            if ('turnover_source' in source or 'turnover_source' in item) and (
+                    source.get('turnover_as_of') != as_of or _json(source.get('turnover_source')) != _json(item.get('turnover_source'))):
+                raise StockResearchError('报告成交额来源与归档输入不匹配')
             if ('financial_source' in source or 'financial_source' in item) and (
                     source.get('financial_as_of') != as_of or _json(source.get('financial_source')) != _json(item.get('financial_source'))):
                 raise StockResearchError('报告财务来源与归档输入不匹配')
@@ -330,6 +343,11 @@ class StockEvaluationStore:
                     and (window is None or source.get('window_days') != window or not isinstance(calendar, dict)
                          or source.get('calendar_sha256') != calendar.get('snapshot_sha256'))):
                 raise StockResearchError('市值来源与评估日历不一致')
+            turnover = entry.get('turnover_source')
+            if (isinstance(turnover, dict) and turnover.get('status') == 'current'
+                    and (window is None or turnover.get('window_days') != window or not isinstance(calendar, dict)
+                         or turnover.get('calendar_sha256') != calendar.get('snapshot_sha256'))):
+                raise StockResearchError('成交额来源与评估日历不一致')
         context = {'market_window': window, 'market_window_role': 'research_context_only',
                    'market_window_source': prepared.get('market_window_source')}
         identity_inputs = {key: value for key, value in manifest.items() if key != 'captured_at'}

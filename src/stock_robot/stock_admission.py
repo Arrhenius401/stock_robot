@@ -60,7 +60,8 @@ def evaluate_store(store: StockResearchStore, as_of: date, *, symbol: str | None
                    profile_sources: dict[str, dict[str, Any]] | None = None,
                    industry_sources: dict[str, dict[str, Any]] | None = None,
                    growth_sources: dict[str, dict[str, Any]] | None = None,
-                   dividend_sources: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
+                   dividend_sources: dict[str, dict[str, Any]] | None = None,
+                   turnover_sources: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     """读前后revision校验，不能把资料更新中的混合结果当稳定结论。"""
     style_engine = None
     if include_styles:
@@ -104,6 +105,10 @@ def evaluate_store(store: StockResearchStore, as_of: date, *, symbol: str | None
                 if code not in dividend_sources:
                     raise ValueError('缺少绑定的分红来源')
                 common['dividend_source'] = dividend_sources[code]
+            if turnover_sources is not None:
+                if code not in turnover_sources:
+                    raise ValueError('缺少绑定的成交额来源')
+                common['turnover_source'] = turnover_sources[code]
             result = (style_engine.evaluate_stock_styles(code, evidence, as_of, market_window=market_window, common_result=common)
                       if style_engine else common)
             result["evaluation_valid"] = True

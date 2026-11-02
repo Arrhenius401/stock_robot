@@ -405,6 +405,13 @@ def test_financial_start_freezes_scope_and_kind_filtered_recovery(tmp_path):
         latest_dividend = web.get(base+'updates/latest?pool_id=dividend_value&kind=dividend_review').json()
         assert latest_dividend['run_id'] == dividend_task['run_id']
         assert tasks.get(dividend_task['run_id'])['input_snapshot']['scope_sha256'] == scope['scope_sha256']
+        turnover = web.post(base+'dividend_value/turnover-review', json={})
+        assert turnover.status_code == 202, turnover.text
+        turnover_task = turnover.json()
+        assert turnover_task['kind'] == 'turnover_review' and 'companies' not in turnover_task['input_snapshot']
+        latest_turnover = web.get(base+'updates/latest?pool_id=dividend_value&kind=turnover_review').json()
+        assert latest_turnover['run_id'] == turnover_task['run_id']
+        assert tasks.get(turnover_task['run_id'])['input_snapshot']['scope_sha256'] == scope['scope_sha256']
 
 
 def test_detail_and_draft_bind_dividend_source_even_when_unavailable(tmp_path):

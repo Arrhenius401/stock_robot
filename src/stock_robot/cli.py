@@ -54,6 +54,7 @@ from stock_robot.stock_updates import (
     list_updates,
     reference_update,
     run_one_update,
+    turnover_update,
 )
 from utils.config import DEFAULT_CONFIG, Config
 from utils.paths import resource_root, runtime_root
@@ -1848,6 +1849,7 @@ radar.add_command(structured_screen_command)
 radar.add_command(structured_admission_command)
 radar.add_command(reference_update)
 radar.add_command(dividend_update)
+radar.add_command(turnover_update)
 radar.add_command(market_window_command)
 radar.add_command(market_history_command)
 radar.add_command(capital_history_command)

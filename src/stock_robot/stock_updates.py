@@ -92,6 +92,41 @@ def dividend_update(db: Path, pool_id: str, as_of: str | None, resume_run_id: st
         raise click.ClickException(str(exc)) from exc
 
 
+@click.command('stock-turnover-update')
+@click.option('--db', type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
+@click.option('--pool', 'pool_id', required=True)
+@click.option('--as-of')
+@click.option('--resume-run-id')
+@click.option('--pool-dir', type=click.Path(exists=True, file_okay=False, path_type=Path), default='config/radar_stock_pools')
+@click.option('--output', type=click.Path(dir_okay=False, path_type=Path))
+def turnover_update(db: Path, pool_id: str, as_of: str | None, resume_run_id: str | None,
+                    pool_dir: Path, output: Path | None) -> None:
+    """冻结候选并入队成交额资料任务，或继续已有任务。"""
+    from radar.stocks.turnover_source import VERSION
+    from radar.stocks.web_queries import read_connection, scope_snapshot
+
+    try:
+        _protect_database(db, output)
+        _protect_pool_directory(pool_dir, output)
+        tasks = _updates(db, pool_dir)
+        if resume_run_id is not None:
+            if as_of is not None:
+                raise ValueError('继续原任务不能更改日期')
+            result = tasks.resume_turnover(resume_run_id, pool_id)
+        else:
+            with read_connection(db) as connection:
+                scope = scope_snapshot(connection, db.parent, pool_id)
+            if not scope['scope_complete'] or scope['scope_status'] != 'complete' or not scope['companies']:
+                raise ValueError('请先准备当前池完整指数候选范围')
+            snapshot = {**scope, 'kind': 'turnover_review', 'pool_ids': [pool_id]}
+            target = _cutoff(as_of) if as_of is not None else datetime.now().astimezone().date()
+            result = tasks.enqueue(kind='turnover_review', pool_ids=[pool_id], target_date=target,
+                                   rule_version=VERSION, snapshot=snapshot)
+        _emit(result, db, output)
+    except (OSError, TypeError, ValueError, sqlite3.Error) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
 @click.command('stock-update-enqueue')
 @click.option('--db', type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
 @click.option('--input', 'input_path', type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)

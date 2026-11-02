@@ -42,7 +42,7 @@ def public_task(row: Any) -> dict[str, Any]:
         task['progress'] = financial_progress(task)
         latest = {item['scope']: item for item in task['results']}
         task['source_stopped'] = any(item.get('artifact', {}).get('source_stopped') is True for item in latest.values())
-    if task['kind'] in {'financial_review', 'dividend_review', 'reference_review'}:
+    if task['kind'] in {'financial_review', 'dividend_review', 'turnover_review', 'reference_review'}:
         # 固定范围保存在私有任务中，网页仅需范围摘要。
         task['input_snapshot'] = {key: value for key, value in task['input_snapshot'].items()
                                   if key in {'kind', 'pool_ids', 'scope_as_of', 'scope_complete', 'scope_sha256', 'source_run_id'}}

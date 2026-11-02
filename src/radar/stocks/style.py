@@ -17,7 +17,7 @@ from radar.stocks.admission import (
 )
 from radar.stocks.dividend_payout import _sum_amounts
 
-STYLE_RULE_VERSION = 'styles-research-2026-11-02-v7'
+STYLE_RULE_VERSION = 'styles-research-2026-11-02-v8'
 _STYLE_KINDS = ('cash_flow', 'cash_review', 'dividend_history', 'liquidity')
 
 
@@ -240,11 +240,27 @@ def evaluate_stock_styles(symbol: str, evidence: list[dict[str, Any]], as_of: da
     ratio_ids = sorted(set(ratio_ids + security_ids))
     review_ids = sorted(set(review_ids + security_ids))
     liquidity_status, liquidity_reason, liquidity_ids, liquidity_values = _liquidity(groups, cutoff, market_window)
+    turnover = result.get('turnover_source')
+    if isinstance(turnover, dict) and turnover.get('status') != 'unavailable':
+        manual_status = liquidity_status
+        valid = (turnover.get('status') == 'current' and turnover.get('symbol') == symbol
+                 and turnover.get('as_of') == cutoff.isoformat() and turnover.get('evaluation_as_of') == cutoff.isoformat()
+                 and isinstance(market_window, list)
+                 and turnover.get('window_days') == [day.isoformat() for day in market_window])
+        if valid:
+            candidate = {**groups, 'liquidity': (turnover.get('payload'), [], None)}
+            liquidity_status, liquidity_reason, _, liquidity_values = _liquidity(candidate, cutoff, market_window)
+            if manual_status in {'passed', 'below_reference'} and manual_status != liquidity_status:
+                liquidity_status, liquidity_reason, liquidity_values = 'unavailable', '人工成交额与结构化来源冲突，待核验', None
+        else:
+            liquidity_status, liquidity_reason, liquidity_values = 'unavailable', '成交额来源历史、无效或交易窗口不符', None
     red_checks = [_check('cash_ratio', ratio_status, ratio_reason, ratio_ids, 'cash_hard_condition', ratio_values),
                   _check('cash_review', review_status, review_reason, review_ids, 'cash_hard_condition'),
                   _dividend_history(groups, cutoff, years),
                   _check('liquidity', 'warning' if liquidity_status == 'below_reference' else liquidity_status,
                          liquidity_reason, liquidity_ids, 'liquidity_warning', liquidity_values)]
+    if isinstance(turnover, dict) and turnover.get('status') != 'unavailable':
+        red_checks[3]['channel'] = 'structured_turnover'
     if structured and ratio_status != 'not_applicable':
         red_checks[0]['channel'] = 'structured_cash_flow'
     dividend_source = result.get('dividend_source')
@@ -278,6 +294,8 @@ def evaluate_stock_styles(symbol: str, evidence: list[dict[str, Any]], as_of: da
                             liquidity_reason, liquidity_ids, 'opportunity_reference', liquidity_values)]
     if structured and ratio_status != 'not_applicable':
         growth_checks[0]['channel'] = 'structured_cash_flow'
+    if isinstance(turnover, dict) and turnover.get('status') != 'unavailable':
+        growth_checks[2]['channel'] = 'structured_turnover'
     # 已知低比率只提醒，缺资料仍待核验；未清晰完成专项也不冒充已核验。
     quality_review = 'passed' if review_status == 'passed' else 'pending_verification'
     growth_status = _aggregate([result['common_status'], growth_ratio_status, quality_review])

@@ -73,6 +73,24 @@ def test_same_event_with_inconsistent_reporting_period_is_pending():
     assert evaluate_dividend_records('600900', DAY, rows, secondary)['outcome'] == 'pending_verification'
 
 
+def test_real_cninfo_has_no_company_code_and_has_cross_source_period_conflict():
+    import json
+    from pathlib import Path
+
+    from radar.stocks.dividend_collect import validate_source
+
+    root = Path(__file__).parents[1] / 'resources/radar'
+    primary = json.loads((root/'cninfo-600900-dividend-history.json').read_text(encoding='utf-8'))
+    secondary = json.loads((root/'eastmoney-600900-dividend-history.json').read_text(encoding='utf-8'))
+    with pytest.raises(ValueError, match='公司身份'):
+        validate_source('cninfo', '600900', json.dumps(primary).encode())
+    result = evaluate_dividend_records('600900', date(2026, 11, 2), primary['records'], secondary['result']['data'])
+    assert result['outcome'] == 'pending_verification'
+    assert any(row['F001V'] == '2024三季报' and row['F006D'] == '2025-01-16' for row in primary['records'])
+    assert any(row['REPORT_DATE'].startswith('2024-06-30') and row['NOTICE_DATE'].startswith('2025-01-16')
+               for row in secondary['result']['data'])
+
+
 @pytest.mark.parametrize('symbol', ['600900', '600036'])
 def test_real_eastmoney_without_actual_payment_date_cannot_pass(symbol):
     import json

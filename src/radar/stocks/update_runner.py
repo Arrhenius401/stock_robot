@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import logging
@@ -13,6 +14,7 @@ import uuid
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
+from time import sleep
 from typing import Any
 
 from radar.stocks.capital_history import collect_capital_history_result
@@ -209,6 +211,71 @@ class StockUpdateRunner:
             collection = None
         return 'partial' if pending else 'completed'
 
+    def _turnover(self, task: dict[str, Any], worker: str, token: str) -> str:
+        from radar.stocks.turnover_source import VERSION, verify_turnover_payload
+
+        if task['rule_version'] != VERSION:
+            raise StockResearchError('成交额任务版本不兼容')
+        cutoff = date.fromisoformat(task['target_date'])
+        days, trace = self.window_loader(cutoff) if self.window_loader else (self.market_window, None)
+        calendar = trace.get('calendar') if isinstance(trace, dict) else None
+        if not isinstance(calendar, dict):
+            from radar.stocks.update_service import load_market_window
+            cached_days, cached_trace = load_market_window(self.store.research.db_path.parent, cutoff)
+            if days is not None and days != cached_days:
+                raise StockResearchError('手动窗口与本地交易日历不一致')
+            days, trace = cached_days, cached_trace
+            calendar = trace.get('calendar') if isinstance(trace, dict) else None
+        if days is None or not isinstance(calendar, dict):
+            raise StockResearchError('成交额任务需要已保存的60日市场日历')
+        latest = {item['scope']: item for item in task['results']}
+        pending = False
+        cache = self.cache_dir/'market_history'
+        for index, company in enumerate(task['input_snapshot']['companies']):
+            symbol, scope = company['symbol'], 'turnover:' + company['symbol']
+            previous = latest.get(scope)
+            if previous is not None and previous['status'] == 'completed':
+                self._verify_artifact(previous)
+                payload = read_financial_artifact(previous, self.artifact_dir)
+                verify_turnover_payload(payload, symbol, task['target_date'])
+                if payload['window'] != [day.isoformat() for day in days] or payload['calendar'] != calendar:
+                    raise StockResearchError('原成交额任务市场日历已变化，不能混合续跑')
+                continue
+            if index:
+                sleep(1)
+            payload: dict[str, Any] = {'symbol': symbol, 'as_of': task['target_date']}
+            stopped = False
+            try:
+                collected = collection_result(self.history_collector([company], days, cache, as_of=cutoff), 'market_history')
+                result = collected.value
+                if not isinstance(result, dict):
+                    raise TypeError('成交额采集没有返回有效资料')
+                item = result['items'][0]
+                stopped = '429' in str(item.get('error', '')) or item.get('status') == 'source_stopped'
+                if item.get('status') not in {'cached', 'downloaded'} or item.get('window_complete') is not True:
+                    raise ValueError('成交额原文缺失或交易日不完整')
+                sha = _sha(item['content_sha256'])
+                raw_path = cache / (sha + '.js')
+                if raw_path.is_symlink() or item.get('raw_artifact') != raw_path.name:
+                    raise ValueError('成交额原文路径无效')
+                raw = raw_path.read_bytes()
+                payload.update(window=[day.isoformat() for day in days], calendar=calendar, url=item['url'],
+                               fetched_at=item['fetched_at'], sha256=sha, raw=base64.b64encode(raw).decode('ascii'))
+                verify_turnover_payload(payload, symbol, task['target_date'])
+                status = 'completed'
+            except StockRevisionConflict:
+                raise
+            except Exception as exc:  # noqa: BLE001 第三方来源逐公司隔离，失败不得当作零成交额。
+                logger.warning('成交额资料待补 %s: %s', symbol, exc)
+                status = 'partial'
+            pending |= status != 'completed'
+            self.store.record_item(task['run_id'], worker, {'scope': scope, 'status': status,
+                'summary': '成交额来源已保存' if status == 'completed' else '成交额资料待补',
+                'artifact': _artifact(self.artifact_dir, payload)}, lease_token=token)
+            if stopped:
+                return 'partial'
+        return 'partial' if pending else 'completed'
+
     def _refresh(self, task: dict[str, Any], worker: str, token: str) -> list[dict[str, Any]]:
         cutoff = date.fromisoformat(task['target_date'])
         companies = [{'symbol': symbol} for symbol in sorted({row['symbol'] for row in task['input_snapshot']['members']})]
@@ -350,6 +417,8 @@ class StockUpdateRunner:
                 status = self._financial(task, worker_id, token)
             elif task['kind'] == 'dividend_review':
                 status = self._dividend(task, worker_id, token)
+            elif task['kind'] == 'turnover_review':
+                status = self._turnover(task, worker_id, token)
             elif task['kind'] == 'reference_review':
                 status = self._reference(task, worker_id, token)
             else:
