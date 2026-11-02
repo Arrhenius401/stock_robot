@@ -10,6 +10,7 @@ from typing import Any
 
 from radar.stocks import admission, style
 from radar.stocks.company_profile_source import load_company_profile_source
+from radar.stocks.dividend_source import load_dividend_source
 from radar.stocks.financial_source import load_financial_source
 from radar.stocks.growth_source import load_growth_source
 from radar.stocks.industry_source import load_industry_source
@@ -153,6 +154,11 @@ class StockEvaluationStore:
             if type(revision) is not int or not 0 <= revision <= 2**63 - 1:
                 raise StockResearchError('公司来源revision无效')
             self.research._date(company.get('data_as_of'))
+            if 'dividend_source' in entry or 'dividend_as_of' in entry:
+                dividend = entry.get('dividend_source')
+                dividend_as_of = self.research._date(entry.get('dividend_as_of'))
+                if not isinstance(dividend, dict) or dividend.get('symbol') != symbol or dividend.get('evaluation_as_of') != dividend_as_of:
+                    raise StockResearchError('公司分红来源的身份或评估截点无效')
             if 'financial_source' in entry or 'financial_as_of' in entry:
                 financial = entry.get('financial_source')
                 financial_as_of = self.research._date(entry.get('financial_as_of'))
@@ -198,6 +204,10 @@ class StockEvaluationStore:
             live = current.get(symbol)
             if live is None or live['revision'] != expected['revision']:
                 raise StockRevisionConflict(f'公司来源版本已变化：{symbol}')
+            if 'dividend_source' in entry:
+                cutoff = date.fromisoformat(entry['dividend_as_of'])
+                if _json(load_dividend_source(self.research.db_path, symbol, cutoff)) != _json(entry['dividend_source']):
+                    raise StockRevisionConflict(f'公司分红来源已变化：{symbol}')
             if 'financial_source' in entry:
                 cutoff = date.fromisoformat(entry['financial_as_of'])
                 live_financial = load_financial_source(self.research.db_path, symbol, cutoff)
@@ -268,6 +278,9 @@ class StockEvaluationStore:
             if ('market_value_source' in item or 'market_value_source' in source) and (
                     source.get('market_value_as_of') != as_of or _json(source.get('market_value_source')) != _json(item.get('market_value_source'))):
                 raise StockResearchError('报告市值来源与归档输入不匹配')
+            if ('dividend_source' in source or 'dividend_source' in item) and (
+                    source.get('dividend_as_of') != as_of or _json(source.get('dividend_source')) != _json(item.get('dividend_source'))):
+                raise StockResearchError('报告分红来源与归档输入不匹配')
             if ('financial_source' in source or 'financial_source' in item) and (
                     source.get('financial_as_of') != as_of or _json(source.get('financial_source')) != _json(item.get('financial_source'))):
                 raise StockResearchError('报告财务来源与归档输入不匹配')

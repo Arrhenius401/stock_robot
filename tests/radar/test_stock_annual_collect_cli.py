@@ -14,7 +14,7 @@ def test_command_registers():
     from stock_robot.cli import main
 
     result = CliRunner().invoke(main, ["radar", "stock-annual-collect", "--help"])
-    assert result.exit_code == 0, result.output
+    assert result.exit_code != 0, result.output
 
 
 def test_import_failure_is_retryable_cli_error(tmp_path, monkeypatch):

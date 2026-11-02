@@ -17,6 +17,7 @@ from typing import Any
 
 from radar.stocks.capital_history import collect_capital_history_result
 from radar.stocks.collection_results import collection_result
+from radar.stocks.dividend_collect import collect_dividend, verify_collection
 from radar.stocks.financial_task import (
     read_financial_artifact,
     verify_financial_payload,
@@ -76,6 +77,7 @@ class StockUpdateRunner:
                  history_collector: Callable[..., Any] = collect_stock_history_result,
                  capital_collector: Callable[..., Any] = collect_capital_history_result,
                  financial_collector: Callable[..., Any] = collect_structured_company_result,
+                 dividend_collector: Callable[..., Any] = collect_dividend,
                  reference_factory: Callable[..., Any] | None = None,
                  market_window: list[date] | None = None,
                  window_loader: Callable[[date], tuple[list[date] | None, Any]] | None = None):
@@ -89,6 +91,7 @@ class StockUpdateRunner:
         self.history_collector = history_collector
         self.capital_collector = capital_collector
         self.financial_collector = financial_collector
+        self.dividend_collector = dividend_collector
         self.reference_factory = reference_factory
         self.market_window = market_window
         self.window_loader = window_loader
@@ -173,6 +176,37 @@ class StockUpdateRunner:
             self.store.record_item(task['run_id'], worker, item, lease_token=token)
             if stopped:
                 return 'partial'
+        return 'partial' if pending else 'completed'
+
+    def _dividend(self, task: dict[str, Any], worker: str, token: str) -> str:
+        latest = {item['scope']: item for item in task['results']}
+        pending = False
+        blocked_sources: set[str] = set()
+        for company in task['input_snapshot']['companies']:
+            symbol, scope = company['symbol'], 'dividend:' + company['symbol']
+            previous = latest.get(scope)
+            if previous is not None and previous['status'] == 'completed':
+                self._verify_artifact(previous)
+                payload = read_financial_artifact(previous, self.artifact_dir)
+                verify_collection(payload['collection'], symbol, date.fromisoformat(task['target_date']))
+                continue
+            collection = None
+            try:
+                collection = self.dividend_collector(symbol, date.fromisoformat(task['target_date']), self.cache_dir/'dividend',
+                                                    blocked_sources=blocked_sources)
+                verify_collection(collection, symbol, date.fromisoformat(task['target_date']))
+                status = 'completed'
+            except StockRevisionConflict:
+                raise
+            except Exception as exc:  # noqa: BLE001 分红来源逐公司隔离，保留错误并阻断旧结果。
+                logger.warning('分红资料待补 %s: %s', symbol, exc)
+                status = 'partial'
+            pending |= status != 'completed'
+            payload = {'symbol': symbol, 'as_of': task['target_date'], 'collection': collection}
+            self.store.record_item(task['run_id'], worker, {'scope': scope, 'status': status,
+                'summary': '分红来源已保存' if status == 'completed' else '分红来源待补',
+                'artifact': _artifact(self.artifact_dir, payload)}, lease_token=token)
+            collection = None
         return 'partial' if pending else 'completed'
 
     def _refresh(self, task: dict[str, Any], worker: str, token: str) -> list[dict[str, Any]]:
@@ -314,6 +348,8 @@ class StockUpdateRunner:
                 status = item['status']
             elif task['kind'] == 'financial_review':
                 status = self._financial(task, worker_id, token)
+            elif task['kind'] == 'dividend_review':
+                status = self._dividend(task, worker_id, token)
             elif task['kind'] == 'reference_review':
                 status = self._reference(task, worker_id, token)
             else:

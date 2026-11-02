@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from radar.stocks.admission import RULE_VERSION
 from radar.stocks.company_profile_source import load_company_profile_source
+from radar.stocks.dividend_source import load_dividend_source
 from radar.stocks.evaluation_store import StockEvaluationStore
 from radar.stocks.financial_source import load_financial_source
 from radar.stocks.financial_task import financial_results
@@ -233,18 +234,21 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
         cutoff = datetime.now().astimezone().date()
         window, trace = load_market_window(state, cutoff)
         financial = load_financial_source(db, symbol, cutoff)
+        dividend = load_dividend_source(db, symbol, cutoff)
         profile = load_company_profile_source(state, symbol, cutoff)
         industry = load_industry_source(state, symbol, cutoff)
         growth = load_growth_source(state, symbol, cutoff)
         market_value = load_market_value_source(state, symbol, cutoff)
         _check_market_window(market_value, window, trace)
         report = evaluate_store(store, cutoff, symbol=symbol, market_window=window, include_styles=True,
-                                financial_sources={symbol: financial}, market_value_sources={symbol: market_value},
+                                financial_sources={symbol: financial}, dividend_sources={symbol: dividend}, market_value_sources={symbol: market_value},
                                 profile_sources={symbol: profile}, industry_sources={symbol: industry}, growth_sources={symbol: growth})
         report['market_window_source'] = trace
         evidence, reviews = store.list_evidence(symbol), store.review_history(symbol)
         if company(store, symbol)['revision'] != row['revision']:
             raise StockRevisionConflict('读取详情期间公司资料变化，请重新读取')
+        if load_dividend_source(db, symbol, cutoff) != dividend:
+            raise StockRevisionConflict('读取详情期间分红来源变化，请重新读取')
         if load_financial_source(db, symbol, cutoff) != financial:
             raise StockRevisionConflict('读取详情期间财务来源变化，请重新读取')
         if load_market_value_source(state, symbol, cutoff) != market_value:
@@ -299,18 +303,20 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
         cutoff = datetime.now().astimezone().date()
         window, trace = load_market_window(state, cutoff)
         financial = load_financial_source(db, symbol, cutoff)
+        dividend = load_dividend_source(db, symbol, cutoff)
         profile = load_company_profile_source(state, symbol, cutoff)
         industry = load_industry_source(state, symbol, cutoff)
         growth = load_growth_source(state, symbol, cutoff)
         market_value = load_market_value_source(state, symbol, cutoff)
         _check_market_window(market_value, window, trace)
-        inputs['companies'][0].update(financial_source=financial, financial_as_of=cutoff.isoformat())
+        inputs['companies'][0].update(financial_source=financial, financial_as_of=cutoff.isoformat(),
+                                       dividend_source=dividend, dividend_as_of=cutoff.isoformat())
         inputs['companies'][0].update(company_profile_source=profile, profile_as_of=cutoff.isoformat(),
                                        industry_source=industry, industry_as_of=cutoff.isoformat(),
                                        growth_source=growth, growth_as_of=cutoff.isoformat())
         inputs['companies'][0].update(market_value_source=market_value, market_value_as_of=cutoff.isoformat())
         report = evaluate_store(store, cutoff, symbol=symbol, market_window=window, include_styles=True,
-                                financial_sources={symbol: financial}, market_value_sources={symbol: market_value},
+                                financial_sources={symbol: financial}, dividend_sources={symbol: dividend}, market_value_sources={symbol: market_value},
                                 profile_sources={symbol: profile}, industry_sources={symbol: industry}, growth_sources={symbol: growth})
         report['market_window_source'] = trace
         saved = evaluations.save_evaluation(report, inputs, market_window=window)
@@ -411,6 +417,29 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
         wake(tasks)
         return public_task(run)
 
+    @router.post('/{pool_id}/dividend-review', status_code=202)
+    def start_dividend(pool_id: str, body: FinancialInput | None = None):
+        from radar.stocks.dividend_collect import VERSION
+
+        pool(pool_id)
+        if body is not None and body.resume_run_id is not None:
+            old = next((StockUpdateStore._decode(row) for row in task_rows() if row['run_id'] == body.resume_run_id), None)
+            if old is None or old['kind'] != 'dividend_review' or old['pool_ids'] != [pool_id]:
+                raise HTTPException(404, '当前池的分红任务不存在')
+            tasks = updates()
+            run = tasks.resume_dividend(body.resume_run_id, pool_id)
+        else:
+            with read_connection(db) as connection:
+                scope = scope_snapshot(connection, state, pool_id)
+            if not scope['scope_complete'] or scope['scope_status'] != 'complete' or not scope['companies']:
+                raise StockResearchError('请先准备当前池完整指数候选范围')
+            snapshot = {**scope, 'kind': 'dividend_review', 'pool_ids': [pool_id]}
+            tasks = updates()
+            run = tasks.enqueue(kind='dividend_review', pool_ids=[pool_id],
+                                target_date=datetime.now().astimezone().date(), rule_version=VERSION, snapshot=snapshot)
+        wake(tasks)
+        return public_task(run)
+
     @router.post('/reference-review', status_code=202)
     def start_reference(body: ReferenceInput):
         from radar.stocks.reference_task import (
@@ -444,7 +473,7 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
             return connection.execute('SELECT * FROM stocks_update_runs ORDER BY created_at DESC,run_id DESC').fetchall()
 
     @router.get('/updates/latest')
-    def latest(pool_id: str | None = None, kind: Literal['financial_review', 'refresh_members', 'discover_candidates', 'reference_review'] | None = None):
+    def latest(pool_id: str | None = None, kind: Literal['financial_review', 'dividend_review', 'refresh_members', 'discover_candidates', 'reference_review'] | None = None):
         if pool_id is not None:
             pool(pool_id)
         for row in task_rows():

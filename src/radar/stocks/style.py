@@ -17,7 +17,7 @@ from radar.stocks.admission import (
 )
 from radar.stocks.dividend_payout import _sum_amounts
 
-STYLE_RULE_VERSION = 'styles-research-2026-11-02-v6'
+STYLE_RULE_VERSION = 'styles-research-2026-11-02-v7'
 _STYLE_KINDS = ('cash_flow', 'cash_review', 'dividend_history', 'liquidity')
 
 
@@ -247,6 +247,22 @@ def evaluate_stock_styles(symbol: str, evidence: list[dict[str, Any]], as_of: da
                          liquidity_reason, liquidity_ids, 'liquidity_warning', liquidity_values)]
     if structured and ratio_status != 'not_applicable':
         red_checks[0]['channel'] = 'structured_cash_flow'
+    dividend_source = result.get('dividend_source')
+    if isinstance(dividend_source, dict) and dividend_source.get('status') != 'unavailable':
+        manual_dividend = red_checks[2]
+        numerical = dividend_source.get('result')
+        current = (dividend_source.get('status') == 'current' and dividend_source.get('symbol') == symbol
+                   and dividend_source.get('evaluation_as_of') == cutoff.isoformat()
+                   and dividend_source.get('as_of') == cutoff.isoformat() and isinstance(numerical, dict))
+        numerical_status = numerical.get('outcome') if current and isinstance(numerical, dict) else 'pending_verification'
+        conflict = manual_dividend['outcome'] == 'failed' and numerical_status == 'passed'
+        outcome = 'passed' if numerical_status == 'passed' and not conflict else 'pending_verification'
+        reason = ('人工分红事实与结构化来源冲突，待核验' if conflict else
+                  '已核验同截点结构化A股派息数值；不代表人工审核' if outcome == 'passed' else
+                  '分红来源无效、历史或记录不足，待核验')
+        red_checks[2] = {**_check('dividend_history', outcome, reason, manual_dividend['evidence_ids'],
+                                 'dividend_branch_condition'), 'channel': 'structured_dividend',
+                         'manual_check': manual_dividend, 'structured_check': deepcopy(numerical) if current else None}
     red_base = _aggregate([result['common_status'], ratio_status, review_status])
     dividend_status = _aggregate([red_base, red_checks[2]['outcome']])
     red = _pool(red_base, red_checks, ['dividend_payout_ratio', 'dividend_yield', 'value_valuation'])

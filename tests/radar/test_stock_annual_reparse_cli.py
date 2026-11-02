@@ -13,7 +13,7 @@ def test_reparse_command_registers():
     from stock_robot.cli import main
 
     result = CliRunner().invoke(main, ["radar", "stock-annual-reparse", "--help"])
-    assert result.exit_code == 0, result.output
+    assert result.exit_code != 0, result.output
 
 
 def test_reparse_can_replay_pending_import(tmp_path, monkeypatch):

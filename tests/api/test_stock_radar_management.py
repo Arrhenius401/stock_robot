@@ -397,3 +397,28 @@ def test_financial_start_freezes_scope_and_kind_filtered_recovery(tmp_path):
         assert 'lease_token' not in task and 'lease_until' not in task
         assert 'companies' not in task['input_snapshot']
         assert tasks.get(task['run_id'])['input_snapshot']['scope_sha256'] == scope['scope_sha256']
+        dividend = web.post(base+'dividend_value/dividend-review', json={})
+        assert dividend.status_code == 202, dividend.text
+        dividend_task = dividend.json()
+        assert dividend_task['kind'] == 'dividend_review'
+        assert 'companies' not in dividend_task['input_snapshot']
+        latest_dividend = web.get(base+'updates/latest?pool_id=dividend_value&kind=dividend_review').json()
+        assert latest_dividend['run_id'] == dividend_task['run_id']
+        assert tasks.get(dividend_task['run_id'])['input_snapshot']['scope_sha256'] == scope['scope_sha256']
+
+
+def test_detail_and_draft_bind_dividend_source_even_when_unavailable(tmp_path):
+    state = tmp_path / 'state'
+    store = seed(state)
+    with client(state) as web:
+        base = '/api/v1/radar/stocks/companies/600000'
+        detail = web.get(base)
+        assert detail.status_code == 200
+        item = detail.json()['evaluation']['items'][0]
+        assert item['dividend_source']['status'] == 'unavailable'
+        company = store.get_company('600000')
+        assert company is not None
+        draft = web.post(base + '/draft', json={'expected_revision': company['revision'],
+            'request_id': 'dividend-source-binding', 'actor': '测试', 'reason': '测试分红来源', 'pool_id': 'dividend_value'})
+        assert draft.status_code == 200, draft.text
+        assert draft.json()['status'] == 'blocked'

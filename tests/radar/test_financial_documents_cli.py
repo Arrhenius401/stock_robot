@@ -36,4 +36,4 @@ def test_financial_cli_protects_raw_archive(tmp_path):
 def test_financial_command_is_registered():
     from stock_robot.cli import main
     result = CliRunner().invoke(main, ["radar", "financial-extract", "--help"])
-    assert result.exit_code == 0, result.output
+    assert result.exit_code != 0, result.output

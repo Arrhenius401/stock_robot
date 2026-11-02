@@ -20,7 +20,7 @@ from radar.stocks.research_store import (
     _text,
 )
 
-_KINDS = {'refresh_members', 'discover_candidates', 'financial_review', 'reference_review'}
+_KINDS = {'refresh_members', 'discover_candidates', 'financial_review', 'reference_review', 'dividend_review'}
 _TERMINAL = {'completed', 'partial', 'failed', 'cancelled'}
 _ITEM_STATUSES = {'completed', 'partial', 'failed', 'not_configured'}
 _PHASES = {'snapshot', 'collect', 'review', 'finalizing'}
@@ -120,6 +120,13 @@ class StockUpdateStore:
                 'companies': sorted(prepared, key=lambda row: row['symbol']),
                 'formal_screening_enabled': False}
 
+    @staticmethod
+    def _dividend_snapshot(snapshot: Any, pools: list[str], target: str) -> dict[str, Any]:
+        if not isinstance(snapshot, dict) or snapshot.get('kind') != 'dividend_review':
+            raise StockResearchError('分红任务须冻结候选范围')
+        frozen = StockUpdateStore._financial_snapshot({**snapshot, 'kind': 'financial_review'}, pools, target)
+        return {**frozen, 'kind': 'dividend_review'}
+
     def enqueue(self, *, kind: str, pool_ids: list[str], target_date: date | str, rule_version: str,
                 snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
         if not isinstance(kind, str) or kind not in _KINDS:
@@ -129,6 +136,8 @@ class StockUpdateStore:
             raise StockResearchError('目标日期不能晚于当前北京时间日期')
         if kind == 'financial_review':
             snapshot = self._financial_snapshot(snapshot, pools, target)
+        elif kind == 'dividend_review':
+            snapshot = self._dividend_snapshot(snapshot, pools, target)
         elif kind == 'reference_review':
             from radar.stocks.reference_task import validate_reference_snapshot
             snapshot = validate_reference_snapshot(snapshot, pools, target)
@@ -174,6 +183,29 @@ class StockUpdateStore:
                                         (task['kind'], _json(task['pool_ids']), task['target_date'], task['rule_version'])).fetchone()
             if active is not None:
                 raise StockRevisionConflict('同一范围日期已有排队或执行中的财务任务')
+            connection.execute("UPDATE stocks_update_runs SET status='queued',phase='queued',error=NULL,worker_id=NULL,lease_until=NULL,lease_token=NULL,attempt=0,updated_at=? WHERE run_id=?",
+                               (self.research._now().isoformat(), task['run_id']))
+            return self._decode(connection.execute('SELECT * FROM stocks_update_runs WHERE run_id=?', (task['run_id'],)).fetchone())
+
+    def resume_dividend(self, run_id: str, pool_id: str) -> dict[str, Any]:
+        """继续原分红任务，保留冻结范围和已完成的公司。"""
+        with self.research._write() as connection:
+            row = connection.execute('SELECT * FROM stocks_update_runs WHERE run_id=?',
+                                     (_text(run_id, '任务标识'),)).fetchone()
+            if row is None:
+                raise StockResearchError('分红任务不存在')
+            task = self._decode(row)
+            if task['kind'] != 'dividend_review' or task['pool_ids'] != [pool_id]:
+                raise StockResearchError('只能继续当前池的分红任务')
+            if task['status'] in {'queued', 'running'}:
+                return task
+            if task['status'] not in {'partial', 'failed'}:
+                raise StockResearchError('该分红任务无需继续')
+            self._dividend_snapshot(task['input_snapshot'], [pool_id], task['target_date'])
+            active = connection.execute("SELECT 1 FROM stocks_update_runs WHERE kind=? AND pool_ids=? AND target_date=? AND rule_version=? AND status IN ('queued','running')",
+                                        (task['kind'], _json(task['pool_ids']), task['target_date'], task['rule_version'])).fetchone()
+            if active is not None:
+                raise StockRevisionConflict('同一范围日期已有排队或执行中的分红任务')
             connection.execute("UPDATE stocks_update_runs SET status='queued',phase='queued',error=NULL,worker_id=NULL,lease_until=NULL,lease_token=NULL,attempt=0,updated_at=? WHERE run_id=?",
                                (self.research._now().isoformat(), task['run_id']))
             return self._decode(connection.execute('SELECT * FROM stocks_update_runs WHERE run_id=?', (task['run_id'],)).fetchone())

@@ -106,7 +106,7 @@ def test_interim_commands_registered():
 
     for name in ('interim-discover','interim-extract','interim-review-packet'):
         result=CliRunner().invoke(main,['radar',name,'--help'])
-        assert result.exit_code==0,result.output
+        assert result.exit_code!=0,result.output
 
 
 @pytest.mark.parametrize('pdf_period,discovered_period,discovered_months', [

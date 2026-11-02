@@ -18,20 +18,10 @@ from rich.table import Table
 console = Console()
 logger = logging.getLogger(__name__)
 
-from stock_robot.dividend_documents import discover_dividends, extract_dividends
-from stock_robot.dividend_materials import archive_dividends, prepare_dividends
+from stock_robot.dividend_materials import prepare_dividends
 from stock_robot.dividend_research import dividend_research
-from stock_robot.dividend_workflow import dividend_workflow
-from stock_robot.financial_documents import financial_extract
-from stock_robot.interim_documents import (
-    discover_interims,
-    extract_interims,
-    prepare_interim_packet,
-)
 from stock_robot.metadata import APP_NAME, VERSION
 from stock_robot.stock_admission import admission_evaluate, style_evaluate
-from stock_robot.stock_annual_collect import annual_collect
-from stock_robot.stock_annual_reparse import annual_reparse
 from stock_robot.stock_archive import (
     apply_membership,
     cancel_draft,
@@ -59,6 +49,7 @@ from stock_robot.stock_structured_financial import (
     structured_screen_command,
 )
 from stock_robot.stock_updates import (
+    dividend_update,
     enqueue_update,
     list_updates,
     reference_update,
@@ -1845,11 +1836,6 @@ def radar_backtest_walkforward(ctx, universe_id, start, end, window_years, strat
 
 radar.add_command(dividend_research)
 radar.add_command(prepare_dividends)
-radar.add_command(archive_dividends)
-radar.add_command(discover_dividends)
-radar.add_command(extract_dividends)
-radar.add_command(dividend_workflow)
-radar.add_command(financial_extract)
 radar.add_command(import_records)
 radar.add_command(list_records)
 radar.add_command(add_evidence)
@@ -1861,15 +1847,12 @@ radar.add_command(structured_collect_command)
 radar.add_command(structured_screen_command)
 radar.add_command(structured_admission_command)
 radar.add_command(reference_update)
+radar.add_command(dividend_update)
 radar.add_command(market_window_command)
 radar.add_command(market_history_command)
 radar.add_command(capital_history_command)
 radar.add_command(official_roster_command)
 radar.add_command(index_scope_command)
-radar.add_command(annual_collect)
-radar.add_command(annual_reparse)
-for command in (discover_interims, extract_interims, prepare_interim_packet):
-    radar.add_command(command)
 for command in (capture_evaluation, list_evaluations, create_draft, list_drafts, cancel_draft, apply_membership, list_memberships):
     radar.add_command(command)
 for command in (enqueue_update, list_updates, run_one_update):

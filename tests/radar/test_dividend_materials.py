@@ -73,7 +73,7 @@ def test_archive_cli_uses_collector_without_financial_verdict(tmp_path, monkeypa
 def test_cli_registers_material_commands():
     from stock_robot.cli import main
 
-    for command in ("dividend-prepare", "dividend-archive"):
+    for command in ("dividend-prepare",):
         result = CliRunner().invoke(main, ["radar", command, "--help"])
         assert result.exit_code == 0, result.output
 
