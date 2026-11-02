@@ -103,7 +103,7 @@ def _document(item: Any, symbol: str, org_id: str, start: date, end: date, *, mo
                 "status": "pending_review" if review else "discovered", "kind": "annual_report",
                 "discovery_status": "pending_review" if review else "discovered", "financial_verified": False}
     # 相关取消或调整公告保留风险提醒，不视为实施证据。
-    related = any(term in clean_title for term in _TERMS)
+    related = any(term in clean_title for term in (*_TERMS, '分红派息'))
     review = any(word in clean_title for word in ('更正', '取消', '撤销', '终止', '调整'))
     if not related or ('实施' not in clean_title and not review):
         return None

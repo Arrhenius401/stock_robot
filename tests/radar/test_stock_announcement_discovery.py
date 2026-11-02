@@ -353,3 +353,12 @@ def test_actual_szse_short_titles_and_english_reports():
     assert documents[0] is None and documents[2] is None
     assert documents[1] is not None and documents[1]['period_end'] == '2026-03-31'
     assert documents[3] is not None and documents[3]['period_end'] == '2025-09-30'
+
+
+def test_cninfo_dividend_distribution_title_is_not_lost(tmp_path):
+    # 2026-11-02 巨潮600036真实查询标题；仅验证发现，不能视为完整审核。
+    title = '招商银行股份有限公司2025年年度A股<em>分红</em>派息实施公告'
+    result, _ = run(tmp_path, lambda _: Response(page([row(announcementTitle=title)])))
+    assert len(result['documents']) == 1
+    assert result['documents'][0]['kind'] == 'implementation'
+    assert result['companies'][0]['annual_coverage_verified'] is False
