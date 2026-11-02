@@ -105,7 +105,7 @@ def extract_dividend_text(text: str, *, symbol: str, source_url: str,
         return result
     current = re.split(r'公司已派发|连同本次|全年现金红利', section)[0]
     total = _one_amount(r'(?:共计派发现金红利|分红总金额为|合计派发现金红利)(?:人民币)?', current)
-    a_total = _one_amount(r'派发A股现金红利(?:人民币)?', current)
+    a_total = _one_amount(r'(?:派发A股现金红利|A股共计派发现金红利)(?:人民币)?', current)
     share_class = 'A' if a_total or (total and 'A股' in compact and 'H股' not in compact) or 'A股利润分配方案' in current else 'ALL'
     amount = a_total or total
     approximate_amount = None
@@ -123,7 +123,9 @@ def extract_dividend_text(text: str, *, symbol: str, source_url: str,
         tens = re.findall(r'每10股派发现金' + _NUMBER + r'元', current)
         per_matches = [format(Decimal(value.replace(',', '')) / Decimal(10), 'f') for value in tens]
     per_values = {value.replace(',', '') for value in per_matches}
-    shares = re.findall(r'(?:可参与分配的A股股本|总股本|A股股本)' + _NUMBER + r'股', current)
+    shares = re.findall(r'(?:可参与分配的A股股本|A股股本)(?:为)?' + _NUMBER + r'股', current)
+    if not shares and 'H股' not in compact:
+        shares = re.findall(r'总股本(?:为)?' + _NUMBER + r'股', current)
     # 回购场景只取公告明确写出的可参与股本，不自行计算。
     actual = re.findall(r'可参与分配的(?:A股)?(?:总股本|股本|总股数|股数)' + _NUMBER + r'股', current)
     actual_values = {value.replace(',', '') for value in actual}
@@ -149,6 +151,9 @@ def extract_dividend_text(text: str, *, symbol: str, source_url: str,
         complete = False
     if paid and not date(year, 1, 1) <= date.fromisoformat(paid) <= as_of:
         complete = False
+    if share_class != 'A':
+        result['reasons'].append('缺少明确A股分红金额或股类归属，需人工核验')
+        return result
     proposal = {'symbol': symbol, 'fiscal_year': year, 'kind': 'current_distribution', 'distribution_period': period,
                 'amount_scope': 'distribution_event', 'share_class': share_class,
                 'amount_yuan': amount, 'per_share_yuan': per_share,
@@ -159,13 +164,7 @@ def extract_dividend_text(text: str, *, symbol: str, source_url: str,
                 'requires_review': True, 'financial_verified': False, 'rule_enabled': False,
                 'evidence_excerpt': section[:1500]}
     result['event_proposals'].append(proposal)
-    # 全年合计与本次事件分开，绝不把本次 A 股日期赋给公司全年总额。
-    annual = _one_amount(str(year) + r'年度合计派发现金红利', section)
-    if annual and not bank_title:
-        result['event_proposals'].append({**proposal, 'kind': 'annual_total',
-            'amount_scope': 'fiscal_year_total', 'share_class': 'ALL', 'amount_yuan': annual,
-            'per_share_yuan': None, 'eligible_shares': None, 'paid_on': None,
-            'status': 'pending_verification'})
+    # 只保留A股事件，不输出公司全股类年度合计。
     interim = re.findall(str(year) + r'年度中期现金红利每股' + _NUMBER + r'元', section)
     if len(set(interim)) == 1 and not bank_title:
         result['event_proposals'].append({**proposal, 'kind': 'interim_reference',

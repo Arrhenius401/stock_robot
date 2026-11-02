@@ -63,11 +63,7 @@ def test_actual_clipped_documents(filename, symbol, amount, paid):
         assert current['eligible_shares'] == '6820019535'
         assert current['per_share_yuan'] == '3.8'
         assert all(row['amount_yuan'] != '28586881851' for row in result['event_proposals'])
-    if filename.startswith('cypc') and '2023' not in filename:
-        annual = result['event_proposals'][1]
-        assert annual['amount_scope'] == 'fiscal_year_total'
-        assert annual['paid_on'] is None
-        assert annual['status'] == 'pending_verification'
+    assert all(row['share_class'] == 'A' for row in result['event_proposals'])
     if '2023' in filename:
         assert len(result['event_proposals']) == 1
 
@@ -100,15 +96,14 @@ def test_uncertain_does_not_match(text):
 def test_future_disclosure_and_no_inferred_amount():
     assert extract(disclosed_on='2026-11-01')['event_proposals'] == []
     result = extract(SIMPLE.replace('共计派发现金红利123,456,789.12元。', ''))
-    assert result['event_proposals'][0]['amount_yuan'] is None
+    assert result['event_proposals'] == []
+    assert result['status'] == 'pending_verification'
 
 
 def test_all_share_amount_does_not_acquire_a_payment():
     result = extract(SIMPLE.replace('三、相关日期', 'H股另行安排。三、相关日期'))
-    current = result['event_proposals'][0]
-    assert current['share_class'] == 'ALL'
-    assert current['paid_on'] is None
-    assert current['status'] == 'pending_verification'
+    assert result['event_proposals'] == []
+    assert result['status'] == 'pending_verification'
 
 
 @pytest.mark.parametrize('damage', ['filename', 'sha', 'header', 'size', 'symbol'])
@@ -193,7 +188,7 @@ def test_template_not_company_specific(symbol):
 @pytest.mark.parametrize(('filename', 'symbol', 'amount', 'shares', 'period'), [
     ('cninfo-600900-2025-interim-implementation.txt', '600900', '5138325720.36', '24468217716', 'interim'),
     ('cninfo-600900-2024-interim-implementation.txt', '600900', '5138325720.36', '24468217716', 'interim'),
-    ('cninfo-601088-2025-interim-implementation.txt', '601088', '16161217195.9', None, 'interim'),
+    ('cninfo-601088-2025-interim-implementation.txt', '601088', '16161217195.9', '16491037955', 'interim'),
     ('cninfo-000333-2025-interim-implementation.txt', '000333', '3448324163.5', '6896648327', 'interim'),
     ('cninfo-000333-2024-annual-implementation.txt', '000333', '24443728680', '6983922480', 'annual'),
 ])
@@ -255,3 +250,26 @@ def test_bank_correction_and_conflicting_approximate_values_never_pass():
     result = extract(conflicted, symbol='600036')
     assert result['status'] == 'pending_verification'
     assert result['event_proposals'][0]['approximate_amount'] is None
+
+
+@pytest.mark.parametrize(('filename', 'year', 'paid', 'amount'), [
+    ('cninfo-601318-2026-interim-implementation.txt', 2026, '2026-09-10', '10446863781.34'),
+    ('cninfo-601318-2025-annual-implementation.txt', 2025, '2026-06-10', '18655113895.25'),
+])
+def test_real_ping_an_uses_explicit_a_share_not_company_total(filename, year, paid, amount):
+    # 巨潮2026-11-02采样，裁切到相关日期，来源与摘要记录在实施计划。
+    text = (RESOURCES / filename).read_text(encoding='utf-8')
+    result = extract(text, symbol='601318')
+    assert result['status'] == 'matched_template', result['reasons']
+    assert len(result['event_proposals']) == 1
+    proposal = result['event_proposals'][0]
+    assert (proposal['share_class'], proposal['fiscal_year'], proposal['paid_on'], proposal['amount_yuan']) == ('A', year, paid, amount)
+
+
+def test_a_share_amount_never_uses_company_total_shares_when_h_share_mentioned():
+    text = SIMPLE.replace('共计派发现金红利123,456,789.12元。',
+                          '派发A股现金红利123,456,789.12元。H股另行安排。')
+    result = extract(text)
+    assert result['event_proposals'][0]['share_class'] == 'A'
+    assert result['event_proposals'][0]['eligible_shares'] is None
+    assert result['status'] == 'matched_template'
