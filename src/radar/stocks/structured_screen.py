@@ -57,7 +57,7 @@ def _cash_reference(data: dict[str, Any]) -> dict[str, Any]:
         'applicability': 'requires_issuer_classification', 'dividend_applicability': 'pending_verification',
         'growth_role': 'quality_indicator_only',
         'reason': '0.8只计算数值参考；发行人身份及口径适用性未核验，不据此淘汰金融或未知公司',
-        'sources': [], 'cross_source_differences': []}
+        'sources': [], 'cross_source_differences': [], 'annual': []}
     cash_values: list[Decimal] = []
     profit_values: list[Decimal] = []
     profit_options: list[list[Decimal]] = []
@@ -66,6 +66,8 @@ def _cash_reference(data: dict[str, Any]) -> dict[str, Any]:
         profit = annual['metrics']['parent_profit_yuan']
         differences = [row for row in data['cross_source_differences']
                        if row['metric'] == 'parent_profit_yuan' and row['period_end'] == f"{annual['year']}-12-31"]
+        result['annual'].append({'year': annual['year'],
+            'operating_cash_flow_yuan': cash['amount_yuan'], 'parent_profit_yuan': profit['amount_yuan']})
         result['sources'].extend([*cash['sources'], *profit['sources']])
         result['cross_source_differences'].extend(deepcopy(differences))
         amount = Decimal(cash['amount_yuan']) if cash['status'] == 'available' else None

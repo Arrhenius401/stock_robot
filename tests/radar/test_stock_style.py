@@ -5,6 +5,7 @@ from datetime import date, timedelta
 
 import pytest
 
+from radar.stocks.admission import evaluate_common_admission
 from radar.stocks.style import evaluate_stock_styles
 
 AS_OF = date(2026, 10, 15)
@@ -307,3 +308,87 @@ def test_style_evaluation_does_not_modify_source_facts():
     before = deepcopy(rows)
     evaluate(rows)
     assert rows == before
+
+
+def structured_source(status='current'):
+    return {'symbol': '600900', 'evaluation_as_of': AS_OF.isoformat(), 'as_of': AS_OF.isoformat(),
+            'status': status, 'run_id': 'synthetic', 'financial': {'symbol': '600900', 'as_of': AS_OF.isoformat(),
+            'cash_flow_reference': {'reference_condition_status': 'passed', 'ratio': '0.8',
+                'operating_cash_flow_sum_yuan': '240', 'parent_profit_sum_yuan': '300',
+                'annual': [{'year': year, 'operating_cash_flow_yuan': '80', 'parent_profit_yuan': '100'} for year in YEARS]}}}
+
+
+def structured_evaluate(rows, source):
+    common = evaluate_common_admission(
+        '600900', rows, AS_OF, market_window=WINDOW)
+    common['financial_source'] = source
+    return evaluate_stock_styles('600900', rows, AS_OF, market_window=WINDOW, common_result=common)
+
+
+def test_structured_cash_uses_current_bound_source():
+    result = structured_evaluate(facts(), structured_source())
+    cash = check(result['pools']['dividend_value'], 'cash_ratio')
+    assert cash['outcome'] == 'passed'
+    assert cash['channel'] == 'structured_cash_flow'
+    assert check(result['pools']['growth_trend'], 'cash_ratio')['outcome'] == 'passed'
+
+
+@pytest.mark.parametrize('change', ['cash', 'profit', 'historical', 'invalid', 'missing', 'issuer'])
+def test_structured_cash_requires_matching_audited_basis(change):
+    rows = facts()
+    source = structured_source()
+    if change == 'cash':
+        group(rows, 'style_cash_flow')['annual'][0]['operating_cash_flow_yuan'] = '79'
+    elif change == 'profit':
+        group(rows, 'admission_profitability')['annual'][0]['parent_profit_yuan'] = '101'
+    elif change == 'issuer':
+        group(rows, 'admission_security')['issuer_type'] = 'unknown'
+    elif change == 'missing':
+        source['financial']['cash_flow_reference']['annual'].pop()
+    else:
+        source['status'] = change
+    result = structured_evaluate(rows, source)
+    for pool in result['pools'].values():
+        assert check(pool, 'cash_ratio')['outcome'] == 'pending_verification'
+
+
+def test_structured_cash_below_threshold_is_only_growth_attention():
+    rows = facts()
+    source = structured_source()
+    for row in group(rows, 'style_cash_flow')['annual']:
+        row['operating_cash_flow_yuan'] = '79'
+    reference = source['financial']['cash_flow_reference']
+    for row in reference['annual']:
+        row['operating_cash_flow_yuan'] = '79'
+    reference.update(reference_condition_status='failed', ratio='0.79', operating_cash_flow_sum_yuan='237')
+    result = structured_evaluate(rows, source)
+    assert check(result['pools']['dividend_value'], 'cash_ratio')['outcome'] == 'failed'
+    assert check(result['pools']['growth_trend'], 'cash_ratio')['outcome'] == 'attention'
+
+
+def test_structured_cash_source_conflict_is_pending():
+    source = structured_source()
+    source['financial']['cash_flow_reference']['cross_source_differences'] = [{'metric': 'parent_profit_yuan'}]
+    result = structured_evaluate(facts(), source)
+    assert check(result['pools']['dividend_value'], 'cash_ratio')['outcome'] == 'pending_verification'
+
+
+def test_structured_cash_nonpositive_annual_profit_remains_pending():
+    rows = facts()
+    group(rows, 'admission_profitability')['annual'][0]['parent_profit_yuan'] = '0'
+    source = structured_source()
+    source['financial']['cash_flow_reference']['annual'][0]['parent_profit_yuan'] = '0'
+    result = structured_evaluate(rows, source)
+    cash = check(result['pools']['dividend_value'], 'cash_ratio')
+    assert cash['outcome'] == 'pending_verification'
+    assert '分母' in cash['reason']
+
+
+def test_structured_cash_financial_issuer_still_uses_special_review():
+    rows = facts()
+    group(rows, 'admission_security')['issuer_type'] = 'bank'
+    group(rows, 'style_cash_review')['issuer_type'] = 'bank'
+    result = structured_evaluate(rows, structured_source('invalid'))
+    for pool in result['pools'].values():
+        assert check(pool, 'cash_ratio')['outcome'] == 'not_applicable'
+        assert check(pool, 'cash_review')['outcome'] == 'passed'

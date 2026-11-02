@@ -227,3 +227,45 @@ def test_corrupted_archived_artifact_becomes_stale(tmp_path):
     Path(task['results'][0]['artifact']['path']).write_bytes(b'corrupt')
     with pytest.raises(StockRevisionConflict):
         archive.assert_current(saved['evaluation_id'])
+
+
+def test_cash_projection_is_recomputed_and_retains_annual_sources(tmp_path):
+    research, _, tasks, _ = environment(tmp_path)
+    enqueue(tasks)
+    complete(tasks, tmp_path)
+    source = load_financial_source(research.db_path, SYMBOL, DAY)
+    cash = source['financial']['cash_flow_reference']
+    assert [row['year'] for row in cash['annual']] == [2023, 2024, 2025]
+    assert cash['sources']
+    assert all(row['period_end'] and row['disclosed_on'] for row in cash['sources'])
+    assert 'path' not in json.dumps(cash)
+
+
+def test_saved_financial_cash_projection_reaches_style_with_audited_facts(tmp_path):
+    from radar.stocks.admission import evaluate_common_admission
+    from radar.stocks.style import evaluate_stock_styles
+    from tests.radar.test_stock_style import WINDOW, check, facts
+
+    research, _, tasks, _ = environment(tmp_path)
+    enqueue(tasks)
+    samples = json.loads((Path(__file__).parents[1]/'resources/radar/eastmoney-structured-financial-samples.json').read_text(encoding='utf-8'))
+    sample = next(row for row in samples if row['symbol'] == SYMBOL)
+    sample['as_of'] = DAY.isoformat()
+    for row in sample['records']['profit']:
+        row['PARENT_NETPROFIT'] = '100'
+    for row in sample['records']['main']:
+        row['PARENTNETPROFIT'] = '100'
+    for row in sample['records']['cashflow']:
+        row['NETCASH_OPERATE'] = '80'
+    StockUpdateRunner(tasks, tmp_path/'cache', tmp_path/'stock-updates/artifacts',
+                      financial_collector=lambda *a, **kw: sample).execute_one('worker')
+    source = load_financial_source(research.db_path, SYMBOL, DAY)
+    evidence = facts()
+    common = evaluate_common_admission(SYMBOL, evidence, DAY, market_window=WINDOW)
+    common['financial_source'] = source
+    result = evaluate_stock_styles(SYMBOL, evidence, DAY, market_window=WINDOW, common_result=common)
+    for pool in result['pools'].values():
+        cash = check(pool, 'cash_ratio')
+        assert cash['outcome'] == 'passed'
+        assert cash['channel'] == 'structured_cash_flow'
+    assert source['financial']['cash_flow_reference']['sources']
