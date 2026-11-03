@@ -57,3 +57,33 @@ def test_inconsistent_detail_cannot_produce_a_review_packet(change):
     else: source['evaluation']['items'][0]['evaluation_valid'] = False
     with pytest.raises((ValueError, TypeError)):
         build_manual_review_packet(source)
+
+
+def test_packet_includes_only_matching_unreviewed_audit_clues():
+    from radar.stocks.manual_review_packet import build_manual_review_packet
+
+    source = detail()
+    source['audit_clues'] = {'symbol': '600900', 'as_of': '2026-11-02', 'status': 'available',
+                             'reviewed': False, 'formal_screening_enabled': False,
+                             'annual': [{'year': 2025, 'status': 'available', 'opinion': '标准无保留意见',
+                                         'disclosed_on': '2026-04-30'}],
+                             'source': {'source_url': 'https://example.org/source', 'content_sha256': 'a'*64,
+                                        'fetched_at': '2026-11-02T00:00:00+00:00'}}
+    packet = build_manual_review_packet(source)
+    assert packet['audit_clues'] == source['audit_clues']
+    packet['audit_clues']['annual'][0]['opinion'] = 'modified'
+    assert source['audit_clues']['annual'][0]['opinion'] == '标准无保留意见'
+    assert all(row['outcome'] == 'pending_verification' for row in packet['checks'])
+
+
+@pytest.mark.parametrize('patch', [
+    {'symbol': '600036'}, {'as_of': '2026-11-01'}, {'reviewed': True},
+    {'formal_screening_enabled': True}, {'status': 'invalid'},
+])
+def test_packet_rejects_unbound_or_untrusted_audit_clues(patch):
+    from radar.stocks.manual_review_packet import build_manual_review_packet
+
+    source = detail()
+    source['audit_clues'] = {'symbol': '600900', 'as_of': '2026-11-02', 'status': 'available',
+                             'reviewed': False, 'formal_screening_enabled': False, 'annual': [], **patch}
+    assert build_manual_review_packet(source)['audit_clues']['status'] == 'unavailable'
