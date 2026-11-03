@@ -87,3 +87,41 @@ def test_packet_rejects_unbound_or_untrusted_audit_clues(patch):
     source['audit_clues'] = {'symbol': '600900', 'as_of': '2026-11-02', 'status': 'available',
                              'reviewed': False, 'formal_screening_enabled': False, 'annual': [], **patch}
     assert build_manual_review_packet(source)['audit_clues']['status'] == 'unavailable'
+
+
+def test_packet_combines_bound_research_sources_without_formal_decision():
+    from radar.stocks.manual_review_packet import build_manual_review_packet
+
+    source = detail()
+    item = source['evaluation']['items'][0]
+    item['dividend_source'] = {'symbol': '600900', 'evaluation_as_of': '2026-11-02', 'as_of': '2026-11-02',
+                               'status': 'current', 'result': {'outcome': 'passed'}, 'fetched_dates': {'cninfo': '2026-11-02'}}
+    item['growth_source'] = {'symbol': '600900', 'evaluation_as_of': '2026-11-02', 'as_of': '2026-11-01',
+                             'status': 'historical', 'research': {'paths': {'sustained_growth': {'status': 'met_reference'}}},
+                             'raw_sha256': 'b'*64}
+    item['turnover_source'] = {'symbol': '600900', 'evaluation_as_of': '2026-11-02', 'status': 'unavailable',
+                               'reason': '来源缺失', 'window_days': ['2026-11-02'], 'fetched_on': '2026-11-02'}
+    item['market_value_source'] = {'symbol': '600900', 'evaluation_as_of': '2026-11-02', 'status': 'invalid',
+                                   'checks': [{'code': 'capitalization_current', 'outcome': 'pending_verification'}]}
+    packet = build_manual_review_packet(source)
+    assert packet['sources']['dividend']['result']['outcome'] == 'passed'
+    assert packet['sources']['dividend']['fetched_dates']['cninfo'] == '2026-11-02'
+    assert packet['sources']['growth']['status'] == 'historical'
+    assert packet['sources']['growth']['research']['paths']['sustained_growth']['status'] == 'met_reference'
+    assert packet['sources']['turnover']['status'] == 'unavailable'
+    assert packet['sources']['turnover']['window_days'] == ['2026-11-02']
+    assert packet['sources']['market_value']['status'] == 'invalid'
+    packet['sources']['growth']['research']['paths'].clear()
+    assert item['growth_source']['research']['paths']
+    assert packet['formal_screening_enabled'] is False
+
+
+@pytest.mark.parametrize('field,value', [('symbol', '600036'), ('evaluation_as_of', '2026-11-01')])
+def test_packet_does_not_use_research_source_from_another_company_or_cutoff(field, value):
+    from radar.stocks.manual_review_packet import build_manual_review_packet
+
+    source = detail()
+    item = source['evaluation']['items'][0]
+    item['dividend_source'] = {'symbol': '600900', 'evaluation_as_of': '2026-11-02', 'status': 'current',
+                               'result': {'outcome': 'passed'}, field: value}
+    assert build_manual_review_packet(source)['sources']['dividend']['status'] == 'unavailable'

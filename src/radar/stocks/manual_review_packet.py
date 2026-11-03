@@ -66,6 +66,23 @@ def build_manual_review_packet(detail: Any) -> dict[str, Any]:
         if label == 'financial' and isinstance(financial, dict):
             value['financial'] = {name: deepcopy(financial[name]) for name in ('cash_flow_reference', 'issuer_applicability', 'source_company_type') if name in financial}
         sources[label] = value
+    for label, key, data_field in (
+        ('dividend', 'dividend_source', 'result'),
+        ('turnover', 'turnover_source', None),
+        ('growth', 'growth_source', 'research'),
+        ('market_value', 'market_value_source', None),
+    ):
+        source = item.get(key)
+        if (not isinstance(source, dict) or source.get('symbol') != symbol
+                or source.get('evaluation_as_of') != report.get('as_of')):
+            sources[label] = {'status': 'unavailable'}
+            continue
+        value = {name: deepcopy(source[name]) for name in (*_SOURCE_FIELDS, 'raw_sha256', 'fetched_dates',
+                                                           'fetched_on', 'window_days', 'calendar_sha256')
+                 if name in source}
+        if data_field is not None and source.get('status') in ('current', 'historical'):
+            value[data_field] = deepcopy(source.get(data_field))
+        sources[label] = value
     audit_clues: dict[str, Any] = {'symbol': symbol, 'as_of': report.get('as_of'), 'status': 'unavailable',
                                    'annual': [], 'reviewed': False, 'formal_screening_enabled': False}
     candidate = detail.get('audit_clues')
