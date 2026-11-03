@@ -18,9 +18,10 @@ from radar.stocks.research_store import _symbol
 from radar.stocks.structured_collect import _atomic, _json, _safe_path
 
 logger = logging.getLogger(__name__)
-VERSION = 'stock-dividend-structured-v1'
+VERSION = 'stock-dividend-structured-v2'
 URLS = {'cninfo': 'https://webapi.cninfo.com.cn/api/sysapi/p_sysapi1139',
-        'eastmoney': 'https://datacenter-web.eastmoney.com/api/data/v1/get'}
+        'eastmoney': 'https://datacenter-web.eastmoney.com/api/data/v1/get',
+        'eastmoney_page': 'https://emweb.securities.eastmoney.com/PC_HSF10/BonusFinancing/PageAjax'}
 MAX_BYTES = 8 * 1024 * 1024
 
 
@@ -29,6 +30,9 @@ def request_identity(source: str, symbol: str) -> dict[str, Any]:
     symbol = _symbol(symbol)
     if source == 'cninfo':
         return {'method': 'POST', 'params': {'scode': symbol}}
+    if source == 'eastmoney_page':
+        exchange = 'SH' if symbol.startswith('6') else 'SZ' if symbol.startswith(('0', '3')) else 'BJ'
+        return {'method': 'GET', 'params': {'code': exchange + symbol}}
     if source == 'eastmoney':
         return {'method': 'GET', 'params': {'sortColumns': 'REPORT_DATE', 'sortTypes': '-1', 'pageSize': '500',
                 'pageNumber': '1', 'reportName': 'RPT_SHAREBONUS_DET', 'columns': 'ALL', 'source': 'WEB',
@@ -48,7 +52,7 @@ def _request(source: str, symbol: str) -> tuple[int, bytes]:
         response = requests.post(URLS[source], params=request_identity(source, symbol)['params'], headers={'Accept-Enckey': code,
             'Origin': 'http://webapi.cninfo.com.cn', 'Referer': 'http://webapi.cninfo.com.cn/',
             'User-Agent': 'Mozilla/5.0'}, timeout=15, allow_redirects=False, stream=True)
-    elif source == 'eastmoney':
+    elif source in ('eastmoney', 'eastmoney_page'):
         params = request_identity(source, symbol)['params']
         response = requests.get(URLS[source], params=params, timeout=15, allow_redirects=False, stream=True)
     else:
@@ -79,16 +83,25 @@ def validate_source(source: str, symbol: str, raw: bytes) -> list[dict[str, Any]
         raise TypeError('分红响应不是对象')
     if source == 'cninfo':
         rows = data.get('records')
+        if data.get('resultcode') != 200 or data.get('count') != data.get('total') or not isinstance(rows, list) or data.get('count') != len(rows):
+            raise ValueError('巨潮响应不完整')
+    elif source == 'eastmoney_page':
+        rows = data.get('fhyx')
     else:
         result = data.get('result')
         if data.get('success') is not True or not isinstance(result, dict) or result.get('pages') != 1:
             raise ValueError('东方财富响应缺失或分页不完整')
         rows = result.get('data')
+        if not isinstance(rows, list) or result.get('count') != len(rows):
+            raise ValueError('东方财富记录数不完整')
     if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
         raise ValueError('分红记录不完整')
     for row in rows:
-        code = row.get('SECURITY_CODE', row.get('SECCODE'))
-        if code != symbol:
+        codes = [row[key] for key in ('SECURITY_CODE', 'SECCODE') if row.get(key) is not None]
+        secucode = row.get('SECUCODE')
+        expected = request_identity('eastmoney_page', symbol)['params']['code']
+        if (any(code != symbol for code in codes) or (source != 'cninfo' and not codes)
+                or (secucode is not None and secucode != symbol + '.' + expected[:2])):
             raise ValueError('分红记录公司身份缺失或不一致')
     return rows
 
@@ -105,7 +118,10 @@ def collect_dividend(symbol: str, as_of: date, cache_dir: Path, *,
     _safe_path(root)
     root.mkdir(parents=True, exist_ok=True)
     sources: dict[str, Any] = {}
-    for source, url in URLS.items():
+    for source in ('eastmoney_page', 'eastmoney', 'cninfo'):
+        url = URLS[source]
+        if source == 'eastmoney' and sources.get('eastmoney_page', {}).get('status') != 'complete':
+            continue
         manifest = root / f'{source}-{symbol}-{as_of.isoformat()}.json'
         _safe_path(manifest)
         try:
@@ -119,6 +135,8 @@ def collect_dividend(symbol: str, as_of: date, cache_dir: Path, *,
                 raise ValueError('缓存来源身份不符')
             validate_source(source, symbol, raw)
             sources[source] = {**saved, 'status': 'complete', 'cache_status': 'cache'}
+            if source in ('eastmoney', 'cninfo') and _candidate_result(sources, symbol, as_of, source) is not None:
+                break
             continue
         except (OSError, ValueError, TypeError, KeyError) as exc:
             logger.debug('分红缓存不可用，重新采集 %s %s: %s', source, symbol, exc)
@@ -139,7 +157,8 @@ def collect_dividend(symbol: str, as_of: date, cache_dir: Path, *,
                 if status >= 500:
                     continue
                 if status != 200:
-                    raise ValueError(f'来源HTTP {status}')
+                    result['reason'] = f'http_{status}'
+                    break
                 if not isinstance(raw, bytes) or not 0 < len(raw) <= MAX_BYTES:
                     raise ValueError('来源原文类型或大小无效')
                 result = {'version': VERSION, 'source': source, 'symbol': symbol, 'as_of': as_of.isoformat(),
@@ -163,33 +182,56 @@ def collect_dividend(symbol: str, as_of: date, cache_dir: Path, *,
                 logger.warning('分红来源采集失败 %s %s: %s', source, symbol, exc)
                 result['reason'] = type(exc).__name__
         sources[source] = result
-    return {'version': VERSION, 'symbol': symbol, 'as_of': as_of.isoformat(), 'sources': sources,
-            'status': 'complete' if all(row['status'] == 'complete' for row in sources.values()) else 'partial',
+        if source in ('eastmoney', 'cninfo') and _candidate_result(sources, symbol, as_of, source) is not None:
+            break
+    selected = next((name for name in ('eastmoney', 'cninfo') if _candidate_result(sources, symbol, as_of, name) is not None), None)
+    return {'selected_provider': selected, 'version': VERSION, 'symbol': symbol, 'as_of': as_of.isoformat(), 'sources': sources,
+            'status': 'complete' if selected else 'partial',
             'formal_screening_enabled': False, 'members_published': 0}
 
 
-def verify_collection(collection: Any, symbol: str, as_of: date) -> dict[str, Any]:
-    """重新校验来源身份与原文摘要，不信任已保存的派生结论。"""
-    from radar.stocks.dividend_structured import evaluate_dividend_records
+def _decode_source(source: Any, name: str, symbol: str, as_of: date) -> list[dict[str, Any]]:
+    if (not isinstance(source, dict) or source.get('status') != 'complete' or source.get('version') != VERSION
+            or source.get('source') != name or source.get('symbol') != symbol or source.get('url') != URLS[name]
+            or source.get('as_of') != as_of.isoformat() or source.get('request') != request_identity(name, symbol)):
+        raise ValueError('分红来源未完成或身份不符')
+    fetched = datetime.fromisoformat(source['fetched_at'])
+    if fetched.utcoffset() is None or fetched > datetime.now(UTC):
+        raise ValueError('分红抓取时间无效')
+    raw = base64.b64decode(source['raw'], validate=True)
+    if hashlib.sha256(raw).hexdigest() != source.get('sha256'):
+        raise ValueError('分红原文摘要不一致')
+    return validate_source(name, symbol, raw)
 
+
+def _candidate_result(sources: dict[str, Any], symbol: str, as_of: date, provider: str) -> dict[str, Any] | None:
+    from radar.stocks.dividend_structured import (
+        evaluate_cninfo_records,
+        evaluate_eastmoney_records,
+    )
+
+    try:
+        if provider == 'cninfo':
+            result = evaluate_cninfo_records(symbol, as_of, _decode_source(sources.get('cninfo'), 'cninfo', symbol, as_of))
+        else:
+            page = _decode_source(sources.get('eastmoney_page'), 'eastmoney_page', symbol, as_of)
+            periods = _decode_source(sources.get('eastmoney'), 'eastmoney', symbol, as_of)
+            result = evaluate_eastmoney_records(symbol, as_of, page, periods)
+        return result if result['outcome'] == 'passed' else None
+    except (ValueError, TypeError, KeyError, AttributeError, RecursionError):
+        return None
+
+
+def verify_collection(collection: Any, symbol: str, as_of: date) -> dict[str, Any]:
+    """按已选择的来源复读原始响应，不能回退到其他任务。"""
     if (not isinstance(collection, dict) or collection.get('version') != VERSION
             or collection.get('symbol') != symbol or collection.get('as_of') != as_of.isoformat()):
         raise ValueError('分红产物公司、版本或截点不符')
-    sources = collection.get('sources')
-    if not isinstance(sources, dict):
-        raise TypeError('分红来源缺失')
-    decoded = {}
-    for name, url in URLS.items():
-        source = sources.get(name)
-        if (not isinstance(source, dict) or source.get('status') != 'complete' or source.get('version') != VERSION
-                or source.get('source') != name or source.get('symbol') != symbol or source.get('url') != url
-                or source.get('as_of') != as_of.isoformat() or source.get('request') != request_identity(name, symbol)):
-            raise ValueError('分红来源未完成或身份不符')
-        fetched = datetime.fromisoformat(source['fetched_at'])
-        if fetched.utcoffset() is None or fetched > datetime.now(UTC):
-            raise ValueError('分红抓取时间无效')
-        raw = base64.b64decode(source['raw'], validate=True)
-        if hashlib.sha256(raw).hexdigest() != source.get('sha256'):
-            raise ValueError('分红原文摘要不一致')
-        decoded[name] = validate_source(name, symbol, raw)
-    return evaluate_dividend_records(symbol, as_of, decoded['cninfo'], decoded['eastmoney'])
+    sources, provider = collection.get('sources'), collection.get('selected_provider')
+    if not isinstance(sources, dict) or provider not in ('eastmoney', 'cninfo'):
+        raise ValueError('分红来源未完成')
+    result = _candidate_result(sources, symbol, as_of, provider)
+    if result is None:
+        raise ValueError('所选分红来源不能证明完整三年')
+    return {**result, 'selected_provider': provider,
+            'identity_basis': 'request_code' if provider == 'cninfo' else 'response_code'}

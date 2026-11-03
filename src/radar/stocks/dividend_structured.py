@@ -79,3 +79,72 @@ def evaluate_dividend_records(symbol: str, as_of: date, cninfo: Any, eastmoney: 
     return {'symbol': symbol, 'as_of': as_of.isoformat(), 'outcome': outcome, 'annual': annual,
             'reason': '三年均有已实施A股现金分红' if outcome == 'passed' else '分红记录缺失、冲突或日期待核验',
             'financial_verified': False, 'formal_screening_enabled': False, 'members_published': 0}
+
+
+def evaluate_cninfo_records(symbol: str, as_of: date, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """以请求绑定的巨潮记录独立证明各年度正向实施记录。"""
+    _symbol(symbol)
+    years = range(as_of.year - 3, as_of.year)
+    items: dict[int, list[dict[str, Any]]] = {year: [] for year in years}
+    seen: dict[tuple[str, str], tuple[str, str]] = {}
+    conflict = False
+    for row in rows:
+        period = row.get('F001V')
+        matched = re.fullmatch(r'(\d{4})(?:年报|半年报|一季报|三季报)', period) if isinstance(period, str) else None
+        if not matched:
+            notice = _source_day(row.get('F006D'))
+            if notice is None or notice.year >= as_of.year - 3:
+                conflict = True
+            continue
+        year = int(matched.group(1))
+        if year not in items:
+            continue
+        notice, paid, ratio = _source_day(row.get('F006D')), _source_day(row.get('F023D')), _amount(row.get('F012N'))
+        if (notice is None or paid is None or notice.year < year or notice > as_of or paid > as_of
+                or paid < notice or ratio is None or ratio <= 0):
+            continue
+        key = (notice.isoformat(), paid.isoformat())
+        identity = (matched.group(0), str(ratio))
+        if key in seen and seen[key] != identity:
+            conflict = True
+        seen[key] = identity
+        items[year].append({'report_period': period, 'announced_on': notice.isoformat(),
+                            'paid_on': paid.isoformat(), 'cash_per_ten_shares': str(ratio)})
+    annual = [{'year': year, 'outcome': 'passed' if items[year] and not conflict else 'pending_verification',
+               'events': items[year]} for year in years]
+    outcome = 'passed' if all(item['outcome'] == 'passed' for item in annual) else 'pending_verification'
+    return {'symbol': symbol, 'as_of': as_of.isoformat(), 'outcome': outcome, 'annual': annual,
+            'reason': '三年均有已实施A股现金分红' if outcome == 'passed' else '分红记录缺失或冲突待核验',
+            'financial_verified': False, 'formal_screening_enabled': False, 'members_published': 0}
+
+
+def evaluate_eastmoney_records(symbol: str, as_of: date, page: list[dict[str, Any]],
+                               periods: list[dict[str, Any]]) -> dict[str, Any]:
+    """同一供应方内按公司、公告日、金额及除权日连接年度与实际派息。"""
+    rows: list[dict[str, Any]] = []
+    for event in page:
+        if event.get('ASSIGN_PROGRESS') != '实施方案':
+            continue
+        profile = event.get('IMPL_PLAN_PROFILE')
+        match = re.fullmatch(r'10派(\d+(?:\.\d+)?)元(?:\(含税\))?', profile) if isinstance(profile, str) else None
+        notice, paid, exday = (_source_day(event.get(key)) for key in ('NOTICE_DATE', 'PAY_CASH_DATE', 'EX_DIVIDEND_DATE'))
+        if match is None or notice is None or paid is None or exday is None:
+            continue
+        ratio = _amount(match.group(1))
+        if sum(_source_day(row.get('NOTICE_DATE')) == notice and row.get('ASSIGN_PROGRESS') == '实施方案'
+               for row in page) != 1:
+            continue
+        candidates = [row for row in periods if row.get('SECURITY_CODE') == symbol
+                      and row.get('ASSIGN_PROGRESS') == '实施分配'
+                      and _source_day(row.get('NOTICE_DATE')) == notice
+                      and _source_day(row.get('EX_DIVIDEND_DATE')) == exday
+                      and _amount(row.get('PRETAX_BONUS_RMB')) == ratio]
+        if len(candidates) != 1 or ratio is None or ratio <= 0 or not notice <= exday <= paid:
+            continue
+        report = _source_day(candidates[0].get('REPORT_DATE'))
+        if report is None or report > notice or report.month not in (3, 6, 9, 12):
+            continue
+        suffix = {3: '一季报', 6: '半年报', 9: '三季报', 12: '年报'}[report.month]
+        rows.append({'F001V': f'{report.year}{suffix}', 'F006D': notice.isoformat(),
+                     'F023D': paid.isoformat(), 'F012N': str(ratio)})
+    return evaluate_cninfo_records(symbol, as_of, rows)

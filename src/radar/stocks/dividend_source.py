@@ -59,8 +59,10 @@ def load_dividend_source(db: Path, symbol: str, as_of: date) -> dict[str, Any]:
                 raise ValueError('分红产物身份不符')
             source['result'] = verify_collection(payload['collection'], symbol, date.fromisoformat(row['target_date']))
             sources = payload['collection']['sources']
-            fetched_dates = {name: datetime.fromisoformat(value['fetched_at']).astimezone(_BJ).date()
-                             for name, value in sources.items()}
+            selected = payload['collection']['selected_provider']
+            selected_names = ('eastmoney_page', 'eastmoney') if selected == 'eastmoney' else ('cninfo',)
+            fetched_dates = {name: datetime.fromisoformat(sources[name]['fetched_at']).astimezone(_BJ).date()
+                             for name in selected_names}
             source['fetched_dates'] = {name: value.isoformat() for name, value in fetched_dates.items()}
             source['status'] = ('current' if row['target_date'] == as_of.isoformat()
                                 and all(value <= as_of for value in fetched_dates.values()) else 'historical')
