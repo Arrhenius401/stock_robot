@@ -83,15 +83,15 @@ const request = async (url, options) => { calls.push([url, options]); if (url.in
 const dispose = renderRadarStockPool(root, header, pool, empty, {request, isCurrent: () => current}); await tick();
 assert.ok(root.textContent.includes('尚无正式成员'));
 await click(root, '候选与成员管理');
-assert.ok(calls.at(-1)[0].includes('pool_id=dividend_value'));
-await click(root, '下一页'); assert.ok(calls.at(-1)[0].includes('page=2'));
+assert.ok(calls.filter(([url]) => url.includes('/candidates?')).at(-1)[0].includes('pool_id=dividend_value'));
+await click(root, '下一页'); assert.ok(calls.filter(([url]) => url.includes('/candidates?')).at(-1)[0].includes('page=2'));
 const search = byClass(root, 'stock-search')[0]; search.value = '测试';
-await click(root, '搜索'); assert.ok(calls.at(-1)[0].includes('search=%E6%B5%8B%E8%AF%95&page=1'));
-await click(root, '清除'); assert.ok(calls.at(-1)[0].includes('page=2'));
+await click(root, '搜索'); assert.ok(calls.filter(([url]) => url.includes('/candidates?')).at(-1)[0].includes('search=%E6%B5%8B%E8%AF%95&page=1'));
+await click(root, '清除'); assert.ok(calls.filter(([url]) => url.includes('/candidates?')).at(-1)[0].includes('page=2'));
 root.scrollTop = 91;
 await click(root, '测试公司 · 600001'); assert.ok(root.textContent.includes('共同条件')); assert.ok(root.textContent.includes('红利价值条件'));
 assert.equal(descendants(root).filter(el => el.tagName === 'A').length, 1);
-await click(root, '返回初筛范围'); assert.ok(calls.at(-1)[0].includes('page=2')); assert.equal(root.scrollTop, 91);
+await click(root, '返回初筛范围'); assert.ok(calls.filter(([url]) => url.includes('/candidates?')).at(-1)[0].includes('page=2')); assert.equal(root.scrollTop, 91);
 dispose();
 """))
 
@@ -213,5 +213,28 @@ assert.equal(selected,1);
 await click(root,'财务复核');assert.equal(finance,1);
 await click(root,'准备候选');assert.deepEqual(started,['discover_candidates']);
 assert.equal(timers.size,0);
+dispose();
+"""))
+
+
+def test_research_summary_and_ai_are_on_demand(tmp_path):
+    _run_node(tmp_path, _script(r"""
+detail.research_summaries = {dividend_value: {status:'research_candidate', passed:[{code:'listing_age',reason:'满三年'}], failed:[], pending:[{code:'audit',reason:'待核验'}], unconfigured_rules:['dividend_yield']}};
+detail.audit_clues = {status:'available', annual:[{year:2025,status:'available',opinion:'标准无保留意见',other_opinion:'附加强调事项'}]};
+const request = async (url, options) => {
+  calls.push([url, options]);
+  if (url.includes('/updates/latest')) return null;
+  if (url.includes('/research-explanation')) return {text:'这是研究解释。'};
+  if (url.includes('/research-summary')) return detail.research_summaries.dividend_value;
+  if (url.includes('/companies/')) return detail;
+  const result = list(); result.items[0] = {...company,research_summary:detail.research_summaries.dividend_value}; return result;
+};
+const dispose = renderRadarStockPool(root, header, pool, empty, {request, isCurrent: () => current}); await tick();
+await click(root, '候选与成员管理');
+assert.ok(root.textContent.includes('研究')); assert.ok(!calls.some(([url]) => url.includes('/research-explanation')));
+await click(root, '测试公司 · 600001');
+assert.ok(root.textContent.includes('研究候选')); assert.ok(root.textContent.includes('标准无保留意见')); assert.ok(root.textContent.includes('附加强调事项'));
+await click(root, 'AI解释研究资料');
+assert.ok(root.textContent.includes('这是研究解释')); assert.equal(calls.filter(([url]) => url.includes('/research-explanation')).length, 1);
 dispose();
 """))

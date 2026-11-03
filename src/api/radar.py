@@ -10,6 +10,7 @@ import sys
 import threading
 import time as clock
 import uuid
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -133,7 +134,7 @@ def _require_collector_online(store: CollectorStore) -> None:
         })
 
 
-def create_radar_router() -> APIRouter:
+def create_radar_router(*, research_model_factory: Callable[[], Any] | None = None) -> APIRouter:
     """查询只读本地数据；生命周期拥有一个人工更新线程。"""
     manual_service: UpdateService | None = None
 
@@ -148,7 +149,7 @@ def create_radar_router() -> APIRouter:
 
     router = APIRouter(prefix="/api/v1/radar", tags=["radar"], lifespan=lifespan)
     # 股票管理的固定路径必须先于池标识通配路径注册。
-    router.include_router(create_stock_router())
+    router.include_router(create_stock_router(research_model_factory=research_model_factory))
     tasks: dict[str, dict[str, Any]] = {}
     lock = threading.Lock()
 

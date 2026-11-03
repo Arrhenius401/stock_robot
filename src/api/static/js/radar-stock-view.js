@@ -146,14 +146,27 @@ export function renderRadarStockPool(root, header, pool, payload, options = {}) 
         append(results, fold('范围来源、快照日期与抓取时间', sources));
       }
       if (!data.items?.length) append(results, node('p', 'radar-note', state.search ? '未找到匹配的公司。' : '尚无可用初筛范围，请先准备候选。'));
+      const researchLoads = [];
       (data.items || []).forEach(item => {
         const row = node('div', 'stock-row');
         const open = button((item.name || item.symbol) + ' · ' + item.symbol, () => { state.scroll = scrollHost.scrollTop || 0; state.symbol = item.symbol; state.view = 'detail'; show(); }, 'stock-company');
         const industry = [item.industry_level1, item.industry_level2].filter(Boolean).join(' / ') || '行业待核验';
         append(row, open, node('span', 'radar-meta', industry + ' · ' + label(item.admission_status)), node('span', 'radar-meta', '资料截点 ' + (item.data_as_of || item.data_asof || '未知')));
+        const researchLine = node('span', 'radar-meta', '研究摘要整理中…'); append(row, researchLine);
+        researchLoads.push(async () => {
+          try {
+            const research = await request(API + '/companies/' + encodeURIComponent(item.symbol) + '/research-summary?pool_id=' + encodeURIComponent(pool.id));
+            if (!current() || token !== serial) return;
+            researchLine.textContent = research?.status === 'research_candidate' ? '研究截点 ' + (research.as_of || '未知') + '：满足 ' + research.passed.length + ' · 未满足 ' + research.failed.length + ' · 待核验 ' + research.pending.length : '研究摘要暂不可用';
+          } catch (_) { if (current() && token === serial) researchLine.textContent = '研究摘要暂不可用'; }
+        });
+
         if (item.source_indexes?.length) append(row, node('span', 'radar-meta', '来源指数：' + item.source_indexes.map(v => typeof v === 'string' ? v : v.name || v.code || v.index_id).join('、')));
         append(results, row);
       });
+      let nextResearch = 0;
+      const loadResearch = async () => { while (nextResearch < researchLoads.length && current() && token === serial) await researchLoads[nextResearch++](); };
+      void loadResearch(); void loadResearch();
       pager(results, data, page => { state.page = page; show(); }); scrollHost.scrollTop = state.scroll;
     } catch (error) { if (current() && token === serial) errorBox(error, show); }
   }
@@ -222,6 +235,31 @@ export function renderRadarStockPool(root, header, pool, payload, options = {}) 
       const industry = evaluation.industry_source?.industry;
       const industryLabel = [industry?.level1, industry?.level2].filter(Boolean).join(' / ') || '行业待核验';
       body.replaceChildren(back, node('h3', '', company.name + ' · ' + company.symbol), node('p', 'radar-meta', '资料截点 ' + (company.data_as_of || '未知') + ' · 版本 ' + company.revision + ' · ' + industryLabel), node('p', 'radar-note', '事实审核不代表资格批准。正式规则尚未启用，新增或恢复成员不可用。'));
+      const research = data.research_summaries?.[pool.id];
+      if (research?.status === 'research_candidate') {
+        const summary = append(node('section', 'stock-checks'), node('h3', '', '研究候选'), node('p', 'radar-meta', '研究截点 ' + (research.as_of || '未知') + '；仅供研究，不代表已审核或正式成员。'));
+        [['已满足', research.passed], ['未满足', research.failed], ['待核验', research.pending]].forEach(([title, rows]) => {
+          const content = node('div'); (rows || []).forEach(row => { const values = row.values || {}; const amount = row.amount_yuan ?? values.amount_yuan ?? values.average_amount_yuan; append(content, node('p', 'stock-check', checkLabel(row.code) + '：' + (row.reason || '待核验') + (amount == null ? '' : ' · ' + amount + ' 元') + (values.date ? ' · ' + values.date : ''))); });
+          append(summary, fold(title + '（' + (rows || []).length + '项）', content));
+        });
+        if (research.unconfigured_rules?.length) append(summary, node('p', 'radar-note', '尚未配置：' + research.unconfigured_rules.map(checkLabel).join('、')));
+        const audit = data.audit_clues;
+        if (audit?.annual?.length) {
+          const clues = node('div');
+          append(clues, node('p', 'radar-meta', '仅为原文线索，不代表审计或治理审核通过。来源截点 ' + (audit.as_of || '未知') + (audit.status === 'historical' ? ' · 历史参考' : '')));
+          audit.annual.forEach(row => append(clues, node('p', 'stock-check', row.year + '年：' + (row.opinion || '待核验') + (row.other_opinion ? ' · 附加意见：' + row.other_opinion : '') + (row.disclosed_on ? ' · 公告 ' + row.disclosed_on : '') + (row.updated_after_cutoff ? ' · 研究截点后更新' : ''))));
+          if (audit.source?.source_url) { try { const url = new URL(audit.source.source_url); if (url.protocol === 'https:') { const link = node('a', '', '审计线索来源'); link.href = url.href; link.target = '_blank'; link.rel = 'noopener noreferrer'; append(clues, link); } } catch (_) { /* 无效来源不生成链接。 */ } }
+          append(summary, fold('年度审计意见线索', clues));
+        }
+        const explanation = node('div', 'stock-research-explanation');
+        const explain = button('AI解释研究资料', async () => {
+          explain.disabled = true; explanation.textContent = '正在解释已有资料…';
+          try { const answer = await request(API + '/companies/' + encodeURIComponent(symbol) + '/research-explanation', post({pool_id: pool.id})); if (current() && token === serial) explanation.textContent = 'AI研究解释，仅供参考：' + answer.text; }
+          catch (error) { if (current() && token === serial) explanation.textContent = 'AI解释暂不可用：' + error.message; }
+          finally { if (current() && token === serial) explain.disabled = false; }
+        });
+        append(summary, node('p', 'radar-meta', '仅主动点击时发送本公司研究摘要给已配置的模型，可能产生费用。'), explain, explanation); append(body, summary);
+      }
       append(body, checks('共同条件', evaluation), checks(pool.name + '条件', evaluation.pools?.[pool.id]));
       const evidenceBox = append(node('div', 'stock-evidence'), node('h3', '', '资料与事实审核'));
       const editor = node('div', 'stock-review-editor');

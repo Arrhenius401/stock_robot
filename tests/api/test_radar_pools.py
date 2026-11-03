@@ -56,3 +56,20 @@ def test_bad_stock_configuration_is_not_reported_as_empty(monkeypatch):
         response = client.get(path)
         assert response.status_code == 500
         assert response.json()["detail"] == "股票定义损坏"
+
+
+def test_research_model_factory_uses_existing_app_core(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from fastapi import APIRouter
+
+    import api.radar as module
+
+    captured = []
+    model = object()
+    def capture_stock_router(**kwargs):
+        captured.append(kwargs['research_model_factory'])
+        return APIRouter()
+    monkeypatch.setattr(module, 'create_stock_router', capture_stock_router)
+    create_app(core=SimpleNamespace(llm=model), sessions=object(), push=False, runtime_log_path=tmp_path/'runtime.log')
+    assert len(captured) == 1 and captured[0]() is model

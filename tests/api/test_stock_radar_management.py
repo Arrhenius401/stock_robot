@@ -444,3 +444,90 @@ def test_manual_review_packet_is_on_demand_and_read_only(tmp_path):
         assert web.get('/api/v1/radar/stocks/companies/600001/manual-review-packet').status_code == 404
     after = (store.get_company('600000'), store.list_evidence('600000'), store.review_history('600000'))
     assert after == before
+
+
+def test_research_explanation_only_runs_on_explicit_request_and_does_not_review(tmp_path):
+    store = seed(tmp_path)
+    before = (store.get_company('600000'), store.list_evidence('600000'), store.review_history('600000'))
+    calls = []
+    class FakeModel:
+        def generate(self, prompt, **kwargs):
+            calls.append((prompt, kwargs))
+            return '资料不足，需要核验。'
+    app = FastAPI()
+    app.include_router(create_stock_router(state_dir=tmp_path, research_model_factory=lambda: FakeModel()), prefix='/api/v1/radar')
+    with TestClient(app) as web:
+        base = '/api/v1/radar/stocks/companies/600000'
+        detail = web.get(base)
+        assert detail.status_code == 200 and not calls
+        response = web.post(base + '/research-explanation', json={'pool_id': 'dividend_value'})
+        assert response.status_code == 200, response.text
+        assert response.json()['text'] == '资料不足，需要核验。'
+        assert response.json()['research_only'] is True and len(calls) == 1
+        assert calls[0][1]['max_tokens'] == 800
+        assert '来源和日期' in calls[0][1]['system']
+    assert (store.get_company('600000'), store.list_evidence('600000'), store.review_history('600000')) == before
+
+
+def test_research_explanation_missing_model_is_explicit(tmp_path):
+    seed(tmp_path)
+    app = FastAPI()
+    app.include_router(create_stock_router(state_dir=tmp_path, research_model_factory=lambda: None), prefix='/api/v1/radar')
+    with TestClient(app) as web:
+        response = web.post('/api/v1/radar/stocks/companies/600000/research-explanation', json={'pool_id': 'growth_trend'})
+        assert response.status_code == 503
+        assert '模型' in response.json()['detail']
+
+
+def test_research_candidates_and_detail_show_status_without_creating_reviews(tmp_path):
+    from radar.stocks.update_runner import StockUpdateRunner
+    from tests.radar.test_stock_update_service import packet, task_store
+
+    tasks = task_store(tmp_path)
+    tasks.enqueue(kind='discover_candidates', pool_ids=['dividend_value', 'growth_trend'],
+                  target_date=date(2026, 10, 15), rule_version='test')
+    runner = StockUpdateRunner(tasks, tmp_path/'stock-updates/cache', tmp_path/'stock-updates/artifacts',
+                               roster_collector=lambda _cache, as_of: packet(as_of))
+    runner.execute_one('isolated-worker')
+    with client(tmp_path) as web:
+        candidate = web.get('/api/v1/radar/stocks/candidates?pool_id=dividend_value').json()['items'][0]
+        summary = web.get('/api/v1/radar/stocks/companies/' + candidate['symbol'] + '/research-summary?pool_id=dividend_value').json()
+        assert summary['research_only'] is True
+        assert summary['pending']
+        detail = web.get('/api/v1/radar/stocks/companies/' + candidate['symbol']).json()
+        assert detail['research_summaries']['dividend_value']['research_only'] is True
+        assert detail['reviews'] == [] and detail['publication_enabled'] is False
+
+
+def test_research_explanation_rejects_sources_changed_during_model_call(tmp_path, monkeypatch):
+    import api.stock_radar as module
+
+    seed(tmp_path)
+    changed = [False]
+    monkeypatch.setattr(module, 'load_audit_clues', lambda *args: {'status': 'changed' if changed[0] else 'available'})
+    class FakeModel:
+        def generate(self, prompt, **kwargs):
+            changed[0] = True
+            return '研究说明'
+    app = FastAPI()
+    app.include_router(create_stock_router(state_dir=tmp_path, research_model_factory=lambda: FakeModel()), prefix='/api/v1/radar')
+    with TestClient(app) as web:
+        response = web.post('/api/v1/radar/stocks/companies/600000/research-explanation', json={'pool_id': 'growth_trend'})
+        assert response.status_code == 409
+
+
+def test_research_summary_rejects_company_outside_selected_pool(tmp_path):
+    seed(tmp_path)
+    with client(tmp_path) as web:
+        response = web.get('/api/v1/radar/stocks/companies/600000/research-summary?pool_id=dividend_value')
+        assert response.status_code == 404
+
+
+def test_unconfigured_research_explanation_does_not_initialize_config(tmp_path, monkeypatch):
+    seed(tmp_path)
+    def forbidden(*args, **kwargs):
+        raise AssertionError('不应重建或写入配置')
+    monkeypatch.setattr('utils.config.Config', forbidden)
+    with client(tmp_path) as web:
+        response = web.post('/api/v1/radar/stocks/companies/600000/research-explanation', json={'pool_id': 'growth_trend'})
+        assert response.status_code == 503 and '模型' in response.json()['detail']

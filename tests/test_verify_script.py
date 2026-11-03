@@ -36,6 +36,7 @@ def _run(*arguments: str):
     ("src/radar/stocks/announcement_discovery.py", "tests/radar/test_stock_announcement_discovery.py"),
     ("src/radar/stocks/dividend_extract.py", "tests/radar/test_stock_dividend_extract.py"),
     ("tests/resources/radar/stock-dividend-documents.json", "tests/radar/test_stock_source_archive.py"),
+    ("src/radar/stocks/research_candidates.py", "tests/radar/test_stock_research_candidates.py"),
     ("src/radar/stocks/source_archive.py", "tests/radar/test_stock_source_archive.py"),
     ("src/radar/stocks/annual_batch.py", "tests/radar/test_stock_annual_batch.py"),
     ("src/stock_robot/stock_annual_collect.py", "tests/radar/test_stock_annual_collect_cli.py"),

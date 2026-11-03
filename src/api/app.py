@@ -387,7 +387,8 @@ def create_app(
         start_offset=runtime_log_offset,
     ))
     from api.radar import create_radar_router
-    app.include_router(create_radar_router())
+    app.include_router(create_radar_router(research_model_factory=lambda: getattr(
+        runtime.snapshot().core if runtime is not None else core, 'llm', None)))
 
     if sessions is None and core is not None:
         from api.sessions import SessionManager, SessionStore
