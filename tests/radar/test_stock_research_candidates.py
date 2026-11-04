@@ -104,3 +104,49 @@ def test_audit_opinion_classification_keeps_unknown_and_nonstandard_separate():
     changed = deepcopy(base)
     changed['status'] = 'historical'
     assert classify_audit_clues(changed, '2026-11-03')['status'] == 'pending_verification'
+
+
+def test_audit_raw_rejects_duplicate_keys_and_inconsistent_update_dates():
+    import hashlib
+    import json
+
+    from radar.stocks.research_candidates import extract_audit_clues
+
+    def evaluate(raw):
+        meta = {'source_url': 'https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/xjllbAjaxNew',
+                'content_sha256': hashlib.sha256(raw).hexdigest(), 'bytes': len(raw),
+                'fetched_at': '2026-11-03T05:00:00+00:00'}
+        return extract_audit_clues('600900', '2026-11-03', raw, meta)
+    duplicate = b'{"data":[],"data":[]}'
+    assert evaluate(duplicate)['status'] == 'unavailable'
+    row = {'SECURITY_CODE': '600900', 'REPORT_DATE': '2025-12-31', 'NOTICE_DATE': '2026-04-30',
+           'UPDATE_DATE': '2026-04-29', 'OPINION_TYPE': '标准无保留意见'}
+    assert evaluate(json.dumps({'data': [row]}).encode())['annual'][-1]['status'] == 'pending_verification'
+    row['UPDATE_DATE'] = '2026-11-04'
+    assert evaluate(json.dumps({'data': [row]}).encode())['annual'][-1]['status'] == 'pending_verification'
+
+
+def test_missing_other_audit_opinion_field_is_unknown():
+    import hashlib
+    import json
+
+    from radar.stocks.research_candidates import extract_audit_clues
+
+    row = {'SECURITY_CODE': '600900', 'SECUCODE': '600900.SH', 'REPORT_DATE': '2025-12-31',
+           'NOTICE_DATE': '2026-04-30', 'UPDATE_DATE': '2026-04-30', 'OPINION_TYPE': '标准无保留意见'}
+    raw = json.dumps({'data': [row]}).encode()
+    meta = {'source_url': 'https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/xjllbAjaxNew',
+            'content_sha256': hashlib.sha256(raw).hexdigest(), 'bytes': len(raw), 'fetched_at': '2026-11-03T05:00:00+00:00'}
+    result = extract_audit_clues('600900', '2026-11-03', raw, meta)
+    assert result['annual'][-1]['status'] == 'pending_verification'
+
+
+def test_audit_deeply_nested_original_is_unavailable():
+    import hashlib
+
+    from radar.stocks.research_candidates import extract_audit_clues
+
+    raw = b'[' * 2000 + b']' * 2000
+    meta = {'source_url': 'https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/xjllbAjaxNew',
+            'content_sha256': hashlib.sha256(raw).hexdigest(), 'bytes': len(raw), 'fetched_at': '2026-11-03T05:00:00+00:00'}
+    assert extract_audit_clues('600900', '2026-11-03', raw, meta)['status'] == 'unavailable'

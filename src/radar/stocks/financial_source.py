@@ -99,10 +99,19 @@ def load_financial_source(db: Path, symbol: str, as_of: date) -> dict[str, Any]:
     if selected.task is None:
         return source
     try:
+        from radar.stocks.research_candidates import load_audit_clues
+
+        identity_keys = ('status', 'run_id', 'snapshot_sha256', 'task_identity_sha256', 'item_sha256')
+        before = {key: source.get(key) for key in identity_keys}
         financial = verify_financial_payload(selected.payload, selected.task, symbol)
         if financial.get('rule_version', RULE_VERSION) != RULE_VERSION:
             raise StockResearchError('财务重算规则版本不匹配')
         source['financial'] = safe_financial_result(financial, selected.name)
+        audit = load_audit_clues(db, symbol, as_of)
+        after = load_financial_task(db, symbol, as_of).source
+        if {key: after.get(key) for key in identity_keys} != before:
+            raise StockResearchError('读取审计依据时财务任务发生变化')
+        source['audit_clues'] = audit
         if source['status'] == 'current' and financial.get('financial_numeric_status') == 'pending_verification':
             source['reason'] = '已校验保存的产物；结构化资料仍待补，按各项已知依据保留结论'
     except (OSError, ValueError, TypeError, KeyError, AttributeError, StopIteration) as exc:

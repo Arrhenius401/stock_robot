@@ -10,7 +10,7 @@ from typing import Any
 from radar.stocks.research_store import StockResearchError, _sha
 from radar.stocks.structured_screen import screen_structured_financials
 
-NOTICE = '仅复核8项盈利数值；行业龙头、治理审计、市场估值和风格条件尚未完成，金融适用性未核验，不调整正式成员。'
+NOTICE = '本任务复核8项盈利数值；审计意见另按同源原文核验，身份、治理、行业地位和金融适用性仍须独立判断，不调整正式成员。'
 
 
 def financial_progress(task: dict[str, Any]) -> dict[str, int]:

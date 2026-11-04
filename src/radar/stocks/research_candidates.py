@@ -6,13 +6,15 @@ from datetime import UTC
 from typing import Any
 
 logger = logging.getLogger(__name__)
+AUDIT_CLASSIFICATION_VERSION = 'structured-audit-2026-11-04-v1'
 
 
 def classify_audit_clues(clues: Any, as_of: str) -> dict[str, Any]:
     """分类原文意见，不生成审核结论或正式资格。"""
     from datetime import date
 
-    result = {'status': 'pending_verification', 'reviewed': False, 'formal_screening_enabled': False}
+    result = {'status': 'pending_verification', 'reviewed': False, 'formal_screening_enabled': False,
+              'rule_version': AUDIT_CLASSIFICATION_VERSION}
     try:
         cutoff = date.fromisoformat(as_of)
         if not isinstance(clues, dict) or clues.get('status') != 'available':
@@ -86,6 +88,8 @@ def extract_audit_clues(symbol: str, as_of: str, raw: bytes, meta: dict[str, Any
     import json
     from datetime import date, datetime, timedelta, timezone
 
+    from radar.stocks.structured_collect import _json
+
     result: dict[str, Any] = {'symbol': symbol, 'as_of': as_of, 'status': 'unavailable', 'annual': [],
                               'reviewed': False, 'formal_screening_enabled': False}
     try:
@@ -95,7 +99,7 @@ def extract_audit_clues(symbol: str, as_of: str, raw: bytes, meta: dict[str, Any
                 or fetched.utcoffset() is None or fetched > datetime.now(UTC)
                 or len(raw) != meta.get('bytes') or hashlib.sha256(raw).hexdigest() != meta.get('content_sha256')):
             return result
-        data = json.loads(raw)
+        data = _json(raw)
         if not isinstance(data, dict) or data.get('success') is False or ('code' in data and data['code'] != 0):
             return result
         rows = data['data']
@@ -117,19 +121,24 @@ def extract_audit_clues(symbol: str, as_of: str, raw: bytes, meta: dict[str, Any
                     identity_ok = row.get('SECUCODE') in (None, expected_secucode)
                     fetched_day = fetched.astimezone(timezone(timedelta(hours=8))).date()
                     if (identity_ok and date(year, 12, 31) < notice <= min(cutoff, fetched_day)
+                            and notice <= updated <= fetched_day
                             and isinstance(opinion, str) and 0 < len(opinion.strip()) <= 500
+                            and 'OSOPINION_TYPE' in row
                             and (row.get('OSOPINION_TYPE') is None or
                                  isinstance(row.get('OSOPINION_TYPE'), str) and len(row['OSOPINION_TYPE']) <= 500)):
                         entry.update(status='available', opinion=opinion, other_opinion=row.get('OSOPINION_TYPE'),
                                      disclosed_on=notice.isoformat(), updated_on=updated.isoformat(),
-                                     updated_after_cutoff=updated > cutoff)
+                                     updated_after_cutoff=updated > cutoff, security_code=row.get('SECURITY_CODE'),
+                                     secucode=row.get('SECUCODE'), report_type=row.get('REPORT_TYPE'),
+                                     report_date_name=row.get('REPORT_DATE_NAME'))
                 except (ValueError, TypeError) as exc:
                     logger.debug('年度审计线索日期待核验：%s', type(exc).__name__)
 
             annual.append(entry)
         result.update(status='historical' if fetched.astimezone(timezone(timedelta(hours=8))).date() > cutoff else 'available',
-                      annual=annual, source={key: meta[key] for key in ('source_url', 'content_sha256', 'fetched_at')})
-    except (ValueError, TypeError, KeyError, json.JSONDecodeError, OverflowError):
+                      annual=annual, source={key: meta[key] for key in ('source_url', 'content_sha256', 'fetched_at',
+                                                                      'request_params', 'version', 'as_of') if key in meta})
+    except (ValueError, TypeError, KeyError, json.JSONDecodeError, OverflowError, RecursionError):
         return result
     result['classification'] = classify_audit_clues(result, as_of)
     return result

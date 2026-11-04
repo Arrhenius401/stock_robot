@@ -269,3 +269,95 @@ def test_saved_financial_cash_projection_reaches_style_with_audited_facts(tmp_pa
         assert cash['outcome'] == 'passed'
         assert cash['channel'] == 'structured_cash_flow'
     assert source['financial']['cash_flow_reference']['sources']
+
+
+def test_archived_audit_result_expires_if_bound_audit_source_changes(tmp_path, monkeypatch):
+    import radar.stocks.research_candidates as candidates
+
+    research, archive, tasks, clock = environment(tmp_path)
+    clock[0] = datetime(2026, 10, 18, 8, tzinfo=UTC)
+    enqueue(tasks)
+    complete(tasks, tmp_path)
+    changed = [False]
+    def fake_audit(_db, symbol, as_of):
+        return {'symbol': symbol, 'as_of': as_of.isoformat(), 'status': 'available',
+                'annual': [{'year': year, 'status': 'available', 'updated_after_cutoff': False,
+                            'opinion': '保留意见' if changed[0] and year == 2025 else '标准无保留意见',
+                            'other_opinion': None, 'security_code': symbol, 'secucode': symbol+'.SH',
+                            'report_type': '年报', 'report_date_name': f'{year}年报'} for year in (2023, 2024, 2025)],
+                'source': {'content_sha256': ('b' if changed[0] else 'a') * 64, 'as_of': as_of.isoformat(),
+                           'version': 'eastmoney-structured-financial-v1', 'fetched_at': '2026-10-18T08:00:00+08:00',
+                           'source_url': 'https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/xjllbAjaxNew',
+                           'request_params': {'code': 'SH'+symbol, 'reportType': '1', 'reportDateType': '0',
+                                              'companyType': '4', 'dates': '2023-12-31,2024-12-31,2025-12-31'}}}
+    monkeypatch.setattr(candidates, 'load_audit_clues', fake_audit)
+    source = load_financial_source(research.db_path, SYMBOL, DAY)
+    report = evaluate_store(research, DAY, symbol=SYMBOL, include_styles=True, financial_sources={SYMBOL: source})
+    audit = next(x for x in report['items'][0]['checks'] if x['code'] == 'audit')
+    assert audit['outcome'] == 'passed'
+    inputs = archive.capture_inputs(symbol=SYMBOL)
+    inputs['companies'][0].update(financial_source=source, financial_as_of=DAY.isoformat())
+    saved = archive.save_evaluation(report, inputs)
+    assert archive.assert_current(saved['evaluation_id'])
+    changed[0] = True
+    with pytest.raises(StockRevisionConflict):
+        archive.assert_current(saved['evaluation_id'])
+
+
+def test_audit_raw_tampering_invalidates_source_and_archive(tmp_path):
+    import hashlib
+
+    research, archive, tasks, clock = environment(tmp_path)
+    clock[0] = datetime(2026, 10, 18, 8, tzinfo=UTC)
+    enqueue(tasks)
+    task = complete(tasks, tmp_path)
+    item = task['results'][0]
+    payload = json.loads(Path(item['artifact']['path']).read_bytes())
+    rows = [{'SECURITY_CODE': SYMBOL, 'SECUCODE': SYMBOL+'.SH', 'REPORT_DATE': f'{year}-12-31',
+             'NOTICE_DATE': f'{year+1}-04-01', 'UPDATE_DATE': f'{year+1}-04-01',
+             'REPORT_TYPE': '年报', 'REPORT_DATE_NAME': f'{year}年报',
+             'OPINION_TYPE': '标准无保留意见', 'OSOPINION_TYPE': None} for year in (2023, 2024, 2025)]
+    raw = json.dumps({'code': 0, 'data': rows}).encode()
+    root = tmp_path/'stock-updates/cache/structured-financial'
+    root.mkdir(parents=True)
+    raw_path = root/'cashflow.json'
+    raw_path.write_bytes(raw)
+    payload['collection']['sources']['cashflow'] = {
+        'raw_artifact': str(raw_path), 'bytes': len(raw), 'content_sha256': hashlib.sha256(raw).hexdigest(),
+        'source_url': 'https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/xjllbAjaxNew',
+        'fetched_at': '2026-10-18T08:00:00+08:00', 'as_of': DAY.isoformat(),
+        'version': 'eastmoney-structured-financial-v1',
+        'request_params': {'code': 'SH'+SYMBOL, 'reportType': '1', 'reportDateType': '0',
+                           'companyType': '4', 'dates': '2023-12-31,2024-12-31,2025-12-31'}}
+    item['artifact'] = _artifact(tmp_path/'stock-updates/artifacts', payload)
+    with research._write() as connection:
+        connection.execute('UPDATE stocks_update_runs SET results=? WHERE run_id=?', (json.dumps(task['results']), task['run_id']))
+    source = load_financial_source(research.db_path, SYMBOL, DAY)
+    assert source['audit_clues']['classification']['status'] == 'standard_opinions'
+    report = evaluate_store(research, DAY, symbol=SYMBOL, include_styles=True, financial_sources={SYMBOL: source})
+    assert next(x for x in report['items'][0]['checks'] if x['code'] == 'audit')['outcome'] == 'passed'
+    inputs = archive.capture_inputs(symbol=SYMBOL)
+    inputs['companies'][0].update(financial_source=source, financial_as_of=DAY.isoformat())
+    saved = archive.save_evaluation(report, inputs)
+    assert archive.assert_current(saved['evaluation_id'])
+    raw_path.write_bytes(raw+b' ')
+    changed = load_financial_source(research.db_path, SYMBOL, DAY)
+    assert changed['audit_clues']['status'] == 'unavailable'
+    new_report = evaluate_store(research, DAY, symbol=SYMBOL, include_styles=True, financial_sources={SYMBOL: changed})
+    assert next(x for x in new_report['items'][0]['checks'] if x['code'] == 'audit')['outcome'] == 'pending_verification'
+    with pytest.raises(StockRevisionConflict):
+        archive.assert_current(saved['evaluation_id'])
+
+
+def test_financial_source_rejects_task_change_while_loading_audit(tmp_path, monkeypatch):
+    import radar.stocks.research_candidates as candidates
+
+    research, _, tasks, _ = environment(tmp_path)
+    enqueue(tasks)
+    complete(tasks, tmp_path)
+    def changing_audit(_db, symbol, as_of):
+        enqueue(tasks, pool='growth_trend')
+        return {'symbol': symbol, 'as_of': as_of.isoformat(), 'status': 'unavailable'}
+    monkeypatch.setattr(candidates, 'load_audit_clues', changing_audit)
+    source = load_financial_source(research.db_path, SYMBOL, DAY)
+    assert source['status'] == 'invalid' and source['financial'] is None
