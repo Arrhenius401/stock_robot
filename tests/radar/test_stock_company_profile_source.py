@@ -24,7 +24,7 @@ def setup_source(tmp_path, listed='20031118'):
     manifest = {'version': 'stock-company-profile-v1', 'as_of': DAY.isoformat(),
                 'scope': {'path': 'scope.json', 'sha256': args['scope_sha256'], 'bytes': args['scope_path'].stat().st_size},
                 'rosters': [{'path': 'roster.json', 'sha256': hashlib.sha256(raw).hexdigest(), 'bytes': len(raw),
-                             'source': 'sse_main', 'source_url': _url('sse_main'), 'fetched_at': '2026-10-15T16:00:00+08:00'}]}
+                             'source': 'sse_main', 'source_url': _url('sse_main'), 'fetched_at': '2026-10-18T16:00:00+08:00'}]}
     (root / 'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
     return root, manifest
 
@@ -81,6 +81,7 @@ def test_row_identity_and_name_boundaries(tmp_path, damage):
     if damage == 'name':
         assert result['status'] == 'current' and result['name_match'] is False
         assert result['checks'][0]['outcome'] == 'passed'
+        assert result['security_market']['status'] == 'pending_verification'
     else: assert result['status'] == 'unavailable'
 
 
@@ -94,3 +95,23 @@ def test_replacement_during_parse_fails_closed(tmp_path, monkeypatch):
         return parsed
     monkeypatch.setattr(module, '_parse_source', changing)
     assert module.load_company_profile_source(tmp_path,'600900',DAY)['status'] == 'unavailable'
+
+
+def test_profile_exposes_only_market_identity_not_issuer_type(tmp_path):
+    setup_source(tmp_path)
+    result = load_company_profile_source(tmp_path, '600900', DAY)
+    identity = result['security_market']
+    assert identity['status'] == 'verified'
+    assert identity['exchange'] == 'SSE' and identity['security_type'] == 'ordinary_a'
+    assert identity['issuer_type'] is None and identity['symbol'] == '600900'
+    assert identity['source_sha256'] == result['source']['rosters'][0]['sha256']
+
+
+@pytest.mark.parametrize('fetched', ['2026-10-17T08:00:00+08:00', '2026-10-19T08:00:00+08:00'])
+def test_profile_fetched_outside_cutoff_cannot_be_current(tmp_path, fetched):
+    root, manifest = setup_source(tmp_path)
+    manifest['rosters'][0]['fetched_at'] = fetched
+    (root / 'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
+    result = load_company_profile_source(tmp_path, '600900', DAY)
+    assert result['status'] == 'historical'
+    assert result['security_market']['status'] == 'historical'

@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -56,6 +56,7 @@ def _registered_load_company_profile_source(state_dir: Path, symbol: str, as_of:
         seen = set()
         matches = []
         provenance = []
+        different_capture_day = False
         for ref in refs:
             if not isinstance(ref, dict):
                 raise TypeError('名录引用无效')
@@ -68,6 +69,8 @@ def _registered_load_company_profile_source(state_dir: Path, symbol: str, as_of:
             fetched = datetime.fromisoformat(ref.get('fetched_at', ''))
             if fetched.tzinfo is None or fetched.utcoffset() is None or fetched > datetime.now(UTC):
                 raise ValueError('抓取时间无效')
+            fetched_day = fetched.astimezone(timezone(timedelta(hours=8))).date()
+            different_capture_day |= fetched_day != target
             path, data = _reference(root, ref, need_size=True)
             parsed = _parsed(data, source, _parse_source)
             if parsed.get('complete') is not True:
@@ -76,14 +79,14 @@ def _registered_load_company_profile_source(state_dir: Path, symbol: str, as_of:
                 if candidate['symbol'] != symbol:
                     continue
                 listed_day = _day(candidate.get('a_listed_on'))
-                if listed_day is not None and listed_day > fetched.date():
+                if listed_day is not None and listed_day > fetched_day:
                     raise ValueError('上市日期晚于名录抓取日期')
-                matches.append(candidate)
+                matches.append((candidate, ref))
             originals.append((path, data))
             provenance.append({key: ref[key] for key in ('source', 'source_url', 'sha256', 'bytes', 'fetched_at')})
         if len(matches) != 1:
             raise ValueError('代码缺失或重复')
-        row = matches[0]
+        row, matched_ref = matches[0]
         listed = _day(row.get('a_listed_on'))
         if listed is None or listed > target:
             raise ValueError('上市日期无效')
@@ -93,9 +96,15 @@ def _registered_load_company_profile_source(state_dir: Path, symbol: str, as_of:
             anniversary = date(listed.year + 3, 2, 28)
         if _bytes(manifest_path) != raw or any(_bytes(path) != data for path, data in originals):
             raise ValueError('来源在读取期间变化')
-        result.update(as_of=target.isoformat(), status='current' if target == as_of else 'historical',
+        current = target == as_of and not different_capture_day
+        name_match = row['name'] == company['name']
+        result.update(as_of=target.isoformat(), status='current' if current else 'historical',
                       name_match=row['name'] == company['name'], roster_name=row['name'],
                       source={'scope_sha256': manifest['scope']['sha256'], 'rosters': provenance},
+                      security_market={'symbol': symbol, 'status': ('verified' if name_match else 'pending_verification') if current else 'historical',
+                                       'exchange': 'SZSE' if matched_ref['source'] == 'szse_a' else 'SSE',
+                                       'security_type': 'ordinary_a', 'issuer_type': None,
+                                       'source_sha256': matched_ref['sha256'], 'fetched_at': matched_ref['fetched_at']},
                       checks=[{'code': 'listing_age', 'outcome': 'passed' if target >= anniversary else 'failed',
                                'reason': '按A股上市完整三周年计算；代码匹配不替代发行人身份核验',
                                'values': {'a_listed_on': listed.isoformat(), 'third_anniversary': anniversary.isoformat()}}])

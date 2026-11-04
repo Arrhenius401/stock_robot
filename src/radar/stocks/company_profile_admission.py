@@ -11,6 +11,14 @@ _CODES = {'listing_age'}
 _OUTCOMES = {'passed', 'failed', 'pending_verification'}
 
 
+def _manual_failure(check: dict[str, Any]) -> bool:
+    """保留上游合并时嵌套保存的人工失败。"""
+    if check.get('outcome') == 'failed':
+        return True
+    nested = check.get('manual_check')
+    return isinstance(nested, dict) and _manual_failure(nested)
+
+
 def merge_common_profile(manual: dict[str, Any], source: dict[str, Any], as_of: date) -> dict[str, Any]:
     """仅同截点供应商结果参与判断；历史结果仅作参考。"""
     result = deepcopy(manual)
@@ -23,8 +31,29 @@ def merge_common_profile(manual: dict[str, Any], source: dict[str, Any], as_of: 
     current = source.get('status') == 'current' and source.get('as_of') == as_of.isoformat()
     source_day = _day(source.get('as_of'))
     historical = source.get('status') == 'historical' and source_day is not None and source_day < as_of
+    security_conflict = False
     for check in result['checks']:
         code = check['code']
+        market = source.get('security_market')
+        if code == 'security' and isinstance(market, dict):
+            symbol = result.get('symbol')
+            valid_market = (current and source.get('symbol') == symbol and
+                            source.get('evaluation_as_of') == as_of.isoformat() and
+                            market.get('symbol') == symbol and market.get('status') == 'verified' and
+                            market.get('security_type') == 'ordinary_a' and market.get('issuer_type') is None and
+                            ((isinstance(symbol, str) and symbol.startswith('6') and market.get('exchange') == 'SSE') or
+                             (isinstance(symbol, str) and symbol.startswith(('0', '3')) and market.get('exchange') == 'SZSE')))
+            check['profile_market'] = deepcopy(market)
+            if not valid_market:
+                check['profile_market']['status'] = 'historical' if source.get('status') == 'historical' else 'pending_verification'
+            if valid_market and check['outcome'] == 'pending_verification':
+                check['reason'] = '官方名录已核验普通A股市场身份，发行人类型仍待核验'
+            elif valid_market and check['outcome'] == 'failed':
+                security_conflict = True
+                old = deepcopy(check)
+                check.update(outcome='pending_verification', reason='人工证券身份与官方名录冲突，保留双方待核验',
+                             manual_check=old)
+            continue
         if code not in _CODES:
             continue
         old = deepcopy(check)
@@ -50,7 +79,10 @@ def merge_common_profile(manual: dict[str, Any], source: dict[str, Any], as_of: 
             check.update(reference_as_of=source['as_of'], reference_check=deepcopy(candidates[0]),
                          reason=historical_reason)
     outcomes = {row['outcome'] for row in result['checks']}
-    status = ('failed' if 'failed' in outcomes or manual['common_status'] == 'failed' else
+    other_manual_failure = any(row.get('code') != 'security' and _manual_failure(row)
+                               for row in manual['checks'])
+    retain_manual_failure = manual['common_status'] == 'failed' and (not security_conflict or other_manual_failure)
+    status = ('failed' if 'failed' in outcomes or retain_manual_failure else
               'pending_verification' if 'pending_verification' in outcomes else 'passed')
     result.update(common_status=status, admission_status='excluded' if status == 'failed' else 'pending_verification',
                   company_profile_source=deepcopy(source))

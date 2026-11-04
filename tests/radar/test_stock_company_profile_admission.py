@@ -63,3 +63,47 @@ def test_profile_and_industry_archive_binding(tmp_path, monkeypatch):
     live[0] = {**industry, 'manifest_sha256': 'b' * 64}
     with pytest.raises(StockRevisionConflict):
         archive.assert_current(saved['evaluation_id'])
+
+
+def test_market_identity_does_not_infer_issuer_type():
+    day = date(2026, 10, 18)
+    manual = evaluate_common_admission('600900', [], day)
+    source = {'symbol': '600900', 'evaluation_as_of': day.isoformat(), 'status': 'current', 'as_of': day.isoformat(),
+              'checks': [], 'security_market': {'symbol': '600900', 'status': 'verified', 'exchange': 'SSE',
+                                               'security_type': 'ordinary_a', 'issuer_type': None}}
+    merged = merge_common_profile(manual, source, day)
+    check = next(row for row in merged['checks'] if row['code'] == 'security')
+    assert check['outcome'] == 'pending_verification'
+    assert check['profile_market']['status'] == 'verified'
+    assert '发行人类型' in check['reason']
+
+
+def test_market_identity_conflict_preserves_manual_failure():
+    day = date(2026, 10, 18)
+    manual = evaluate_common_admission('600900', [], day)
+    manual['common_status'] = 'failed'
+    next(row for row in manual['checks'] if row['code'] == 'security')['outcome'] = 'failed'
+    source = {'symbol': '600900', 'evaluation_as_of': day.isoformat(), 'status': 'current', 'as_of': day.isoformat(),
+              'checks': [], 'security_market': {'symbol': '600900', 'status': 'verified', 'exchange': 'SSE',
+                                               'security_type': 'ordinary_a', 'issuer_type': None}}
+    merged = merge_common_profile(manual, source, day)
+    check = next(row for row in merged['checks'] if row['code'] == 'security')
+    assert check['outcome'] == 'pending_verification'
+    assert check['manual_check']['outcome'] == 'failed'
+    assert merged['common_status'] == 'pending_verification'
+    next(row for row in manual['checks'] if row['code'] == 'audit')['outcome'] = 'failed'
+    assert merge_common_profile(manual, source, day)['common_status'] == 'failed'
+    audit = next(row for row in manual['checks'] if row['code'] == 'audit')
+    audit.update(outcome='pending_verification', manual_check={'outcome': 'failed'})
+    assert merge_common_profile(manual, source, day)['common_status'] == 'failed'
+
+
+def test_market_identity_from_wrong_company_is_not_verified():
+    day = date(2026, 10, 18)
+    manual = evaluate_common_admission('600900', [], day)
+    source = {'symbol': '600900', 'evaluation_as_of': day.isoformat(), 'status': 'current', 'as_of': day.isoformat(),
+              'checks': [], 'security_market': {'symbol': '600901', 'status': 'verified', 'exchange': 'SSE',
+                                               'security_type': 'ordinary_a', 'issuer_type': None}}
+    check = next(row for row in merge_common_profile(manual, source, day)['checks'] if row['code'] == 'security')
+    assert check['profile_market']['status'] == 'pending_verification'
+    assert check['outcome'] == 'pending_verification'
