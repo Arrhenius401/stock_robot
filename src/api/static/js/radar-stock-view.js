@@ -6,7 +6,7 @@ let unloadBound = false;
 const labels = { pending_verification: '待核验', confirmed: '已确认事实', rejected: '已否定', needs_evidence: '需补充证据', expired: '已过期', passed: '通过', failed: '未通过', unavailable: '暂无数据', unconfigured: '待配置', blocked: '受阻', queued: '排队中', running: '执行中', completed: '已完成', partial: '部分完成', cancelled: '已取消', active: '有效', effective: '有效', suspended: '暂停', research_hint: '研究线索', not_prepared: '尚未准备', complete: '完整', snapshot: '读取资料快照', collect: '采集资料', review: '整理待核验资料', finalizing: '归档结果' };
 Object.assign(labels, { downloaded: '已下载', cached: '已缓存', source_error: '来源异常', source_stopped: '来源暂停', financial_document: '财务原文', financial_proposal: '财务线索', document: '分红原文', dividend_proposal: '分红线索', quarterly_financial_document: '季度财务原文', quarterly_financial_proposal: '季度财务线索', unresolved: '待解决事项', pending_configuration: '待配置', observe: '观察', excluded: '不符合', unsupported: '尚未配置来源' });
 function label(value) { return labels[value] || '待核验'; }
-const checkLabels = { security: '证券身份', listing_age: '上市年限', capitalization_current: '当前公司总市值', capitalization_average_60d: '60日平均公司总市值', ttm_parent_profit: '最近十二个月归母净利润', ttm_deducted_profit: '最近十二个月扣非净利润', audit: '审计意见', governance: '治理风险', leadership: '行业龙头证据', financial_quality: '财务质量', cash_ratio: '经营现金流与归母利润比率', cash_review: '现金质量核验', dividend_history: '连续分红', liquidity: '成交活跃度', dividend_payout_ratio: '股利支付率', dividend_yield: '股息率', value_valuation: '价值估值', growth_revenue: '营业收入增长', growth_profit: '利润增长', trend: '价格趋势' };
+const checkLabels = { security: '证券身份', listing_age: '上市年限', capitalization_current: '当前公司总市值', capitalization_average_60d: '60日平均公司总市值', ttm_parent_profit: '最近十二个月归母净利润', ttm_deducted_profit: '最近十二个月扣非净利润', audit: '审计意见', governance: '治理风险', leadership: '行业龙头证据', financial_quality: '财务质量', cash_ratio: '经营现金流与归母利润比率', cash_review: '现金质量核验', dividend_history: '连续分红', liquidity: '成交活跃度', dividend_payout_ratio: '股利支付率', dividend_yield: '股息率', value_valuation: '价值估值', valuation: '成长估值', growth_revenue: '营业收入增长', growth_profit: '利润增长', trend: '价格趋势' };
 function checkLabel(value) { const annual = /^annual_(parent|deducted)_profit_(\d{4})$/.exec(value || ''); return annual ? annual[2] + '年' + (annual[1] === 'parent' ? '归母净利润' : '扣非净利润') : checkLabels[value] || '待核验项目'; }
 Object.assign(labels, { attention: '需关注', not_configured: '待配置' });
 Object.assign(checkLabels, { growth_deducted_profit: '扣非净利润增长', valuation: '估值', style_rules: '风格条件' });
@@ -243,8 +243,19 @@ export function renderRadarStockPool(root, header, pool, payload, options = {}) 
           append(summary, fold(title + '（' + (rows || []).length + '项）', content));
         });
         if (research.unconfigured_rules?.length) append(summary, node('p', 'radar-note', '尚未配置：' + research.unconfigured_rules.map(checkLabel).join('、')));
+        Object.entries(research.reference_rules || {}).forEach(([code, status]) => {
+          const labels = {disabled: '暂不启用', pending_verification: '机会参考，待核验', research_reference: '研究参考，结果见成长研究'};
+          if (labels[status]) append(summary, node('p', 'radar-meta', (code === 'growth_deducted_profit' ? '扣非利润增长' : checkLabel(code)) + '：' + labels[status]));
+        });
+        const risk = data.risk_warning;
+        if (['current', 'historical'].includes(risk?.status) && ['observed', 'not_observed'].includes(risk?.observation)) {
+          const observation = risk.observation === 'observed' ? '风险名单观察到，需进一步核验' : '风险名单未观察到，不代表没有风险';
+          append(summary, node('p', 'radar-meta', observation + ' · 采样日 ' + (risk.snapshot_date || '未知') + (risk.status === 'historical' ? ' · 历史参考' : '')));
+        }
         const audit = data.audit_clues;
         if (audit?.annual?.length) {
+          const auditLabels = {standard_opinions: '三年主要意见均为标准无保留', other_opinion: '存在其他意见，需核验', pending_verification: '资料或口径待核验'};
+          if (auditLabels[audit.classification?.status]) append(summary, node('p', 'radar-meta', '审计意见分类：' + auditLabels[audit.classification.status] + '；仅供研究，不代表审核通过'));
           const clues = node('div');
           append(clues, node('p', 'radar-meta', '仅为原文线索，不代表审计或治理审核通过。来源截点 ' + (audit.as_of || '未知') + (audit.status === 'historical' ? ' · 历史参考' : '')));
           audit.annual.forEach(row => append(clues, node('p', 'stock-check', row.year + '年：' + (row.opinion || '待核验') + (row.other_opinion ? ' · 附加意见：' + row.other_opinion : '') + (row.disclosed_on ? ' · 公告 ' + row.disclosed_on : '') + (row.updated_after_cutoff ? ' · 研究截点后更新' : ''))));

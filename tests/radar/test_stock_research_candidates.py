@@ -81,3 +81,26 @@ def test_audit_clues_reject_source_error_even_if_data_present():
     meta = {'source_url': 'https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/xjllbAjaxNew',
             'content_sha256': hashlib.sha256(raw).hexdigest(), 'bytes': len(raw), 'fetched_at': '2026-11-03T05:00:00+00:00'}
     assert extract_audit_clues('600900', '2026-11-03', raw, meta)['status'] == 'unavailable'
+
+
+def test_audit_opinion_classification_keeps_unknown_and_nonstandard_separate():
+    from radar.stocks.research_candidates import classify_audit_clues
+
+    base = {'status': 'available', 'annual': [
+        {'year': year, 'status': 'available', 'opinion': '标准无保留意见', 'updated_after_cutoff': False}
+        for year in (2023, 2024, 2025)]}
+    assert classify_audit_clues(base, '2026-11-03')['status'] == 'standard_opinions'
+    changed = deepcopy(base)
+    changed['annual'][1]['opinion'] = '保留意见'
+    assert classify_audit_clues(changed, '2026-11-03')['status'] == 'other_opinion'
+    changed['annual'][2]['status'] = 'pending_verification'
+    assert classify_audit_clues(changed, '2026-11-03')['status'] == 'pending_verification'
+    changed = deepcopy(base)
+    changed['annual'][0]['updated_after_cutoff'] = True
+    assert classify_audit_clues(changed, '2026-11-03')['status'] == 'pending_verification'
+    changed = deepcopy(base)
+    changed['annual'][0]['year'] = 2024
+    assert classify_audit_clues(changed, '2026-11-03')['status'] == 'pending_verification'
+    changed = deepcopy(base)
+    changed['status'] = 'historical'
+    assert classify_audit_clues(changed, '2026-11-03')['status'] == 'pending_verification'

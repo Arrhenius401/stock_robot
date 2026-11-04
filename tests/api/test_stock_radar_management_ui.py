@@ -220,7 +220,9 @@ dispose();
 def test_research_summary_and_ai_are_on_demand(tmp_path):
     _run_node(tmp_path, _script(r"""
 detail.research_summaries = {dividend_value: {status:'research_candidate', passed:[{code:'listing_age',reason:'满三年'}], failed:[], pending:[{code:'audit',reason:'待核验'}], unconfigured_rules:['dividend_yield']}};
-detail.audit_clues = {status:'available', annual:[{year:2025,status:'available',opinion:'标准无保留意见',other_opinion:'附加强调事项'}]};
+detail.research_summaries.dividend_value.reference_rules = {dividend_payout_ratio:'disabled', value_valuation:'pending_verification'};
+detail.audit_clues = {status:'available', classification:{status:'other_opinion'}, annual:[{year:2025,status:'available',opinion:'标准无保留意见',other_opinion:'附加强调事项'}]};
+detail.risk_warning = {status:'current', observation:'not_observed', snapshot_date:'2026-11-03'};
 const request = async (url, options) => {
   calls.push([url, options]);
   if (url.includes('/updates/latest')) return null;
@@ -234,6 +236,9 @@ await click(root, '候选与成员管理');
 assert.ok(root.textContent.includes('研究')); assert.ok(!calls.some(([url]) => url.includes('/research-explanation')));
 await click(root, '测试公司 · 600001');
 assert.ok(root.textContent.includes('研究候选')); assert.ok(root.textContent.includes('标准无保留意见')); assert.ok(root.textContent.includes('附加强调事项'));
+assert.ok(root.textContent.includes('审计意见分类：存在其他意见，需核验'));
+assert.ok(root.textContent.includes('股利支付率：暂不启用')); assert.ok(root.textContent.includes('价值估值：机会参考，待核验'));
+assert.ok(root.textContent.includes('风险名单未观察到，不代表没有风险'));
 await click(root, 'AI解释研究资料');
 assert.ok(root.textContent.includes('这是研究解释')); assert.equal(calls.filter(([url]) => url.includes('/research-explanation')).length, 1);
 dispose();

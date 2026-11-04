@@ -17,7 +17,7 @@ from radar.stocks.admission import (
 )
 from radar.stocks.dividend_payout import _sum_amounts
 
-STYLE_RULE_VERSION = 'styles-research-2026-11-02-v8'
+STYLE_RULE_VERSION = 'styles-research-2026-11-04-v9'
 _STYLE_KINDS = ('cash_flow', 'cash_review', 'dividend_history', 'liquidity')
 
 
@@ -38,7 +38,7 @@ def _aggregate(statuses: list[str]) -> str:
 
 def _pool(status: str, checks: list[dict[str, Any]], rules: list[str], opportunity: str = 'unavailable') -> dict[str, Any]:
     return {'checks': checks, 'approved_conditions_status': status,
-            'style_status': 'failed' if status == 'failed' else ('pending_configuration' if status == 'passed' else 'pending_verification'),
+            'style_status': 'failed' if status == 'failed' else ('pending_configuration' if status == 'passed' and rules else 'pending_verification'),
             'admission_status': 'excluded' if status == 'failed' else 'pending_verification',
             'opportunity_status': opportunity, 'unconfigured_rules': rules,
             'formal_screening_enabled': False, 'members_published': 0}
@@ -281,10 +281,14 @@ def evaluate_stock_styles(symbol: str, evidence: list[dict[str, Any]], as_of: da
                          'manual_check': manual_dividend, 'structured_check': deepcopy(numerical) if current else None}
     red_base = _aggregate([result['common_status'], ratio_status, review_status])
     dividend_status = _aggregate([red_base, red_checks[2]['outcome']])
-    red = _pool(red_base, red_checks, ['dividend_payout_ratio', 'dividend_yield', 'value_valuation'])
+    red = _pool(red_base, red_checks, [])
+    red['reference_rules'] = {'dividend_payout_ratio': 'disabled', 'dividend_yield': 'pending_verification',
+                              'value_valuation': 'pending_verification'}
     red['branches'] = {
-        'dividend': _pool(dividend_status, [*red_checks[:3]], ['dividend_payout_ratio', 'dividend_yield']),
-        'value': _pool(red_base, red_checks[:2], ['value_valuation'])}
+        'dividend': _pool(dividend_status, [*red_checks[:3]], []),
+        'value': _pool(red_base, red_checks[:2], [])}
+    red['branches']['dividend']['reference_rules'] = {k: red['reference_rules'][k] for k in ('dividend_payout_ratio', 'dividend_yield')}
+    red['branches']['value']['reference_rules'] = {'value_valuation': 'pending_verification'}
     growth_ratio_status = 'attention' if ratio_status == 'failed' else ratio_status
     growth_review_status = 'attention' if review_status == 'failed' else review_status
     growth_checks = [_check('cash_ratio', growth_ratio_status, '成长池现金比率仅作质量提示；' + ratio_reason,
@@ -299,8 +303,10 @@ def evaluate_stock_styles(symbol: str, evidence: list[dict[str, Any]], as_of: da
     # 已知低比率只提醒，缺资料仍待核验；未清晰完成专项也不冒充已核验。
     quality_review = 'passed' if review_status == 'passed' else 'pending_verification'
     growth_status = _aggregate([result['common_status'], growth_ratio_status, quality_review])
-    growth = _pool(growth_status, growth_checks, ['growth_revenue', 'growth_deducted_profit', 'valuation', 'trend'],
+    growth = _pool(growth_status, growth_checks, [],
                    'observe' if liquidity_status == 'below_reference' and result['common_status'] != 'failed' else 'unavailable')
+    growth['reference_rules'] = {'growth_revenue': 'research_reference', 'growth_deducted_profit': 'research_reference',
+                                 'valuation': 'pending_verification', 'trend': 'pending_verification'}
     result['pools'] = {'dividend_value': red, 'growth_trend': growth}
     result['evidence_ids'] = sorted(set(result['evidence_ids']) | {
         identifier for pool in result['pools'].values() for row in pool['checks'] for identifier in row['evidence_ids']})

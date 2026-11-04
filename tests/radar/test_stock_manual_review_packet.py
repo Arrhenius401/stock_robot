@@ -125,3 +125,16 @@ def test_packet_does_not_use_research_source_from_another_company_or_cutoff(fiel
     item['dividend_source'] = {'symbol': '600900', 'evaluation_as_of': '2026-11-02', 'status': 'current',
                                'result': {'outcome': 'passed'}, field: value}
     assert build_manual_review_packet(source)['sources']['dividend']['status'] == 'unavailable'
+
+
+def test_packet_includes_bound_risk_observation_without_review():
+    from radar.stocks.manual_review_packet import build_manual_review_packet
+
+    source = detail()
+    source['risk_warning'] = {'symbol': '600900', 'as_of': '2026-11-02', 'status': 'current',
+                              'observation': 'observed', 'reviewed': False, 'formal_screening_enabled': False}
+    packet = build_manual_review_packet(source)
+    assert packet['risk_warning']['observation'] == 'observed'
+    assert next(row for row in packet['checks'] if row['code'] == 'governance')['outcome'] == 'pending_verification'
+    source['risk_warning']['symbol'] = '600036'
+    assert build_manual_review_packet(source)['risk_warning']['status'] == 'unavailable'

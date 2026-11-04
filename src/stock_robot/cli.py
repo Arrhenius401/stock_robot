@@ -43,6 +43,7 @@ from stock_robot.stock_research import (
     list_records,
     review_evidence,
 )
+from stock_robot.stock_risk_warning import risk_warning_update
 from stock_robot.stock_structured_admission import structured_admission_command
 from stock_robot.stock_structured_financial import (
     structured_collect_command,
@@ -1853,6 +1854,7 @@ radar.add_command(turnover_update)
 radar.add_command(market_window_command)
 radar.add_command(market_history_command)
 radar.add_command(capital_history_command)
+radar.add_command(risk_warning_update)
 radar.add_command(official_roster_command)
 radar.add_command(index_scope_command)
 for command in (capture_evaluation, list_evaluations, create_draft, list_drafts, cancel_draft, apply_membership, list_memberships):

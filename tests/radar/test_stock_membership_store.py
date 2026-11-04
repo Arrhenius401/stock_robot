@@ -150,3 +150,13 @@ def test_list_filters_status_and_validates_it(tmp_path, status):
             store.list_members('dividend_value', status=status)
     else:
         assert store.list_members('dividend_value', status=status)['total'] == (1 if status == 'active' else 0)
+
+
+def test_no_publication_when_all_conditions_pass_and_reference_rules_are_nonblocking(tmp_path):
+    store, _research, _evaluation_id = setup(tmp_path)
+    snapshot = {'report': {'formal_screening_enabled': False, 'items': [
+        {'symbol': '600900', 'source_revision': 1, 'common_status': 'passed',
+         'pools': {'dividend_value': {'approved_conditions_status': 'passed', 'unconfigured_rules': []}}}]}}
+    with pytest.raises(StockResearchError, match='正式筛选尚未启用'):
+        store._eligible(snapshot, change('add')[0])
+    assert store.list_members('dividend_value')['total'] == 0

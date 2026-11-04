@@ -66,9 +66,9 @@ def test_all_approved_conditions_still_do_not_publish():
     assert result['members_published'] == 0
     for pool in result['pools'].values():
         assert pool['approved_conditions_status'] == 'passed'
-        assert pool['style_status'] == 'pending_configuration'
+        assert pool['style_status'] == 'pending_verification'
         assert pool['admission_status'] == 'pending_verification'
-        assert pool['unconfigured_rules']
+        assert pool['unconfigured_rules'] == []
         assert pool['opportunity_status'] == 'unavailable'
     dividend = result['pools']['dividend_value']
     assert check(dividend, 'cash_ratio')['outcome'] == 'passed'
@@ -412,3 +412,18 @@ def test_dividend_a_share_coverage_requires_explicit_true():
         result = evaluate(rows)
         assert check(result['pools']['dividend_value'], 'dividend_history')['outcome'] == 'pending_verification'
         assert result['pools']['dividend_value']['branches']['value']['approved_conditions_status'] == 'passed'
+
+
+def test_confirmed_research_rules_do_not_appear_as_unconfigured_admission_rules():
+    result = evaluate()
+    red = result['pools']['dividend_value']
+    growth = result['pools']['growth_trend']
+    assert red['unconfigured_rules'] == []
+    assert growth['unconfigured_rules'] == []
+    assert red['reference_rules']['dividend_payout_ratio'] == 'disabled'
+    assert red['reference_rules']['dividend_yield'] == 'pending_verification'
+    assert growth['reference_rules']['growth_revenue'] == 'research_reference'
+    assert growth['reference_rules']['growth_deducted_profit'] == 'research_reference'
+    assert growth['reference_rules']['trend'] == 'pending_verification'
+    assert result['formal_screening_enabled'] is False
+    assert all(pool['admission_status'] == 'pending_verification' for pool in result['pools'].values())

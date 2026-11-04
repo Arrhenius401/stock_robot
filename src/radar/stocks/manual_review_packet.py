@@ -92,7 +92,15 @@ def build_manual_review_packet(detail: Any) -> dict[str, Any]:
             and candidate.get('reviewed') is False and candidate.get('formal_screening_enabled') is False
             and isinstance(candidate.get('annual'), list)):
         audit_clues = deepcopy(candidate)
+    risk_warning: dict[str, Any] = {'symbol': symbol, 'as_of': report.get('as_of'), 'status': 'unavailable',
+                                    'observation': 'unknown', 'reviewed': False, 'formal_screening_enabled': False}
+    risk = detail.get('risk_warning')
+    if (isinstance(risk, dict) and risk.get('symbol') == symbol and risk.get('as_of') == report.get('as_of')
+            and risk.get('status') in ('current', 'historical') and risk.get('observation') in ('observed', 'not_observed')
+            and risk.get('reviewed') is False and risk.get('formal_screening_enabled') is False):
+        risk_warning = deepcopy(risk)
     return {'symbol': symbol, 'name': company.get('name'), 'source_revision': company.get('revision'),
             'as_of': report.get('as_of'), 'checks': checks, 'evidence': evidence, 'sources': sources,
             'audit_clues': audit_clues,
+            'risk_warning': risk_warning,
             'research_only': True, 'formal_screening_enabled': False, 'members_published': 0}

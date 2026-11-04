@@ -8,6 +8,35 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def classify_audit_clues(clues: Any, as_of: str) -> dict[str, Any]:
+    """分类原文意见，不生成审核结论或正式资格。"""
+    from datetime import date
+
+    result = {'status': 'pending_verification', 'reviewed': False, 'formal_screening_enabled': False}
+    try:
+        cutoff = date.fromisoformat(as_of)
+        if not isinstance(clues, dict) or clues.get('status') != 'available':
+            return result
+        annual = clues.get('annual')
+        years = set(range(cutoff.year - 3, cutoff.year))
+        if (not isinstance(annual, list) or len(annual) != 3
+                or any(not isinstance(row, dict) or type(row.get('year')) is not int for row in annual)
+                or {row['year'] for row in annual} != years):
+            return result
+        if any(row.get('status') != 'available' or row.get('updated_after_cutoff') is not False
+               or not isinstance(row.get('opinion'), str) or not row['opinion'].strip() for row in annual):
+            return result
+        if any(row['opinion'].strip() != '标准无保留意见' for row in annual):
+            result['status'] = 'other_opinion'
+        elif any(row.get('other_opinion') not in (None, '') for row in annual):
+            return result
+        else:
+            result['status'] = 'standard_opinions'
+    except (ValueError, TypeError, OverflowError):
+        return result
+    return result
+
+
 def summarize_research(item: dict[str, Any], pool_id: str) -> dict[str, Any]:
     """保留各条件原结论及理由，未知不能升级为通过。"""
     result: dict[str, Any] = {'symbol': item.get('symbol'), 'as_of': item.get('as_of'), 'pool_id': pool_id,
@@ -43,6 +72,10 @@ def summarize_research(item: dict[str, Any], pool_id: str) -> dict[str, Any]:
     result['sources'] = sources
     rules = pool.get('unconfigured_rules')
     result['unconfigured_rules'] = [rule for rule in rules if isinstance(rule, str)] if isinstance(rules, list) else []
+    references = pool.get('reference_rules')
+    result['reference_rules'] = ({key: value for key, value in references.items()
+                                  if isinstance(key, str) and value in ('disabled', 'pending_verification', 'research_reference')}
+                                 if isinstance(references, dict) else {})
     result['status'] = 'research_candidate'
     return result
 
@@ -98,6 +131,7 @@ def extract_audit_clues(symbol: str, as_of: str, raw: bytes, meta: dict[str, Any
                       annual=annual, source={key: meta[key] for key in ('source_url', 'content_sha256', 'fetched_at')})
     except (ValueError, TypeError, KeyError, json.JSONDecodeError, OverflowError):
         return result
+    result['classification'] = classify_audit_clues(result, as_of)
     return result
 
 
@@ -124,6 +158,7 @@ def load_audit_clues(db: Any, symbol: str, as_of: Any) -> dict[str, Any]:
         result = extract_audit_clues(symbol, as_of.isoformat(), path.read_bytes(), meta)
         if selected.source.get('status') == 'historical' and result['status'] == 'available':
             result['status'] = 'historical'
+            result['classification'] = classify_audit_clues(result, as_of.isoformat())
         return result
     except (OSError, ValueError, TypeError, KeyError, AttributeError):
         return result
