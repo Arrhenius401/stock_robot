@@ -62,6 +62,11 @@ def build_manual_review_packet(detail: Any) -> dict[str, Any]:
             sources[label] = {'status': 'unavailable'}
             continue
         value = {name: deepcopy(source[name]) for name in _SOURCE_FIELDS if name in source}
+        market = source.get('security_market')
+        if (label == 'profile' and source.get('symbol') == symbol
+                and source.get('evaluation_as_of') == report.get('as_of')
+                and isinstance(market, dict) and market.get('symbol') == symbol):
+            value['security_market'] = deepcopy(market)
         financial = source.get('financial')
         if label == 'financial' and isinstance(financial, dict):
             value['financial'] = {name: deepcopy(financial[name]) for name in ('cash_flow_reference', 'issuer_applicability', 'source_company_type') if name in financial}

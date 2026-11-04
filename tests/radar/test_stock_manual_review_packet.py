@@ -35,6 +35,24 @@ def test_packet_is_single_company_and_only_preserves_existing_status():
     assert packet['formal_screening_enabled'] is False and packet['members_published'] == 0
 
 
+@pytest.mark.parametrize('change', ['none', 'wrong_symbol', 'wrong_date'])
+def test_packet_only_shows_bound_market_identity(change):
+    from radar.stocks.manual_review_packet import build_manual_review_packet
+
+    source = detail()
+    profile = {'symbol': '600900', 'evaluation_as_of': '2026-11-02', 'as_of': '2026-11-02', 'status': 'current',
+               'security_market': {'symbol': '600900', 'status': 'verified', 'issuer_type': None}}
+    if change == 'wrong_symbol': profile['symbol'] = '600036'
+    if change == 'wrong_date': profile['evaluation_as_of'] = '2026-11-01'
+    source['evaluation']['items'][0]['company_profile_source'] = profile
+    result = build_manual_review_packet(source)['sources']['profile']
+    if change == 'none':
+        assert result['security_market']['status'] == 'verified'
+        assert result['security_market']['issuer_type'] is None
+    else:
+        assert 'security_market' not in result
+
+
 def test_conflicting_review_and_local_industry_remain_unresolved():
     from radar.stocks.manual_review_packet import build_manual_review_packet
 
