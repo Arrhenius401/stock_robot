@@ -270,15 +270,19 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
             raise StockRevisionConflict('读取详情期间成长来源变化，请重新读取')
         summaries = {name: summarize_research(report['items'][0], name) for name in ('dividend_value', 'growth_trend')}
         audit_clues = load_audit_clues(db, symbol, cutoff)
+        from radar.stocks.exchange_governance import load_exchange_governance_source
         from radar.stocks.risk_warning import load_risk_warning_source
         risk_warning = load_risk_warning_source(state, symbol, cutoff)
+        governance_clues = load_exchange_governance_source(state, symbol, cutoff)
         if load_financial_source(db, symbol, cutoff) != financial or load_audit_clues(db, symbol, cutoff) != audit_clues:
             raise StockRevisionConflict('读取审计线索期间财务来源变化，请重新读取')
         if load_risk_warning_source(state, symbol, cutoff) != risk_warning:
             raise StockRevisionConflict('读取风险名单期间来源变化，请重新读取')
+        if load_exchange_governance_source(state, symbol, cutoff) != governance_clues:
+            raise StockRevisionConflict('读取监管列表期间来源变化，请重新读取')
         return {'company': row, 'evidence': evidence, 'reviews': reviews, 'evaluation': report,
                 'research_summaries': summaries, 'audit_clues': audit_clues, 'risk_warning': risk_warning,
-                'publication_enabled': False}
+                'governance_clues': governance_clues, 'publication_enabled': False}
 
     @router.get('/companies/{symbol}/manual-review-packet')
     def manual_review_packet(symbol: str):

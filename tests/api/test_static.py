@@ -2277,7 +2277,7 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         assert 'id="subChannel"' not in html
         assert "企业微信" not in html
         assert 'href="/css/app.css?v=20261101-local-industry-2"' in html
-        assert 'src="/js/app.js?v=20261103-research-candidates-1"' in html
+        assert 'src="/js/app.js?v=20261104-audit-clues-2"' in html
         script = (await client.get("/js/subscriptions.js")).text
         assert "searchPushSymbols" in script
         assert "批量添加" not in script

@@ -156,3 +156,38 @@ def test_packet_includes_bound_risk_observation_without_review():
     assert next(row for row in packet['checks'] if row['code'] == 'governance')['outcome'] == 'pending_verification'
     source['risk_warning']['symbol'] = '600036'
     assert build_manual_review_packet(source)['risk_warning']['status'] == 'unavailable'
+
+
+def test_packet_includes_bound_governance_clues_without_governance_pass():
+    from radar.stocks.manual_review_packet import build_manual_review_packet
+
+    source = detail()
+    source['governance_clues'] = {'symbol': '600900', 'as_of': '2026-11-02', 'status': 'current',
+                                  'observation': 'observed', 'reviewed': False, 'formal_screening_enabled': False,
+                                  'records': [{'source': 'sse', 'listed_on': '2026-11-01',
+                                               'measure_type': '监管工作函', 'object': '上市公司'}]}
+    packet = build_manual_review_packet(source)
+    assert packet['governance_clues']['records'][0]['measure_type'] == '监管工作函'
+    assert next(row for row in packet['checks'] if row['code'] == 'governance')['outcome'] == 'pending_verification'
+    source['governance_clues']['symbol'] = '600036'
+    assert build_manual_review_packet(source)['governance_clues']['status'] == 'unavailable'
+    source['governance_clues']['symbol'] = '600900'
+    source['governance_clues']['as_of'] = '2026-11-01'
+    assert build_manual_review_packet(source)['governance_clues']['status'] == 'unavailable'
+    source['governance_clues']['as_of'] = '2026-11-02'
+    source['governance_clues']['formal_screening_enabled'] = True
+    assert build_manual_review_packet(source)['governance_clues']['status'] == 'unavailable'
+
+
+@pytest.mark.parametrize('patch', [
+    {'as_of': '2026-11-01'}, {'status': 'available'}, {'observation': 'unknown'},
+    {'reviewed': True}, {'formal_screening_enabled': True}, {'records': None},
+])
+def test_packet_rejects_unbound_governance_clues(patch):
+    from radar.stocks.manual_review_packet import build_manual_review_packet
+
+    source = detail()
+    source['governance_clues'] = {'symbol': '600900', 'as_of': '2026-11-02', 'status': 'current',
+                                  'observation': 'observed', 'reviewed': False, 'formal_screening_enabled': False,
+                                  'records': [], **patch}
+    assert build_manual_review_packet(source)['governance_clues']['status'] == 'unavailable'
