@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from radar.stocks.admission import _day
+from radar.stocks.issuer_type import classify_issuer
 from radar.stocks.market_value_registry import _bytes, _path, _reference
 from radar.stocks.market_value_source import _scope
 from radar.stocks.official_roster import _parse_source, _url
@@ -98,12 +99,19 @@ def _registered_load_company_profile_source(state_dir: Path, symbol: str, as_of:
             raise ValueError('来源在读取期间变化')
         current = target == as_of and not different_capture_day
         name_match = row['name'] == company['name']
+        fields = row.get('source_fields') if isinstance(row.get('source_fields'), dict) else {}
+        full_name = fields.get('FULL_NAME') or fields.get('公司全称') or fields.get('SEC_NAME_FULL') or row['name']
+        industry_label = row.get('industry_source_label') or fields.get('所属行业') or ''
+        issuer = classify_issuer(full_name, industry_label)
         result.update(as_of=target.isoformat(), status='current' if current else 'historical',
                       name_match=row['name'] == company['name'], roster_name=row['name'],
                       source={'scope_sha256': manifest['scope']['sha256'], 'rosters': provenance},
                       security_market={'symbol': symbol, 'status': ('verified' if name_match else 'pending_verification') if current else 'historical',
                                        'exchange': 'SZSE' if matched_ref['source'] == 'szse_a' else 'SSE',
-                                       'security_type': 'ordinary_a', 'issuer_type': None,
+                                       'security_type': 'ordinary_a', 'issuer_type': issuer['issuer_type'],
+                                       'issuer_type_status': issuer['status'], 'issuer_type_reason': issuer['reason'],
+                                       'issuer_type_source': issuer.get('source'), 'full_name': full_name,
+                                       'industry_label': industry_label,
                                        'source_sha256': matched_ref['sha256'], 'fetched_at': matched_ref['fetched_at']},
                       checks=[{'code': 'listing_age', 'outcome': 'passed' if target >= anniversary else 'failed',
                                'reason': '按A股上市完整三周年计算；代码匹配不替代发行人身份核验',

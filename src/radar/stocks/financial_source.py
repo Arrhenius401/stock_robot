@@ -32,6 +32,39 @@ def financial_status_columns(financial: Any) -> dict[str, Any]:
             'cash_ratio_status': cash.get('reference_condition_status')}
 
 
+def type_specific_metrics(collection: Any, as_of: date) -> dict[str, Any]:
+    """从已保存财务原文提取发行人类型分支需要的年度指标。"""
+    records = collection.get('records') if isinstance(collection, dict) else None
+    main = records.get('main') if isinstance(records, dict) else None
+    rows = [row for row in main if isinstance(row, dict) and isinstance(row.get('REPORT_DATE'), str)] if isinstance(main, list) else []
+    annual = []
+    for row in rows:
+        try:
+            day = date.fromisoformat(row['REPORT_DATE'][:10])
+        except ValueError:
+            continue
+        if day.month == 12 and day.day == 31 and day <= as_of:
+            annual.append((day, row))
+    if not annual:
+        return {'status': 'pending_verification', 'reason': '缺少截点前完整年度财务指标'}
+    day, row = max(annual, key=lambda item: item[0])
+
+    def number(key: str) -> float | None:
+        value = row.get(key)
+        try:
+            return float(value) if value not in (None, '') else None
+        except (TypeError, ValueError):
+            return None
+
+    npl = number('NON_PERFORMING_LOAN')
+    loans = number('GROSSLOANS')
+    return {'status': 'available', 'report_date': day.isoformat(),
+            'bank_car': number('FIRST_ADEQUACY_RATIO'), 'bank_provision': number('BLDKBBL'),
+            'bank_npl_ratio': (npl / loans) if npl is not None and loans not in (None, 0) else None,
+            'sec_risk_coverage': number('RISK_COVERAGE'), 'sec_liquidity_coverage': number('LIQUIDITY_COVERAGE_RATIO'),
+            'insurance_solvency': number('SOLVENCY_AR')}
+
+
 @dataclass
 class SavedFinancialTask:
     """同一选择结果供不同研究投影使用；原文不直接返回网页。"""
@@ -117,6 +150,8 @@ def load_financial_source(db: Path, symbol: str, as_of: date) -> dict[str, Any]:
         if financial.get('rule_version', RULE_VERSION) != RULE_VERSION:
             raise StockResearchError('财务重算规则版本不匹配')
         source['financial'] = safe_financial_result(financial, selected.name)
+        source['financial']['type_metrics'] = type_specific_metrics(
+            (selected.payload or {}).get('collection') if isinstance(selected.payload, dict) else None, as_of)
         audit = load_audit_clues(db, symbol, as_of)
         after = load_financial_task(db, symbol, as_of).source
         if {key: after.get(key) for key in identity_keys} != before:

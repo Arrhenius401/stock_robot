@@ -37,22 +37,35 @@ def merge_common_profile(manual: dict[str, Any], source: dict[str, Any], as_of: 
         market = source.get('security_market')
         if code == 'security' and isinstance(market, dict):
             symbol = result.get('symbol')
+            issuer = market.get('issuer_type')
+            allowed_issuer = issuer in {'ordinary', 'bank', 'securities', 'insurance'}
             valid_market = (current and source.get('symbol') == symbol and
                             source.get('evaluation_as_of') == as_of.isoformat() and
                             market.get('symbol') == symbol and market.get('status') == 'verified' and
-                            market.get('security_type') == 'ordinary_a' and market.get('issuer_type') is None and
+                            market.get('security_type') == 'ordinary_a' and
+                            (issuer is None or allowed_issuer) and
                             ((isinstance(symbol, str) and symbol.startswith('6') and market.get('exchange') == 'SSE') or
                              (isinstance(symbol, str) and symbol.startswith(('0', '3')) and market.get('exchange') == 'SZSE')))
             check['profile_market'] = deepcopy(market)
             if not valid_market:
                 check['profile_market']['status'] = 'historical' if source.get('status') == 'historical' else 'pending_verification'
-            if valid_market and check['outcome'] == 'pending_verification':
-                check['reason'] = '官方名录已核验普通A股市场身份，发行人类型仍待核验'
-            elif valid_market and check['outcome'] == 'failed':
+            old = deepcopy(check)
+            manual_issuer = (check.get('values') or {}).get('issuer_type') if isinstance(check.get('values'), dict) else None
+            if valid_market and check['outcome'] == 'failed':
                 security_conflict = True
-                old = deepcopy(check)
                 check.update(outcome='pending_verification', reason='人工证券身份与官方名录冲突，保留双方待核验',
                              manual_check=old)
+            elif valid_market and allowed_issuer:
+                if check['outcome'] == 'passed' and manual_issuer and manual_issuer != issuer:
+                    security_conflict = True
+                    check.update(outcome='pending_verification', reason='人工发行人类型与官方名录冲突，保留双方待核验',
+                                 manual_check=old)
+                else:
+                    check.update(outcome='passed', channel='official_issuer',
+                                 reason='官方名录已核验普通A股市场身份及发行人类型',
+                                 values={'issuer_type': issuer}, manual_check=old)
+            elif valid_market and issuer is None and check['outcome'] == 'pending_verification':
+                check['reason'] = '官方名录已核验普通A股市场身份，发行人类型仍未分类待核验'
             continue
         if code not in _CODES:
             continue

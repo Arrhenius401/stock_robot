@@ -17,7 +17,7 @@ from radar.stocks.admission import (
 )
 from radar.stocks.dividend_payout import _sum_amounts
 
-STYLE_RULE_VERSION = 'styles-research-2026-11-04-v9'
+STYLE_RULE_VERSION = 'styles-research-2026-11-08-v10'
 _STYLE_KINDS = ('cash_flow', 'cash_review', 'dividend_history', 'liquidity')
 
 
@@ -100,10 +100,12 @@ def _cash_ratio(groups: dict[str, Any], common_groups: dict[str, Any], issuer: A
 
 
 def _structured_cash(source: dict[str, Any], symbol: str, cutoff: date, years: list[int],
-                     groups: dict[str, Any], common_groups: dict[str, Any],
+                     groups: dict[str, Any], common_groups: dict[str, Any], issuer: Any,
                      manual: tuple[str, str, list[str], dict[str, Any] | None]) -> tuple[str, str, list[str], dict[str, Any] | None]:
     """仅将逐年一致的已审核事实与同截点财务任务绑定。"""
-    status, reason, identifiers, _ = manual
+    status, _reason, identifiers, _ = manual
+    if issuer != 'ordinary':
+        return 'pending_verification', '发行人类型不适用普通企业现金比率', identifiers, None
     financial = source.get('financial')
     if (source.get('status') != 'current' or source.get('symbol') != symbol
             or source.get('evaluation_as_of') != cutoff.isoformat() or source.get('as_of') != cutoff.isoformat()
@@ -111,8 +113,6 @@ def _structured_cash(source: dict[str, Any], symbol: str, cutoff: date, years: l
             or financial.get('as_of') != cutoff.isoformat()):
         return 'pending_verification', '财务任务并非有效同截点来源，现金比率待核验', identifiers, None
     reference = financial.get('cash_flow_reference')
-    if status not in {'passed', 'failed'}:
-        return 'pending_verification', reason, identifiers, None
     if not isinstance(reference, dict):
         return 'pending_verification', '财务任务缺少现金流比率资料', identifiers, None
     annual = _annual(reference.get('annual'), years)
@@ -120,17 +120,23 @@ def _structured_cash(source: dict[str, Any], symbol: str, cutoff: date, years: l
     profit = common_groups['profitability'][0]
     cash_rows = _annual(cash.get('annual'), years) if isinstance(cash, dict) else None
     profit_rows = profit.get('annual') if isinstance(profit, dict) else None
-    if annual is None or cash_rows is None or not isinstance(profit_rows, list) or reference.get('cross_source_differences'):
+    if annual is None or reference.get('cross_source_differences'):
         return 'pending_verification', '结构化年度数据缺失或来源金额冲突，待核验', identifiers, None
-    for year in years:
-        matched = [row for row in profit_rows if isinstance(row, dict) and row.get('year') == year]
-        if (len(matched) != 1 or _amount(annual[year].get('operating_cash_flow_yuan')) != _amount(cash_rows[year].get('operating_cash_flow_yuan'))
-                or _amount(annual[year].get('parent_profit_yuan')) != _amount(matched[0].get('parent_profit_yuan'))):
-            return 'pending_verification', '结构化金额与已审核年度事实不一致，待核验', identifiers, None
+    denominators = [_amount(annual[year].get('parent_profit_yuan')) for year in years]
+    if any(value is None or value <= 0 for value in denominators):
+        return 'pending_verification', '三年归母利润分母非正，现金比率不可计算', identifiers, None
+    if cash_rows is not None and isinstance(profit_rows, list):
+        for year in years:
+            matched = [row for row in profit_rows if isinstance(row, dict) and row.get('year') == year]
+            if (len(matched) != 1 or _amount(annual[year].get('operating_cash_flow_yuan')) != _amount(cash_rows[year].get('operating_cash_flow_yuan'))
+                    or _amount(annual[year].get('parent_profit_yuan')) != _amount(matched[0].get('parent_profit_yuan'))):
+                return 'pending_verification', '结构化金额与已审核年度事实不一致，待核验', identifiers, None
     verdict = reference.get('reference_condition_status')
-    if verdict not in {'passed', 'failed'} or verdict != status:
+    if verdict not in {'passed', 'failed'}:
         return 'pending_verification', '结构化现金比率或每年分母尚未核实', identifiers, None
-    return verdict, '已审核口径与同截点财务任务逐年一致；三年现金流比率须不低于0.8', identifiers, {
+    if status in {'passed', 'failed'} and status != verdict:
+        return 'pending_verification', '结构化现金比率与已审核结论冲突，待核验', identifiers, None
+    return verdict, '同截点结构化财务来源逐年一致；三年现金流比率须不低于0.8', identifiers, {
         'ratio': reference.get('ratio'), 'operating_cash_flow_sum_yuan': reference.get('operating_cash_flow_sum_yuan'),
         'parent_profit_sum_yuan': reference.get('parent_profit_sum_yuan'), 'years': years}
 
@@ -211,7 +217,8 @@ def _liquidity(groups: dict[str, Any], cutoff: date, market_window: Any) -> tupl
 
 
 def evaluate_stock_styles(symbol: str, evidence: list[dict[str, Any]], as_of: date, *,
-                          market_window: list[date] | None = None, common_result: dict[str, Any] | None = None) -> dict[str, Any]:
+                          market_window: list[date] | None = None, common_result: dict[str, Any] | None = None,
+                          issuer_type: str | None = None) -> dict[str, Any]:
     """返回共同条件及独立风格研究状态，所有正式发布能力保持关闭。"""
     result = deepcopy(common_result) if common_result is not None else evaluate_common_admission(symbol, evidence, as_of, market_window=market_window)
     result.update(style_rule_version=STYLE_RULE_VERSION, members_published=0)
@@ -225,14 +232,14 @@ def evaluate_stock_styles(symbol: str, evidence: list[dict[str, Any]], as_of: da
     groups = _groups(symbol, evidence, end, kinds=_STYLE_KINDS, prefix='style_')
     common_groups = _groups(symbol, evidence, end)
     security = common_groups['security'][0]
-    issuer = security.get('issuer_type') if security else None
+    issuer = issuer_type if issuer_type is not None else (security.get('issuer_type') if security else None)
     years = list(range(cutoff.year - 3, cutoff.year))
     ratio_status, ratio_reason, ratio_ids, ratio_values = _cash_ratio(groups, common_groups, issuer, cutoff, years)
     financial_source = result.get('financial_source')
     structured = isinstance(financial_source, dict) and financial_source.get('status') != 'unavailable'
     if isinstance(financial_source, dict) and structured and ratio_status != 'not_applicable':
         ratio_status, ratio_reason, ratio_ids, ratio_values = _structured_cash(
-            financial_source, symbol, cutoff, years, groups, common_groups,
+            financial_source, symbol, cutoff, years, groups, common_groups, issuer,
             (ratio_status, ratio_reason, ratio_ids, ratio_values))
     review_status, review_reason, review_ids = _cash_review(groups, issuer)
     # 发行人分支也是判断依据，逐项保留其规范事实来源。

@@ -11,6 +11,11 @@ import click
 from radar.stocks.admission import RULE_VERSION, evaluate_common_admission
 from radar.stocks.company_profile_admission import merge_common_profile
 from radar.stocks.financial_admission import merge_common_financial
+from radar.stocks.formal_rules import (
+    FORMAL_RULE_VERSION,
+    merge_financial_quality,
+    merge_governance,
+)
 from radar.stocks.market_value_admission import merge_common_market_value
 from radar.stocks.research_store import StockResearchStore
 from stock_robot.dividend_documents import _cutoff
@@ -60,6 +65,7 @@ def evaluate_store(store: StockResearchStore, as_of: date, *, symbol: str | None
                    profile_sources: dict[str, dict[str, Any]] | None = None,
                    industry_sources: dict[str, dict[str, Any]] | None = None,
                    growth_sources: dict[str, dict[str, Any]] | None = None,
+                   governance_sources: dict[str, dict[str, Any]] | None = None,
                    dividend_sources: dict[str, dict[str, Any]] | None = None,
                    turnover_sources: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     """读前后revision校验，不能把资料更新中的混合结果当稳定结论。"""
@@ -101,6 +107,17 @@ def evaluate_store(store: StockResearchStore, as_of: date, *, symbol: str | None
                 if code not in industry_sources:
                     raise ValueError('缺少服务器绑定的行业资料来源')
                 common['industry_source'] = industry_sources[code]
+            issuer = None
+            for check in common.get('checks', []):
+                if check.get('code') == 'security' and check.get('outcome') == 'passed':
+                    values = check.get('values')
+                    issuer = values.get('issuer_type') if isinstance(values, dict) else None
+            if governance_sources is not None:
+                if code not in governance_sources:
+                    raise ValueError('缺少绑定的治理来源')
+                common = merge_governance(common, governance_sources[code], as_of)
+            if financial_sources is not None:
+                common = merge_financial_quality(common, financial_sources[code], as_of, issuer)
             if dividend_sources is not None:
                 if code not in dividend_sources:
                     raise ValueError('缺少绑定的分红来源')
@@ -109,8 +126,10 @@ def evaluate_store(store: StockResearchStore, as_of: date, *, symbol: str | None
                 if code not in turnover_sources:
                     raise ValueError('缺少绑定的成交额来源')
                 common['turnover_source'] = turnover_sources[code]
-            result = (style_engine.evaluate_stock_styles(code, evidence, as_of, market_window=market_window, common_result=common)
+            result = (style_engine.evaluate_stock_styles(code, evidence, as_of, market_window=market_window,
+                                                                   common_result=common, issuer_type=issuer)
                       if style_engine else common)
+            result["formal_rule_version"] = FORMAL_RULE_VERSION
             result["evaluation_valid"] = True
             if growth_sources is not None:
                 if code not in growth_sources:
@@ -140,7 +159,8 @@ def evaluate_store(store: StockResearchStore, as_of: date, *, symbol: str | None
             if style_engine:
                 result.update(style_rule_version=style_engine.STYLE_RULE_VERSION, pools=_unavailable_pools(str(exc)))
         results.append(result)
-    report = {"as_of": as_of.isoformat(), "rule_version": RULE_VERSION, "formal_screening_enabled": False, "members_published": 0,
+    report = {"as_of": as_of.isoformat(), "rule_version": RULE_VERSION, "formal_rule_version": FORMAL_RULE_VERSION,
+            "formal_screening_enabled": False, "members_published": 0,
             "research_only": True, "market_window_role": "research_context_only", "items": results, "errors": errors,
             "summary": {"total": len(results), "common_passed": sum(r["common_status"] == "passed" for r in results),
                         "common_failed": sum(r["common_status"] == "failed" for r in results),

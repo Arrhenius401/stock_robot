@@ -97,13 +97,14 @@ def test_replacement_during_parse_fails_closed(tmp_path, monkeypatch):
     assert module.load_company_profile_source(tmp_path,'600900',DAY)['status'] == 'unavailable'
 
 
-def test_profile_exposes_only_market_identity_not_issuer_type(tmp_path):
+def test_profile_exposes_market_identity_and_issuer_classification(tmp_path):
     setup_source(tmp_path)
     result = load_company_profile_source(tmp_path, '600900', DAY)
     identity = result['security_market']
     assert identity['status'] == 'verified'
     assert identity['exchange'] == 'SSE' and identity['security_type'] == 'ordinary_a'
-    assert identity['issuer_type'] is None and identity['symbol'] == '600900'
+    assert identity['issuer_type'] == 'ordinary' and identity['issuer_type_status'] == 'verified'
+    assert identity['symbol'] == '600900'
     assert identity['source_sha256'] == result['source']['rosters'][0]['sha256']
 
 

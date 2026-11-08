@@ -12,6 +12,7 @@ from radar.stocks import admission, style
 from radar.stocks.company_profile_source import load_company_profile_source
 from radar.stocks.dividend_source import load_dividend_source
 from radar.stocks.financial_source import load_financial_source
+from radar.stocks.formal_rules import FORMAL_RULE_VERSION
 from radar.stocks.growth_source import load_growth_source
 from radar.stocks.industry_source import load_industry_source
 from radar.stocks.market_value_registry import load_market_value_source
@@ -257,8 +258,9 @@ class StockEvaluationStore:
                 or report['members_published'] != 0 or report.get('research_only') is not True):
             raise StockResearchError('报告须明确为关闭正式发布的研究结果')
         as_of = self.research._date(report.get('as_of'))
-        if report.get('rule_version') != admission.RULE_VERSION or report.get('style_rule_version') != style.STYLE_RULE_VERSION:
-            raise StockResearchError('共同或风格规则版本与当前计算器不符')
+        if (report.get('rule_version') != admission.RULE_VERSION or report.get('style_rule_version') != style.STYLE_RULE_VERSION
+                or report.get('formal_rule_version') != FORMAL_RULE_VERSION):
+            raise StockResearchError('共同、风格或正式条件规则版本与当前计算器不符')
         items, errors = report.get('items'), report.get('errors')
         if not isinstance(items, list) or not isinstance(errors, list):
             raise StockResearchError('报告缺少计算结果或异常列表')
@@ -272,7 +274,8 @@ class StockEvaluationStore:
             if symbol in seen or symbol not in expected:
                 raise StockResearchError('公司结果重复或不属于输入来源')
             seen.add(symbol)
-            if item.get('as_of') != as_of or item.get('rule_version') != admission.RULE_VERSION or item.get('style_rule_version') != style.STYLE_RULE_VERSION:
+            if (item.get('as_of') != as_of or item.get('rule_version') != admission.RULE_VERSION or item.get('style_rule_version') != style.STYLE_RULE_VERSION
+                    or item.get('formal_rule_version') != FORMAL_RULE_VERSION):
                 raise StockResearchError('公司截点或规则版本不匹配')
             source = next(entry for entry in inputs['companies'] if entry['company']['symbol'] == symbol)
             pool_results = item.get('pools')

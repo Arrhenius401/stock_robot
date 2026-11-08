@@ -19,6 +19,10 @@ from radar.stocks.admission import RULE_VERSION
 from radar.stocks.company_profile_source import load_company_profile_source
 from radar.stocks.dividend_source import load_dividend_source
 from radar.stocks.evaluation_store import StockEvaluationStore
+from radar.stocks.exchange_governance import (
+    governance_snapshot_identity,
+    load_exchange_governance_source,
+)
 from radar.stocks.financial_source import load_financial_source
 from radar.stocks.financial_task import financial_results
 from radar.stocks.growth_source import load_growth_source
@@ -247,11 +251,13 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
         industry = load_industry_source(state, symbol, cutoff)
         growth = load_growth_source(state, symbol, cutoff)
         market_value = load_market_value_source(state, symbol, cutoff)
+        governance_clues = load_exchange_governance_source(state, symbol, cutoff)
         _check_market_window(market_value, window, trace)
         _check_market_window(turnover, window, trace)
         report = evaluate_store(store, cutoff, symbol=symbol, market_window=window, include_styles=True,
                                 financial_sources={symbol: financial}, dividend_sources={symbol: dividend}, turnover_sources={symbol: turnover}, market_value_sources={symbol: market_value},
-                                profile_sources={symbol: profile}, industry_sources={symbol: industry}, growth_sources={symbol: growth})
+                                profile_sources={symbol: profile}, industry_sources={symbol: industry}, growth_sources={symbol: growth},
+                                governance_sources={symbol: governance_clues})
         report['market_window_source'] = trace
         evidence, reviews = store.list_evidence(symbol), store.review_history(symbol)
         if company(store, symbol)['revision'] != row['revision']:
@@ -270,13 +276,8 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
             raise StockRevisionConflict('读取详情期间成长来源变化，请重新读取')
         summaries = {name: summarize_research(report['items'][0], name) for name in ('dividend_value', 'growth_trend')}
         audit_clues = load_audit_clues(db, symbol, cutoff)
-        from radar.stocks.exchange_governance import (
-            governance_snapshot_identity,
-            load_exchange_governance_source,
-        )
         from radar.stocks.risk_warning import load_risk_warning_source
         risk_warning = load_risk_warning_source(state, symbol, cutoff)
-        governance_clues = load_exchange_governance_source(state, symbol, cutoff)
         if load_financial_source(db, symbol, cutoff) != financial or load_audit_clues(db, symbol, cutoff) != audit_clues:
             raise StockRevisionConflict('读取审计线索期间财务来源变化，请重新读取')
         if load_risk_warning_source(state, symbol, cutoff) != risk_warning:
@@ -391,6 +392,7 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
         industry = load_industry_source(state, symbol, cutoff)
         growth = load_growth_source(state, symbol, cutoff)
         market_value = load_market_value_source(state, symbol, cutoff)
+        governance = load_exchange_governance_source(state, symbol, cutoff)
         _check_market_window(market_value, window, trace)
         _check_market_window(turnover, window, trace)
         inputs['companies'][0].update(financial_source=financial, financial_as_of=cutoff.isoformat(),
@@ -402,7 +404,8 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
         inputs['companies'][0].update(market_value_source=market_value, market_value_as_of=cutoff.isoformat())
         report = evaluate_store(store, cutoff, symbol=symbol, market_window=window, include_styles=True,
                                 financial_sources={symbol: financial}, dividend_sources={symbol: dividend}, turnover_sources={symbol: turnover}, market_value_sources={symbol: market_value},
-                                profile_sources={symbol: profile}, industry_sources={symbol: industry}, growth_sources={symbol: growth})
+                                profile_sources={symbol: profile}, industry_sources={symbol: industry}, growth_sources={symbol: growth},
+                                governance_sources={symbol: governance})
         report['market_window_source'] = trace
         saved = evaluations.save_evaluation(report, inputs, market_window=window)
         drafts = StockMembershipDraftStore(evaluations, pools)
