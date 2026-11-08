@@ -4,10 +4,14 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from datetime import date
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 ROSTER_PATH = Path(__file__).resolve().parents[3] / 'data' / 'financial_issuer_rosters.json'
+_REQUIRED_SOURCES = ('banking', 'insurance', 'financial_holding', 'securities')
+_OFFICIAL_HOSTS = ('nfra.gov.cn', 'csrc.gov.cn')
 _FINANCIAL_TERMS = ('银行', '证券', '保险', '信托', '租赁', '期货', '基金', '资产管理', '财险', '寿险',
                     '金融控股', '金融租赁', '消费金融', '汽车金融', '金融资产')
 
@@ -18,19 +22,71 @@ def _norm(value: Any) -> str:
     return re.sub(r'\s+', '', value).replace('（', '(').replace('）', ')')
 
 
+def _valid_date(value: Any, *, month: bool = False) -> bool:
+    if not isinstance(value, str):
+        return False
+    if month and re.fullmatch(r'\d{4}-\d{2}', value):
+        try:
+            date(int(value[:4]), int(value[5:7]), 1)
+        except ValueError:
+            return False
+        return True
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError:
+        return False
+    return parsed.isoformat() == value
+
+
+def _valid_url(value: Any) -> bool:
+    if not isinstance(value, str) or not value or any(char.isspace() for char in value):
+        return False
+    try:
+        parsed = urlsplit(value)
+        host = parsed.hostname or ''
+        if (parsed.scheme != 'https' or not host or parsed.username is not None or parsed.password is not None
+                or parsed.port not in (None, 443) or not parsed.path):
+            return False
+    except ValueError:
+        return False
+    return any(host == domain or host.endswith('.' + domain) for domain in _OFFICIAL_HOSTS)
+
+
+def _valid_sources(payload: Any) -> bool:
+    if not isinstance(payload, dict) or not _valid_date(payload.get('as_of')):
+        return False
+    sources = payload.get('sources')
+    if not isinstance(sources, dict) or any(key not in sources for key in _REQUIRED_SOURCES):
+        return False
+    for key in _REQUIRED_SOURCES:
+        source = sources[key]
+        if not isinstance(source, dict):
+            return False
+        if not isinstance(source.get('title'), str) or not source['title'].strip():
+            return False
+        if not _valid_date(source.get('as_of'), month=key == 'securities'):
+            return False
+        if not _valid_url(source.get('url')):
+            return False
+    names = payload.get('names')
+    if not isinstance(names, dict):
+        return False
+    for key in ('bank', 'insurance', 'securities', 'other_financial'):
+        rows = names.get(key)
+        if not isinstance(rows, list) or not rows or any(not isinstance(item, str) or not item.strip() for item in rows):
+            return False
+    return True
+
+
 def _load_rosters() -> tuple[dict[str, Any], str] | None:
-    """每次重新读取名录，副本损坏或结构不完整时不得沿用旧缓存。"""
+    """每次重新读取名录；来源、日期、结构或文件损坏时不得沿用旧缓存。"""
     try:
         raw = ROSTER_PATH.read_bytes()
         payload = json.loads(raw)
     except (OSError, ValueError, TypeError, UnicodeDecodeError):
         return None
-    if not isinstance(payload, dict) or not isinstance(payload.get('names'), dict):
+    if not _valid_sources(payload):
         return None
-    names = payload['names']
-    for key in ('bank', 'insurance', 'securities', 'other_financial'):
-        if not isinstance(names.get(key), list):
-            return None
     return payload, hashlib.sha256(raw).hexdigest()
 
 
@@ -45,7 +101,7 @@ def classify_issuer(full_name: Any, industry_label: Any) -> dict[str, Any]:
     loaded = _load_rosters()
     if loaded is None:
         return {'issuer_type': None, 'status': 'unavailable',
-                'reason': '发行人类型名录缺失、损坏或结构不完整'}
+                'reason': '发行人类型名录缺失、损坏或来源元数据不完整'}
     payload, digest = loaded
     source = _source(payload, digest)
     name = _norm(full_name)
