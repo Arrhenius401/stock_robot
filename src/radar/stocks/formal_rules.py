@@ -41,6 +41,7 @@ def _merge_check(result: dict[str, Any], code: str, outcome: str, reason: str, d
 def merge_governance(result: dict[str, Any], source: dict[str, Any], as_of: date) -> dict[str, Any]:
     """公司对象纪律处分硬失败；监管措施待核验；未命中不能通过。"""
     merged = deepcopy(result)
+    merged['governance_source'] = deepcopy(source)
     symbol = merged.get('symbol')
     bound = (source.get('status') == 'current' and source.get('symbol') == symbol
              and source.get('as_of') == as_of.isoformat())
@@ -120,14 +121,12 @@ def merge_financial_quality(result: dict[str, Any], source: dict[str, Any] | Non
         checks = {row['code']: row['outcome'] for row in merged['checks']}
         profit_codes = [code for code in checks if code.startswith(('annual_', 'ttm_'))]
         profit_ok = bool(profit_codes) and all(checks[code] == 'passed' for code in profit_codes)
-        raw_cash: Any = financial.get('cash_flow_reference')
-        cash: dict[str, Any] = raw_cash if isinstance(raw_cash, dict) else {}
-        if 'failed' in {checks.get(code) for code in profit_codes} | {checks.get('audit')} | {cash.get('reference_condition_status')}:
+        if 'failed' in {checks.get(code) for code in profit_codes} | {checks.get('audit')}:
             outcome = 'failed'
-            reason = '普通企业盈利、审计或三年现金比率存在明确失败'
-        elif profit_ok and checks.get('audit') == 'passed' and cash.get('reference_condition_status') == 'passed':
+            reason = '普通企业盈利或审计存在明确失败'
+        elif profit_ok and checks.get('audit') == 'passed':
             outcome = 'passed'
-            reason = '普通企业盈利、审计及三年累计经营现金流/归母利润≥0.8均通过'
+            reason = '普通企业盈利和审计条件通过；现金比率只在对应池作为风格条件'
     _merge_check(merged, 'financial_quality', outcome, reason, {'issuer_type': issuer, 'metrics': metrics})
     _refresh(merged)
     return merged

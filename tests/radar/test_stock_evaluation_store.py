@@ -1,5 +1,6 @@
 """研究评估档案的不可变性、来源版本与自然失效测试。"""
 
+from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -237,3 +238,27 @@ def test_nested_invalid_result_is_partial_even_if_top_is_valid(tmp_path):
     inputs, report = capture(store, research)
     report['items'][0]['pools']['growth_trend']['evaluation_valid'] = False
     assert store.save_evaluation(report, inputs)['status'] == 'partial'
+
+
+def test_freshness_rejects_old_formal_rule_version(tmp_path):
+    research, store, _clock = setup(tmp_path)
+    inputs, report = capture(store, research)
+    report['formal_rule_version'] = 'formal-old'
+    snapshot = {'status': 'complete', 'as_of': AS_OF.isoformat(), 'report': report, 'inputs': inputs}
+    freshness = store._freshness(snapshot)
+    assert freshness['current'] is False
+    assert 'formal_rule_version_changed' in freshness['reasons']
+
+
+def test_governance_source_change_invalidates_archive(tmp_path, monkeypatch):
+    research, store, _clock = setup(tmp_path)
+    inputs, _report = capture(store, research)
+    symbol = '600900'
+    inputs['companies'][0].update(
+        governance_source={'symbol': symbol, 'as_of': AS_OF.isoformat(), 'status': 'current', 'records': []},
+        governance_as_of=AS_OF.isoformat())
+    monkeypatch.setattr('radar.stocks.evaluation_store.load_exchange_governance_source',
+                        lambda *args, **kwargs: {'symbol': symbol, 'as_of': AS_OF.isoformat(),
+                                                 'status': 'unavailable', 'records': []})
+    with closing(research._connect()) as connection, pytest.raises(StockRevisionConflict):
+        store._assert_sources(inputs, connection)

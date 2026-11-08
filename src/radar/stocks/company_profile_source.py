@@ -100,7 +100,7 @@ def _registered_load_company_profile_source(state_dir: Path, symbol: str, as_of:
         current = target == as_of and not different_capture_day
         name_match = row['name'] == company['name']
         fields = row.get('source_fields') if isinstance(row.get('source_fields'), dict) else {}
-        full_name = fields.get('FULL_NAME') or fields.get('公司全称') or fields.get('SEC_NAME_FULL') or row['name']
+        full_name = fields.get('FULL_NAME') or fields.get('公司全称') or fields.get('SEC_NAME_FULL') or ''
         industry_label = row.get('industry_source_label') or fields.get('所属行业') or ''
         issuer = classify_issuer(full_name, industry_label)
         result.update(as_of=target.isoformat(), status='current' if current else 'historical',

@@ -59,7 +59,7 @@ def type_specific_metrics(collection: Any, as_of: date) -> dict[str, Any]:
     npl = number('NON_PERFORMING_LOAN')
     loans = number('GROSSLOANS')
     return {'status': 'available', 'report_date': day.isoformat(),
-            'bank_car': number('FIRST_ADEQUACY_RATIO'), 'bank_provision': number('BLDKBBL'),
+            'bank_car': number('NEWCAPITALADER'), 'bank_tier1': number('FIRST_ADEQUACY_RATIO'), 'bank_provision': number('BLDKBBL'),
             'bank_npl_ratio': (npl / loans) if npl is not None and loans not in (None, 0) else None,
             'sec_risk_coverage': number('RISK_COVERAGE'), 'sec_liquidity_coverage': number('LIQUIDITY_COVERAGE_RATIO'),
             'insurance_solvency': number('SOLVENCY_AR')}

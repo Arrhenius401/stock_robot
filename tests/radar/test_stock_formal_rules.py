@@ -85,7 +85,7 @@ def test_securities_and_insurance_thresholds():
     assert check(merge_financial_quality(common(), ins, DAY, 'insurance'), 'financial_quality')['outcome'] == 'passed'
 
 
-def test_ordinary_financial_quality_uses_profit_audit_and_cash():
+def test_ordinary_financial_quality_does_not_use_cash_ratio():
     from radar.stocks.formal_rules import merge_financial_quality
 
     base = common()
@@ -97,7 +97,18 @@ def test_ordinary_financial_quality_uses_profit_audit_and_cash():
         {'code': 'financial_quality', 'outcome': 'pending_verification', 'evidence_ids': []},
     ]
     source = {'status': 'current', 'symbol': '600000', 'as_of': DAY.isoformat(),
-              'financial': {'cash_flow_reference': {'reference_condition_status': 'passed'}}}
+              'financial': {'cash_flow_reference': {'reference_condition_status': 'failed'}}}
     assert check(merge_financial_quality(base, source, DAY, 'ordinary'), 'financial_quality')['outcome'] == 'passed'
-    source['financial']['cash_flow_reference']['reference_condition_status'] = 'failed'
+    base['checks'][1]['outcome'] = 'failed'
     assert check(merge_financial_quality(base, source, DAY, 'ordinary'), 'financial_quality')['outcome'] == 'failed'
+
+def test_bank_capital_uses_total_capital_adequacy_field():
+    from radar.stocks.financial_source import type_specific_metrics
+
+    collection = {'records': {'main': [{'REPORT_DATE': '2025-12-31 00:00:00',
+                                        'NEWCAPITALADER': '12.12', 'FIRST_ADEQUACY_RATIO': '9.60',
+                                        'BLDKBBL': '155.37', 'NON_PERFORMING_LOAN': '26037000000',
+                                        'GROSSLOANS': '1913489000000'}]}}
+    metrics = type_specific_metrics(collection, DAY)
+    assert metrics['bank_car'] == 12.12
+    assert metrics['bank_tier1'] == 9.6

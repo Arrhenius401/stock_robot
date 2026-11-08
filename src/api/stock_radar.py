@@ -401,7 +401,8 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
         inputs['companies'][0].update(company_profile_source=profile, profile_as_of=cutoff.isoformat(),
                                        industry_source=industry, industry_as_of=cutoff.isoformat(),
                                        growth_source=growth, growth_as_of=cutoff.isoformat())
-        inputs['companies'][0].update(market_value_source=market_value, market_value_as_of=cutoff.isoformat())
+        inputs['companies'][0].update(market_value_source=market_value, market_value_as_of=cutoff.isoformat(),
+                                       governance_source=governance, governance_as_of=cutoff.isoformat())
         report = evaluate_store(store, cutoff, symbol=symbol, market_window=window, include_styles=True,
                                 financial_sources={symbol: financial}, dividend_sources={symbol: dividend}, turnover_sources={symbol: turnover}, market_value_sources={symbol: market_value},
                                 profile_sources={symbol: profile}, industry_sources={symbol: industry}, growth_sources={symbol: growth},
