@@ -702,4 +702,6 @@ A类独立合并规格/质量审查发现2项P2：研究库默认按运行日判
 
 真实规模读取：正式快照 240 个分页全部复核约 0.85 秒，轻量登记身份约 0.03 秒，单公司 `load` 约 1.5—1.9 秒；50 次连续单公司读取约 93.6 秒，折算 626 家约 19—20 分钟，包含逐公司评估的完整复核约 25 分钟。每个请求都重新读取并校验全部分页摘要，仅按原文摘要复用解析结果；详情请求一次完整复读加一次轻量身份复核，不保留跨请求快照缓存。
 
-定向验证：监管来源 32 项、财务状态列 1 项、新闻固定时钟 2 项，共 35 项通过。全量门禁 `verify.ps1 -Scope Full -VenvPath D:/code/stock_robot/.venv` 通过：Ruff、Pyright、数据取数入口通过，pytest 5139 通过、7 跳过、0 失败，耗时 7 分 7 秒，日志 `tmp/acceptance-fix-rawdecl-full-20261108.log`。修复后重跑的 `company-conditions.csv` 626 家、0 错误；`financial_numeric` 219 行改变（旧 passed 431/pending 98/failed 97，新 passed 486/failed 139/pending 1），治理分类改变 12 家展示类别，`attention.csv` 仍 406 家，`summary.json` 条件计数不变，正式库不变标记为 true。
+定向验证：监管来源 32 项、财务状态列 1 项、新闻固定时钟 2 项，共 35 项通过。全量门禁 `verify.ps1 -Scope Full -VenvPath D:/code/stock_robot/.venv` 通过：Ruff、Pyright、数据取数入口通过，pytest 5139 通过、7 跳过、0 失败，耗时 6 分 0 秒，日志 `tmp/acceptance-fix-testcoverage-full-20261108.log`。修复后重跑的 `company-conditions.csv` 626 家、0 错误；`financial_numeric` 219 行改变（旧 passed 431/pending 98/failed 97，新 passed 486/failed 139/pending 1），治理分类改变 12 家展示类别，`attention.csv` 仍 406 家，`summary.json` 条件计数不变，正式库不变标记为 true。
+
+回归测试样本已进一步修正：漏页用例同步 `index.sources` 和 `date_range`，错页码用例同步来源引用、索引来源及该页记录的 `page_sha256`，使登记、索引和记录内部一致，只由原文声明触发失败。已在临时 `e94abec` 工作树验证：两个测试在旧实现上均返回 `current` 并失败，在当前实现上均通过。

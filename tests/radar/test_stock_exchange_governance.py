@@ -471,8 +471,11 @@ def test_omitted_page_with_synchronized_registration_rejected(tmp_path):
     source['received'] = 1
     (root / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, sort_keys=True), encoding='utf-8')
     index = json.loads((root / 'index.json').read_bytes())
+    index['sources'] = manifest['sources']
     index['symbols'].pop('600001', None)
     index['records'] -= 1
+    dates = sorted(row['listed_on'] for rows in index['symbols'].values() for row in rows if row.get('listed_on'))
+    index['date_range'] = [dates[0], dates[-1]]
     save_index(root, index)
     # 登记、索引均已同步为 1 页/3 条，但原文第 1 页仍声明 2 页/2 条。
     assert verify_exchange_governance(tmp_path)['status'] == 'unavailable'
@@ -494,9 +497,18 @@ def test_raw_page_number_must_match_registration(tmp_path):
     (root / 'sse-002.json').write_bytes(raw)
     manifest = json.loads((root / 'manifest.json').read_bytes())
     ref = manifest['sources']['sse']['pages'][1]
-    ref['sha256'] = hashlib.sha256(raw).hexdigest()
+    old_sha, new_sha = ref['sha256'], hashlib.sha256(raw).hexdigest()
+    ref['sha256'] = new_sha
     ref['bytes'] = len(raw)
     (root / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, sort_keys=True), encoding='utf-8')
+    index = json.loads((root / 'index.json').read_bytes())
+    index['sources'] = manifest['sources']
+    for rows in index['symbols'].values():
+        for row in rows:
+            if row.get('page_sha256') == old_sha:
+                row['page_sha256'] = new_sha
+    save_index(root, index)
+    # 登记、索引和记录摘要均已同步为修改后的第 2 页，旧实现不会发现 pageNo 错位。
     assert verify_exchange_governance(tmp_path)['status'] == 'unavailable'
 
 
