@@ -23,8 +23,8 @@ from radar.stocks.research_store import _symbol
 from radar.stocks.structured_collect import _json
 
 logger = logging.getLogger(__name__)
-VERSION = 'exchange-governance-v2'
-LEGACY_VERSIONS = {'exchange-governance-v1'}
+VERSION = 'exchange-governance-v3'
+LEGACY_VERSIONS = {'exchange-governance-v1', 'exchange-governance-v2'}
 SSE_URL = 'https://query.sse.com.cn/commonSoaQuery.do'
 SSE_BASE = 'https://www.sse.com.cn'
 SSE_REFERER = 'https://www.sse.com.cn/disclosure/credential/supervision/measures/'
@@ -236,7 +236,7 @@ def _collect_sse(root: Path, fetch: Callable[[str, dict[str, str], str], tuple[i
         raise ValueError('上交所监管列表分页不完整')
     dates = sorted(row['listed_on'] for row in rows if row.get('listed_on'))
     source = {'label': '上交所上市公司监管列表', 'url': SSE_URL, 'params': SSE_PARAMS,
-              'declared_total': expected[0], 'raw_received': raw_count, 'parsed': len(rows),
+              'declared_total': expected[0], 'page_count': page_count, 'raw_received': raw_count, 'parsed': len(rows),
               'dropped': raw_count - len(rows), 'received': len(rows), 'pages': refs,
               'date_range': [dates[0], dates[-1]] if dates else None}
     return source, rows
@@ -282,7 +282,7 @@ def _collect_szse(root: Path, key: str, spec: dict[str, str],
     dates = sorted(row['listed_on'] for row in rows if row.get('listed_on'))
     source = {'label': spec['label'], 'url': SZSE_URL,
               'params': {'catalog': spec['catalog'], 'tabkey': spec['tabkey']},
-              'declared_total': expected[0], 'raw_received': raw_count, 'parsed': len(rows),
+              'declared_total': expected[0], 'page_count': page_count, 'raw_received': raw_count, 'parsed': len(rows),
               'dropped': raw_count - len(rows), 'received': len(rows), 'pages': refs,
               'date_range': [dates[0], dates[-1]] if dates else None}
     return source, rows
@@ -346,6 +346,9 @@ def _read_pages(root: Path, manifest: dict[str, Any]) -> tuple[list[dict[str, An
     records: list[dict[str, Any]] = []
     stats: dict[str, dict[str, int]] = {}
     for key, source in manifest['sources'].items():
+        page_count = source.get('page_count')
+        if type(page_count) is not int or page_count != len(source['pages']):
+            raise ValueError('监管列表登记页数与声明总页数不一致')
         raw_received = 0
         parsed = 0
         for ref in source['pages']:
@@ -357,8 +360,10 @@ def _read_pages(root: Path, manifest: dict[str, Any]) -> tuple[list[dict[str, An
             parsed += len(rows)
             records.extend(rows)
         dropped = raw_received - parsed
+        if raw_received != source.get('declared_total'):
+            raise ValueError('监管列表实际条数与声明总数不一致')
         if (source.get('raw_received') != raw_received or source.get('parsed') != parsed
-                or source.get('dropped') != dropped):
+                or source.get('dropped') != dropped or source.get('received') != parsed):
             raise ValueError('监管列表来源统计与原文不一致')
         stats[key] = {'raw_received': raw_received, 'parsed': parsed, 'dropped': dropped}
     return records, stats
@@ -483,7 +488,8 @@ def _validate_manifest(state_dir: Path) -> dict[str, Any]:
                                                           'tabkey': SZSE_SOURCES[key]['tabkey']}
         if (not isinstance(source, dict) or source.get('url') != expected_url
                 or source.get('params') != expected_params or not isinstance(source.get('pages'), list)
-                or not source['pages']):
+                or not source['pages'] or type(source.get('page_count')) is not int
+                or source['page_count'] != len(source['pages'])):
             raise ValueError('监管列表来源描述无效')
     if index.get('sources') != sources:
         raise ValueError('监管列表来源元数据与索引不一致')
@@ -524,11 +530,17 @@ def _rebuild_locked(state_dir: Path) -> dict[str, Any]:
         if (captured.utcoffset() is None or captured > datetime.now(UTC)
                 or captured.astimezone(_BJ).date() != snapshot_day):
             raise ValueError('监管列表时间无效')
-        records, stats = _read_pages(root, manifest)
-        index = _build_index(manifest, records, stats)
+        sources = {}
+        for key, value in manifest['sources'].items():
+            if not isinstance(value, dict) or not isinstance(value.get('pages'), list) or not value['pages']:
+                raise ValueError('监管列表来源描述无效')
+            sources[key] = {**value, 'page_count': value.get('page_count', len(value['pages']))}
+        working = {**manifest, 'sources': sources}
+        records, stats = _read_pages(root, working)
+        index = _build_index(working, records, stats)
         raw_index = _canonical(index)
         index_ref = _page_ref(root, 'index.json', raw_index)
-        new_manifest = {**manifest, 'version': VERSION, 'index': index_ref,
+        new_manifest = {**working, 'version': VERSION, 'index': index_ref,
                         'records': index['records'], 'unmatched': index['unmatched'],
                         'invalid': index['invalid'], 'rebuilt_at': datetime.now(_BJ).isoformat(),
                         'rebuilt_from_version': version}
@@ -622,7 +634,7 @@ def _load_locked(state_dir: Path, symbol: str, as_of: date, out: dict[str, Any])
                                    'declared_total': value.get('declared_total'),
                                    'raw_received': value.get('raw_received'), 'parsed': value.get('parsed'),
                                    'received': value.get('received'), 'dropped': value.get('dropped'),
-                                   'pages': len(value.get('pages', [])), 'date_range': value.get('date_range'),
+                                   'page_count': value.get('page_count'), 'pages': len(value.get('pages', [])), 'date_range': value.get('date_range'),
                                    'snapshot_date': snapshot_day.isoformat()}
                              for key, value in manifest['sources'].items()},
                    reason='仅为交易所动态列表观察结果；未命中不代表治理合格，工作函不等同处分')
