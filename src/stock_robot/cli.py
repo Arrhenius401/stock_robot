@@ -33,7 +33,10 @@ from stock_robot.stock_archive import (
 )
 from stock_robot.stock_capital_history import capital_history_command
 from stock_robot.stock_financial_facts import prepare_facts
-from stock_robot.stock_governance import exchange_governance_update
+from stock_robot.stock_governance import (
+    exchange_governance_rebuild,
+    exchange_governance_update,
+)
 from stock_robot.stock_index_scope import index_scope_command
 from stock_robot.stock_market_context import market_window_command
 from stock_robot.stock_market_history import market_history_command
@@ -1857,6 +1860,7 @@ radar.add_command(market_history_command)
 radar.add_command(capital_history_command)
 radar.add_command(risk_warning_update)
 radar.add_command(exchange_governance_update)
+radar.add_command(exchange_governance_rebuild)
 radar.add_command(official_roster_command)
 radar.add_command(index_scope_command)
 for command in (capture_evaluation, list_evaluations, create_draft, list_drafts, cancel_draft, apply_membership, list_memberships):

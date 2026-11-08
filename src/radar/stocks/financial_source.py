@@ -22,6 +22,16 @@ from radar.stocks.structured_screen import RULE_VERSION
 logger = logging.getLogger(__name__)
 
 
+def financial_status_columns(financial: Any) -> dict[str, Any]:
+    """交付表分别取盈利状态和现金比率状态，不能互相顶替。"""
+    view = financial if isinstance(financial, dict) else {}
+    cash = view.get('cash_flow_reference')
+    cash = cash if isinstance(cash, dict) else {}
+    return {'financial_numeric': view.get('financial_numeric_status', ''),
+            'cash_ratio': cash.get('ratio'),
+            'cash_ratio_status': cash.get('reference_condition_status')}
+
+
 @dataclass
 class SavedFinancialTask:
     """同一选择结果供不同研究投影使用；原文不直接返回网页。"""

@@ -685,3 +685,17 @@ A类独立合并规格/质量审查发现2项P2：研究库默认按运行日判
 上述统计只说明当前来源的覆盖和数值条件，不代表正式入池；发行人类型线索未命中不证明普通企业，治理未命中不证明合格，工作函不等同处分，行业分类/指数成分/市值排名不构成龙头依据，分红 partial 不能当作零分红。明细为同目录 `company-conditions.csv`、`attention.csv`、`evaluation-details.csv` 和 `summary.json`。
 
 验证：本次监管来源、审核包、风险线索和管理接口相关测试 88 项通过（`test_stock_exchange_governance.py` 21、`test_stock_manual_review_packet.py` 25、`test_stock_risk_warning.py` 16、`test_stock_radar_management.py` 26）；Ruff 通过，相关源码 Pyright 0 错误。626 家离线复核 0 个评估错误、0 次联网、0 次业务库写入；正式库 `radar.db` 的 SHA256 运行前后均为 `93FEF82662041BA0D6B348B59A0CC93795E3C1DFF7E7B36AA06E1123766917E3`。未重跑全量 pytest、真实服务或浏览器验收，最终门禁与验收仍由 Codex 完成。
+
+### 验收修复（2026-11-08）
+
+监管索引复读改为从保存的 240 个原始分页按确定性规则重建索引，并与保存索引做规范化逐条比较（公司代码、内容、来源、记录标识、分页摘要、计数和来源元数据）。单公司读取使用重建结果，索引键错绑、内容修改、记录增删、重复或来源不符均降级不可用；任一分页缺失、损坏或来源不完整时，整个快照不可用，未命中公司也不能返回有效 `not_observed`。页面内容每次都重新读取并校验摘要，仅按原文摘要复用解析结果，不保留跨请求快照缓存；一次详情请求只做一次完整复读，另以登记身份复核 manifest/index 未变化。
+
+分类规则升级为 `exchange-governance-v2`：`监管工作函`为工作函，`监管关注`、`书面警示`、`监管警示`、`约见谈话`、`要求全体董事限期参加培训`为监管措施，`通报批评`、`公开谴责`、`公开认定`为处分，其余类型保留 `unknown`；不再按“含函/关注”宽泛推断。生产快照已从保存原文重建，保留原 `fetched_at=2026-11-07T22:24:56.655771+08:00` 和 `as_of=2026-11-07`，新增 `rebuilt_at` 与 `rebuilt_from_version=exchange-governance-v1`。626 家命中 473 条的分类由工作函 319、监管措施 56、处分 98、未知 0，变为工作函 224、监管措施 136、处分 98、未知 15；80 条“监管关注”从工作函改为监管措施，13 条“监管函”和 2 条“规范运作建议书”保留未知。旧 v1 派生索引不再被当作新规则结果，必须通过 `radar exchange-governance-rebuild` 从原文重建。
+
+`company-conditions.csv` 的 `financial_numeric` 改为读取 `financial_numeric_status`，现金比率仍单独读取 `cash_flow_reference`；新增 `financial_status_columns` 及盈利/现金状态不同的回归测试。新闻测试改为固定带时区时钟，明确过去与未来样本，生产过滤逻辑未改。
+
+复算差异：`company-conditions.csv` 的 `financial_numeric` 有 219 行改变，分布由旧值 passed 431/ pending 98/ failed 97 变为 passed 486/ failed 139/ pending 1；000002 由 pending 改为 failed，688820 由 passed 改为 pending，600900 保持 passed。现金比率和现金状态字段未因此改变；`attention.csv` 仍为 406 家，`summary.json` 的条件计数、错误数和正式库不变标记一致。治理分类变化改变 12 家公司的 `governance_categories`，属“监管关注/监管函”重新归类，不改变命中公司数和记录数。
+
+真实规模读取：正式快照 240 个分页全部复核约 0.85 秒，轻量登记身份约 0.03 秒，单公司 `load` 约 1.5—1.9 秒；50 次连续单公司读取约 93.6 秒，折算 626 家约 19—20 分钟，包含逐公司评估的完整复核约 25 分钟。每个请求都重新读取并校验全部分页摘要，仅按原文摘要复用解析结果；详情请求一次完整复读加一次轻量身份复核，不保留跨请求快照缓存。
+
+定向验证：监管来源 30 项、财务状态列 1 项、新闻固定时钟 2 项，共 33 项通过。全量门禁 `verify.ps1 -Scope Full -VenvPath D:/code/stock_robot/.venv` 通过：Ruff、Pyright、数据取数入口通过，pytest 5137 通过、7 跳过、0 失败，耗时 9 分 44 秒，日志 `tmp/acceptance-fix-full-20261108.log`。修复后重跑的 `company-conditions.csv` 626 家、0 错误；`financial_numeric` 219 行改变（旧 passed 431/pending 98/failed 97，新 passed 486/failed 139/pending 1），治理分类改变 12 家展示类别，`attention.csv` 仍 406 家，`summary.json` 条件计数不变，正式库不变标记为 true。

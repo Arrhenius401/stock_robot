@@ -23,7 +23,8 @@ from radar.stocks.research_store import _symbol
 from radar.stocks.structured_collect import _json
 
 logger = logging.getLogger(__name__)
-VERSION = 'exchange-governance-v1'
+VERSION = 'exchange-governance-v2'
+LEGACY_VERSIONS = {'exchange-governance-v1'}
 SSE_URL = 'https://query.sse.com.cn/commonSoaQuery.do'
 SSE_BASE = 'https://www.sse.com.cn'
 SSE_REFERER = 'https://www.sse.com.cn/disclosure/credential/supervision/measures/'
@@ -46,7 +47,10 @@ _ALLOWED_HOSTS = {'www.sse.com.cn', 'www.szse.cn', 'query.sse.com.cn'}
 _SSE_CODE = re.compile(r'(?:60[0135]|688)[0-9]{3}')
 _SZSE_CODE = re.compile(r'(?:000|001|002|003|30[012])[0-9]{3}')
 _DISCIPLINE_TYPES = {'通报批评', '公开谴责', '公开认定'}
-_MEASURE_TYPES = {'监管警示', '约见谈话', '要求全体董事限期参加培训', '监管函（会计师事务所）'}
+_MEASURE_TYPES = {'监管关注', '书面警示', '监管警示', '约见谈话', '要求全体董事限期参加培训'}
+_WORK_LETTER_TYPES = {'监管工作函'}
+_PAGE_CACHE: dict[tuple[str, str], tuple[int, tuple[dict[str, Any], ...]]] = {}
+_PAGE_CACHE_LIMIT = 320
 
 
 def _download(url: str, params: dict[str, str], referer: str) -> tuple[int, bytes]:
@@ -157,7 +161,7 @@ def _category(measure_type: str | None, source: str) -> str:
         return 'discipline'
     if measure_type in _MEASURE_TYPES:
         return 'regulatory_measure'
-    if measure_type and ('函' in measure_type or '关注' in measure_type or '建议书' in measure_type):
+    if measure_type in _WORK_LETTER_TYPES:
         return 'work_letter'
     return 'unknown'
 
@@ -306,6 +310,85 @@ def _index(records: list[dict[str, Any]], as_of: str, sources: dict[str, Any],
             'invalid': dropped, 'date_range': [dates[0], dates[-1]] if dates else None}
 
 
+def _canonical(value: Any) -> bytes:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode()
+
+
+def _parse_page(source: str, ref: dict[str, Any], raw: bytes) -> tuple[int, tuple[dict[str, Any], ...]]:
+    key = (source, ref['sha256'])
+    cached = _PAGE_CACHE.get(key)
+    if cached is not None:
+        return cached
+    if source == 'sse':
+        payload = _jsonp(raw)
+        rows = payload['pageHelp']['data']
+    else:
+        payload = _json(raw)
+        rows = payload[0]['data']
+    if not isinstance(rows, list) or len(rows) != ref.get('count'):
+        raise ValueError('监管列表分页条数与记录不一致')
+    normalized: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        record = _normalize(source, row, ref['sha256'])
+        if record is not None:
+            normalized.append(record)
+    result = (len(rows), tuple(normalized))
+    if len(_PAGE_CACHE) >= _PAGE_CACHE_LIMIT:
+        _PAGE_CACHE.pop(next(iter(_PAGE_CACHE)))
+    _PAGE_CACHE[key] = result
+    return result
+
+
+def _read_pages(root: Path, manifest: dict[str, Any]) -> tuple[list[dict[str, Any]],
+                                                              dict[str, dict[str, int]]]:
+    records: list[dict[str, Any]] = []
+    stats: dict[str, dict[str, int]] = {}
+    for key, source in manifest['sources'].items():
+        raw_received = 0
+        parsed = 0
+        for ref in source['pages']:
+            _, raw = _reference(root, ref, need_size=True)
+            raw_count, rows = _parse_page(key, ref, raw)
+            if raw_count != ref.get('count'):
+                raise ValueError('监管列表分页条数与记录不一致')
+            raw_received += raw_count
+            parsed += len(rows)
+            records.extend(rows)
+        dropped = raw_received - parsed
+        if (source.get('raw_received') != raw_received or source.get('parsed') != parsed
+                or source.get('dropped') != dropped):
+            raise ValueError('监管列表来源统计与原文不一致')
+        stats[key] = {'raw_received': raw_received, 'parsed': parsed, 'dropped': dropped}
+    return records, stats
+
+
+def _build_index(manifest: dict[str, Any], records: list[dict[str, Any]],
+                 stats: dict[str, dict[str, int]]) -> dict[str, Any]:
+    dropped = sum(value['dropped'] for value in stats.values())
+    return _index(records, manifest['as_of'], manifest['sources'], dropped)
+
+
+def _snapshot(state_dir: Path) -> tuple[dict[str, Any], dict[str, Any], dict[str, dict[str, int]]]:
+    """从原文重建索引并与保存索引逐条比较；失败即不可用。"""
+    data = _validate_manifest(state_dir)
+    records, stats = _read_pages(data['root'], data['manifest'])
+    rebuilt = _build_index(data['manifest'], records, stats)
+    if _canonical(rebuilt) != _canonical(data['index']):
+        raise ValueError('监管列表索引与原文重建结果不一致')
+    manifest = data['manifest']
+    if (manifest.get('records') != rebuilt['records'] or manifest.get('unmatched') != rebuilt['unmatched']
+            or manifest.get('invalid') != rebuilt['invalid']):
+        raise ValueError('监管列表条数与原文重建结果不一致')
+    if _bytes(data['manifest_path']) != data['raw_manifest']:
+        raise ValueError('监管列表读取期间变化')
+    _, raw_index = _reference(data['root'], data['index_ref'], need_size=True)
+    if raw_index != data['raw_index']:
+        raise ValueError('监管列表索引在读取期间变化')
+    return data, rebuilt, stats
+
+
 def collect_exchange_governance(state_dir: Path, *,
                                 fetch: Callable[[str, dict[str, str], str], tuple[int, bytes]] = _fetch,
                                 sleep: Callable[[float], Any] = time.sleep) -> dict[str, Any]:
@@ -385,7 +468,8 @@ def _validate_manifest(state_dir: Path) -> dict[str, Any]:
     index = _json(raw_index)
     if index.get('version') != VERSION or index.get('as_of') != manifest['as_of']:
         raise ValueError('监管列表索引无效')
-    if index.get('records') != manifest.get('records') or index.get('invalid') != manifest.get('invalid'):
+    if (index.get('records') != manifest.get('records') or index.get('invalid') != manifest.get('invalid')
+            or index.get('unmatched') != manifest.get('unmatched')):
         raise ValueError('监管列表条数不一致')
     symbols = index.get('symbols')
     if not isinstance(symbols, dict):
@@ -401,10 +485,74 @@ def _validate_manifest(state_dir: Path) -> dict[str, Any]:
                 or source.get('params') != expected_params or not isinstance(source.get('pages'), list)
                 or not source['pages']):
             raise ValueError('监管列表来源描述无效')
+    if index.get('sources') != sources:
+        raise ValueError('监管列表来源元数据与索引不一致')
     return {'root': root, 'manifest_path': manifest_path, 'raw_manifest': raw_manifest,
-            'manifest': manifest, 'index': index, 'index_ref': index_ref,
+            'raw_index': raw_index, 'manifest': manifest, 'index': index, 'index_ref': index_ref,
             'manifest_sha256': hashlib.sha256(raw_manifest).hexdigest(),
             'index_sha256': index_ref['sha256']}
+
+
+def rebuild_exchange_governance_index(state_dir: Path, *, _allow_locked: bool = False) -> dict[str, Any]:
+    """从保存的原始分页重建派生索引；保留真实抓取与快照日期。"""
+    root = _root(state_dir)
+    lock_path = root / '.collect.lock'
+    try:
+        if _allow_locked:
+            return _rebuild_locked(state_dir)
+        with FileLock(str(lock_path), timeout=3):
+            return _rebuild_locked(state_dir)
+    except (Timeout, OSError):
+        return {'status': 'failed', 'reason': '监管列表重建锁不可用'}
+
+
+def _rebuild_locked(state_dir: Path) -> dict[str, Any]:
+    root = _root(state_dir)
+    manifest_path = _path(root, 'manifest.json')
+    raw_manifest = _bytes(manifest_path)
+    manifest = _json(raw_manifest)
+    version = manifest.get('version')
+    if version == VERSION:
+        verified = verify_exchange_governance(state_dir, _allow_locked=True)
+        return {**verified, 'status': 'current' if verified['status'] == 'current' else 'failed',
+                'reason': None if verified['status'] == 'current' else '现有索引未通过复核'}
+    try:
+        if version not in LEGACY_VERSIONS or manifest.get('status') != 'complete':
+            raise ValueError('监管列表版本或状态不能重建')
+        captured = datetime.fromisoformat(manifest['fetched_at'])
+        snapshot_day = date.fromisoformat(manifest['as_of'])
+        if (captured.utcoffset() is None or captured > datetime.now(UTC)
+                or captured.astimezone(_BJ).date() != snapshot_day):
+            raise ValueError('监管列表时间无效')
+        records, stats = _read_pages(root, manifest)
+        index = _build_index(manifest, records, stats)
+        raw_index = _canonical(index)
+        index_ref = _page_ref(root, 'index.json', raw_index)
+        new_manifest = {**manifest, 'version': VERSION, 'index': index_ref,
+                        'records': index['records'], 'unmatched': index['unmatched'],
+                        'invalid': index['invalid'], 'rebuilt_at': datetime.now(_BJ).isoformat(),
+                        'rebuilt_from_version': version}
+        _atomic(manifest_path, json.dumps(new_manifest, ensure_ascii=False, sort_keys=True).encode())
+        verified = verify_exchange_governance(state_dir, _allow_locked=True)
+        if verified['status'] != 'current':
+            raise ValueError('重建后的监管列表未通过复核')
+        return {'status': 'rebuilt', 'as_of': manifest['as_of'], 'fetched_at': manifest['fetched_at'],
+                'rebuilt_at': new_manifest['rebuilt_at'], 'from_version': version,
+                'records': index['records'], 'unmatched': index['unmatched'], 'invalid': index['invalid']}
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError, json.JSONDecodeError) as exc:
+        logger.warning('监管列表重建失败: %s', exc)
+        return {'status': 'failed', 'reason': str(exc)}
+
+
+def governance_snapshot_identity(state_dir: Path) -> dict[str, Any] | None:
+    """轻量读取当前登记身份，用于同一详情请求内的快照一致性复核。"""
+    try:
+        data = _validate_manifest(state_dir)
+        return {'manifest_sha256': data['manifest_sha256'], 'index_sha256': data['index_sha256'],
+                'as_of': data['manifest']['as_of'], 'fetched_at': data['manifest']['fetched_at']}
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError, json.JSONDecodeError) as exc:
+        logger.debug('监管列表身份不可用: %s', exc)
+        return None
 
 
 def verify_exchange_governance(state_dir: Path, *, _allow_locked: bool = False) -> dict[str, Any]:
@@ -422,40 +570,12 @@ def verify_exchange_governance(state_dir: Path, *, _allow_locked: bool = False) 
 
 def _verify_locked(state_dir: Path) -> dict[str, Any]:
     try:
-        data = _validate_manifest(state_dir)
-        root, manifest, index = data['root'], data['manifest'], data['index']
-        records = 0
-        for key, source in manifest['sources'].items():
-            parsed = 0
-            raw_received = 0
-            for ref in source['pages']:
-                _, raw = _reference(root, ref, need_size=True)
-                if key == 'sse':
-                    payload = _jsonp(raw)
-                    rows = payload['pageHelp']['data']
-                else:
-                    payload = _json(raw)
-                    rows = payload[0]['data']
-                if not isinstance(rows, list) or len(rows) != ref.get('count'):
-                    raise ValueError('监管列表分页条数与记录不一致')
-                raw_received += len(rows)
-                for row in rows:
-                    if not isinstance(row, dict):
-                        continue
-                    record = _normalize(key, row, ref['sha256'])
-                    if record is not None:
-                        parsed += 1
-                        if record['code'] is not None:
-                            records += 1
-            if source.get('raw_received') != raw_received or source.get('parsed') != parsed:
-                raise ValueError('监管列表来源统计不一致')
-        if records != index['records']:
-            raise ValueError('监管列表索引条数与原文不一致')
-        if any(_bytes(path) != raw for path, raw in [(data['manifest_path'], data['raw_manifest'])]):
-            raise ValueError('监管列表读取期间变化')
+        data, index, _stats = _snapshot(state_dir)
+        manifest = data['manifest']
         return {'status': 'current', 'as_of': manifest['as_of'], 'records': index['records'],
                 'unmatched': index['unmatched'], 'invalid': index['invalid'],
                 'sources': {key: value['received'] for key, value in manifest['sources'].items()},
+                'verified_pages': sum(len(value['pages']) for value in manifest['sources'].values()),
                 'manifest_sha256': data['manifest_sha256']}
     except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError, json.JSONDecodeError) as exc:
         logger.debug('监管列表不可用: %s', exc)
@@ -481,23 +601,16 @@ def load_exchange_governance_source(state_dir: Path, symbol: str, as_of: date) -
 
 def _load_locked(state_dir: Path, symbol: str, as_of: date, out: dict[str, Any]) -> dict[str, Any]:
     try:
-        data = _validate_manifest(state_dir)
-        manifest, index = data['manifest'], data['index']
+        data, index, _stats = _snapshot(state_dir)
+        manifest = data['manifest']
         snapshot_day = date.fromisoformat(manifest['as_of'])
         if snapshot_day > as_of:
             raise ValueError('监管列表晚于研究截点')
         rows = index['symbols'].get(symbol, [])
         if not isinstance(rows, list):
             raise TypeError('监管列表公司记录无效')
-        page_refs = {ref['sha256']: ref for source in manifest['sources'].values()
-                     for ref in source['pages']}
-        for digest in {row.get('page_sha256') for row in rows}:
-            ref = page_refs.get(digest)
-            if ref is None:
-                raise ValueError('监管列表命中缺少原文分页')
-            _reference(data['root'], ref, need_size=True)
-        if _bytes(data['manifest_path']) != data['raw_manifest']:
-            raise ValueError('监管列表读取期间变化')
+        if any(row.get('code') != symbol for row in rows):
+            raise ValueError('监管列表命中与查询公司不一致')
         out.update(status='current' if snapshot_day == as_of else 'historical',
                    observation='observed' if rows else 'not_observed',
                    records=[{key: row.get(key) for key in ('source', 'document_id', 'listed_on', 'measure_type',

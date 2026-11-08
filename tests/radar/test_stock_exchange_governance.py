@@ -28,11 +28,11 @@ def sample():
     sse = [{'stockcode': '600000', 'docId': '1_28_10010', 'docTitle': '关于A公司的监管工作函',
             'createTime': '2026-11-02 19:07:19', 'extWTFL': '监管工作函', 'extTeacher': '上市公司',
             'docURL': 'www.sse.com.cn/disclosure/a.doc'},
-           {'stockcode': '600001', 'docId': '2_28_10010', 'docTitle': '关于B公司的监管警示',
-            'createTime': '2026-10-30 21:15:08', 'extWTFL': '监管警示', 'extTeacher': '上市公司,董秘',
+           {'stockcode': '600001', 'docId': '2_28_10010', 'docTitle': '关于对B公司予以监管关注的决定',
+            'createTime': '2026-10-30 21:15:08', 'extWTFL': '监管关注', 'extTeacher': '上市公司,董秘',
             'docURL': 'www.sse.com.cn/disclosure/b.doc'}]
     measure = [{'gkxx_gsdm': '000001', 'gkxx_gsjc': '平安银行', 'gkxx_gdrq': '2026-11-06',
-                'gkxx_jgcs': '监管函', 'gkxx_sjdx': '上市公司<br/>董监高',
+                'gkxx_jgcs': '监管工作函', 'gkxx_sjdx': '上市公司<br/>董监高',
                 'hjnr': "<a href='javascript:void(0)' encode-open='/UpFiles/a.pdf'>详细</a>"}]
     discipline = [{'xx_gsdm': '000002', 'jc_gsjc': '万科A', 'xx_fwrq': '2026-11-06',
                    'xx_cflb': '通报批评', 'xx_bt': '纪律处分决定', 'ck': "<a encode-open='/UpFiles/b.pdf'>查看</a>"}]
@@ -57,6 +57,30 @@ def fake_fetch(sse_rows, measure_rows, discipline_rows, calls=None, sse_pages=No
             return 200, szse_page(measure_rows, total=len(measure_rows), pages=1)
         return 200, szse_page(discipline_rows, total=len(discipline_rows), pages=1)
     return fetch
+
+
+def save_index(root, index):
+    raw = json.dumps(index, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode()
+    (root / 'index.json').write_bytes(raw)
+    manifest = json.loads((root / 'manifest.json').read_bytes())
+    manifest['index'] = {'path': 'index.json', 'bytes': len(raw), 'sha256': hashlib.sha256(raw).hexdigest()}
+    manifest['records'] = index['records']
+    manifest['unmatched'] = index['unmatched']
+    manifest['invalid'] = index['invalid']
+    (root / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, sort_keys=True), encoding='utf-8')
+
+
+def legacy_snapshot(root):
+    index = json.loads((root / 'index.json').read_bytes())
+    index['version'] = 'exchange-governance-v1'
+    for rows in index['symbols'].values():
+        for row in rows:
+            if row.get('measure_type') == '监管关注':
+                row['measure_category'] = 'work_letter'
+    save_index(root, index)
+    manifest = json.loads((root / 'manifest.json').read_bytes())
+    manifest['version'] = 'exchange-governance-v1'
+    (root / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, sort_keys=True), encoding='utf-8')
 
 
 def test_collect_and_load_clues(tmp_path):
@@ -292,7 +316,7 @@ def test_verify_rejects_page_tamper(tmp_path):
     assert verify_exchange_governance(tmp_path)['status'] == 'unavailable'
 
 
-def test_load_rejects_referenced_page_tamper(tmp_path):
+def test_load_rejects_any_tampered_page(tmp_path):
     from radar.stocks.exchange_governance import (
         collect_exchange_governance,
         load_exchange_governance_source,
@@ -302,7 +326,127 @@ def test_load_rejects_referenced_page_tamper(tmp_path):
     root = tmp_path / 'stock-exchange-governance'
     (root / 'sse-001.json').write_bytes(b'{}')
     assert load_exchange_governance_source(tmp_path, '600000', today())['status'] == 'unavailable'
-    assert load_exchange_governance_source(tmp_path, '000001', today())['status'] == 'current'
+    assert load_exchange_governance_source(tmp_path, '000001', today())['status'] == 'unavailable'
+
+
+def test_missing_page_cannot_return_not_observed(tmp_path):
+    from radar.stocks.exchange_governance import (
+        collect_exchange_governance,
+        load_exchange_governance_source,
+    )
+
+    collect_exchange_governance(tmp_path, fetch=fake_fetch(*sample()), sleep=lambda _: None)
+    (tmp_path / 'stock-exchange-governance' / 'sse-001.json').unlink()
+    result = load_exchange_governance_source(tmp_path, '000001', today())
+    assert result['status'] == 'unavailable' and result['observation'] == 'unknown'
+
+
+def test_index_wrongly_bound_to_company_is_rejected(tmp_path):
+    from radar.stocks.exchange_governance import (
+        collect_exchange_governance,
+        load_exchange_governance_source,
+        verify_exchange_governance,
+    )
+
+    collect_exchange_governance(tmp_path, fetch=fake_fetch(*sample()), sleep=lambda _: None)
+    root = tmp_path / 'stock-exchange-governance'
+    index = json.loads((root / 'index.json').read_bytes())
+    index['symbols'].setdefault('000001', []).append(index['symbols']['600000'].pop())
+    save_index(root, index)
+    assert verify_exchange_governance(tmp_path)['status'] == 'unavailable'
+    assert load_exchange_governance_source(tmp_path, '000001', today())['status'] == 'unavailable'
+
+
+@pytest.mark.parametrize('change', ['content', 'delete'])
+def test_index_content_or_record_change_is_rejected(tmp_path, change):
+    from radar.stocks.exchange_governance import (
+        collect_exchange_governance,
+        verify_exchange_governance,
+    )
+
+    collect_exchange_governance(tmp_path, fetch=fake_fetch(*sample()), sleep=lambda _: None)
+    root = tmp_path / 'stock-exchange-governance'
+    index = json.loads((root / 'index.json').read_bytes())
+    if change == 'content':
+        index['symbols']['600000'][0]['title'] = '篡改后的标题'
+    else:
+        index['symbols']['600000'].pop()
+        index['records'] -= 1
+    save_index(root, index)
+    assert verify_exchange_governance(tmp_path)['status'] == 'unavailable'
+
+
+def test_category_mapping_is_explicit_and_unknown_preserved(tmp_path):
+    from radar.stocks.exchange_governance import (
+        collect_exchange_governance,
+        load_exchange_governance_source,
+    )
+
+    sse, measure, discipline = sample()
+    sse = [*sse,
+           {'stockcode': '600003', 'docId': '3_28_10010', 'docTitle': '关于C公司的监管函',
+            'createTime': '2026-11-02 19:07:19', 'extWTFL': '监管函', 'extTeacher': '上市公司'},
+           {'stockcode': '600004', 'docId': '4_28_10010', 'docTitle': '关于D公司的书面警示',
+            'createTime': '2026-11-02 19:07:19', 'extWTFL': '书面警示', 'extTeacher': '上市公司'}]
+    collect_exchange_governance(tmp_path, fetch=fake_fetch(sse, measure, discipline), sleep=lambda _: None)
+    day = today()
+    assert load_exchange_governance_source(tmp_path, '600000', day)['records'][0]['measure_category'] == 'work_letter'
+    assert load_exchange_governance_source(tmp_path, '600001', day)['records'][0]['measure_category'] == 'regulatory_measure'
+    assert load_exchange_governance_source(tmp_path, '600003', day)['records'][0]['measure_category'] == 'unknown'
+    assert load_exchange_governance_source(tmp_path, '600004', day)['records'][0]['measure_category'] == 'regulatory_measure'
+
+
+def test_legacy_snapshot_rebuild_preserves_capture_time_and_fixes_category(tmp_path):
+    from radar.stocks.exchange_governance import (
+        VERSION,
+        collect_exchange_governance,
+        load_exchange_governance_source,
+        rebuild_exchange_governance_index,
+        verify_exchange_governance,
+    )
+
+    collect_exchange_governance(tmp_path, fetch=fake_fetch(*sample()), sleep=lambda _: None)
+    root = tmp_path / 'stock-exchange-governance'
+    fetched_at = json.loads((root / 'manifest.json').read_bytes())['fetched_at']
+    legacy_snapshot(root)
+    assert load_exchange_governance_source(tmp_path, '600001', today())['status'] == 'unavailable'
+    result = rebuild_exchange_governance_index(tmp_path)
+    assert result['status'] == 'rebuilt' and result['from_version'] == 'exchange-governance-v1'
+    manifest = json.loads((root / 'manifest.json').read_bytes())
+    assert manifest['version'] == VERSION and manifest['fetched_at'] == fetched_at
+    assert manifest['as_of'] == result['as_of']
+    assert verify_exchange_governance(tmp_path)['status'] == 'current'
+    clue = load_exchange_governance_source(tmp_path, '600001', today())
+    assert clue['records'][0]['measure_category'] == 'regulatory_measure'
+    assert clue['fetched_at'] == fetched_at
+
+
+def test_legacy_rebuild_failure_keeps_snapshot_unavailable(tmp_path):
+    from radar.stocks.exchange_governance import (
+        collect_exchange_governance,
+        load_exchange_governance_source,
+        rebuild_exchange_governance_index,
+    )
+
+    collect_exchange_governance(tmp_path, fetch=fake_fetch(*sample()), sleep=lambda _: None)
+    root = tmp_path / 'stock-exchange-governance'
+    legacy_snapshot(root)
+    (root / 'sse-001.json').unlink()
+    assert rebuild_exchange_governance_index(tmp_path)['status'] == 'failed'
+    assert load_exchange_governance_source(tmp_path, '600001', today())['status'] == 'unavailable'
+
+
+def test_snapshot_identity_is_light_and_hash_bound(tmp_path):
+    from radar.stocks.exchange_governance import (
+        collect_exchange_governance,
+        governance_snapshot_identity,
+    )
+
+    collect_exchange_governance(tmp_path, fetch=fake_fetch(*sample()), sleep=lambda _: None)
+    identity = governance_snapshot_identity(tmp_path)
+    assert identity is not None and len(identity['manifest_sha256']) == 64
+    (tmp_path / 'stock-exchange-governance' / 'index.json').write_bytes(b'{}')
+    assert governance_snapshot_identity(tmp_path) is None
 
 
 def test_command_uses_explicit_state(tmp_path, monkeypatch):
@@ -332,3 +476,20 @@ def test_page_files_and_manifest_are_hash_bound(tmp_path):
     for source in manifest['sources'].values():
         for page in source['pages']:
             assert hashlib.sha256((root / page['path']).read_bytes()).hexdigest() == page['sha256']
+
+
+def test_rebuild_command_uses_explicit_state(tmp_path, monkeypatch):
+    from click.testing import CliRunner
+
+    import stock_robot.stock_governance as module
+
+    called = {}
+
+    def fake(state_dir):
+        called['state'] = state_dir
+        return {'status': 'rebuilt', 'from_version': 'exchange-governance-v1'}
+
+    monkeypatch.setattr(module, 'rebuild_exchange_governance_index', fake)
+    result = CliRunner().invoke(module.exchange_governance_rebuild, ['--state-dir', str(tmp_path)])
+    assert result.exit_code == 0 and called['state'] == tmp_path
+    assert '未抓取新数据' in result.output

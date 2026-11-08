@@ -23,6 +23,24 @@ DAY = date(2026, 10, 18)
 SYMBOL = '600900'
 
 
+def test_status_columns_keep_profit_and_cash_separate():
+    from radar.stocks.financial_source import financial_status_columns
+
+    failed_profit = financial_status_columns({
+        'financial_numeric_status': 'failed',
+        'cash_flow_reference': {'ratio': '1.20', 'reference_condition_status': 'passed'},
+    })
+    assert failed_profit == {'financial_numeric': 'failed', 'cash_ratio': '1.20',
+                             'cash_ratio_status': 'passed'}
+    pending_profit = financial_status_columns({
+        'financial_numeric_status': 'pending_verification',
+        'cash_flow_reference': {'ratio': None, 'reference_condition_status': 'pending_verification'},
+    })
+    assert pending_profit['financial_numeric'] == 'pending_verification'
+    assert pending_profit['cash_ratio_status'] == 'pending_verification'
+    assert financial_status_columns(None)['financial_numeric'] == ''
+
+
 def environment(tmp_path):
     clock = [datetime(2026, 10, 20, 8, tzinfo=UTC)]
     research = StockResearchStore(tmp_path/'radar.db', clock=lambda: clock[0])
