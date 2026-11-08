@@ -449,8 +449,7 @@ def test_snapshot_identity_is_light_and_hash_bound(tmp_path):
     assert governance_snapshot_identity(tmp_path) is None
 
 
-@pytest.mark.parametrize('mode', ['page_count', 'declared_total', 'received'])
-def test_omitted_page_or_inconsistent_source_metadata_rejected(tmp_path, mode):
+def test_omitted_page_with_synchronized_registration_rejected(tmp_path):
     from radar.stocks.exchange_governance import (
         collect_exchange_governance,
         load_exchange_governance_source,
@@ -465,22 +464,40 @@ def test_omitted_page_or_inconsistent_source_metadata_rejected(tmp_path, mode):
     manifest = json.loads((root / 'manifest.json').read_bytes())
     source = manifest['sources']['sse']
     source['pages'] = source['pages'][:1]
+    source['page_count'] = 1
+    source['declared_total'] = 1
     source['raw_received'] = 1
     source['parsed'] = 1
     source['received'] = 1
-    if mode == 'declared_total':
-        source['page_count'] = 1
-    elif mode == 'received':
-        source['page_count'] = 1
-        source['declared_total'] = 1
-        source['received'] = 2
     (root / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, sort_keys=True), encoding='utf-8')
     index = json.loads((root / 'index.json').read_bytes())
     index['symbols'].pop('600001', None)
     index['records'] -= 1
     save_index(root, index)
+    # 登记、索引均已同步为 1 页/3 条，但原文第 1 页仍声明 2 页/2 条。
     assert verify_exchange_governance(tmp_path)['status'] == 'unavailable'
     assert load_exchange_governance_source(tmp_path, '600001', today())['status'] == 'unavailable'
+
+
+def test_raw_page_number_must_match_registration(tmp_path):
+    from radar.stocks.exchange_governance import (
+        collect_exchange_governance,
+        verify_exchange_governance,
+    )
+
+    sse, measure, discipline = sample()
+    collect_exchange_governance(
+        tmp_path, fetch=fake_fetch(sse, measure, discipline, sse_pages={1: [sse[0]], 2: [sse[1]]}),
+        sleep=lambda _: None)
+    root = tmp_path / 'stock-exchange-governance'
+    raw = sse_page([sse[1]], total=2, pages=2, page=1)
+    (root / 'sse-002.json').write_bytes(raw)
+    manifest = json.loads((root / 'manifest.json').read_bytes())
+    ref = manifest['sources']['sse']['pages'][1]
+    ref['sha256'] = hashlib.sha256(raw).hexdigest()
+    ref['bytes'] = len(raw)
+    (root / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, sort_keys=True), encoding='utf-8')
+    assert verify_exchange_governance(tmp_path)['status'] == 'unavailable'
 
 
 def test_command_uses_explicit_state(tmp_path, monkeypatch):

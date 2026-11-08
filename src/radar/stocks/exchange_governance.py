@@ -49,7 +49,7 @@ _SZSE_CODE = re.compile(r'(?:000|001|002|003|30[012])[0-9]{3}')
 _DISCIPLINE_TYPES = {'通报批评', '公开谴责', '公开认定'}
 _MEASURE_TYPES = {'监管关注', '书面警示', '监管警示', '约见谈话', '要求全体董事限期参加培训'}
 _WORK_LETTER_TYPES = {'监管工作函'}
-_PAGE_CACHE: dict[tuple[str, str], tuple[int, tuple[dict[str, Any], ...]]] = {}
+_PAGE_CACHE: dict[tuple[str, str], tuple[int, int, int, int, tuple[dict[str, Any], ...]]] = {}
 _PAGE_CACHE_LIMIT = 320
 
 
@@ -217,8 +217,9 @@ def _collect_sse(root: Path, fetch: Callable[[str, dict[str, str], str], tuple[i
         data = help_.get('data')
         total, declared_pages = help_.get('total'), help_.get('pageCount')
         if (type(total) is not int or not 0 < total <= 20000 or type(declared_pages) is not int
-                or not 1 <= declared_pages <= 1000 or not isinstance(data, list)):
-            raise ValueError('上交所监管列表总数或分页无效')
+                or not 1 <= declared_pages <= 1000 or not isinstance(data, list)
+                or help_.get('pageNo') != page):
+            raise ValueError('上交所监管列表总数、页数或页码无效')
         if expected is None:
             expected = (total, declared_pages)
         elif expected != (total, declared_pages):
@@ -261,9 +262,11 @@ def _collect_szse(root: Path, key: str, spec: dict[str, str],
         metadata, data = payload[0].get('metadata'), payload[0].get('data')
         total = metadata.get('recordcount') if isinstance(metadata, dict) else None
         declared_pages = metadata.get('pagecount') if isinstance(metadata, dict) else None
+        page_no = metadata.get('pageno') if isinstance(metadata, dict) else None
         if (type(total) is not int or not 0 < total <= 20000 or type(declared_pages) is not int
-                or not 1 <= declared_pages <= 1000 or not isinstance(data, list)):
-            raise ValueError(f'{spec["label"]}总数或分页无效')
+                or not 1 <= declared_pages <= 1000 or not isinstance(data, list)
+                or page_no != page):
+            raise ValueError(f'{spec["label"]}总数、页数或页码无效')
         if expected is None:
             expected = (total, declared_pages)
         elif expected != (total, declared_pages):
@@ -314,17 +317,33 @@ def _canonical(value: Any) -> bytes:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode()
 
 
-def _parse_page(source: str, ref: dict[str, Any], raw: bytes) -> tuple[int, tuple[dict[str, Any], ...]]:
+def _parse_page(source: str, ref: dict[str, Any], raw: bytes) -> tuple[int, int, int, int,
+                                                                     tuple[dict[str, Any], ...]]:
     key = (source, ref['sha256'])
     cached = _PAGE_CACHE.get(key)
     if cached is not None:
         return cached
     if source == 'sse':
         payload = _jsonp(raw)
-        rows = payload['pageHelp']['data']
+        help_ = payload.get('pageHelp')
+        if not isinstance(help_, dict):
+            raise TypeError('上交所监管列表分页结构无效')
+        rows = help_.get('data')
+        declared_total, declared_pages, page_no = help_.get('total'), help_.get('pageCount'), help_.get('pageNo')
     else:
         payload = _json(raw)
-        rows = payload[0]['data']
+        if not isinstance(payload, list) or len(payload) != 1 or not isinstance(payload[0], dict):
+            raise ValueError('深交所监管列表结构无效')
+        metadata = payload[0].get('metadata')
+        rows = payload[0].get('data')
+        if not isinstance(metadata, dict):
+            raise TypeError('深交所监管列表分页结构无效')
+        declared_total, declared_pages = metadata.get('recordcount'), metadata.get('pagecount')
+        page_no = metadata.get('pageno')
+    if (type(declared_total) is not int or not 0 < declared_total <= 20000
+            or type(declared_pages) is not int or not 1 <= declared_pages <= 1000
+            or type(page_no) is not int or not 1 <= page_no <= declared_pages):
+        raise ValueError('监管列表原文声明总数、总页数或页码无效')
     if not isinstance(rows, list) or len(rows) != ref.get('count'):
         raise ValueError('监管列表分页条数与记录不一致')
     normalized: list[dict[str, Any]] = []
@@ -334,7 +353,7 @@ def _parse_page(source: str, ref: dict[str, Any], raw: bytes) -> tuple[int, tupl
         record = _normalize(source, row, ref['sha256'])
         if record is not None:
             normalized.append(record)
-    result = (len(rows), tuple(normalized))
+    result = (declared_total, declared_pages, page_no, len(rows), tuple(normalized))
     if len(_PAGE_CACHE) >= _PAGE_CACHE_LIMIT:
         _PAGE_CACHE.pop(next(iter(_PAGE_CACHE)))
     _PAGE_CACHE[key] = result
@@ -351,17 +370,40 @@ def _read_pages(root: Path, manifest: dict[str, Any]) -> tuple[list[dict[str, An
             raise ValueError('监管列表登记页数与声明总页数不一致')
         raw_received = 0
         parsed = 0
+        declared_total = None
+        declared_pages = None
+        seen_pages: set[int] = set()
         for ref in source['pages']:
+            registered_page = ref.get('page')
+            if type(registered_page) is not int or registered_page < 1:
+                raise ValueError('监管列表登记页码无效')
             _, raw = _reference(root, ref, need_size=True)
-            raw_count, rows = _parse_page(key, ref, raw)
+            total, pages, page_no, raw_count, rows = _parse_page(key, ref, raw)
+            if declared_total is None:
+                declared_total, declared_pages = total, pages
+            elif (total, pages) != (declared_total, declared_pages):
+                raise ValueError('监管列表原文声明的总数或总页数前后不一致')
+            if page_no != registered_page:
+                raise ValueError('监管列表原文页码与登记页码不一致')
+            if page_no in seen_pages:
+                raise ValueError('监管列表原文页码重复')
+            seen_pages.add(page_no)
             if raw_count != ref.get('count'):
                 raise ValueError('监管列表分页条数与记录不一致')
             raw_received += raw_count
             parsed += len(rows)
             records.extend(rows)
+        if declared_total is None or declared_pages is None:
+            raise ValueError('监管列表缺少原文声明')
+        if seen_pages != set(range(1, declared_pages + 1)):
+            raise ValueError('监管列表原文页码不连续')
+        if len(source['pages']) != declared_pages:
+            raise ValueError('监管列表登记页数与原文声明总页数不一致')
+        if source.get('declared_total') != declared_total or source.get('page_count') != declared_pages:
+            raise ValueError('监管列表登记总数或页数与原文声明不一致')
         dropped = raw_received - parsed
-        if raw_received != source.get('declared_total'):
-            raise ValueError('监管列表实际条数与声明总数不一致')
+        if raw_received != declared_total:
+            raise ValueError('监管列表实际条数与原文声明总条数不一致')
         if (source.get('raw_received') != raw_received or source.get('parsed') != parsed
                 or source.get('dropped') != dropped or source.get('received') != parsed):
             raise ValueError('监管列表来源统计与原文不一致')
