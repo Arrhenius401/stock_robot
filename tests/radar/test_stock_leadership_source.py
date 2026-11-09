@@ -190,3 +190,53 @@ def test_leadership_merge_pass_and_pending():
     assert passed['checks'][0]['outcome'] == 'passed'
     pending = merge_leadership(common, {'status': 'current', 'symbol': '000333', 'as_of': DAY.isoformat(), 'claims': []}, DAY)
     assert pending['checks'][0]['outcome'] == 'pending_verification'
+
+
+def write_scale(tmp_path, count=6):
+    from radar.stocks.industry_scale import build_industry_scale, save_industry_scale
+
+    rows = [{'symbol': f'60000{index}', 'industry': '半导体', 'market_cap_yuan': str((count - index + 1) * 100),
+             'market_cap_date': '2026-11-06', 'market_value_manifest_sha256': 'd' * 64}
+            for index in range(1, count + 1)]
+    source = {'universe': 'candidate_pool_626', 'scope_sha256': 'a' * 64,
+              'industry_mapping_sha256': 'b' * 64, 'market_value_manifests_sha256': 'c' * 64}
+    value = build_industry_scale(rows, as_of=DAY, source=source)
+    save_industry_scale(tmp_path / 'stock-leadership' / 'scale.json', value)
+    return value
+
+
+def test_scale_top_three_passes_without_explicit_claim(tmp_path):
+    write_scale(tmp_path)
+    source = load_leadership_source(tmp_path, '600001', DAY)
+    assert source['status'] == 'current' and source['claims'] == []
+    assert source['scale']['rank'] == 1 and source['scale']['peer_count'] == 6
+    from radar.stocks.formal_rules import merge_leadership
+
+    common = {'symbol': '600001', 'checks': [{'code': 'leadership', 'outcome': 'pending_verification', 'evidence_ids': []}]}
+    assert merge_leadership(common, source, DAY)['checks'][0]['outcome'] == 'passed'
+
+
+def test_scale_rank_four_or_peer_four_stays_pending(tmp_path):
+    from radar.stocks.formal_rules import merge_leadership
+
+    write_scale(tmp_path)
+    source = load_leadership_source(tmp_path, '600004', DAY)
+    assert source['scale']['rank'] == 4
+    common = {'symbol': '600004', 'checks': [{'code': 'leadership', 'outcome': 'pending_verification', 'evidence_ids': []}]}
+    assert merge_leadership(common, source, DAY)['checks'][0]['outcome'] == 'pending_verification'
+
+    write_scale(tmp_path, count=4)
+    source = load_leadership_source(tmp_path, '600001', DAY)
+    assert source['scale']['peer_count'] == 4
+    assert merge_leadership(common, source, DAY)['checks'][0]['outcome'] == 'pending_verification'
+
+
+def test_invalid_scale_does_not_block_explicit_claim(tmp_path):
+    write(tmp_path, claim())
+    (tmp_path / 'stock-leadership' / 'scale.json').write_text('{}', encoding='utf-8')
+    source = load_leadership_source(tmp_path, '000333', DAY)
+    assert source['status'] == 'current' and source['claims']
+    from radar.stocks.formal_rules import merge_leadership
+
+    common = {'symbol': '000333', 'checks': [{'code': 'leadership', 'outcome': 'pending_verification', 'evidence_ids': []}]}
+    assert merge_leadership(common, source, DAY)['checks'][0]['outcome'] == 'passed'

@@ -5,7 +5,9 @@ from copy import deepcopy
 from datetime import date
 from typing import Any
 
-FORMAL_RULE_VERSION = 'formal-2026-11-09-v4'
+from radar.stocks.industry_scale import scale_passes
+
+FORMAL_RULE_VERSION = 'formal-2026-11-09-v5'
 _ISSUER_TYPES = {'ordinary', 'bank', 'securities', 'insurance'}
 _GOVERNANCE_SERIOUS = ('财务造假', '虚假记载', '资金占用', '违规担保')
 
@@ -159,11 +161,21 @@ def merge_leadership(result: dict[str, Any], source: dict[str, Any], as_of: date
     merged = deepcopy(result)
     merged['leadership_source'] = deepcopy(source)
     claims = source.get('claims') if isinstance(source, dict) else None
-    if (isinstance(source, dict) and source.get('status') == 'current' and source.get('symbol') == merged.get('symbol')
-            and source.get('as_of') == as_of.isoformat() and isinstance(claims, list) and claims):
+    scale = source.get('scale') if isinstance(source, dict) else None
+    threshold = source.get('scale_threshold') if isinstance(source, dict) else None
+    min_peers = source.get('scale_min_peers') if isinstance(source, dict) else None
+    scale_ok = (isinstance(threshold, int) and isinstance(min_peers, int)
+                and scale_passes(scale, threshold, min_peers))
+    bound = (isinstance(source, dict) and source.get('status') == 'current'
+             and source.get('symbol') == merged.get('symbol') and source.get('as_of') == as_of.isoformat())
+    if bound and isinstance(claims, list) and claims:
         _merge_check(merged, 'leadership', 'passed', '第三方/协会份额或排名已与同一原文、报告期和公告主体绑定',
-                     {'claims': claims})
+                     {'claims': claims, 'scale': scale})
+    elif bound and scale_ok:
+        _merge_check(merged, 'leadership', 'passed',
+                     '候选池内申万二级当前总市值前3（同业≥5家），仅作规模地位',
+                     {'claims': claims or [], 'scale': scale, 'scale_threshold': threshold, 'scale_min_peers': min_peers})
     else:
-        _merge_check(merged, 'leadership', 'pending_verification', '缺少可追溯的第三方/协会份额或排名披露', {})
+        _merge_check(merged, 'leadership', 'pending_verification', '缺少可追溯的第三方/协会份额排名，且候选池内市值未进入前3或同业不足5家', {})
     _refresh(merged)
     return merged

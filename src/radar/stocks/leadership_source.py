@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
+from radar.stocks.industry_scale import load_industry_scale, scale_passes
+
 _REQUIRED = ('symbol', 'scope', 'metric', 'value', 'source_name', 'quote', 'report_date', 'source_url',
              'raw_file', 'raw_sha256', 'disclosed_on', 'announcement_title', 'announcement_url',
              'announcement_art_code', 'disclosure_file', 'disclosure_sha256',
@@ -289,9 +291,7 @@ def _valid_claim(state_dir: Path, claim: Any, symbol: str, cutoff: date) -> bool
     return _valid_disclosure(state_dir, claim, symbol)
 
 
-def load_leadership_source(state_dir: Path, symbol: str, as_of: date) -> dict[str, Any]:
-    out: dict[str, Any] = {'symbol': symbol, 'as_of': as_of.isoformat(), 'status': 'unavailable',
-                           'observation': 'unknown', 'claims': [], 'reason': '行业地位来源缺失'}
+def _load_claims(state_dir: Path, symbol: str, as_of: date) -> tuple[list[dict[str, Any]], str | None, str | None]:
     root = state_dir / 'stock-leadership'
     path = root / 'leadership.json'
     try:
@@ -302,9 +302,31 @@ def load_leadership_source(state_dir: Path, symbol: str, as_of: date) -> dict[st
         claims = payload['symbols'].get(symbol, [])
         if not isinstance(claims, list) or not all(_valid_claim(root.parent, item, symbol, as_of) for item in claims):
             raise ValueError('行业地位声明无效')
-        out.update(status='current', observation='observed' if claims else 'not_observed', claims=claims,
-                   file_sha256=hashlib.sha256(raw).hexdigest(),
-                   reason='声明、原文、报告期、排名、公告主体与披露日期已逐项绑定')
-    except (OSError, ValueError, TypeError, json.JSONDecodeError):
-        pass
+        return claims, hashlib.sha256(raw).hexdigest(), None
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        return [], None, f'行业地位声明缺失或无效：{type(exc).__name__}'
+
+
+def load_leadership_source(state_dir: Path, symbol: str, as_of: date) -> dict[str, Any]:
+    out: dict[str, Any] = {'symbol': symbol, 'as_of': as_of.isoformat(), 'status': 'unavailable',
+                           'observation': 'unknown', 'claims': [], 'scale': None, 'reason': '行业地位来源缺失'}
+    claims, claims_sha, claims_error = _load_claims(state_dir, symbol, as_of)
+    scale = load_industry_scale(state_dir, symbol, as_of)
+    scale_current = scale.get('status') == 'current'
+    if not claims and not scale_current:
+        out['reason'] = claims_error or str(scale.get('reason') or '行业地位来源缺失')
+        return out
+    scale_info = scale.get('scale') if scale_current else None
+    scale_ok = scale_current and scale_passes(scale_info, scale['threshold'], scale['min_peers'])
+    if claims:
+        reason = '声明、原文、报告期、排名、公告主体与披露日期已逐项绑定'
+    elif scale_ok:
+        reason = '候选池内申万二级当前总市值前3（同业≥5家），仅作规模地位'
+    else:
+        reason = '未观察到可追溯的第三方/协会份额排名，且候选池内市值未进入前3或同业不足5家'
+    out.update(status='current', claims=claims, scale=scale_info,
+               scale_threshold=scale.get('threshold'), scale_min_peers=scale.get('min_peers'),
+               scale_file_sha256=scale.get('file_sha256'), scale_source=scale.get('source'),
+               file_sha256=claims_sha, observation='observed' if claims or scale_ok else 'not_observed',
+               reason=reason)
     return out
