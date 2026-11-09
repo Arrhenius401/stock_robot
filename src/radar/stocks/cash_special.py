@@ -107,7 +107,9 @@ def cash_special_metrics(collection: Any, as_of: date, symbol: str | None = None
 
 def cash_special_verdict(source: dict[str, Any] | None, issuer: str | None, as_of: date,
                          symbol: str | None = None) -> dict[str, Any]:
-    """已确认口径：普通企业分红及利息优先；证券用流动性；银行/保险缺专用字段则待核验。"""
+    """已确认口径：普通企业分红及利息优先；证券用流动性；银行/保险/其他金融不适用普通现金专项。"""
+    if issuer in ('bank', 'insurance', 'other_financial'):
+        return {'outcome': 'not_applicable', 'reason': '银行/保险/其他金融不适用普通企业现金专项'}
     if (not isinstance(source, dict) or source.get('status') != 'current' or source.get('as_of') != as_of.isoformat()
             or source.get('evaluation_as_of') != as_of.isoformat()
             or (symbol is not None and source.get('symbol') != symbol)):
@@ -150,6 +152,4 @@ def cash_special_verdict(source: dict[str, Any] | None, issuer: str | None, as_o
         if risk < 100 or liquidity < 100:
             return {'outcome': 'failed', 'reason': '证券风险覆盖率或流动性覆盖率低于100%', 'values': metrics}
         return {'outcome': 'passed', 'reason': '证券风险覆盖率及流动性覆盖率≥100%', 'values': metrics}
-    if issuer in ('bank', 'insurance'):
-        return {'outcome': 'pending_verification', 'reason': '银行/保险缺少专用流动性和分配约束字段'}
     return {'outcome': 'pending_verification', 'reason': '发行人类型未核实，现金专项不能适用'}

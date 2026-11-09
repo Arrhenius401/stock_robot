@@ -7,7 +7,7 @@ from typing import Any
 
 from radar.stocks.industry_scale import scale_passes
 
-FORMAL_RULE_VERSION = 'formal-2026-11-09-v5'
+FORMAL_RULE_VERSION = 'formal-2026-11-09-v6'
 _ISSUER_TYPES = {'ordinary', 'bank', 'securities', 'insurance'}
 _GOVERNANCE_SERIOUS = ('财务造假', '虚假记载', '资金占用', '违规担保')
 
@@ -75,6 +75,9 @@ def merge_governance(result: dict[str, Any], source: dict[str, Any], as_of: date
         outcome = 'failed'
         reason = ('监管文书明确涉及财务造假、资金占用或违规担保，硬失败且不自动恢复'
                   if serious else '近三年公司对象纪律处分，硬失败')
+    elif grade in {'C', 'D'}:
+        outcome = 'failed'
+        reason = '交易所年度信息披露评价C/D，治理不通过'
     elif measures:
         outcome = 'pending_verification'
         reason = '近三年公司对象监管措施，需人工复核性质和整改状态'
@@ -83,7 +86,7 @@ def merge_governance(result: dict[str, Any], source: dict[str, Any], as_of: date
         reason = '交易所年度信息披露评价A/B，且监管列表未发现公司对象硬失败'
     else:
         outcome = 'pending_verification'
-        reason = '监管列表未命中或仅工作函/未知类型，且交易所评价C/D、未覆盖或未发布，不能证明治理合格'
+        reason = '监管列表未命中或仅工作函/未知类型，且交易所评价未覆盖或未发布，不能证明治理合格'
     _merge_check(merged, 'governance', outcome, reason,
                  {'records': len(records), 'discipline': discipline, 'measures': measures, 'serious': serious,
                   'as_of': source.get('as_of'), 'grade': grade, 'evaluation_status': evaluation.get('status')})
@@ -173,9 +176,10 @@ def merge_leadership(result: dict[str, Any], source: dict[str, Any], as_of: date
                      {'claims': claims, 'scale': scale})
     elif bound and scale_ok:
         _merge_check(merged, 'leadership', 'passed',
-                     '候选池内申万二级当前总市值前3（同业≥5家），仅作规模地位',
+                     f'候选池内申万二级当前总市值前{threshold}（同业≥{min_peers}家），仅作规模地位',
                      {'claims': claims or [], 'scale': scale, 'scale_threshold': threshold, 'scale_min_peers': min_peers})
     else:
-        _merge_check(merged, 'leadership', 'pending_verification', '缺少可追溯的第三方/协会份额排名，且候选池内市值未进入前3或同业不足5家', {})
+        _merge_check(merged, 'leadership', 'pending_verification',
+                     f'缺少可追溯的第三方/协会份额排名，且候选池内市值未进入前{threshold or 5}或同业不足{min_peers or 5}家', {})
     _refresh(merged)
     return merged

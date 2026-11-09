@@ -52,8 +52,10 @@ def _merge_audit(checks: list[dict[str, Any]], source: dict[str, Any], symbol: s
              and source.get('as_of') == as_of.isoformat() and source.get('evaluation_as_of') == as_of.isoformat()
              and isinstance(clues, dict) and clues.get('symbol') == symbol and clues.get('as_of') == as_of.isoformat())
     classification = classify_audit_clues(clues if bound else None, as_of.isoformat())
-    structured_outcome = ('passed' if classification['status'] == 'standard_opinions'
-                          and _audit_request_valid(clues, symbol, as_of) else 'pending_verification')
+    request_valid = _audit_request_valid(clues, symbol, as_of)
+    status = classification['status']
+    structured_outcome = ('passed' if status == 'standard_opinions' and request_valid else
+                          'failed' if status == 'serious_opinion' and request_valid else 'pending_verification')
     for check in checks:
         if check.get('code') != 'audit':
             continue
@@ -62,9 +64,11 @@ def _merge_audit(checks: list[dict[str, Any]], source: dict[str, Any], symbol: s
         outcome = ('pending_verification' if conflict else 'failed' if old.get('outcome') == 'failed'
                    else structured_outcome)
         reason = ('人工审计事实与结构化意见冲突，待核验' if conflict else
+                  '保留已审核审计失败；结构化意见同为失败' if old.get('outcome') == 'failed' and structured_outcome == 'failed' else
+                  '三年审计意见包含保留、否定或无法表示意见，审计失败' if structured_outcome == 'failed' else
                   '保留已审核审计失败' if outcome == 'failed' else
                   '三年主要审计意见均为标准无保留；人工审核记录另行保留' if outcome == 'passed' else
-                  '审计来源缺失、历史、非标准或口径不明，待核验')
+                  '审计意见为带强调事项段、其他事项段或来源口径不明，待核验')
         check.clear()
         check.update(code='audit', outcome=outcome, channel='structured_audit', reason=reason,
                      manual_check=old, structured_check={'outcome': structured_outcome, 'classification': classification,

@@ -205,7 +205,7 @@ def write_scale(tmp_path, count=6):
     return value
 
 
-def test_scale_top_three_passes_without_explicit_claim(tmp_path):
+def test_scale_top_five_passes_without_explicit_claim(tmp_path):
     write_scale(tmp_path)
     source = load_leadership_source(tmp_path, '600001', DAY)
     assert source['status'] == 'current' and source['claims'] == []
@@ -214,15 +214,19 @@ def test_scale_top_three_passes_without_explicit_claim(tmp_path):
 
     common = {'symbol': '600001', 'checks': [{'code': 'leadership', 'outcome': 'pending_verification', 'evidence_ids': []}]}
     assert merge_leadership(common, source, DAY)['checks'][0]['outcome'] == 'passed'
+    fifth = load_leadership_source(tmp_path, '600005', DAY)
+    assert fifth['scale']['rank'] == 5
+    assert merge_leadership({'symbol': '600005', 'checks': [
+        {'code': 'leadership', 'outcome': 'pending_verification', 'evidence_ids': []}]}, fifth, DAY)['checks'][0]['outcome'] == 'passed'
 
 
-def test_scale_rank_four_or_peer_four_stays_pending(tmp_path):
+def test_scale_rank_six_or_peer_four_stays_pending(tmp_path):
     from radar.stocks.formal_rules import merge_leadership
 
     write_scale(tmp_path)
-    source = load_leadership_source(tmp_path, '600004', DAY)
-    assert source['scale']['rank'] == 4
-    common = {'symbol': '600004', 'checks': [{'code': 'leadership', 'outcome': 'pending_verification', 'evidence_ids': []}]}
+    source = load_leadership_source(tmp_path, '600006', DAY)
+    assert source['scale']['rank'] == 6
+    common = {'symbol': '600006', 'checks': [{'code': 'leadership', 'outcome': 'pending_verification', 'evidence_ids': []}]}
     assert merge_leadership(common, source, DAY)['checks'][0]['outcome'] == 'pending_verification'
 
     write_scale(tmp_path, count=4)

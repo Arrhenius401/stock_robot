@@ -6,11 +6,26 @@ from datetime import UTC
 from typing import Any
 
 logger = logging.getLogger(__name__)
-AUDIT_CLASSIFICATION_VERSION = 'structured-audit-2026-11-09-v2'
+AUDIT_CLASSIFICATION_VERSION = 'structured-audit-2026-11-09-v3'
+_EMPHASIS_OPINIONS = ('带强调事项段', '其他事项段')
+
+
+def _serious_opinion(text: str) -> bool:
+    return '否定意见' in text or '无法表示意见' in text or ('保留意见' in text and '无保留意见' not in text)
 
 
 def _standard_opinion(value: Any) -> bool:
     return isinstance(value, str) and value.strip() == '标准无保留意见'
+
+
+def _opinion_texts(annual: list[dict[str, Any]]) -> list[str]:
+    texts = []
+    for row in annual:
+        for key in ('opinion', 'other_opinion'):
+            value = row.get(key)
+            if isinstance(value, str) and value.strip():
+                texts.append(value.strip())
+    return texts
 
 
 def classify_audit_clues(clues: Any, as_of: str) -> dict[str, Any]:
@@ -32,7 +47,12 @@ def classify_audit_clues(clues: Any, as_of: str) -> dict[str, Any]:
         if any(row.get('status') != 'available' or row.get('updated_after_cutoff') is not False
                or not isinstance(row.get('opinion'), str) or not row['opinion'].strip() for row in annual):
             return result
-        if any(row['opinion'].strip() != '标准无保留意见' for row in annual):
+        texts = _opinion_texts(annual)
+        if any(_serious_opinion(text) for text in texts):
+            result['status'] = 'serious_opinion'
+        elif any(any(keyword in text for keyword in _EMPHASIS_OPINIONS) for text in texts):
+            result['status'] = 'emphasis_pending'
+        elif any(row['opinion'].strip() != '标准无保留意见' for row in annual):
             result['status'] = 'other_opinion'
         elif any(row.get('other_opinion') not in (None, '') and not _standard_opinion(row['other_opinion'])
                  for row in annual):

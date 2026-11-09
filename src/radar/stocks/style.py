@@ -145,7 +145,7 @@ def _cash_review(groups: dict[str, Any], issuer: Any,
                  cash_special: dict[str, Any] | None = None) -> tuple[str, str, list[str]]:
     payload, identifiers, reason = groups['cash_review']
     if payload is None:
-        if isinstance(cash_special, dict) and cash_special.get('outcome') in {'passed', 'failed', 'pending_verification'}:
+        if isinstance(cash_special, dict) and cash_special.get('outcome') in {'passed', 'failed', 'pending_verification', 'not_applicable'}:
             return cash_special['outcome'], str(cash_special.get('reason') or '结构化现金专项'), identifiers
         return 'pending_verification', reason or '缺少发行人类型匹配的现金专项核验依据', identifiers
     if (not _choice(issuer, {'ordinary', 'bank', 'securities', 'insurance'})
@@ -317,7 +317,7 @@ def evaluate_stock_styles(symbol: str, evidence: list[dict[str, Any]], as_of: da
     if isinstance(turnover, dict) and turnover.get('status') != 'unavailable':
         growth_checks[2]['channel'] = 'structured_turnover'
     # 已知低比率只提醒，缺资料仍待核验；未清晰完成专项也不冒充已核验。
-    quality_review = 'passed' if review_status == 'passed' else 'pending_verification'
+    quality_review = 'passed' if review_status in {'passed', 'not_applicable'} else 'pending_verification'
     growth_status = _aggregate([result['common_status'], growth_ratio_status, quality_review])
     growth = _pool(growth_status, growth_checks, [],
                    'observe' if liquidity_status == 'below_reference' and result['common_status'] != 'failed' else 'unavailable')

@@ -43,6 +43,8 @@ def build_manual_review_packet(detail: Any) -> dict[str, Any]:
     for code in (*_COMMON, 'cash_review'):
         matches = [row for row in (style if code == 'cash_review' else common)
                    if isinstance(row, dict) and row.get('code') == code]
+        if not matches and code == 'security':
+            continue
         if len(matches) != 1:
             raise ValueError('审核条件缺失或重复')
         checks.append(deepcopy(matches[0]))

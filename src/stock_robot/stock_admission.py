@@ -60,8 +60,22 @@ def _unavailable_pools(reason: str) -> dict[str, Any]:
     return {"dividend_value": dividend, "growth_trend": pending()}
 
 
+def _drop_security_check(common: dict[str, Any], issuer: str | None) -> dict[str, Any]:
+    """证券身份不再作为共同条件；保留发行人类型供财务/现金分支路由。"""
+    checks = [row for row in common.get('checks', []) if row.get('code') != 'security']
+    statuses = {row.get('outcome') for row in checks}
+    common['checks'] = checks
+    common['common_status'] = ('failed' if 'failed' in statuses else
+                               'pending_verification' if 'pending_verification' in statuses else 'passed')
+    common['admission_status'] = 'excluded' if common['common_status'] == 'failed' else 'pending_verification'
+    common['issuer_type'] = issuer
+    common['evidence_ids'] = sorted({identifier for row in checks for identifier in row.get('evidence_ids', [])})
+    return common
+
+
 def evaluate_store(store: StockResearchStore, as_of: date, *, symbol: str | None = None,
                    market_window: list[date] | None = None, include_styles: bool = False,
+                   structured_only: bool = False,
                    financial_sources: dict[str, dict[str, Any]] | None = None,
                    market_value_sources: dict[str, dict[str, Any]] | None = None,
                    profile_sources: dict[str, dict[str, Any]] | None = None,
@@ -92,7 +106,7 @@ def evaluate_store(store: StockResearchStore, as_of: date, *, symbol: str | None
         before = None
         try:
             before = store.get_company(code)
-            evidence = store.list_evidence(code)
+            evidence = [] if structured_only else store.list_evidence(code)
             common = evaluate_common_admission(code, evidence, as_of, market_window=market_window)
             if financial_sources is not None:
                 if code not in financial_sources:
@@ -111,10 +125,16 @@ def evaluate_store(store: StockResearchStore, as_of: date, *, symbol: str | None
                     raise ValueError('缺少服务器绑定的行业资料来源')
                 common['industry_source'] = industry_sources[code]
             issuer = None
-            for check in common.get('checks', []):
-                if check.get('code') == 'security' and check.get('outcome') == 'passed':
-                    values = check.get('values')
-                    issuer = values.get('issuer_type') if isinstance(values, dict) else None
+            profile = profile_sources.get(code) if profile_sources else None
+            market = profile.get('security_market') if isinstance(profile, dict) else None
+            if isinstance(market, dict) and market.get('issuer_type'):
+                issuer = market['issuer_type']
+            if issuer is None:
+                for check in common.get('checks', []):
+                    if check.get('code') == 'security' and check.get('outcome') == 'passed':
+                        values = check.get('values')
+                        issuer = values.get('issuer_type') if isinstance(values, dict) else None
+            common = _drop_security_check(common, issuer)
             if governance_sources is not None:
                 if code not in governance_sources:
                     raise ValueError('缺少绑定的治理来源')

@@ -57,7 +57,6 @@ def test_reviewed_numbers_are_calculated_not_manual_admission(tmp_path):
     report = evaluate_store(store, AS_OF)
     company = report["items"][0]
     checks = {row["code"]: row for row in company["checks"]}
-    assert checks["security"]["outcome"] == "passed"
     assert checks["listing_age"]["outcome"] == "failed"
     assert company["common_status"] == "failed"
     assert company["admission_status"] == "excluded"

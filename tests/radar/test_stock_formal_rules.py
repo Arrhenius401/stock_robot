@@ -51,6 +51,16 @@ def test_fraud_or_fund_occupation_is_hard_failure_even_in_work_letter():
     assert check(result, 'governance')['outcome'] == 'failed'
 
 
+def test_cd_disclosure_evaluation_is_governance_failure():
+    from radar.stocks.formal_rules import merge_governance
+
+    source = {'status': 'current', 'symbol': '600000', 'as_of': DAY.isoformat(), 'records': [],
+              'evaluation': {'status': 'current', 'grade': 'C'}}
+    assert check(merge_governance(common(), source, DAY), 'governance')['outcome'] == 'failed'
+    source['evaluation']['grade'] = 'B'
+    assert check(merge_governance(common(), source, DAY), 'governance')['outcome'] == 'passed'
+
+
 def test_governance_unavailable_does_not_pass_or_override_failure():
     from radar.stocks.formal_rules import merge_governance
 

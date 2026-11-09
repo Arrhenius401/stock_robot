@@ -10,7 +10,7 @@ from typing import Any
 
 VERSION = 'industry-scale-v1'
 UNIVERSE = 'candidate_pool_626'
-THRESHOLD = 3
+THRESHOLD = 5
 MIN_PEERS = 5
 
 

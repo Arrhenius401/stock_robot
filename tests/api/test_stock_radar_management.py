@@ -439,7 +439,7 @@ def test_manual_review_packet_is_on_demand_and_read_only(tmp_path):
         result = web.get('/api/v1/radar/stocks/companies/600000/manual-review-packet')
         assert result.status_code == 200, result.text
         packet = result.json()
-        assert packet['symbol'] == '600000' and len(packet['checks']) == 6
+        assert packet['symbol'] == '600000' and len(packet['checks']) == 5
         assert packet['formal_screening_enabled'] is False and packet['members_published'] == 0
         assert web.get('/api/v1/radar/stocks/companies/600001/manual-review-packet').status_code == 404
     after = (store.get_company('600000'), store.list_evidence('600000'), store.review_history('600000'))

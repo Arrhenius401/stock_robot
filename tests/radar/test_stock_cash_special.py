@@ -34,8 +34,9 @@ def test_securities_and_bank_cash_special():
     sec = source()
     sec['financial']['source_company_type'] = '1'
     assert cash_special_verdict(sec, 'securities', DAY, '600000')['outcome'] == 'passed'
-    assert cash_special_verdict(source(), 'bank', DAY, '600000')['outcome'] == 'pending_verification'
-    assert cash_special_verdict(source(), 'insurance', DAY, '600000')['outcome'] == 'pending_verification'
+    assert cash_special_verdict(source(), 'bank', DAY, '600000')['outcome'] == 'not_applicable'
+    assert cash_special_verdict(source(), 'insurance', DAY, '600000')['outcome'] == 'not_applicable'
+    assert cash_special_verdict(source(), 'other_financial', DAY, '600000')['outcome'] == 'not_applicable'
 
 
 def test_unverified_issuer_is_pending():

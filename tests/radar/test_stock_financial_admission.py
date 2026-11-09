@@ -94,6 +94,19 @@ def test_structured_audit_accepts_duplicate_standard_other_opinion():
     assert next(row for row in result['checks'] if row['code'] == 'audit')['outcome'] == 'passed'
 
 
+def test_structured_audit_emphasis_is_pending_and_serious_opinion_fails():
+    evidence = [row for row in facts() if row['kind'] != 'admission_audit']
+    manual = evaluate_common_admission('600900', evidence, AS_OF, market_window=WINDOW)
+    emphasis = _audit_source_for_test()
+    emphasis['audit_clues']['annual'][0]['other_opinion'] = '带强调事项段的无保留意见'
+    assert next(row for row in merge_common_financial(manual, emphasis, AS_OF)['checks']
+                if row['code'] == 'audit')['outcome'] == 'pending_verification'
+    serious = _audit_source_for_test()
+    serious['audit_clues']['annual'][0]['opinion'] = '保留意见'
+    assert next(row for row in merge_common_financial(manual, serious, AS_OF)['checks']
+                if row['code'] == 'audit')['outcome'] == 'failed'
+
+
 @pytest.mark.parametrize('case', ['wrong_symbol', 'wrong_cutoff', 'historical', 'nonstandard', 'extra', 'late_update', 'missing',
                                   'missing_params', 'wrong_exchange', 'wrong_report_type', 'unrequested_year', 'wrong_row_period'])
 def test_structured_audit_rejects_unbound_or_incomplete_results(case):
@@ -113,7 +126,8 @@ def test_structured_audit_rejects_unbound_or_incomplete_results(case):
     if case == 'unrequested_year': source['audit_clues']['source']['request_params']['dates'] = '2023-12-31,2024-12-31'
     if case == 'wrong_row_period': source['audit_clues']['annual'][0]['report_type'] = '半年报'
     result = merge_common_financial(manual, source, AS_OF)
-    assert next(row for row in result['checks'] if row['code'] == 'audit')['outcome'] == 'pending_verification'
+    expected = 'failed' if case in {'nonstandard', 'extra'} else 'pending_verification'
+    assert next(row for row in result['checks'] if row['code'] == 'audit')['outcome'] == expected
 
 
 def test_structured_audit_never_overrides_conflicting_manual_failure():

@@ -92,7 +92,7 @@ def test_audit_opinion_classification_keeps_unknown_and_nonstandard_separate():
     assert classify_audit_clues(base, '2026-11-03')['status'] == 'standard_opinions'
     changed = deepcopy(base)
     changed['annual'][1]['opinion'] = '保留意见'
-    assert classify_audit_clues(changed, '2026-11-03')['status'] == 'other_opinion'
+    assert classify_audit_clues(changed, '2026-11-03')['status'] == 'serious_opinion'
     changed['annual'][2]['status'] = 'pending_verification'
     assert classify_audit_clues(changed, '2026-11-03')['status'] == 'pending_verification'
     changed = deepcopy(base)

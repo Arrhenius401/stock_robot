@@ -76,8 +76,8 @@ def test_ab_grade_passes_when_no_discipline_or_measure():
     assert check(merge_governance(common(), source(evaluation_value={'status': 'current', 'grade': 'B'}), DAY))['outcome'] == 'passed'
 
 
-def test_cd_or_missing_grade_stays_pending():
-    assert check(merge_governance(common(), source(evaluation_value={'status': 'current', 'grade': 'C'}), DAY))['outcome'] == 'pending_verification'
+def test_cd_is_failed_and_missing_grade_stays_pending():
+    assert check(merge_governance(common(), source(evaluation_value={'status': 'current', 'grade': 'C'}), DAY))['outcome'] == 'failed'
     assert check(merge_governance(common(), source(evaluation_value={'status': 'current', 'grade': None}), DAY))['outcome'] == 'pending_verification'
     assert check(merge_governance(common(), source(evaluation_value={'status': 'unavailable', 'grade': None}), DAY))['outcome'] == 'pending_verification'
 
