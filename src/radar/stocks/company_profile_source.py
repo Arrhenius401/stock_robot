@@ -29,13 +29,22 @@ def _normalize_listed_name(value: Any) -> str:
     return re.sub(r'^(?:XD|XR|DR)', '', text)
 
 
+def _ex_marker(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    text = re.sub(r'[\s\u3000]+', '', unicodedata.normalize('NFKC', value))
+    return re.match(r'^(?:XD|XR|DR)', text) is not None
+
+
 def _names_match(roster_short: Any, company_short: Any, roster_full: Any) -> bool:
-    """证券简称或全称须精确匹配；不扩展为别名、去字或前缀模糊匹配。"""
+    """精确匹配；仅允许交易所 XD/XR/DR 除权标记下的被截断简称做窄归一。"""
     short, company = _normalize_listed_name(roster_short), _normalize_listed_name(company_short)
     full = _normalize_listed_name(roster_full)
     if not short or not company:
         return False
-    return short == company or (bool(full) and full == company)
+    if short == company or (bool(full) and full == company):
+        return True
+    return _ex_marker(roster_short) and len(short) >= 3 and company.startswith(short)
 
 
 @lru_cache(maxsize=3)
