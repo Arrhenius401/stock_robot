@@ -34,3 +34,13 @@ def test_securities_and_bank_cash_special():
 
 def test_unverified_issuer_is_pending():
     assert cash_special_verdict(source(), None, DAY)['outcome'] == 'pending_verification'
+
+def test_missing_dividend_field_is_pending_not_zero():
+    from radar.stocks.cash_special import cash_special_metrics
+
+    collection = {'records': {'cashflow': [
+        {'REPORT_DATE': '2023-12-31 00:00:00', 'NETCASH_OPERATE': '10', 'CONSTRUCT_LONG_ASSET': '1', 'END_CASH': '5'},
+        {'REPORT_DATE': '2024-12-31 00:00:00', 'NETCASH_OPERATE': '10', 'CONSTRUCT_LONG_ASSET': '1', 'END_CASH': '5'},
+        {'REPORT_DATE': '2025-12-31 00:00:00', 'NETCASH_OPERATE': '10', 'CONSTRUCT_LONG_ASSET': '1', 'END_CASH': '5'}],
+        'main': [{'REPORT_DATE': '2025-12-31 00:00:00', 'INTEREST_COVERAGE_RATIO': '5'}]}}
+    assert cash_special_metrics(collection, DAY)['status'] == 'pending_verification'
