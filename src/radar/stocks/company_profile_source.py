@@ -31,6 +31,8 @@ def _normalize_listed_name(value: Any) -> str:
 
 def _names_match(roster_short: Any, company_short: Any, roster_full: Any) -> bool:
     short, company = _normalize_listed_name(roster_short), _normalize_listed_name(company_short)
+    if not short or not company:
+        return False
     if short == company:
         return True
     if min(len(short), len(company)) >= 3 and (short.startswith(company) or company.startswith(short)):

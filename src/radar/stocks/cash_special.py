@@ -39,11 +39,11 @@ def cash_special_metrics(collection: Any, as_of: date) -> dict[str, Any]:
         row = by_year[year]
         ocf.append(_number(row, 'NETCASH_OPERATE'))
         capex.append(_number(row, 'CONSTRUCT_LONG_ASSET'))
-        dividends.append(_number(row, 'ASSIGN_DIVIDEND_PORFIT', 0.0))
+        dividends.append(_number(row, 'ASSIGN_DIVIDEND_PORFIT'))
         end = _number(row, 'END_CASH')
         cash.append(end if end is not None else _number(row, 'END_CASH_EQUIVALENTS'))
-    if any(value is None for value in ocf + capex + cash):
-        return {'status': 'pending_verification', 'reason': '三个年度经营现金流、资本开支或现金余额缺失'}
+    if any(value is None for value in ocf + capex + dividends + cash):
+        return {'status': 'pending_verification', 'reason': '三个年度经营现金流、资本开支、分红或现金余额缺失'}
     interest = None
     for row in main_rows if isinstance(main_rows, list) else []:
         if (isinstance(row, dict) and isinstance(row.get('REPORT_DATE'), str)
