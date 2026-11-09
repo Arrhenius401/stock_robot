@@ -141,15 +141,24 @@ def _structured_cash(source: dict[str, Any], symbol: str, cutoff: date, years: l
         'parent_profit_sum_yuan': reference.get('parent_profit_sum_yuan'), 'years': years}
 
 
-def _cash_review(groups: dict[str, Any], issuer: Any) -> tuple[str, str, list[str]]:
+def _cash_review(groups: dict[str, Any], issuer: Any,
+                 cash_special: dict[str, Any] | None = None) -> tuple[str, str, list[str]]:
     payload, identifiers, reason = groups['cash_review']
-    if (payload is None or not _choice(issuer, {'ordinary', 'bank', 'securities', 'insurance'})
+    if payload is None:
+        if isinstance(cash_special, dict) and cash_special.get('outcome') in {'passed', 'failed', 'pending_verification'}:
+            return cash_special['outcome'], str(cash_special.get('reason') or '结构化现金专项'), identifiers
+        return 'pending_verification', reason or '缺少发行人类型匹配的现金专项核验依据', identifiers
+    if (not _choice(issuer, {'ordinary', 'bank', 'securities', 'insurance'})
             or payload.get('issuer_type') != issuer or not isinstance(payload.get('basis'), str) or not payload['basis'].strip()):
         return 'pending_verification', reason or '缺少发行人类型匹配的现金专项核验依据', identifiers
     verdict = payload.get('verdict')
     if verdict == 'clear':
+        if isinstance(cash_special, dict) and cash_special.get('outcome') == 'failed':
+            return 'pending_verification', '人工现金专项与结构化依据冲突，待核验', identifiers
         return 'passed', '类型匹配的现金专项已核验', identifiers
     if verdict == 'failed':
+        if isinstance(cash_special, dict) and cash_special.get('outcome') == 'passed':
+            return 'pending_verification', '人工现金专项与结构化依据冲突，待核验', identifiers
         return 'failed', '现金专项核验未通过', identifiers
     return 'pending_verification', '现金专项仍待核验', identifiers
 
@@ -218,7 +227,7 @@ def _liquidity(groups: dict[str, Any], cutoff: date, market_window: Any) -> tupl
 
 def evaluate_stock_styles(symbol: str, evidence: list[dict[str, Any]], as_of: date, *,
                           market_window: list[date] | None = None, common_result: dict[str, Any] | None = None,
-                          issuer_type: str | None = None) -> dict[str, Any]:
+                          issuer_type: str | None = None, cash_special: dict[str, Any] | None = None) -> dict[str, Any]:
     """返回共同条件及独立风格研究状态，所有正式发布能力保持关闭。"""
     result = deepcopy(common_result) if common_result is not None else evaluate_common_admission(symbol, evidence, as_of, market_window=market_window)
     result.update(style_rule_version=STYLE_RULE_VERSION, members_published=0)
@@ -241,7 +250,7 @@ def evaluate_stock_styles(symbol: str, evidence: list[dict[str, Any]], as_of: da
         ratio_status, ratio_reason, ratio_ids, ratio_values = _structured_cash(
             financial_source, symbol, cutoff, years, groups, common_groups, issuer,
             (ratio_status, ratio_reason, ratio_ids, ratio_values))
-    review_status, review_reason, review_ids = _cash_review(groups, issuer)
+    review_status, review_reason, review_ids = _cash_review(groups, issuer, cash_special)
     # 发行人分支也是判断依据，逐项保留其规范事实来源。
     security_ids = common_groups['security'][1]
     ratio_ids = sorted(set(ratio_ids + security_ids))

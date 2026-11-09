@@ -9,12 +9,14 @@ from typing import Any
 import click
 
 from radar.stocks.admission import RULE_VERSION, evaluate_common_admission
+from radar.stocks.cash_special import cash_special_verdict
 from radar.stocks.company_profile_admission import merge_common_profile
 from radar.stocks.financial_admission import merge_common_financial
 from radar.stocks.formal_rules import (
     FORMAL_RULE_VERSION,
     merge_financial_quality,
     merge_governance,
+    merge_leadership,
 )
 from radar.stocks.market_value_admission import merge_common_market_value
 from radar.stocks.research_store import StockResearchStore
@@ -66,6 +68,7 @@ def evaluate_store(store: StockResearchStore, as_of: date, *, symbol: str | None
                    industry_sources: dict[str, dict[str, Any]] | None = None,
                    growth_sources: dict[str, dict[str, Any]] | None = None,
                    governance_sources: dict[str, dict[str, Any]] | None = None,
+                   leadership_sources: dict[str, dict[str, Any]] | None = None,
                    dividend_sources: dict[str, dict[str, Any]] | None = None,
                    turnover_sources: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     """读前后revision校验，不能把资料更新中的混合结果当稳定结论。"""
@@ -116,8 +119,14 @@ def evaluate_store(store: StockResearchStore, as_of: date, *, symbol: str | None
                 if code not in governance_sources:
                     raise ValueError('缺少绑定的治理来源')
                 common = merge_governance(common, governance_sources[code], as_of)
+            if leadership_sources is not None:
+                if code not in leadership_sources:
+                    raise ValueError('缺少绑定的行业地位来源')
+                common = merge_leadership(common, leadership_sources[code], as_of)
             if financial_sources is not None:
                 common = merge_financial_quality(common, financial_sources[code], as_of, issuer)
+            cash_special = (cash_special_verdict(financial_sources[code], issuer, as_of)
+                            if financial_sources is not None else None)
             if dividend_sources is not None:
                 if code not in dividend_sources:
                     raise ValueError('缺少绑定的分红来源')
@@ -127,7 +136,8 @@ def evaluate_store(store: StockResearchStore, as_of: date, *, symbol: str | None
                     raise ValueError('缺少绑定的成交额来源')
                 common['turnover_source'] = turnover_sources[code]
             result = (style_engine.evaluate_stock_styles(code, evidence, as_of, market_window=market_window,
-                                                                   common_result=common, issuer_type=issuer)
+                                                                   common_result=common, issuer_type=issuer,
+                                                                   cash_special=cash_special)
                       if style_engine else common)
             result["formal_rule_version"] = FORMAL_RULE_VERSION
             result["evaluation_valid"] = True

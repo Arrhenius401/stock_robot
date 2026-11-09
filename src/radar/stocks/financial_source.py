@@ -11,6 +11,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from radar.stocks.cash_special import cash_special_metrics
 from radar.stocks.financial_task import (
     read_financial_artifact,
     safe_financial_result,
@@ -150,6 +151,8 @@ def load_financial_source(db: Path, symbol: str, as_of: date) -> dict[str, Any]:
         if financial.get('rule_version', RULE_VERSION) != RULE_VERSION:
             raise StockResearchError('财务重算规则版本不匹配')
         source['financial'] = safe_financial_result(financial, selected.name)
+        source['financial']['cash_special'] = cash_special_metrics(
+            (selected.payload or {}).get('collection') if isinstance(selected.payload, dict) else None, as_of)
         source['financial']['type_metrics'] = type_specific_metrics(
             (selected.payload or {}).get('collection') if isinstance(selected.payload, dict) else None, as_of)
         audit = load_audit_clues(db, symbol, as_of)

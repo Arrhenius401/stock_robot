@@ -27,6 +27,7 @@ from radar.stocks.financial_source import load_financial_source
 from radar.stocks.financial_task import financial_results
 from radar.stocks.growth_source import load_growth_source
 from radar.stocks.industry_source import load_industry_source
+from radar.stocks.leadership_source import load_leadership_source
 from radar.stocks.market_value_registry import load_market_value_source
 from radar.stocks.membership_drafts import StockMembershipDraftStore
 from radar.stocks.membership_store import StockMembershipStore
@@ -252,12 +253,14 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
         growth = load_growth_source(state, symbol, cutoff)
         market_value = load_market_value_source(state, symbol, cutoff)
         governance_clues = load_exchange_governance_source(state, symbol, cutoff)
+        leadership_clues = load_leadership_source(state, symbol, cutoff)
         _check_market_window(market_value, window, trace)
         _check_market_window(turnover, window, trace)
         report = evaluate_store(store, cutoff, symbol=symbol, market_window=window, include_styles=True,
                                 financial_sources={symbol: financial}, dividend_sources={symbol: dividend}, turnover_sources={symbol: turnover}, market_value_sources={symbol: market_value},
                                 profile_sources={symbol: profile}, industry_sources={symbol: industry}, growth_sources={symbol: growth},
-                                governance_sources={symbol: governance_clues})
+                                governance_sources={symbol: governance_clues},
+                                leadership_sources={symbol: leadership_clues})
         report['market_window_source'] = trace
         evidence, reviews = store.list_evidence(symbol), store.review_history(symbol)
         if company(store, symbol)['revision'] != row['revision']:
@@ -393,6 +396,7 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
         growth = load_growth_source(state, symbol, cutoff)
         market_value = load_market_value_source(state, symbol, cutoff)
         governance = load_exchange_governance_source(state, symbol, cutoff)
+        leadership = load_leadership_source(state, symbol, cutoff)
         _check_market_window(market_value, window, trace)
         _check_market_window(turnover, window, trace)
         inputs['companies'][0].update(financial_source=financial, financial_as_of=cutoff.isoformat(),
@@ -402,11 +406,13 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
                                        industry_source=industry, industry_as_of=cutoff.isoformat(),
                                        growth_source=growth, growth_as_of=cutoff.isoformat())
         inputs['companies'][0].update(market_value_source=market_value, market_value_as_of=cutoff.isoformat(),
-                                       governance_source=governance, governance_as_of=cutoff.isoformat())
+                                       governance_source=governance, governance_as_of=cutoff.isoformat(),
+                                       leadership_source=leadership, leadership_as_of=cutoff.isoformat())
         report = evaluate_store(store, cutoff, symbol=symbol, market_window=window, include_styles=True,
                                 financial_sources={symbol: financial}, dividend_sources={symbol: dividend}, turnover_sources={symbol: turnover}, market_value_sources={symbol: market_value},
                                 profile_sources={symbol: profile}, industry_sources={symbol: industry}, growth_sources={symbol: growth},
-                                governance_sources={symbol: governance})
+                                governance_sources={symbol: governance},
+                                leadership_sources={symbol: leadership})
         report['market_window_source'] = trace
         saved = evaluations.save_evaluation(report, inputs, market_window=window)
         drafts = StockMembershipDraftStore(evaluations, pools)

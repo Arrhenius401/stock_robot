@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
+import unicodedata
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta, timezone
 from functools import lru_cache
@@ -17,6 +19,24 @@ from radar.stocks.official_roster import _parse_source, _url
 from radar.stocks.structured_collect import _json
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_listed_name(value: Any) -> str:
+    if not isinstance(value, str):
+        return ''
+    text = unicodedata.normalize('NFKC', value)
+    text = re.sub(r'[\s\u3000]+', '', text)
+    return re.sub(r'^(?:XD|XR|DR)', '', text)
+
+
+def _names_match(roster_short: Any, company_short: Any, roster_full: Any) -> bool:
+    short, company = _normalize_listed_name(roster_short), _normalize_listed_name(company_short)
+    if short == company:
+        return True
+    if min(len(short), len(company)) >= 3 and (short.startswith(company) or company.startswith(short)):
+        return True
+    full = _normalize_listed_name(roster_full)
+    return len(company) >= 4 and full.startswith(company)
 
 
 @lru_cache(maxsize=3)
@@ -98,13 +118,13 @@ def _registered_load_company_profile_source(state_dir: Path, symbol: str, as_of:
         if _bytes(manifest_path) != raw or any(_bytes(path) != data for path, data in originals):
             raise ValueError('来源在读取期间变化')
         current = target == as_of and not different_capture_day
-        name_match = row['name'] == company['name']
         fields = row.get('source_fields') if isinstance(row.get('source_fields'), dict) else {}
         full_name = fields.get('FULL_NAME') or fields.get('公司全称') or fields.get('SEC_NAME_FULL') or ''
+        name_match = _names_match(row['name'], company['name'], full_name)
         industry_label = row.get('industry_source_label') or fields.get('所属行业') or ''
         issuer = classify_issuer(full_name, industry_label)
         result.update(as_of=target.isoformat(), status='current' if current else 'historical',
-                      name_match=row['name'] == company['name'], roster_name=row['name'],
+                      name_match=name_match, roster_name=row['name'],
                       source={'scope_sha256': manifest['scope']['sha256'], 'rosters': provenance},
                       security_market={'symbol': symbol, 'status': ('verified' if name_match else 'pending_verification') if current else 'historical',
                                        'exchange': 'SZSE' if matched_ref['source'] == 'szse_a' else 'SSE',

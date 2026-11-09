@@ -16,6 +16,7 @@ from radar.stocks.financial_source import load_financial_source
 from radar.stocks.formal_rules import FORMAL_RULE_VERSION
 from radar.stocks.growth_source import load_growth_source
 from radar.stocks.industry_source import load_industry_source
+from radar.stocks.leadership_source import load_leadership_source
 from radar.stocks.market_value_registry import load_market_value_source
 from radar.stocks.research_store import (
     StockResearchError,
@@ -185,6 +186,12 @@ class StockEvaluationStore:
                 if (not isinstance(governance, dict) or governance.get('symbol') != symbol
                         or governance.get('as_of') != governance_as_of):
                     raise StockResearchError('公司治理来源的身份或评估截点无效')
+            if 'leadership_source' in entry or 'leadership_as_of' in entry:
+                leadership = entry.get('leadership_source')
+                leadership_as_of = self.research._date(entry.get('leadership_as_of'))
+                if (not isinstance(leadership, dict) or leadership.get('symbol') != symbol
+                        or leadership.get('as_of') != leadership_as_of):
+                    raise StockResearchError('公司行业地位来源的身份或评估截点无效')
             for key, day_key in (('company_profile_source', 'profile_as_of'), ('industry_source', 'industry_as_of'), ('growth_source', 'growth_as_of')):
                 if key in entry or day_key in entry:
                     source = entry.get(key)
@@ -252,6 +259,11 @@ class StockEvaluationStore:
                 live_governance = load_exchange_governance_source(self.research.db_path.parent, symbol, cutoff)
                 if _json(live_governance) != _json(entry['governance_source']):
                     raise StockRevisionConflict(f'公司治理来源已变化：{symbol}')
+            if 'leadership_source' in entry:
+                cutoff = date.fromisoformat(entry['leadership_as_of'])
+                live_leadership = load_leadership_source(self.research.db_path.parent, symbol, cutoff)
+                if _json(live_leadership) != _json(entry['leadership_source']):
+                    raise StockRevisionConflict(f'公司行业地位来源已变化：{symbol}')
             if full:
                 live['admission_status'] = 'pending_verification'
                 if _json(live) != _json(expected):
@@ -303,6 +315,9 @@ class StockEvaluationStore:
             if ('governance_source' in item or 'governance_source' in source) and (
                     source.get('governance_as_of') != as_of or _json(source.get('governance_source')) != _json(item.get('governance_source'))):
                 raise StockResearchError('报告治理来源与归档输入不匹配')
+            if ('leadership_source' in item or 'leadership_source' in source) and (
+                    source.get('leadership_as_of') != as_of or _json(source.get('leadership_source')) != _json(item.get('leadership_source'))):
+                raise StockResearchError('报告行业地位来源与归档输入不匹配')
             if ('market_value_source' in item or 'market_value_source' in source) and (
                     source.get('market_value_as_of') != as_of or _json(source.get('market_value_source')) != _json(item.get('market_value_source'))):
                 raise StockResearchError('报告市值来源与归档输入不匹配')

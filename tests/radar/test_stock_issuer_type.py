@@ -75,6 +75,8 @@ def test_missing_or_invalid_roster_metadata_is_unavailable(tmp_path, monkeypatch
         value['sources']['banking']['as_of'] = '2025-13-01'
     elif mutation == 'month_date':
         value['as_of'] = '2025-06'
+    elif mutation == 'bank_month':
+        value['sources']['banking']['as_of'] = '2025-06'
     elif mutation == 'bad_url':
         value['sources']['securities']['url'] = ''
     elif mutation == 'non_official_url':

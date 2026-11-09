@@ -130,3 +130,16 @@ def merge_financial_quality(result: dict[str, Any], source: dict[str, Any] | Non
     _merge_check(merged, 'financial_quality', outcome, reason, {'issuer_type': issuer, 'metrics': metrics})
     _refresh(merged)
     return merged
+
+def merge_leadership(result: dict[str, Any], source: dict[str, Any], as_of: date) -> dict[str, Any]:
+    """仅第三方/协会明确份额或排名的披露可通过；其余待核验。"""
+    merged = deepcopy(result)
+    merged['leadership_source'] = deepcopy(source)
+    claims = source.get('claims') if isinstance(source, dict) else None
+    if (isinstance(source, dict) and source.get('status') == 'current' and source.get('as_of') == as_of.isoformat()
+            and isinstance(claims, list) and claims):
+        _merge_check(merged, 'leadership', 'passed', '存在可追溯第三方/协会份额或排名披露', {'claims': claims})
+    else:
+        _merge_check(merged, 'leadership', 'pending_verification', '缺少可追溯的第三方/协会份额或排名披露', {})
+    _refresh(merged)
+    return merged
