@@ -5,7 +5,7 @@ from copy import deepcopy
 from datetime import date
 from typing import Any
 
-FORMAL_RULE_VERSION = 'formal-2026-11-09-v3'
+FORMAL_RULE_VERSION = 'formal-2026-11-09-v4'
 _ISSUER_TYPES = {'ordinary', 'bank', 'securities', 'insurance'}
 _GOVERNANCE_SERIOUS = ('财务造假', '虚假记载', '资金占用', '违规担保')
 
@@ -66,6 +66,9 @@ def merge_governance(result: dict[str, Any], source: dict[str, Any], as_of: date
                    for row in records)
     serious = any(any(keyword in (row.get('title') or '') for keyword in _GOVERNANCE_SERIOUS) and recent(row, cutoff5)
                   for row in records)
+    raw_evaluation = source.get('evaluation')
+    evaluation: dict[str, Any] = raw_evaluation if isinstance(raw_evaluation, dict) else {}
+    grade = evaluation.get('grade') if evaluation.get('status') == 'current' else None
     if serious or discipline:
         outcome = 'failed'
         reason = ('监管文书明确涉及财务造假、资金占用或违规担保，硬失败且不自动恢复'
@@ -73,12 +76,15 @@ def merge_governance(result: dict[str, Any], source: dict[str, Any], as_of: date
     elif measures:
         outcome = 'pending_verification'
         reason = '近三年公司对象监管措施，需人工复核性质和整改状态'
+    elif grade in {'A', 'B'}:
+        outcome = 'passed'
+        reason = '交易所年度信息披露评价A/B，且监管列表未发现公司对象硬失败'
     else:
         outcome = 'pending_verification'
-        reason = '监管列表未命中或仅工作函/未知类型，不能证明治理合格'
+        reason = '监管列表未命中或仅工作函/未知类型，且交易所评价C/D、未覆盖或未发布，不能证明治理合格'
     _merge_check(merged, 'governance', outcome, reason,
                  {'records': len(records), 'discipline': discipline, 'measures': measures, 'serious': serious,
-                  'as_of': source.get('as_of')})
+                  'as_of': source.get('as_of'), 'grade': grade, 'evaluation_status': evaluation.get('status')})
     _refresh(merged)
     return merged
 

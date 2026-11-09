@@ -17,6 +17,7 @@ from filelock import FileLock, Timeout
 
 from radar.provider_request import ProviderRequestError, bounded_provider_call
 from radar.stocks.admission import _BJ
+from radar.stocks.disclosure_evaluation import load_disclosure_evaluation
 from radar.stocks.market_history import _atomic
 from radar.stocks.market_value_registry import _bytes, _path, _reference
 from radar.stocks.research_store import _symbol
@@ -643,7 +644,8 @@ def load_exchange_governance_source(state_dir: Path, symbol: str, as_of: date) -
         raise ValueError('研究截点无效')
     out: dict[str, Any] = {'symbol': symbol, 'as_of': as_of.isoformat(), 'status': 'unavailable',
                            'observation': 'unknown', 'records': [], 'reviewed': False,
-                           'formal_screening_enabled': False}
+                           'formal_screening_enabled': False,
+                           'evaluation': load_disclosure_evaluation(symbol, as_of)}
     root = _root(state_dir)
     lock_path = root / '.collect.lock'
     try:
