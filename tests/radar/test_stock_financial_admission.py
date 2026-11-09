@@ -85,6 +85,15 @@ def test_structured_audit_accepts_only_bound_standard_opinions_without_faking_re
     assert result['admission_status'] == 'pending_verification'
 
 
+def test_structured_audit_accepts_duplicate_standard_other_opinion():
+    evidence = [row for row in facts() if row['kind'] != 'admission_audit']
+    manual = evaluate_common_admission('600900', evidence, AS_OF, market_window=WINDOW)
+    source = _audit_source_for_test()
+    source['audit_clues']['annual'][0]['other_opinion'] = '标准无保留意见'
+    result = merge_common_financial(manual, source, AS_OF)
+    assert next(row for row in result['checks'] if row['code'] == 'audit')['outcome'] == 'passed'
+
+
 @pytest.mark.parametrize('case', ['wrong_symbol', 'wrong_cutoff', 'historical', 'nonstandard', 'extra', 'late_update', 'missing',
                                   'missing_params', 'wrong_exchange', 'wrong_report_type', 'unrequested_year', 'wrong_row_period'])
 def test_structured_audit_rejects_unbound_or_incomplete_results(case):
@@ -95,7 +104,7 @@ def test_structured_audit_rejects_unbound_or_incomplete_results(case):
     if case == 'wrong_cutoff': source['evaluation_as_of'] = '2026-10-14'
     if case == 'historical': source['status'] = 'historical'
     if case == 'nonstandard': source['audit_clues']['annual'][0]['opinion'] = '保留意见'
-    if case == 'extra': source['audit_clues']['annual'][0]['other_opinion'] = '标准无保留意见'
+    if case == 'extra': source['audit_clues']['annual'][0]['other_opinion'] = '保留意见'
     if case == 'late_update': source['audit_clues']['annual'][0]['updated_after_cutoff'] = True
     if case == 'missing': source['audit_clues']['annual'].pop()
     if case == 'missing_params': source['audit_clues']['source'].pop('request_params')

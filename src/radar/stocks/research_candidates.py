@@ -6,7 +6,11 @@ from datetime import UTC
 from typing import Any
 
 logger = logging.getLogger(__name__)
-AUDIT_CLASSIFICATION_VERSION = 'structured-audit-2026-11-04-v1'
+AUDIT_CLASSIFICATION_VERSION = 'structured-audit-2026-11-09-v2'
+
+
+def _standard_opinion(value: Any) -> bool:
+    return isinstance(value, str) and value.strip() == '标准无保留意见'
 
 
 def classify_audit_clues(clues: Any, as_of: str) -> dict[str, Any]:
@@ -30,7 +34,8 @@ def classify_audit_clues(clues: Any, as_of: str) -> dict[str, Any]:
             return result
         if any(row['opinion'].strip() != '标准无保留意见' for row in annual):
             result['status'] = 'other_opinion'
-        elif any(row.get('other_opinion') not in (None, '') for row in annual):
+        elif any(row.get('other_opinion') not in (None, '') and not _standard_opinion(row['other_opinion'])
+                 for row in annual):
             return result
         else:
             result['status'] = 'standard_opinions'
