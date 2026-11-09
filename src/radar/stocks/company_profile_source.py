@@ -29,13 +29,13 @@ def _normalize_listed_name(value: Any) -> str:
     return re.sub(r'^(?:XD|XR|DR)', '', text)
 
 
-def _names_match(roster_short: Any, company_short: Any, _roster_full: Any) -> bool:
+def _names_match(roster_short: Any, company_short: Any, roster_full: Any) -> bool:
+    """证券简称或全称须精确匹配；不扩展为别名、去字或前缀模糊匹配。"""
     short, company = _normalize_listed_name(roster_short), _normalize_listed_name(company_short)
+    full = _normalize_listed_name(roster_full)
     if not short or not company:
         return False
-    if short == company:
-        return True
-    return min(len(short), len(company)) >= 3 and (short.startswith(company) or company.startswith(short))
+    return short == company or (bool(full) and full == company)
 
 
 @lru_cache(maxsize=3)
@@ -121,7 +121,7 @@ def _registered_load_company_profile_source(state_dir: Path, symbol: str, as_of:
         full_name = fields.get('FULL_NAME') or fields.get('公司全称') or fields.get('SEC_NAME_FULL') or ''
         name_match = _names_match(row['name'], company['name'], full_name)
         industry_label = row.get('industry_source_label') or fields.get('所属行业') or ''
-        issuer = classify_issuer(full_name, industry_label)
+        issuer = classify_issuer(full_name, industry_label, target)
         result.update(as_of=target.isoformat(), status='current' if current else 'historical',
                       name_match=name_match, roster_name=row['name'],
                       source={'scope_sha256': manifest['scope']['sha256'], 'rosters': provenance},

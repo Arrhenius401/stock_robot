@@ -22,22 +22,6 @@ def _norm(value: Any) -> str:
     return re.sub(r'\s+', '', value).replace('（', '(').replace('）', ')')
 
 
-def _valid_date(value: Any, *, month: bool = False) -> bool:
-    if not isinstance(value, str):
-        return False
-    if month and re.fullmatch(r'\d{4}-\d{2}', value):
-        try:
-            date(int(value[:4]), int(value[5:7]), 1)
-        except ValueError:
-            return False
-        return True
-    try:
-        parsed = date.fromisoformat(value)
-    except ValueError:
-        return False
-    return parsed.isoformat() == value
-
-
 def _valid_url(value: Any) -> bool:
     if not isinstance(value, str) or not value or any(char.isspace() for char in value):
         return False
@@ -52,8 +36,23 @@ def _valid_url(value: Any) -> bool:
     return any(host == domain or host.endswith('.' + domain) for domain in _OFFICIAL_HOSTS)
 
 
-def _valid_sources(payload: Any) -> bool:
-    if not isinstance(payload, dict) or not _valid_date(payload.get('as_of')):
+def _source_day(value: Any, *, month: bool = False) -> date | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        if month and re.fullmatch(r'\d{4}-\d{2}', value):
+            return date(int(value[:4]), int(value[5:7]), 1)
+        parsed = date.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.isoformat() == value or month else None
+
+
+def _valid_sources(payload: Any, as_of: date | None = None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    roster_day = _source_day(payload.get('as_of'))
+    if roster_day is None or (as_of is not None and roster_day > as_of):
         return False
     sources = payload.get('sources')
     if not isinstance(sources, dict) or any(key not in sources for key in _REQUIRED_SOURCES):
@@ -64,7 +63,8 @@ def _valid_sources(payload: Any) -> bool:
             return False
         if not isinstance(source.get('title'), str) or not source['title'].strip():
             return False
-        if not _valid_date(source.get('as_of'), month=key == 'securities'):
+        source_day = _source_day(source.get('as_of'), month=key == 'securities')
+        if source_day is None or (as_of is not None and source_day > as_of):
             return False
         if not _valid_url(source.get('url')):
             return False
@@ -78,14 +78,14 @@ def _valid_sources(payload: Any) -> bool:
     return True
 
 
-def _load_rosters() -> tuple[dict[str, Any], str] | None:
+def _load_rosters(as_of: date | None = None) -> tuple[dict[str, Any], str] | None:
     """每次重新读取名录；来源、日期、结构或文件损坏时不得沿用旧缓存。"""
     try:
         raw = ROSTER_PATH.read_bytes()
         payload = json.loads(raw)
     except (OSError, ValueError, TypeError, UnicodeDecodeError):
         return None
-    if not _valid_sources(payload):
+    if not _valid_sources(payload, as_of):
         return None
     return payload, hashlib.sha256(raw).hexdigest()
 
@@ -96,12 +96,12 @@ def _source(rosters: dict[str, Any], digest: str) -> dict[str, Any]:
     return {**sources, 'as_of': rosters.get('as_of'), 'file_sha256': digest}
 
 
-def classify_issuer(full_name: Any, industry_label: Any) -> dict[str, Any]:
+def classify_issuer(full_name: Any, industry_label: Any, as_of: date | None = None) -> dict[str, Any]:
     """正例精确匹配；未命中且非金融行业/主营才判普通，否则保留未分类。"""
-    loaded = _load_rosters()
+    loaded = _load_rosters(as_of)
     if loaded is None:
         return {'issuer_type': None, 'status': 'unavailable',
-                'reason': '发行人类型名录缺失、损坏或来源元数据不完整'}
+                'reason': '发行人类型名录缺失、损坏、来源晚于研究截点或元数据不完整'}
     payload, digest = loaded
     source = _source(payload, digest)
     name = _norm(full_name)

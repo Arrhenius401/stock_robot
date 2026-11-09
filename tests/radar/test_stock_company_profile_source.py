@@ -122,7 +122,9 @@ def test_market_name_normalizes_spaces_fullwidth_and_xd_prefix():
 
     assert _names_match('万  科Ａ', '万科A', '万科企业股份有限公司')
     assert _names_match('新 和 成', '新和成', '浙江新和成股份有限公司')
-    assert _names_match('XD方大炭', '方大炭素', '方大炭素新材料科技股份有限公司')
-    assert _names_match('XD中国人', '中国人保', '中国人民保险集团股份有限公司')
+    assert _names_match('XD方大炭素', '方大炭素', '方大炭素新材料科技股份有限公司')
+    assert _names_match('XD中国人保', '中国人保', '中国人民保险集团股份有限公司')
+    # 截断简称不再按前缀猜身份，避免把不同主体当成同一家。
+    assert not _names_match('XD方大炭', '方大炭素', '方大炭素新材料科技股份有限公司')
     assert not _names_match('万科A', '保利发展', '保利发展控股集团股份有限公司')
     assert not _names_match('', '', '')

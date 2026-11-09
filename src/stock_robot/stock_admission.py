@@ -125,7 +125,7 @@ def evaluate_store(store: StockResearchStore, as_of: date, *, symbol: str | None
                 common = merge_leadership(common, leadership_sources[code], as_of)
             if financial_sources is not None:
                 common = merge_financial_quality(common, financial_sources[code], as_of, issuer)
-            cash_special = (cash_special_verdict(financial_sources[code], issuer, as_of)
+            cash_special = (cash_special_verdict(financial_sources[code], issuer, as_of, code)
                             if financial_sources is not None else None)
             if dividend_sources is not None:
                 if code not in dividend_sources:

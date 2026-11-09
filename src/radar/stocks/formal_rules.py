@@ -5,7 +5,7 @@ from copy import deepcopy
 from datetime import date
 from typing import Any
 
-FORMAL_RULE_VERSION = 'formal-2026-11-08-v2'
+FORMAL_RULE_VERSION = 'formal-2026-11-09-v3'
 _ISSUER_TYPES = {'ordinary', 'bank', 'securities', 'insurance'}
 _GOVERNANCE_SERIOUS = ('财务造假', '虚假记载', '资金占用', '违规担保')
 
@@ -92,21 +92,37 @@ def merge_financial_quality(result: dict[str, Any], source: dict[str, Any] | Non
         _refresh(merged)
         return merged
     if (not isinstance(source, dict) or source.get('status') != 'current' or source.get('as_of') != as_of.isoformat()
+            or source.get('evaluation_as_of', as_of.isoformat()) != as_of.isoformat()
             or source.get('symbol') != merged.get('symbol')):
         _merge_check(merged, 'financial_quality', 'pending_verification', '财务来源缺失、历史或非本次截点', {})
         _refresh(merged)
         return merged
     raw_financial: Any = source.get('financial')
     financial: dict[str, Any] = raw_financial if isinstance(raw_financial, dict) else {}
+    expected_type = {'ordinary': '4', 'bank': '3', 'securities': '1', 'insurance': '2'}.get(issuer)
+    source_type = financial.get('source_company_type')
+    if source_type is not None and expected_type is not None and str(source_type) != expected_type:
+        _merge_check(merged, 'financial_quality', 'pending_verification',
+                     '财务数据公司类型与发行人类型不一致，不能套用该分支阈值',
+                     {'issuer_type': issuer, 'source_company_type': source_type})
+        _refresh(merged)
+        return merged
     raw_metrics: Any = financial.get('type_metrics')
     metrics: dict[str, Any] = raw_metrics if isinstance(raw_metrics, dict) else {}
+    report_day = metrics.get('report_date')
+    if (isinstance(report_day, str) and report_day > as_of.isoformat()) or (
+            metrics.get('currency') not in (None, 'CNY')):
+        _merge_check(merged, 'financial_quality', 'pending_verification', '类型指标晚于研究截点或币种不符', {})
+        _refresh(merged)
+        return merged
     outcome, reason = 'pending_verification', '财务质量指标缺失或待核验'
     if issuer in ('bank', 'securities', 'insurance') and metrics.get('status') == 'available':
         if issuer == 'bank':
             car, provision, npl = metrics.get('bank_car'), metrics.get('bank_provision'), metrics.get('bank_npl_ratio')
-            if car is not None and provision is not None and npl is not None:
+            if (car is not None and provision is not None and npl is not None
+                    and metrics.get('bank_car_basis') in (None, 'total_capital_adequacy')):
                 outcome = ('passed' if car >= 10.5 and provision >= 150 and npl <= 0.05 else 'failed')
-                reason = '银行资本充足率≥10.5%、拨备覆盖率≥150%、不良率≤5%'
+                reason = '银行总资本充足率≥10.5%、拨备覆盖率≥150%、不良率≤5%'
         elif issuer == 'securities':
             risk, liquidity = metrics.get('sec_risk_coverage'), metrics.get('sec_liquidity_coverage')
             if risk is not None and liquidity is not None:
@@ -131,14 +147,16 @@ def merge_financial_quality(result: dict[str, Any], source: dict[str, Any] | Non
     _refresh(merged)
     return merged
 
+
 def merge_leadership(result: dict[str, Any], source: dict[str, Any], as_of: date) -> dict[str, Any]:
     """仅第三方/协会明确份额或排名的披露可通过；其余待核验。"""
     merged = deepcopy(result)
     merged['leadership_source'] = deepcopy(source)
     claims = source.get('claims') if isinstance(source, dict) else None
-    if (isinstance(source, dict) and source.get('status') == 'current' and source.get('as_of') == as_of.isoformat()
-            and isinstance(claims, list) and claims):
-        _merge_check(merged, 'leadership', 'passed', '存在可追溯第三方/协会份额或排名披露', {'claims': claims})
+    if (isinstance(source, dict) and source.get('status') == 'current' and source.get('symbol') == merged.get('symbol')
+            and source.get('as_of') == as_of.isoformat() and isinstance(claims, list) and claims):
+        _merge_check(merged, 'leadership', 'passed', '第三方/协会份额或排名已与同一原文、报告期和公告主体绑定',
+                     {'claims': claims})
     else:
         _merge_check(merged, 'leadership', 'pending_verification', '缺少可追溯的第三方/协会份额或排名披露', {})
     _refresh(merged)

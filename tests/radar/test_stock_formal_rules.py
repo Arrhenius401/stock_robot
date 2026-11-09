@@ -75,7 +75,6 @@ def test_bank_financial_quality_thresholds():
 
 def test_securities_and_insurance_thresholds():
     from radar.stocks.formal_rules import merge_financial_quality
-
     sec = {'status': 'current', 'symbol': '600000', 'as_of': DAY.isoformat(),
            'financial': {'type_metrics': {'status': 'available', 'sec_risk_coverage': 120.0,
                                           'sec_liquidity_coverage': 130.0}}}
@@ -105,10 +104,39 @@ def test_ordinary_financial_quality_does_not_use_cash_ratio():
 def test_bank_capital_uses_total_capital_adequacy_field():
     from radar.stocks.financial_source import type_specific_metrics
 
-    collection = {'records': {'main': [{'REPORT_DATE': '2025-12-31 00:00:00',
-                                        'NEWCAPITALADER': '12.12', 'FIRST_ADEQUACY_RATIO': '9.60',
-                                        'BLDKBBL': '155.37', 'NON_PERFORMING_LOAN': '26037000000',
-                                        'GROSSLOANS': '1913489000000'}]}}
-    metrics = type_specific_metrics(collection, DAY)
+    collection = {'company_type': '3', 'records': {'main': [{'SECURITY_CODE': '600000', 'CURRENCY': 'CNY',
+                                                             'REPORT_DATE': '2025-12-31 00:00:00',
+                                                             'NOTICE_DATE': '2026-03-28 00:00:00',
+                                                             'UPDATE_DATE': '2026-03-28 00:00:00',
+                                                             'NEWCAPITALADER': '12.12', 'FIRST_ADEQUACY_RATIO': '9.60',
+                                                             'BLDKBBL': '155.37', 'NON_PERFORMING_LOAN': '26037000000',
+                                                             'GROSSLOANS': '1913489000000'}]}}
+    metrics = type_specific_metrics(collection, DAY, '600000')
     assert metrics['bank_car'] == 12.12
     assert metrics['bank_tier1'] == 9.6
+    assert metrics['bank_car_basis'] == 'total_capital_adequacy'
+    assert metrics['disclosed_on'] == '2026-03-28'
+
+    # 只有一级资本充足率时必须待核验，不能冒充总资本充足率。
+    collection['records']['main'][0].pop('NEWCAPITALADER')
+    assert type_specific_metrics(collection, DAY, '600000')['bank_car'] is None
+
+
+def test_bank_quality_requires_total_capital_and_matching_company_type():
+    from radar.stocks.formal_rules import merge_financial_quality
+
+    base = common()
+    base['checks'].append({'code': 'security', 'outcome': 'passed', 'values': {'issuer_type': 'bank'}, 'evidence_ids': []})
+    source = {'status': 'current', 'symbol': '600000', 'as_of': DAY.isoformat(), 'evaluation_as_of': DAY.isoformat(),
+              'financial': {'source_company_type': '3', 'type_metrics': {
+                  'status': 'available', 'report_date': '2025-12-31', 'currency': 'CNY',
+                  'bank_car': None, 'bank_tier1': 12.0, 'bank_provision': 180.0, 'bank_npl_ratio': 0.02,
+                  'bank_car_basis': 'total_capital_adequacy'}}}
+    assert check(merge_financial_quality(base, source, DAY, 'bank'), 'financial_quality')['outcome'] == 'pending_verification'
+
+    source['financial']['type_metrics']['bank_car'] = 12.0
+    source['financial']['source_company_type'] = '4'
+    assert check(merge_financial_quality(base, source, DAY, 'bank'), 'financial_quality')['outcome'] == 'pending_verification'
+
+    source['financial']['source_company_type'] = '3'
+    assert check(merge_financial_quality(base, source, DAY, 'bank'), 'financial_quality')['outcome'] == 'passed'

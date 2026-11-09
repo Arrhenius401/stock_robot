@@ -112,6 +112,22 @@ def test_refresh_failure_preserves_old_file(tmp_path):
     assert result['items'][0]['previous_artifact']['sha256']
 
 
+def test_failed_refresh_cannot_fall_back_to_cached(tmp_path):
+    docs = [{'source_url': 'https://example.com/a'}]
+    collect_documents(docs, tmp_path, allowed_hosts={'example.com'}, http_get=lambda *a, **k: Response())
+    collect_documents(docs, tmp_path, allowed_hosts={'example.com'}, refresh=True,
+                      http_get=lambda *a, **k: Response(404))
+    calls = []
+
+    def get(url, **kwargs):
+        calls.append(url)
+        return Response(404)
+
+    result = collect_documents(docs, tmp_path, allowed_hosts={'example.com'}, http_get=get)
+    assert result['items'][0]['status'] == 'failed'
+    assert len(calls) == 1
+
+
 def test_invalid_input(tmp_path):
     with pytest.raises(ValueError):
         collect_documents([{}], tmp_path, allowed_hosts={'example.com'})

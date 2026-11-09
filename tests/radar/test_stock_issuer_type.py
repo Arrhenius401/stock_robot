@@ -98,6 +98,13 @@ def test_metadata_change_after_first_read_invalidates(tmp_path, monkeypatch):
     assert classify_issuer('平安银行股份有限公司', '')['status'] == 'unavailable'
 
 
+def test_roster_source_after_cutoff_is_unavailable(tmp_path, monkeypatch):
+    write_roster(tmp_path, monkeypatch, payload())
+    assert classify_issuer('平安银行股份有限公司', 'J 金融业', date(2026, 9, 30))['status'] == 'verified'
+    # 证券公司名录标注 2026-09，截点 2026-08-31 时不能使用未来来源。
+    assert classify_issuer('平安银行股份有限公司', 'J 金融业', date(2026, 8, 31))['status'] == 'unavailable'
+
+
 def test_unverified_issuer_does_not_pass_security_condition():
     from radar.stocks.admission import evaluate_common_admission
     from radar.stocks.company_profile_admission import merge_common_profile

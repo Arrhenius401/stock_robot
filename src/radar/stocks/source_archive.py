@@ -139,7 +139,8 @@ def collect_documents(documents: list[dict[str, Any]], archive_dir: Path, *,
             result['cache_read_failed'] = str(exc)
         try:
             _host(url, allowed)
-            if previous and not refresh:
+            # 最新一次刷新失败的旧工件只用于诊断，不能让后续非刷新任务回退为 cached。
+            if previous and not refresh and records.get(url, {}).get('status') != 'failed':
                 return {**result, **previous, 'status': 'cached'}
             current = url
             for hop in range(6):
