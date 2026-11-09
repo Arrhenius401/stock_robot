@@ -5,7 +5,7 @@ from copy import deepcopy
 from datetime import date
 from typing import Any
 
-FORMAL_RULE_VERSION = 'formal-2026-11-08-v1'
+FORMAL_RULE_VERSION = 'formal-2026-11-08-v2'
 _ISSUER_TYPES = {'ordinary', 'bank', 'securities', 'insurance'}
 _GOVERNANCE_SERIOUS = ('财务造假', '虚假记载', '资金占用', '违规担保')
 
