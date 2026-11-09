@@ -3,13 +3,38 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import unicodedata
 from datetime import date
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 _REQUIRED = ('symbol', 'scope', 'metric', 'value', 'source_name', 'quote', 'report_date', 'source_url',
-             'raw_file', 'raw_sha256')
+             'raw_file', 'raw_sha256', 'disclosed_on', 'announcement_title', 'announcement_url',
+             'disclosure_file', 'disclosure_sha256')
+_NUMBERS = {'一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10}
+
+
+def _norm(value: Any) -> str:
+    if not isinstance(value, str):
+        return ''
+    return re.sub(r'[\s\u3000]+', '', unicodedata.normalize('NFKC', value))
+
+
+def _rank_in_quote(quote: str) -> int | None:
+    text = _norm(quote)
+    if '前三' in text:
+        return 3
+    match = re.search(r'第([一二三四五六七八九十\d]+)(?=(?:名|位|强|[，,。；;、（）()]|$))', text)
+    if match is None:
+        match = re.search(r'([一二三四五六七八九十\d]+)(?:名|位)', text)
+    if match is None:
+        return None
+    raw = match.group(1)
+    if raw.isdigit():
+        return int(raw)
+    return _NUMBERS.get(raw)
 
 
 def _official_url(value: str, symbol: str) -> bool:
@@ -44,6 +69,26 @@ def _raw_reviews(state_dir: Path, claim: dict[str, Any]) -> tuple[str, set[str]]
     return text, dates
 
 
+def _valid_disclosure(state_dir: Path, claim: dict[str, Any]) -> bool:
+    disclosure_file = claim.get('disclosure_file')
+    expected = f"disclosures/{claim.get('symbol')}.json"
+    if not isinstance(disclosure_file, str) or disclosure_file != expected:
+        return False
+    try:
+        raw = (state_dir / 'stock-leadership' / disclosure_file).read_bytes()
+        if hashlib.sha256(raw).hexdigest() != claim.get('disclosure_sha256'):
+            return False
+        item = json.loads(raw)
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return False
+    if not isinstance(item, dict):
+        return False
+    if (item.get('title') != claim.get('announcement_title') or item.get('notice_date') != claim.get('disclosed_on')
+            or not isinstance(item.get('url'), str) or not item['url'].startswith('https://data.eastmoney.com/notices/detail/')):
+        return False
+    return item['url'] == claim.get('announcement_url')
+
+
 def _valid_claim(state_dir: Path, claim: Any, symbol: str, cutoff: date) -> bool:
     if not isinstance(claim, dict) or any(not isinstance(claim.get(key), str) or not claim[key].strip() for key in _REQUIRED):
         return False
@@ -54,9 +99,10 @@ def _valid_claim(state_dir: Path, claim: Any, symbol: str, cutoff: date) -> bool
         return False
     try:
         report = date.fromisoformat(claim['report_date'])
+        disclosed = date.fromisoformat(claim['disclosed_on'])
     except ValueError:
         return False
-    if report > cutoff or (cutoff - report).days > 366:
+    if report > disclosed or disclosed > cutoff:
         return False
     if not _official_url(claim['source_url'], symbol):
         return False
@@ -64,7 +110,21 @@ def _valid_claim(state_dir: Path, claim: Any, symbol: str, cutoff: date) -> bool
         text, dates = _raw_reviews(state_dir, claim)
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         return False
-    return claim['quote'] in text and claim['report_date'] in dates
+    quote = claim['quote']
+    if quote not in text or claim['report_date'] not in dates:
+        return False
+    if _norm(claim['source_name']) not in _norm(text) or _norm(claim['scope']) not in _norm(quote):
+        return False
+    parsed_rank = _rank_in_quote(quote)
+    if parsed_rank != rank:
+        return False
+    value = _norm(claim['value'])
+    if claim.get('metric') == 'share' and value.endswith('%'):
+        if value not in _norm(quote):
+            return False
+    elif value not in _norm(quote):
+        return False
+    return _valid_disclosure(state_dir, claim)
 
 
 def load_leadership_source(state_dir: Path, symbol: str, as_of: date) -> dict[str, Any]:

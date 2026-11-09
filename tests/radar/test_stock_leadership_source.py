@@ -1,4 +1,4 @@
-"""严格行业地位来源、原文复读与合并边界。"""
+"""严格行业地位来源、原文复读、披露日期与合并边界。"""
 import hashlib
 import json
 from datetime import date
@@ -12,20 +12,30 @@ QUOTE = '产业在线数据显示,美的中央空调国内市场销售额占比�
 def claim():
     return {'symbol': '000333', 'scope': '中央空调国内市场销售额', 'metric': 'share', 'value': '22%',
             'rank': 1, 'source_name': '产业在线', 'quote': QUOTE, 'report_date': '2026-06-30',
-            'source_url': 'https://emweb.securities.eastmoney.com/PC_HSF10/BusinessAnalysis/PageAjax?code=SZ000333'}
+            'source_url': 'https://emweb.securities.eastmoney.com/PC_HSF10/BusinessAnalysis/PageAjax?code=SZ000333',
+            'disclosed_on': '2026-08-29', 'announcement_title': '美的集团:2026年半年度报告',
+            'announcement_url': 'https://data.eastmoney.com/notices/detail/000333/AN202608280006758469.html',
+            'disclosure_file': 'disclosures/000333.json'}
 
 
 def write(tmp_path, value, raw_text=QUOTE):
     path = tmp_path / 'stock-leadership'; (path / 'raw').mkdir(parents=True, exist_ok=True)
+    (path / 'disclosures').mkdir(exist_ok=True)
     raw = json.dumps({'jyps': [{'REPORT_DATE': '2026-06-30 00:00:00', 'BUSINESS_REVIEW': raw_text}]},
                      ensure_ascii=False).encode()
     (path / 'raw' / '000333.json').write_bytes(raw)
-    value['symbols']['000333'][0]['raw_file'] = 'raw/000333.json'
-    value['symbols']['000333'][0]['raw_sha256'] = hashlib.sha256(raw).hexdigest()
+    disclosure = json.dumps({'title': '美的集团:2026年半年度报告', 'notice_date': '2026-08-29',
+                             'url': 'https://data.eastmoney.com/notices/detail/000333/AN202608280006758469.html'},
+                            ensure_ascii=False).encode()
+    (path / 'disclosures' / '000333.json').write_bytes(disclosure)
+    item = value['symbols']['000333'][0]
+    item['raw_file'] = 'raw/000333.json'
+    item['raw_sha256'] = hashlib.sha256(raw).hexdigest()
+    item['disclosure_sha256'] = hashlib.sha256(disclosure).hexdigest()
     (path / 'leadership.json').write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8')
 
 
-def test_leadership_source_reads_raw_and_accepts_top_three(tmp_path):
+def test_leadership_source_reads_raw_and_disclosure(tmp_path):
     write(tmp_path, {'as_of': DAY.isoformat(), 'symbols': {'000333': [claim()]}})
     result = load_leadership_source(tmp_path, '000333', DAY)
     assert result['status'] == 'current' and result['claims']
@@ -41,9 +51,15 @@ def test_leadership_source_rejects_arbitrary_url_or_rank(tmp_path):
     assert load_leadership_source(tmp_path, '000333', DAY)['status'] == 'unavailable'
 
 
-def test_leadership_source_rejects_quote_not_in_raw(tmp_path):
-    bad = claim(); bad['quote'] = '公司自称第100名'
-    write(tmp_path, {'as_of': DAY.isoformat(), 'symbols': {'000333': [bad]}}, raw_text=QUOTE)
+def test_claim_rank_must_match_quote(tmp_path):
+    bad = claim(); bad['rank'] = 1; bad['quote'] = '公司自称第100名'
+    write(tmp_path, {'as_of': DAY.isoformat(), 'symbols': {'000333': [bad]}}, raw_text=bad['quote'])
+    assert load_leadership_source(tmp_path, '000333', DAY)['status'] == 'unavailable'
+
+
+def test_disclosure_after_cutoff_is_unavailable(tmp_path):
+    bad = claim(); bad['disclosed_on'] = '2026-11-08'
+    write(tmp_path, {'as_of': DAY.isoformat(), 'symbols': {'000333': [bad]}})
     assert load_leadership_source(tmp_path, '000333', DAY)['status'] == 'unavailable'
 
 
