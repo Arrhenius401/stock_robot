@@ -91,13 +91,15 @@ def _dividend_item(symbol: str, name: str, pools: list[str], as_of: date, db: Pa
             'existing_passed_years': sorted(passed),
             'no_record_all_years': no_record,
         },
-        'source': {'kind': 'cninfo_dividend_implementation',
-                   'documents': [f'{year} 年年度权益分派实施公告' for year in missing],
+        'source': {'kind': 'annual_report_profit_distribution',
+                   'documents': [f'{year} 年年度报告 利润分配章节' for year in missing],
+                   'classifier_rule': 'dividend-plan-2026-11-10-v1',
                    'disclosed_before': as_of.isoformat()},
         'expected': ('failed_if_confirmed_no_dividend_else_pending' if no_record
                      else 'passed_if_positive_else_failed'),
-        'risk': ('三年均无记录，必须先确认是“无分红”还是“漏采”；确认无分红应转 failed'
-                 if no_record else '只补缺失年度；已有年度不回退，来源冲突保持 pending'),
+        'risk': ('三年均无实施记录，必须从年报利润分配章节独立判定；明确不分配应转 failed，'
+                 '没有年报或表述不明保持 pending' if no_record else
+                 '只补缺失年度；以年报利润分配章节独立判定，已有年度不回退，来源冲突保持 pending'),
         'proof_required': ['source_url', 'disclosed_on', 'content_sha256'],
     }
 
