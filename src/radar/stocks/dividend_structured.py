@@ -82,19 +82,14 @@ def evaluate_dividend_records(symbol: str, as_of: date, cninfo: Any, eastmoney: 
 
 
 def evaluate_cninfo_records(symbol: str, as_of: date, rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """以请求绑定的巨潮记录独立证明各年度正向实施记录。"""
+    """以请求绑定的巨潮记录独立证明各年度至少一条正向实施记录。"""
     _symbol(symbol)
     years = range(as_of.year - 3, as_of.year)
     items: dict[int, list[dict[str, Any]]] = {year: [] for year in years}
-    seen: dict[tuple[str, str], tuple[str, str]] = {}
-    conflict = False
     for row in rows:
         period = row.get('F001V')
         matched = re.fullmatch(r'(\d{4})(?:年报|半年报|一季报|三季报)', period) if isinstance(period, str) else None
         if not matched:
-            notice = _source_day(row.get('F006D'))
-            if notice is None or notice.year >= as_of.year - 3:
-                conflict = True
             continue
         year = int(matched.group(1))
         if year not in items:
@@ -103,18 +98,13 @@ def evaluate_cninfo_records(symbol: str, as_of: date, rows: list[dict[str, Any]]
         if (notice is None or paid is None or notice.year < year or notice > as_of or paid > as_of
                 or paid < notice or ratio is None or ratio <= 0):
             continue
-        key = (notice.isoformat(), paid.isoformat())
-        identity = (matched.group(0), str(ratio))
-        if key in seen and seen[key] != identity:
-            conflict = True
-        seen[key] = identity
         items[year].append({'report_period': period, 'announced_on': notice.isoformat(),
                             'paid_on': paid.isoformat(), 'cash_per_ten_shares': str(ratio)})
-    annual = [{'year': year, 'outcome': 'passed' if items[year] and not conflict else 'pending_verification',
+    annual = [{'year': year, 'outcome': 'passed' if items[year] else 'pending_verification',
                'events': items[year]} for year in years]
     outcome = 'passed' if all(item['outcome'] == 'passed' for item in annual) else 'pending_verification'
     return {'symbol': symbol, 'as_of': as_of.isoformat(), 'outcome': outcome, 'annual': annual,
-            'reason': '三年均有已实施A股现金分红' if outcome == 'passed' else '分红记录缺失或冲突待核验',
+            'reason': '三年均有已实施A股现金分红' if outcome == 'passed' else '分红记录缺失、冲突或日期待核验',
             'financial_verified': False, 'formal_screening_enabled': False, 'members_published': 0}
 
 

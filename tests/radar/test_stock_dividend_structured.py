@@ -27,6 +27,18 @@ def test_three_years_cash_dividend_uses_fiscal_year_and_actual_payment():
     assert result['financial_verified'] is False
 
 
+def test_cninfo_multiple_events_in_same_year_and_date_pass():
+    from radar.stocks.dividend_structured import evaluate_cninfo_records
+
+    rows = records()
+    duplicate = deepcopy(rows[0])
+    duplicate['F012N'] = '9'
+    rows.append(duplicate)
+    result = evaluate_cninfo_records('600900', DAY, rows)
+    assert result['outcome'] == 'passed'
+    assert len(result['annual'][0]['events']) == 2
+
+
 def test_missing_secondary_event_remains_pending():
     result = evaluate_dividend_records('600900', DAY, records(), [])
     assert result['outcome'] == 'pending_verification'

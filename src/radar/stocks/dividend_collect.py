@@ -235,3 +235,18 @@ def verify_collection(collection: Any, symbol: str, as_of: date) -> dict[str, An
         raise ValueError('所选分红来源不能证明完整三年')
     return {**result, 'selected_provider': provider,
             'identity_basis': 'request_code' if provider == 'cninfo' else 'response_code'}
+
+
+def reselect_collection(collection: Any, symbol: str, as_of: date) -> dict[str, Any] | None:
+    """对已保存的完整来源按当前解析规则重选；不新增原文、不改抓取时间。"""
+    if (not isinstance(collection, dict) or collection.get('version') != VERSION
+            or collection.get('symbol') != symbol or collection.get('as_of') != as_of.isoformat()):
+        return None
+    sources = collection.get('sources')
+    if not isinstance(sources, dict):
+        return None
+    selected = next((name for name in ('eastmoney', 'cninfo')
+                     if _candidate_result(sources, symbol, as_of, name) is not None), None)
+    if selected is None:
+        return None
+    return {**collection, 'selected_provider': selected, 'status': 'complete'}

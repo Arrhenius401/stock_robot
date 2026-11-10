@@ -11,11 +11,29 @@ from pathlib import Path
 from typing import Any
 
 from radar.stocks.admission import _BJ
-from radar.stocks.dividend_collect import VERSION, verify_collection
+from radar.stocks.dividend_collect import (
+    VERSION,
+    reselect_collection,
+    verify_collection,
+)
 from radar.stocks.financial_task import read_financial_artifact
 from radar.stocks.research_store import _id, _symbol
 
 logger = logging.getLogger(__name__)
+
+
+def _apply_collection(source: dict[str, Any], collection: dict[str, Any], row: sqlite3.Row,
+                      symbol: str, as_of: date) -> dict[str, Any]:
+    source['result'] = verify_collection(collection, symbol, date.fromisoformat(row['target_date']))
+    sources = collection['sources']
+    selected = collection['selected_provider']
+    selected_names = ('eastmoney_page', 'eastmoney') if selected == 'eastmoney' else ('cninfo',)
+    fetched_dates = {name: datetime.fromisoformat(sources[name]['fetched_at']).astimezone(_BJ).date()
+                     for name in selected_names}
+    source['fetched_dates'] = {name: value.isoformat() for name, value in fetched_dates.items()}
+    source['status'] = ('current' if row['target_date'] == as_of.isoformat()
+                        and all(value <= as_of for value in fetched_dates.values()) else 'historical')
+    return source
 
 
 def load_dividend_source(db: Path, symbol: str, as_of: date) -> dict[str, Any]:
@@ -52,21 +70,18 @@ def load_dividend_source(db: Path, symbol: str, as_of: date) -> dict[str, Any]:
                 source['status'] = 'not_attempted'
                 return source
             if item.get('status') != 'completed':
-                source['status'] = 'partial'
-                return source
+                payload = read_financial_artifact(item, db.parent/'stock-updates/artifacts')
+                if payload.get('symbol') != symbol or payload.get('as_of') != row['target_date']:
+                    raise ValueError('分红产物身份不符')
+                reselected = reselect_collection(payload['collection'], symbol, date.fromisoformat(row['target_date']))
+                if reselected is None:
+                    source['status'] = 'partial'
+                    return source
+                return _apply_collection(source, reselected, row, symbol, as_of)
             payload = read_financial_artifact(item, db.parent/'stock-updates/artifacts')
             if payload.get('symbol') != symbol or payload.get('as_of') != row['target_date']:
                 raise ValueError('分红产物身份不符')
-            source['result'] = verify_collection(payload['collection'], symbol, date.fromisoformat(row['target_date']))
-            sources = payload['collection']['sources']
-            selected = payload['collection']['selected_provider']
-            selected_names = ('eastmoney_page', 'eastmoney') if selected == 'eastmoney' else ('cninfo',)
-            fetched_dates = {name: datetime.fromisoformat(sources[name]['fetched_at']).astimezone(_BJ).date()
-                             for name in selected_names}
-            source['fetched_dates'] = {name: value.isoformat() for name, value in fetched_dates.items()}
-            source['status'] = ('current' if row['target_date'] == as_of.isoformat()
-                                and all(value <= as_of for value in fetched_dates.values()) else 'historical')
-            return source
+            return _apply_collection(source, payload['collection'], row, symbol, as_of)
         except (OSError, ValueError, TypeError, KeyError, AttributeError, StopIteration) as exc:
             logger.warning('分红来源不可用 %s: %s', symbol, exc)
             source.update(status='invalid', result=None, run_id=row['run_id'])
