@@ -68,6 +68,24 @@ def test_cash_special_accepts_end_cce_when_end_cash_absent():
     assert metrics['cash_end'] == [5.0, 5.0, 5.0]
 
 
+def test_cash_special_derives_interest_when_net_finance_expense_nonpositive():
+    from radar.stocks.cash_special import cash_special_metrics
+
+    rows = [{'SECURITY_CODE': '600000', 'CURRENCY': 'CNY', 'REPORT_DATE': f'{year}-12-31 00:00:00',
+             'NOTICE_DATE': f'{year + 1}-03-20 00:00:00', 'UPDATE_DATE': f'{year + 1}-03-20 00:00:00',
+             'NETCASH_OPERATE': '10', 'CONSTRUCT_LONG_ASSET': '1', 'ASSIGN_DIVIDEND_PORFIT': '2', 'END_CASH': '5'}
+            for year in (2023, 2024, 2025)]
+    main = [{'SECURITY_CODE': '600000', 'CURRENCY': 'CNY', 'REPORT_DATE': '2025-12-31 00:00:00',
+             'NOTICE_DATE': '2026-03-20 00:00:00', 'UPDATE_DATE': '2026-03-20 00:00:00'}]
+    profit = [{'SECURITY_CODE': '600000', 'CURRENCY': 'CNY', 'REPORT_DATE': '2025-12-31 00:00:00',
+               'NOTICE_DATE': '2026-03-20 00:00:00', 'UPDATE_DATE': '2026-03-20 00:00:00',
+               'FINANCE_EXPENSE': '-1', 'TOTAL_PROFIT': '10'}]
+    metrics = cash_special_metrics({'records': {'cashflow': rows, 'main': main, 'profit': profit}}, DAY, '600000')
+    assert metrics['status'] == 'available'
+    assert metrics['interest_coverage'] == 1.0
+    assert metrics['interest_basis'] == 'net_finance_expense_nonpositive'
+
+
 def test_missing_dividend_field_is_pending_not_zero():
     from radar.stocks.cash_special import cash_special_metrics
 

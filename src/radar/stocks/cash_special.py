@@ -98,11 +98,34 @@ def cash_special_metrics(collection: Any, as_of: date, symbol: str | None = None
         interest = _number(main_candidates[0], 'INTEREST_COVERAGE_RATIO')
     elif len(main_candidates) > 1:
         return {'status': 'pending_verification', 'reason': '最新完整年度主要指标原文重复，无法确认唯一口径'}
+    interest_basis = 'disclosed_interest_coverage_ratio'
+    if interest is None:
+        profit_rows = records.get('profit') if isinstance(records, dict) else None
+        profit_candidates: list[dict[str, Any]] = []
+        for row in profit_rows if isinstance(profit_rows, list) else []:
+            if not isinstance(row, dict) or row.get('CURRENCY') != 'CNY' or not _identity(row, symbol):
+                continue
+            report = _day(row.get('REPORT_DATE'))
+            if report is None or report != date(years[-1], 12, 31) or _published(row, as_of) is None:
+                continue
+            profit_candidates.append(row)
+        if len(profit_candidates) == 1:
+            row = profit_candidates[0]
+            finance = _number(row, 'FINANCE_EXPENSE')
+            total_profit = _number(row, 'TOTAL_PROFIT')
+            fe_interest = _number(row, 'FE_INTEREST_EXPENSE')
+            if finance is not None and finance <= 0:
+                interest = 1.0
+                interest_basis = 'net_finance_expense_nonpositive'
+            elif fe_interest is not None and fe_interest > 0 and total_profit is not None:
+                interest = (total_profit + fe_interest) / fe_interest
+                interest_basis = 'computed_from_profit_and_interest'
     if interest is None:
         return {'status': 'pending_verification', 'reason': '缺少截点前已披露的利息保障倍数'}
     ocf_sum, capex_sum, dividend_sum = sum(ocf), sum(capex), sum(dividends)  # type: ignore[arg-type]
     return {'status': 'available', 'years': years, 'ocf_sum': ocf_sum, 'capex_sum': capex_sum,
             'dividend_sum': dividend_sum, 'cash_end': cash, 'interest_coverage': interest,
+            'interest_basis': interest_basis,
             'capex_exceeds_ocf': capex_sum > ocf_sum, 'currency': 'CNY', 'unit': 'CNY_yuan',
             'dividend_field': 'ASSIGN_DIVIDEND_PORFIT',
             'dividend_field_meaning': '分配股利、利润或偿付利息支付的现金',
