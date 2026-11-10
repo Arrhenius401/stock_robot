@@ -131,6 +131,44 @@ def evaluate_dividend_absence(symbol: str, as_of: date, cninfo: Any, eastmoney: 
             'financial_verified': False, 'formal_screening_enabled': False, 'members_published': 0}
 
 
+def evaluate_eastmoney_page_absence(symbol: str, as_of: date, rows: Any) -> dict[str, Any]:
+    """用东财 F10 分红页的年度预案识别“不分配不转增”；没有 REPORT_DATE 时按公告月份归年。"""
+    _symbol(symbol)
+    if type(as_of) is not date or as_of.year < 4:
+        raise ValueError('分红研究截点无效')
+    if not isinstance(rows, list):
+        raise TypeError('分红来源须为记录列表')
+    years = list(range(as_of.year - 3, as_of.year))
+    outcomes = {year: 'pending_verification' for year in years}
+    for row in rows:
+        if not isinstance(row, dict) or row.get('SECURITY_CODE') != symbol:
+            continue
+        notice = _source_day(row.get('NOTICE_DATE'))
+        if notice is None or notice > as_of:
+            continue
+        # 年报预案通常在上半年公告；8-12 月是中期/季度预案，不用于年度判定。
+        if notice.month > 6:
+            continue
+        year = notice.year - 1
+        if year not in outcomes:
+            continue
+        profile = str(row.get('IMPL_PLAN_PROFILE') or '')
+        if any(token in profile for token in ('不分配', '不转增', '不派发', '不派现')):
+            outcomes[year] = 'no_dividend'
+        elif '派' in profile:
+            outcomes[year] = 'pending_verification'
+    annual = [{'year': year, 'outcome': outcomes[year], 'events': []} for year in years]
+    if any(item['outcome'] == 'no_dividend' for item in annual):
+        outcome = 'failed'
+        reason = '东财F10页面明确列示不分配不转增'
+    else:
+        outcome = 'pending_verification'
+        reason = '东财F10页面预案不足或未实施'
+    return {'symbol': symbol, 'as_of': as_of.isoformat(), 'outcome': outcome, 'annual': annual,
+            'reason': reason, 'rule_version': 'dividend-page-absence-2026-11-10-v1',
+            'financial_verified': False, 'formal_screening_enabled': False, 'members_published': 0}
+
+
 def evaluate_cninfo_records(symbol: str, as_of: date, rows: list[dict[str, Any]]) -> dict[str, Any]:
     """以请求绑定的巨潮记录独立证明各年度至少一条正向实施记录。"""
     _symbol(symbol)

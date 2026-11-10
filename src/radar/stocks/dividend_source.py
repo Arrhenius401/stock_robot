@@ -17,7 +17,10 @@ from radar.stocks.dividend_collect import (
     reselect_collection,
     verify_collection,
 )
-from radar.stocks.dividend_structured import evaluate_dividend_absence
+from radar.stocks.dividend_structured import (
+    evaluate_dividend_absence,
+    evaluate_eastmoney_page_absence,
+)
 from radar.stocks.financial_task import read_financial_artifact
 from radar.stocks.research_store import _id, _symbol
 
@@ -44,13 +47,24 @@ def _apply_absence(source: dict[str, Any], collection: dict[str, Any], row: sqli
     sources = collection.get('sources') if isinstance(collection, dict) else None
     if not isinstance(sources, dict):
         return None
-    if any(not isinstance(sources.get(name), dict) or sources[name].get('status') != 'complete'
-           for name in ('cninfo', 'eastmoney')):
+    target = date.fromisoformat(row['target_date'])
+    cninfo_source = sources.get('cninfo')
+    eastmoney_source = sources.get('eastmoney')
+    page_source = sources.get('eastmoney_page')
+    if not isinstance(cninfo_source, dict) or cninfo_source.get('status') != 'complete':
         return None
     try:
-        cninfo = _decode_source(sources['cninfo'], 'cninfo', symbol, date.fromisoformat(row['target_date']))
-        eastmoney = _decode_source(sources['eastmoney'], 'eastmoney', symbol, date.fromisoformat(row['target_date']))
-        result = evaluate_dividend_absence(symbol, date.fromisoformat(row['target_date']), cninfo, eastmoney)
+        cninfo = _decode_source(cninfo_source, 'cninfo', symbol, target)
+        if isinstance(eastmoney_source, dict) and eastmoney_source.get('status') == 'complete':
+            eastmoney = _decode_source(eastmoney_source, 'eastmoney', symbol, target)
+            result = evaluate_dividend_absence(symbol, target, cninfo, eastmoney)
+            fetched_names = ('cninfo', 'eastmoney')
+        elif isinstance(page_source, dict) and page_source.get('status') == 'complete':
+            page = _decode_source(page_source, 'eastmoney_page', symbol, target)
+            result = evaluate_eastmoney_page_absence(symbol, target, page)
+            fetched_names = ('cninfo', 'eastmoney_page')
+        else:
+            return None
     except (ValueError, TypeError, KeyError):
         return None
     if result.get('outcome') == 'pending_verification':
@@ -58,7 +72,7 @@ def _apply_absence(source: dict[str, Any], collection: dict[str, Any], row: sqli
     source['result'] = result
     source['selected_provider'] = None
     fetched_dates = {name: datetime.fromisoformat(sources[name]['fetched_at']).astimezone(_BJ).date()
-                     for name in ('cninfo', 'eastmoney')}
+                     for name in fetched_names}
     source['fetched_dates'] = {name: value.isoformat() for name, value in fetched_dates.items()}
     source['status'] = ('current' if row['target_date'] == as_of.isoformat()
                         and all(value <= as_of for value in fetched_dates.values()) else 'historical')

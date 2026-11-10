@@ -66,6 +66,26 @@ def test_cninfo_positive_wins_over_eastmoney_absence():
     assert result['outcome'] == 'passed'
 
 
+def test_f10_page_no_dividend_plan_fails_without_report_date():
+    from radar.stocks.dividend_structured import evaluate_eastmoney_page_absence
+
+    rows = [{'SECURITY_CODE': '688981', 'NOTICE_DATE': f'{year}-03-28 00:00:00',
+             'IMPL_PLAN_PROFILE': '不分配不转增', 'ASSIGN_PROGRESS': '股东大会预案'}
+            for year in (2024, 2025, 2026)]
+    result = evaluate_eastmoney_page_absence('688981', DAY, rows)
+    assert result['outcome'] == 'failed'
+    assert all(item['outcome'] == 'no_dividend' for item in result['annual'])
+
+
+def test_f10_page_positive_plan_stays_pending():
+    from radar.stocks.dividend_structured import evaluate_eastmoney_page_absence
+
+    rows = [{'SECURITY_CODE': '600900', 'NOTICE_DATE': '2026-03-28 00:00:00',
+             'IMPL_PLAN_PROFILE': '10派5.00元', 'ASSIGN_PROGRESS': '董事会预案'}]
+    result = evaluate_eastmoney_page_absence('600900', DAY, rows)
+    assert result['outcome'] == 'pending_verification'
+
+
 def test_missing_secondary_event_remains_pending():
     result = evaluate_dividend_records('600900', DAY, records(), [])
     assert result['outcome'] == 'pending_verification'
