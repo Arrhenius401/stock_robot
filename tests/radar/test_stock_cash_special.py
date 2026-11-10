@@ -50,6 +50,24 @@ def test_wrong_symbol_or_stale_source_is_pending():
     assert cash_special_verdict(stale, 'ordinary', DAY, '600000')['outcome'] == 'pending_verification'
 
 
+def test_cash_special_accepts_end_cce_when_end_cash_absent():
+    from radar.stocks.cash_special import cash_special_metrics
+
+    rows = [{'SECURITY_CODE': '600000', 'CURRENCY': 'CNY', 'REPORT_DATE': f'{year}-12-31 00:00:00',
+             'NOTICE_DATE': f'{year + 1}-03-20 00:00:00', 'UPDATE_DATE': f'{year + 1}-03-20 00:00:00',
+             'NETCASH_OPERATE': '10', 'CONSTRUCT_LONG_ASSET': '1', 'ASSIGN_DIVIDEND_PORFIT': '2',
+             'END_CASH': None, 'END_CASH_EQUIVALENTS': None, 'END_CCE': '5'}
+            for year in (2023, 2024, 2025)]
+    collection = {'records': {'cashflow': rows,
+                              'main': [{'SECURITY_CODE': '600000', 'CURRENCY': 'CNY',
+                                        'REPORT_DATE': '2025-12-31 00:00:00',
+                                        'NOTICE_DATE': '2026-03-20 00:00:00', 'UPDATE_DATE': '2026-03-20 00:00:00',
+                                        'INTEREST_COVERAGE_RATIO': '5'}]}}
+    metrics = cash_special_metrics(collection, DAY, '600000')
+    assert metrics['status'] == 'available'
+    assert metrics['cash_end'] == [5.0, 5.0, 5.0]
+
+
 def test_missing_dividend_field_is_pending_not_zero():
     from radar.stocks.cash_special import cash_special_metrics
 

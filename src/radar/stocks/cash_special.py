@@ -78,7 +78,11 @@ def cash_special_metrics(collection: Any, as_of: date, symbol: str | None = None
         capex.append(_number(row, 'CONSTRUCT_LONG_ASSET'))
         dividends.append(_number(row, 'ASSIGN_DIVIDEND_PORFIT'))
         end = _number(row, 'END_CASH')
-        cash.append(end if end is not None else _number(row, 'END_CASH_EQUIVALENTS'))
+        if end is None:
+            end = _number(row, 'END_CASH_EQUIVALENTS')
+        if end is None:
+            end = _number(row, 'END_CCE')
+        cash.append(end)
     if any(value is None for value in ocf + capex + dividends + cash):
         return {'status': 'pending_verification', 'reason': '三个年度经营现金流、资本开支、分红及利息支付或现金余额缺失'}
     interest = None
