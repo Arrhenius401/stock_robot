@@ -8,6 +8,7 @@ from typing import Any
 
 import click
 
+from radar.stocks.completion_apply import apply_plan, load_plan
 from radar.stocks.completion_plan import build_completion_plan
 from radar.stocks.research_store import StockResearchStore
 from stock_robot.dividend_documents import _cutoff
@@ -128,6 +129,34 @@ def completion_plan(details_path: Path, db: Path, as_of: str, pools: str, symbol
         plan = build_completion_plan(details, db, cutoff, pools=pool_set, symbols=symbol_set)
         _emit({**plan, "members_published": 0}, db, output)
     except (OSError, ValueError, TypeError, sqlite3.Error) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@click.command("stock-completion-apply")
+@click.option("--plan", "plan_path", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
+@click.option("--select", default="", help="逗号分隔的代码或条件；不填则全部")
+@click.option("--annual-dir", type=click.Path(file_okay=False, path_type=Path))
+@click.option("--turnover-dir", type=click.Path(file_okay=False, path_type=Path))
+@click.option("--retry-dir", type=click.Path(file_okay=False, path_type=Path))
+@click.option("--output", type=click.Path(dir_okay=False, path_type=Path))
+@click.option("--dry-run", is_flag=True, help="只回放计划，不读取证据")
+@click.option("--yes", is_flag=True, help="确认执行")
+def completion_apply(plan_path: Path, select: str, annual_dir: Path | None, turnover_dir: Path | None,
+                     retry_dir: Path | None, output: Path | None, dry_run: bool, yes: bool) -> None:
+    """按计划执行补全；没有 --yes 不读取证据、不产出 applied。"""
+    try:
+        if not dry_run and not yes:
+            raise ValueError('需要 --dry-run 或 --yes')
+        plan = load_plan(plan_path)
+        selected = {value.strip() for value in select.split(',') if value.strip()} or None
+        run = apply_plan(plan, select=selected, dry_run=dry_run, yes=yes,
+                         annual_dir=annual_dir, turnover_dir=turnover_dir, retry_dir=retry_dir)
+        if output is None:
+            click.echo(json.dumps(run, ensure_ascii=False, indent=2))
+        else:
+            _write_json(output, run)
+            click.echo(f"补全结果已导出：{output}；未发布股票池成员。")
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
         raise click.ClickException(str(exc)) from exc
 
 
