@@ -39,6 +39,33 @@ def test_cninfo_multiple_events_in_same_year_and_date_pass():
     assert len(result['annual'][0]['events']) == 2
 
 
+def test_dual_source_absence_is_failed_not_pending():
+    from radar.stocks.dividend_structured import evaluate_dividend_absence
+
+    result = evaluate_dividend_absence('600900', DAY, [], [])
+    assert result['outcome'] == 'failed'
+    assert all(row['outcome'] == 'no_dividend' for row in result['annual'])
+
+
+def test_planned_but_unimplemented_dividend_stays_pending():
+    from radar.stocks.dividend_structured import evaluate_dividend_absence
+
+    cninfo = [row for row in records() if not str(row['F001V']).startswith('2025')]
+    eastmoney = [{'SECURITY_CODE': '600900', 'REPORT_DATE': '2025-12-31 00:00:00',
+                  'ASSIGN_PROGRESS': '董事会决议通过', 'PRETAX_BONUS_RMB': '5',
+                  'NOTICE_DATE': '2026-04-01 00:00:00'}]
+    result = evaluate_dividend_absence('600900', DAY, cninfo, eastmoney)
+    assert result['outcome'] == 'pending_verification'
+    assert next(row for row in result['annual'] if row['year'] == 2025)['outcome'] == 'pending_verification'
+
+
+def test_cninfo_positive_wins_over_eastmoney_absence():
+    from radar.stocks.dividend_structured import evaluate_dividend_absence
+
+    result = evaluate_dividend_absence('600900', DAY, records(), [])
+    assert result['outcome'] == 'passed'
+
+
 def test_missing_secondary_event_remains_pending():
     result = evaluate_dividend_records('600900', DAY, records(), [])
     assert result['outcome'] == 'pending_verification'

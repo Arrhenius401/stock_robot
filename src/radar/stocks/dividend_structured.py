@@ -81,6 +81,56 @@ def evaluate_dividend_records(symbol: str, as_of: date, cninfo: Any, eastmoney: 
             'financial_verified': False, 'formal_screening_enabled': False, 'members_published': 0}
 
 
+def evaluate_dividend_absence(symbol: str, as_of: date, cninfo: Any, eastmoney: Any) -> dict[str, Any]:
+    """双源完整且该年度无任何正分红记录时，独立判 no_dividend；不把单源失败当缺失。"""
+    _symbol(symbol)
+    if type(as_of) is not date or as_of.year < 4:
+        raise ValueError('分红研究截点无效')
+    if not isinstance(cninfo, list) or not isinstance(eastmoney, list):
+        raise TypeError('分红来源须为记录列表')
+    years = list(range(as_of.year - 3, as_of.year))
+    cninfo_result = evaluate_cninfo_records(symbol, as_of, cninfo)
+    cninfo_passed = {item['year'] for item in cninfo_result['annual'] if item['outcome'] == 'passed'}
+    implemented: set[int] = set()
+    planned: set[int] = set()
+    cancelled: set[int] = set()
+    for row in eastmoney:
+        if not isinstance(row, dict) or row.get('SECURITY_CODE') != symbol:
+            continue
+        report = _source_day(row.get('REPORT_DATE'))
+        ratio = _amount(row.get('PRETAX_BONUS_RMB'))
+        progress = str(row.get('ASSIGN_PROGRESS') or '')
+        if report is None or report.year not in years:
+            continue
+        if progress in {'实施分配', '实施方案'} and ratio is not None and ratio > 0:
+            implemented.add(report.year)
+        elif progress in {'预披露', '董事会决议通过', '股东大会决议通过'} and ratio is not None and ratio > 0:
+            planned.add(report.year)
+        elif progress in {'取消分配', '股东大会否决'}:
+            cancelled.add(report.year)
+    annual = []
+    for year in years:
+        if year in cninfo_passed or year in implemented:
+            outcome = 'passed'
+        elif year in planned or year in cancelled:
+            outcome = 'pending_verification'
+        else:
+            outcome = 'no_dividend'
+        annual.append({'year': year, 'outcome': outcome, 'events': []})
+    if any(item['outcome'] == 'no_dividend' for item in annual):
+        outcome = 'failed'
+        reason = '双源完整且该年度无正分红记录，独立判定为不分红'
+    elif any(item['outcome'] == 'pending_verification' for item in annual):
+        outcome = 'pending_verification'
+        reason = '存在未实施/取消的预案，待核验'
+    else:
+        outcome = 'passed'
+        reason = '三年均有实施分配或已核实分红记录'
+    return {'symbol': symbol, 'as_of': as_of.isoformat(), 'outcome': outcome, 'annual': annual,
+            'reason': reason, 'rule_version': 'dividend-absence-2026-11-10-v1',
+            'financial_verified': False, 'formal_screening_enabled': False, 'members_published': 0}
+
+
 def evaluate_cninfo_records(symbol: str, as_of: date, rows: list[dict[str, Any]]) -> dict[str, Any]:
     """以请求绑定的巨潮记录独立证明各年度至少一条正向实施记录。"""
     _symbol(symbol)

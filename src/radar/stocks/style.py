@@ -288,8 +288,10 @@ def evaluate_stock_styles(symbol: str, evidence: list[dict[str, Any]], as_of: da
                    and dividend_source.get('as_of') == cutoff.isoformat() and isinstance(numerical, dict))
         numerical_status = numerical.get('outcome') if current and isinstance(numerical, dict) else 'pending_verification'
         conflict = manual_dividend['outcome'] == 'failed' and numerical_status == 'passed'
-        outcome = 'passed' if numerical_status == 'passed' and not conflict else 'pending_verification'
+        outcome = ('failed' if numerical_status == 'failed' and not conflict else
+                   'passed' if numerical_status == 'passed' and not conflict else 'pending_verification')
         reason = ('人工分红事实与结构化来源冲突，待核验' if conflict else
+                  '双源完整且该年度无正分红记录，独立判定为不分红' if outcome == 'failed' else
                   '已核验同截点结构化A股派息数值；不代表人工审核' if outcome == 'passed' else
                   '分红来源无效、历史或记录不足，待核验')
         red_checks[2] = {**_check('dividend_history', outcome, reason, manual_dividend['evidence_ids'],

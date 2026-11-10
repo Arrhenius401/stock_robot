@@ -13,9 +13,11 @@ from typing import Any
 from radar.stocks.admission import _BJ
 from radar.stocks.dividend_collect import (
     VERSION,
+    _decode_source,
     reselect_collection,
     verify_collection,
 )
+from radar.stocks.dividend_structured import evaluate_dividend_absence
 from radar.stocks.financial_task import read_financial_artifact
 from radar.stocks.research_store import _id, _symbol
 
@@ -30,6 +32,33 @@ def _apply_collection(source: dict[str, Any], collection: dict[str, Any], row: s
     selected_names = ('eastmoney_page', 'eastmoney') if selected == 'eastmoney' else ('cninfo',)
     fetched_dates = {name: datetime.fromisoformat(sources[name]['fetched_at']).astimezone(_BJ).date()
                      for name in selected_names}
+    source['fetched_dates'] = {name: value.isoformat() for name, value in fetched_dates.items()}
+    source['status'] = ('current' if row['target_date'] == as_of.isoformat()
+                        and all(value <= as_of for value in fetched_dates.values()) else 'historical')
+    return source
+
+
+def _apply_absence(source: dict[str, Any], collection: dict[str, Any], row: sqlite3.Row,
+                   symbol: str, as_of: date) -> dict[str, Any] | None:
+    """双源完整但无正分红时，返回程序独立判定的 failed；单源失败不适用。"""
+    sources = collection.get('sources') if isinstance(collection, dict) else None
+    if not isinstance(sources, dict):
+        return None
+    if any(not isinstance(sources.get(name), dict) or sources[name].get('status') != 'complete'
+           for name in ('cninfo', 'eastmoney')):
+        return None
+    try:
+        cninfo = _decode_source(sources['cninfo'], 'cninfo', symbol, date.fromisoformat(row['target_date']))
+        eastmoney = _decode_source(sources['eastmoney'], 'eastmoney', symbol, date.fromisoformat(row['target_date']))
+        result = evaluate_dividend_absence(symbol, date.fromisoformat(row['target_date']), cninfo, eastmoney)
+    except (ValueError, TypeError, KeyError):
+        return None
+    if result.get('outcome') == 'pending_verification':
+        return None
+    source['result'] = result
+    source['selected_provider'] = None
+    fetched_dates = {name: datetime.fromisoformat(sources[name]['fetched_at']).astimezone(_BJ).date()
+                     for name in ('cninfo', 'eastmoney')}
     source['fetched_dates'] = {name: value.isoformat() for name, value in fetched_dates.items()}
     source['status'] = ('current' if row['target_date'] == as_of.isoformat()
                         and all(value <= as_of for value in fetched_dates.values()) else 'historical')
@@ -74,10 +103,13 @@ def load_dividend_source(db: Path, symbol: str, as_of: date) -> dict[str, Any]:
                 if payload.get('symbol') != symbol or payload.get('as_of') != row['target_date']:
                     raise ValueError('分红产物身份不符')
                 reselected = reselect_collection(payload['collection'], symbol, date.fromisoformat(row['target_date']))
-                if reselected is None:
-                    source['status'] = 'partial'
-                    return source
-                return _apply_collection(source, reselected, row, symbol, as_of)
+                if reselected is not None:
+                    return _apply_collection(source, reselected, row, symbol, as_of)
+                absent = _apply_absence(source, payload['collection'], row, symbol, as_of)
+                if absent is not None:
+                    return absent
+                source['status'] = 'partial'
+                return source
             payload = read_financial_artifact(item, db.parent/'stock-updates/artifacts')
             if payload.get('symbol') != symbol or payload.get('as_of') != row['target_date']:
                 raise ValueError('分红产物身份不符')
