@@ -43,6 +43,7 @@ from stock_robot.stock_market_history import market_history_command
 from stock_robot.stock_official_roster import official_roster_command
 from stock_robot.stock_research import (
     add_evidence,
+    completion_plan,
     import_records,
     list_records,
     review_evidence,
@@ -1843,6 +1844,7 @@ def radar_backtest_walkforward(ctx, universe_id, start, end, window_years, strat
 radar.add_command(dividend_research)
 radar.add_command(prepare_dividends)
 radar.add_command(import_records)
+radar.add_command(completion_plan)
 radar.add_command(list_records)
 radar.add_command(add_evidence)
 radar.add_command(review_evidence)

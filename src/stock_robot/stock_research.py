@@ -1,5 +1,6 @@
 """股票共享研究资料导入与证据审核入口，不提供入池批准。"""
 
+import csv
 import json
 import sqlite3
 from pathlib import Path
@@ -7,6 +8,7 @@ from typing import Any
 
 import click
 
+from radar.stocks.completion_plan import build_completion_plan
 from radar.stocks.research_store import StockResearchStore
 from stock_robot.dividend_documents import _cutoff
 from stock_robot.dividend_materials import _read
@@ -101,6 +103,30 @@ def add_evidence(input_path: Path, db: Path, expected_revision: int) -> None:
             disclosed_on=_cutoff(payload["disclosed_on"]), content_sha256=payload["content_sha256"],
             expected_revision=expected_revision)
         _emit(result, db)
+    except (OSError, ValueError, TypeError, sqlite3.Error) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@click.command("stock-completion-plan")
+@click.option("--details", "details_path", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True,
+              help="评估明细 CSV（evaluation-details.csv）")
+@click.option("--db", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
+@click.option("--as-of", required=True, help="资料截点，YYYY-MM-DD")
+@click.option("--pools", default="", help="逗号分隔的池过滤，例如 dividend_value,growth_trend")
+@click.option("--symbols", default="", help="逗号分隔的代码过滤")
+@click.option("--output", type=click.Path(dir_okay=False, path_type=Path))
+def completion_plan(details_path: Path, db: Path, as_of: str, pools: str, symbols: str,
+                    output: Path | None) -> None:
+    """只读生成待核验补全计划；不联网、不写库、不调用模型。"""
+    try:
+        _protect_database(db, details_path, output)
+        cutoff = _cutoff(as_of)
+        with details_path.open(encoding="utf-8-sig", newline="") as stream:
+            details = list(csv.DictReader(stream))
+        pool_set = {value.strip() for value in pools.split(",") if value.strip()} or None
+        symbol_set = {value.strip() for value in symbols.split(",") if value.strip()} or None
+        plan = build_completion_plan(details, db, cutoff, pools=pool_set, symbols=symbol_set)
+        _emit({**plan, "members_published": 0}, db, output)
     except (OSError, ValueError, TypeError, sqlite3.Error) as exc:
         raise click.ClickException(str(exc)) from exc
 
