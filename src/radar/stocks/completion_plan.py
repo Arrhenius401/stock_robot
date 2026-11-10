@@ -91,10 +91,15 @@ def _dividend_item(symbol: str, name: str, pools: list[str], as_of: date, db: Pa
             'existing_passed_years': sorted(passed),
             'no_record_all_years': no_record,
         },
-        'source': {'kind': 'annual_report_profit_distribution',
-                   'documents': [f'{year} 年年度报告 利润分配章节' for year in missing],
-                   'classifier_rule': 'dividend-plan-2026-11-10-v1',
-                   'disclosed_before': as_of.isoformat()},
+        'source': ({'kind': 'dividend_source_retry',
+                    'documents': ['东财分红送配重试', '年报利润分配章节'],
+                    'disclosed_before': as_of.isoformat()}
+                   if load_dividend_source(db, symbol, as_of).get('status') in {'partial', 'invalid'}
+                   and not (load_dividend_source(db, symbol, as_of).get('result') or {})
+                   else {'kind': 'annual_report_profit_distribution',
+                         'documents': [f'{year} 年年度报告 利润分配章节' for year in missing],
+                         'classifier_rule': 'dividend-plan-2026-11-10-v1',
+                         'disclosed_before': as_of.isoformat()}),
         'expected': ('failed_if_confirmed_no_dividend_else_pending' if no_record
                      else 'passed_if_positive_else_failed'),
         'risk': ('三年均无实施记录，必须从年报利润分配章节独立判定；明确不分配应转 failed，'
