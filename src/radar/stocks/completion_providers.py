@@ -8,6 +8,7 @@ from typing import Any
 from pypdf import PdfReader
 
 from radar.stocks.announcement_discovery import discover_announcements
+from radar.stocks.eastmoney_history import fetch_eastmoney_turnover
 from radar.stocks.financial_extract import extract_cashflow_text
 from radar.stocks.source_archive import collect_documents
 from radar.stocks.turnover_source import load_turnover_source
@@ -38,12 +39,18 @@ def annual_archive_provider(symbol: str, name: str | None, years: list[int], as_
     return result
 
 
-def turnover_source_provider(db: Path):
-    """只返回现有 turnover_source 已校验的 payload；不新建东财日线通道。"""
+def turnover_source_provider(db: Path, cache_dir: Path | None = None):
+    """优先现有任务来源；没有时以正式东财日线 provider 做历史回填，并走同一校验。"""
     def fetch(symbol: str, as_of: date) -> dict[str, Any] | None:
         source = load_turnover_source(db, symbol, as_of)
-        if source.get('status') != 'current':
+        if source.get('status') == 'current':
+            payload = source.get('payload')
+            return payload if isinstance(payload, dict) else None
+        from radar.stocks.update_service import load_market_window
+        days, trace = load_market_window(db.parent, as_of)
+        calendar = trace.get('calendar') if isinstance(trace, dict) else None
+        if days is None or not isinstance(calendar, dict) or len(days) != 60:
             return None
-        payload = source.get('payload')
-        return payload if isinstance(payload, dict) else None
+        root = cache_dir or db.parent / 'stock-updates' / 'cache' / 'eastmoney_history'
+        return fetch_eastmoney_turnover(symbol, as_of, root, days, calendar)
     return fetch

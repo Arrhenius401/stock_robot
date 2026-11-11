@@ -142,11 +142,12 @@ def completion_plan(details_path: Path, db: Path, as_of: str, pools: str, symbol
 @click.option("--select", default="", help="逗号分隔的代码或条件；不填则全部")
 @click.option("--db", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
 @click.option("--annual-workspace", type=click.Path(file_okay=False, path_type=Path))
+@click.option("--cache-dir", type=click.Path(file_okay=False, path_type=Path))
 @click.option("--output", type=click.Path(dir_okay=False, path_type=Path))
 @click.option("--dry-run", is_flag=True, help="只回放计划，不读取来源")
 @click.option("--yes", is_flag=True, help="确认执行")
 def completion_apply(plan_path: Path, select: str, db: Path, annual_workspace: Path | None,
-                     output: Path | None, dry_run: bool, yes: bool) -> None:
+                     cache_dir: Path | None, output: Path | None, dry_run: bool, yes: bool) -> None:
     """按计划执行补全；来源统一走年报归档与成交额来源。"""
     try:
         if not dry_run and not yes:
@@ -158,7 +159,7 @@ def completion_apply(plan_path: Path, select: str, db: Path, annual_workspace: P
         providers = {
             'annual_report': lambda symbol, name, years: annual_archive_provider(
                 symbol, name, years, cutoff, workspace),
-            'turnover': turnover_source_provider(db),
+            'turnover': turnover_source_provider(db, cache_dir),
         }
         run = apply_plan(plan, select=selected, dry_run=dry_run, yes=yes, providers=providers)
         if output is None:

@@ -14,6 +14,7 @@ from typing import Any
 from radar.provider_request import ProviderRequestError
 from radar.stocks import market_history
 from radar.stocks.admission import _BJ
+from radar.stocks.eastmoney_history import verify_eastmoney_turnover_payload
 from radar.stocks.financial_task import read_financial_artifact
 from radar.stocks.research_store import _id, _sha, _symbol
 
@@ -23,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 def verify_turnover_payload(payload: Any, symbol: str, as_of: str) -> dict[str, Any]:
     """重新解码原文，不信任任务中保存的派生金额。"""
+    if isinstance(payload, dict) and payload.get('provider') == 'eastmoney':
+        return verify_eastmoney_turnover_payload(payload, symbol, as_of)
     if (not isinstance(payload, dict) or payload.get('symbol') != symbol or payload.get('as_of') != as_of
             or payload.get('url') != market_history.sina_url(symbol)):
         raise ValueError('成交额来源身份或日期不符')
