@@ -1,13 +1,11 @@
-"""三个补全适配器：解析、校验、待核验，不调用模型。"""
+"""补全适配器：只整理现有来源结果，不重复抓取/校验。"""
 from datetime import date, timedelta
 
 from radar.stocks.completion_adapters import (
     AnnualReportCashflowAdapter,
-    SourceRetryAdapter,
     TurnoverRetryAdapter,
-    parse_cashflow_text,
-    parse_turnover_rows,
 )
+from radar.stocks.financial_extract import extract_cashflow_text
 
 DAY = date(2026, 11, 7)
 
@@ -17,60 +15,54 @@ def cashflow_text():
         '合并现金流量表\n'
         '经营活动产生的现金流量净额 1,094,520,847.73\n'
         '购建固定资产、无形资产和其他长期资产支付的现金 553,057,873.74\n'
-        '分配股利、利润或偿付利息支付的现金 84,000,000.00\n'
+        '分配股利、利润或偿付利息支付的现金 168,462,000.00\n'
         '期末现金及现金等价物余额 286,438,980.59\n'
     )
 
 
-def turnover_rows():
+def fields():
+    return {'netcash_operate': 1094520847.73, 'construct_long_asset': 553057873.74,
+            'assign_dividend_profit': 168462000.00, 'end_cash': 286438980.59}
+
+
+def turnover_daily():
     start = DAY - timedelta(days=89)
     return [{'date': (start + timedelta(days=index)).isoformat(), 'amount_yuan': '120000000'}
             for index in range(60)]
 
 
-def test_cashflow_text_parses_all_four_fields():
-    parsed = parse_cashflow_text(cashflow_text(), 2023)
+def test_cashflow_text_parses_all_fields():
+    parsed = extract_cashflow_text(cashflow_text())
     assert parsed['status'] == 'complete'
-    assert parsed['fields']['assign_dividend_profit'] == 84000000.0
-    assert parsed['fields']['end_cash'] == 286438980.59
+    assert parsed['fields']['assign_dividend_profit'] == 168462000.0
 
 
 def test_cashflow_text_marks_missing_fields_pending():
-    parsed = parse_cashflow_text('经营活动产生的现金流量净额 10', 2023)
+    parsed = extract_cashflow_text('经营活动产生的现金流量净额 10')
     assert parsed['status'] == 'pending_verification'
     assert 'assign_dividend_profit' in parsed['missing']
 
 
-def test_cashflow_adapter_uses_injected_fetch_and_never_guesses():
-    item = {'symbol': '603087', 'gap': {'years': [2023]}}
-    assert AnnualReportCashflowAdapter().collect(item, DAY).status == 'pending_verification'
+def test_annual_adapter_consumes_provider_without_network():
+    item = {'symbol': '603087', 'name': '甘李药业', 'gap': {'years': [2023]}}
+    assert AnnualReportCashflowAdapter().collect(item, DAY, {}).status == 'pending_verification'
     result = AnnualReportCashflowAdapter().collect(
-        item, DAY, fetch=lambda symbol, years: {2023: cashflow_text()})
+        item, DAY, {'annual_report': lambda symbol, name, years: {2023: {'fields': fields()}}})
     assert result.status == 'complete'
-    assert result.evidence['years']['2023']['fields']['assign_dividend_profit'] == 84000000.0
+    assert result.evidence['years']['2023']['fields']['assign_dividend_profit'] == 168462000.0
 
 
-def test_turnover_requires_exactly_60_sorted_days():
-    parsed = parse_turnover_rows(turnover_rows(), DAY)
-    assert parsed['status'] == 'complete' and len(parsed['daily']) == 60
-    bad = turnover_rows()
-    bad[1] = dict(bad[0])
-    assert parse_turnover_rows(bad, DAY)['status'] == 'pending_verification'
-    assert parse_turnover_rows(turnover_rows()[:59], DAY)['status'] == 'pending_verification'
-
-
-def test_turnover_adapter_uses_injected_fetch():
+def test_turnover_adapter_consumes_verified_payload():
     item = {'symbol': '002155'}
-    assert TurnoverRetryAdapter().collect(item, DAY).status == 'pending_verification'
-    result = TurnoverRetryAdapter().collect(item, DAY, fetch=lambda symbol, as_of: turnover_rows())
+    assert TurnoverRetryAdapter().collect(item, DAY, {}).status == 'pending_verification'
+    result = TurnoverRetryAdapter().collect(
+        item, DAY, {'turnover': lambda symbol, as_of: {'daily': turnover_daily()}})
     assert result.status == 'complete'
-    assert result.evidence['window_end']
+    assert len(result.evidence['daily']) == 60
 
 
-def test_source_retry_adapter_reports_complete_or_pending():
-    item = {'symbol': '688981'}
-    assert SourceRetryAdapter().collect(item, DAY).status == 'pending_verification'
-    assert SourceRetryAdapter().collect(
-        item, DAY, retry=lambda symbol, as_of: {'status': 'complete'}).status == 'complete'
-    assert SourceRetryAdapter().collect(
-        item, DAY, retry=lambda symbol, as_of: {'status': 'partial'}).status == 'pending_verification'
+def test_turnover_adapter_keeps_incomplete_payload_pending():
+    item = {'symbol': '002155'}
+    result = TurnoverRetryAdapter().collect(
+        item, DAY, {'turnover': lambda symbol, as_of: {'daily': turnover_daily()[:10]}})
+    assert result.status == 'pending_verification'

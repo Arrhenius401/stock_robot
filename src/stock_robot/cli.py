@@ -45,6 +45,7 @@ from stock_robot.stock_research import (
     add_evidence,
     completion_apply,
     completion_plan,
+    completion_recheck,
     import_records,
     list_records,
     review_evidence,
@@ -1847,6 +1848,7 @@ radar.add_command(prepare_dividends)
 radar.add_command(import_records)
 radar.add_command(completion_plan)
 radar.add_command(completion_apply)
+radar.add_command(completion_recheck)
 radar.add_command(list_records)
 radar.add_command(add_evidence)
 radar.add_command(review_evidence)

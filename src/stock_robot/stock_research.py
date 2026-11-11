@@ -10,6 +10,11 @@ import click
 
 from radar.stocks.completion_apply import apply_plan, load_plan
 from radar.stocks.completion_plan import build_completion_plan
+from radar.stocks.completion_providers import (
+    annual_archive_provider,
+    turnover_source_provider,
+)
+from radar.stocks.completion_recheck import recheck_run
 from radar.stocks.research_store import StockResearchStore
 from stock_robot.dividend_documents import _cutoff
 from stock_robot.dividend_materials import _read
@@ -135,27 +140,45 @@ def completion_plan(details_path: Path, db: Path, as_of: str, pools: str, symbol
 @click.command("stock-completion-apply")
 @click.option("--plan", "plan_path", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
 @click.option("--select", default="", help="逗号分隔的代码或条件；不填则全部")
-@click.option("--annual-dir", type=click.Path(file_okay=False, path_type=Path))
-@click.option("--turnover-dir", type=click.Path(file_okay=False, path_type=Path))
-@click.option("--retry-dir", type=click.Path(file_okay=False, path_type=Path))
+@click.option("--db", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
+@click.option("--annual-workspace", type=click.Path(file_okay=False, path_type=Path))
 @click.option("--output", type=click.Path(dir_okay=False, path_type=Path))
-@click.option("--dry-run", is_flag=True, help="只回放计划，不读取证据")
+@click.option("--dry-run", is_flag=True, help="只回放计划，不读取来源")
 @click.option("--yes", is_flag=True, help="确认执行")
-def completion_apply(plan_path: Path, select: str, annual_dir: Path | None, turnover_dir: Path | None,
-                     retry_dir: Path | None, output: Path | None, dry_run: bool, yes: bool) -> None:
-    """按计划执行补全；没有 --yes 不读取证据、不产出 applied。"""
+def completion_apply(plan_path: Path, select: str, db: Path, annual_workspace: Path | None,
+                     output: Path | None, dry_run: bool, yes: bool) -> None:
+    """按计划执行补全；来源统一走年报归档与成交额来源。"""
     try:
         if not dry_run and not yes:
             raise ValueError('需要 --dry-run 或 --yes')
         plan = load_plan(plan_path)
         selected = {value.strip() for value in select.split(',') if value.strip()} or None
-        run = apply_plan(plan, select=selected, dry_run=dry_run, yes=yes,
-                         annual_dir=annual_dir, turnover_dir=turnover_dir, retry_dir=retry_dir)
+        cutoff = _cutoff(plan['as_of'])
+        workspace = annual_workspace or plan_path.parent / 'annual-archive'
+        providers = {
+            'annual_report': lambda symbol, name, years: annual_archive_provider(
+                symbol, name, years, cutoff, workspace),
+            'turnover': turnover_source_provider(db),
+        }
+        run = apply_plan(plan, select=selected, dry_run=dry_run, yes=yes, providers=providers)
         if output is None:
             click.echo(json.dumps(run, ensure_ascii=False, indent=2))
         else:
             _write_json(output, run)
             click.echo(f"补全结果已导出：{output}；未发布股票池成员。")
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@click.command("stock-completion-recheck")
+@click.option("--run", "run_path", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
+@click.option("--details", "details_path", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
+@click.option("--output", type=click.Path(dir_okay=False, path_type=Path))
+def completion_recheck(run_path: Path, details_path: Path, output: Path | None) -> None:
+    """消费 completion-run，重算受影响条件并写 overrides；不手工改 CSV。"""
+    try:
+        result = recheck_run(run_path, details_path, output)
+        click.echo(f"已回灌{len(result['overrides'])}项；未发布股票池成员。")
     except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
         raise click.ClickException(str(exc)) from exc
 

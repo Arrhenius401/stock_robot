@@ -257,3 +257,27 @@ def extract_archived_financials(archive_result: dict[str, Any], archive_dir: Pat
         output["items"].append(result)
         output["financial_proposals"].extend(result["financial_proposals"])
     return output
+
+
+CASHFLOW_LABELS = {
+    "netcash_operate": "经营活动产生的现金流量净额",
+    "construct_long_asset": "购建固定资产、无形资产和其他长期资产支付的现金",
+    "assign_dividend_profit": "分配股利、利润或偿付利息支付的现金",
+    "end_cash": "期末现金及现金等价物余额",
+}
+
+
+def extract_cashflow_text(text: str) -> dict[str, Any]:
+    """从年报全文提取现金流量表四个字段；优先定位合并现金流量表，找不到再全文找。"""
+    compact = re.sub(r"[\s\u3000]+", "", text)
+    start = compact.find("合并现金流量表")
+    start = max(start, 0)
+    values: dict[str, float | None] = {}
+    for key, label in CASHFLOW_LABELS.items():
+        position = compact.find(label, start)
+        match = (re.match(re.escape(label) + r"([0-9][0-9,]*\.[0-9]{2})", compact[position:])
+                 if position >= 0 else None)
+        values[key] = float(match.group(1).replace(",", "")) if match else None
+    missing = [key for key, value in values.items() if value is None]
+    return {"fields": values, "missing": missing,
+            "status": "complete" if not missing else "pending_verification"}
