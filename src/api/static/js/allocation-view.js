@@ -1,7 +1,7 @@
-import { createStockTaskUI } from './radar-stock-tasks.js?v=20261022-financial-task-1';
+import { createStockTaskUI } from './radar-stock-tasks.js?v=20261112-stock-results-1';
 import { createRadarUpdateUI } from "./radar-update-ui.js?v=20261022-financial-task-1";
 import { createRadarPoolPicker } from "./radar-pool-picker.js?v=20261014-pools-2";
-import { renderRadarStockPool } from "./radar-stock-view.js?v=20261104-audit-clues-2";
+import { renderRadarStockPool } from "./radar-stock-view.js?v=20261112-stock-results-1";
 // 配置雷达基础视图：使用浏览器兼容语法直接消费完成快照。
 var allocationUpdates = null;
 var allocationStockTasks = null;
@@ -404,15 +404,14 @@ function allocationHeader() {
     window.history.pushState({}, "", allocationState.poolHistory[selected.id] || "#radar/" + encodeURIComponent(selected.id));
     allocationLoad(true);
   });
-  var members = stock && allocationState.stockPayload && allocationState.stockPayload.pool_id === pool.id ? allocationState.stockPayload.items || [] : [];
-  var meta = allocationElement("p", "radar-meta radar-head-title", stock ? "股票池 · " + (members.length ? members.length + " 家成员" : "尚无正式成员") : allocationSnapshotMeta(allocationState.snapshot));
+  var meta = allocationElement("p", "radar-meta radar-head-title", stock ? "股票池 · 筛选结果与资料核验" : allocationSnapshotMeta(allocationState.snapshot));
   var controls = allocationElement("div", "radar-head-controls");
   var actions = allocationElement("div", "radar-head-actions");
   var busy = !stock && allocationUpdates && allocationUpdates.isActive(allocationState.universeId);
   var refresh = allocationElement("button", "radar-refresh", busy ? "更新中…" : "更新数据");
   refresh.type = "button";
-  refresh.disabled = busy || (stock && !members.length) || !pool || !pool.capabilities || !pool.capabilities.update;
-  if (stock && !members.length) refresh.title = "暂无正式成员，请先准备候选并完成审核";
+  refresh.disabled = busy || !pool || !pool.capabilities || !pool.capabilities.update;
+  if (stock) refresh.title = "更新当前股票池的资料与筛选结果";
   refresh.onclick = function () { if (pool && pool.asset_type === "etf" && pool.capabilities.update) allocationUpdates.start(pool.id); };
   var buttons = allocationElement("div", "radar-update-actions"); buttons.append(refresh);
   actions.append(buttons, allocationElement("p", "radar-meta", stock ? "股票资料手动更新 · 自动更新关闭" : "手动更新可用 · 自动采集服务" + (allocationState.collectorStatus ? allocationState.collectorStatus.service_online ? "在线" : "离线" : "状态暂不可读取")));
@@ -605,7 +604,7 @@ function allocationLoad(focusPicker) {
     if (!selectedPool) throw new Error("该标的池不存在或已停用，请选择其他池。");
     stock = selectedPool.asset_type === "stock";
     var subtitle = document.querySelector("#view-radar .page-heading-copy p");
-    if (subtitle) subtitle.textContent = stock ? "查看股票池成员、行业与入选依据" : "查看 ETF 池快照与策略表现";
+    if (subtitle) subtitle.textContent = stock ? "查看股票池筛选结果、规则与资料核验" : "查看 ETF 池快照与策略表现";
     allocationState.snapshot = null; allocationState.snapshotHistorical = false;
     root.replaceChildren(allocationHeader(), allocationElement("p", "radar-meta", stock ? "正在读取股票池成员…" : "正在读取完成快照…"));
     if (stock) return allocationRequest("/api/v1/radar/stocks/" + encodeURIComponent(universeId) + "/members");

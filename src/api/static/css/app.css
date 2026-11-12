@@ -1656,3 +1656,26 @@ body:not(:has(#view-radar.active .stock-management)) #radarStockUpdateNotice { d
 
 .index-refresh-option { display: flex; align-items: center; gap: 5px; white-space: nowrap; font-size: 12px; color: var(--text-3); }
 .analysis-entry-card .index-refresh-option input { width: auto; height: auto; }
+/* 股票筛选页复用浅色工作台变量。 */
+.stock-screening { padding:0; }
+.stock-screening>.radar-pool-content-head { margin-top:0; }
+.stock-screening>.panel { padding:16px; margin-top:16px; }
+.stock-screening .panel h3 { margin:0; }
+.stock-screening-stats,.stock-screening-counts { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.stock-screening-stats { margin:16px 0; gap:16px; }
+.stock-screening-counts .stock-count { display:flex; gap:8px; align-items:center; background:transparent; }
+.stock-count.passed span { color:var(--ok); }
+.stock-count.pending span { color:var(--warn); }
+.stock-count.failed span { color:var(--danger); }
+.stock-count strong { color:var(--text); }
+.stock-screening .stock-completion-open { margin-left:auto; color:var(--accent); }
+.stock-screening-rule-list { padding-left:24px; margin:10px 0; }
+.stock-screening-rule-list li { padding:6px 0; border-bottom:1px solid var(--border-soft); overflow-wrap:anywhere; }
+.stock-screening-reason { flex:1; min-width:160px; }
+.stock-screening progress { width:100%; accent-color:var(--ok); }
+#stockScreeningTaskNotice { bottom:24px; top:auto; }
+.stock-resizable-window { width:480px; resize:both; overflow:auto; min-width:320px; min-height:240px; max-width:calc(100vw - 24px); max-height:calc(100dvh - 24px); }
+.stock-resizable-window progress { width:100%; accent-color:var(--ok); }
+@media(max-width:760px){.stock-screening>.panel{padding:14px}.stock-screening-counts{gap:6px}.stock-screening-counts .stock-count{padding:7px 9px}.stock-screening .stock-completion-open{margin-left:auto}.stock-resizable-window{resize:none;min-width:0}#stockScreeningTaskNotice{bottom:12px}}
+
+.stock-task-window-actions { display:flex; align-items:center; gap:6px; margin-left:auto; flex-shrink:0; }

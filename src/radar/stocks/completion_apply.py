@@ -44,7 +44,8 @@ def select_items(plan: dict[str, Any], select: set[str] | None) -> list[dict[str
 
 
 def apply_plan(plan: dict[str, Any], *, select: set[str] | None = None, dry_run: bool = False,
-               yes: bool = False, providers: dict[str, Callable[..., Any]] | None = None) -> dict[str, Any]:
+               yes: bool = False, providers: dict[str, Callable[..., Any]] | None = None,
+               on_progress: Callable[[int, int, list[dict[str, Any]]], None] | None = None) -> dict[str, Any]:
     """执行选中的计划项；默认 dry-run，只有 yes=True 才调用来源并产出 applied 结果。"""
     items = select_items(plan, select)
     run: dict[str, Any] = {'version': APPLY_VERSION, 'plan_sha256': plan.get('plan_sha256'),
@@ -62,6 +63,8 @@ def apply_plan(plan: dict[str, Any], *, select: set[str] | None = None, dry_run:
         if adapter is None:
             run['items'].append({'symbol': item.get('symbol'), 'condition': item.get('condition'),
                                  'status': 'pending_verification', 'reason': '没有对应适配器'})
+            if on_progress is not None:
+                on_progress(len(run['items']), len(items), run['items'])
             continue
         try:
             result: AdapterResult = adapter.collect(item, date.fromisoformat(plan['as_of']), providers)
@@ -69,4 +72,6 @@ def apply_plan(plan: dict[str, Any], *, select: set[str] | None = None, dry_run:
             result = AdapterResult('pending_verification', reason=f'证据不可用：{type(exc).__name__}: {exc}')
         run['items'].append({'symbol': item.get('symbol'), 'condition': item.get('condition'),
                              'source_kind': source_kind, **result.as_dict()})
+        if on_progress is not None:
+            on_progress(len(run['items']), len(items), run['items'])
     return run

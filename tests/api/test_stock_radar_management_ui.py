@@ -51,8 +51,10 @@ dispose();
 
 def _script(body: str) -> str:
     url = Path('src/api/static/js/radar-stock-view.js').resolve().as_uri()
-    return _DOM_STUB + '\n' + "import assert from 'node:assert/strict';\n" + f"const {{renderRadarStockPool}} = await import({json.dumps(url)});\n" + r"""
+    return _DOM_STUB + '\n' + "import assert from 'node:assert/strict';\n" + f"const {{renderRadarStockPool: renderOriginal}} = await import({json.dumps(url)});\n" + r"""
+const renderRadarStockPool = (root,header,pool,payload,options={}) => renderOriginal(root,header,pool,payload,{...options,legacy:true});
 Element.prototype.append = function(...children) { children.forEach(child => this.appendChild(child)); };
+globalThis.innerWidth = 1280; globalThis.innerHeight = 900;
 const events = {};
 window.addEventListener = (name, callback) => { (events[name] ||= []).push(callback); };
 window.removeEventListener = (name, callback) => { events[name] = (events[name] || []).filter(item => item !== callback); };
@@ -241,5 +243,165 @@ assert.ok(root.textContent.includes('股利支付率：暂不启用')); assert.o
 assert.ok(root.textContent.includes('风险名单未观察到，不代表没有风险'));
 await click(root, 'AI解释研究资料');
 assert.ok(root.textContent.includes('这是研究解释')); assert.equal(calls.filter(([url]) => url.includes('/research-explanation')).length, 1);
+dispose();
+"""))
+
+def test_screening_home_rules_counts_and_full_list(tmp_path):
+    _run_node(tmp_path, _script(r"""
+document.body=makeElement('body');
+Object.defineProperty(Element.prototype,'lastChild',{get(){return this.children.at(-1)},configurable:true});
+Element.prototype.showModal=function(){this.open=true;};
+Element.prototype.close=function(){this.open=false;};
+const request=async url=>{
+ calls.push([url]);
+ if(url.includes('/tasks/latest'))return null;
+ if(url.endsWith('/rules'))return {rule_version:'formal-v1',items:Array.from({length:7},(_,i)=>({code:'c'+i,label:'规则'+i,description:'判断条件'+i,group:'common'}))};
+ return {items:Array.from({length:20},(_,i)=>({symbol:String(600000+i),name:'公司'+i,industry:'行业',reason:'通过依据'})),total:30,page:1,page_size:20,counts:{screened:32,passed:30,pending:1,failed:1},as_of:'2026-11-07'};
+};
+const dispose=renderOriginal(root,header,pool,empty,{request});await tick();
+assert.ok(root.textContent.includes('前20家'));
+assert.equal(byClass(root,'stock-company').length,20);
+assert.equal(byClass(root,'stock-screening-rule-list')[0].children.length,5);
+await click(root,'展开全部 · 共 7 条');assert.equal(byClass(root,'stock-screening-rule-list')[0].children.length,7);
+await click(root,'查看全部');assert.ok(root.textContent.includes('下一页'));
+assert.ok(calls.some(([url])=>url.includes('page_size=20')));
+dispose();
+"""))
+
+
+def test_completion_plan_zero_and_conflict_are_visible(tmp_path):
+    _run_node(tmp_path, _script(r"""
+document.body=makeElement('body');
+Object.defineProperty(Element.prototype,'lastChild',{get(){return this.children.at(-1)},configurable:true});
+Element.prototype.showModal=function(){this.open=true;};
+Element.prototype.close=function(){this.open=false;};
+const request=async (url,options)=>{
+ if(url.includes('/tasks/latest'))return null;
+ if(url.endsWith('/rules'))return {items:[]};
+ if(url.endsWith('/completion/plan'))return {plan_sha256:'bound-plan',summary:{symbols:1},items:[{symbol:'600001',name:'测试公司',condition:'liquidity',source:{kind:'market_turnover_60d'}}]};
+ if(url.endsWith('/completion/apply')){assert.equal(JSON.parse(options.body).plan_sha256,'bound-plan');const e=new Error('changed');e.status=409;throw e;}
+ return {items:[],total:0,counts:{screened:0,passed:0,pending:0,failed:0}};
+};
+const dispose=renderOriginal(root,header,pool,empty,{request});await tick();
+await click(root,'补全待检验');await click(document.body,'全部补全');
+assert.ok(document.body.textContent.includes('计划或资料已变化'));
+assert.ok(find(document.body,'重新生成计划'));
+dispose();
+"""))
+
+
+def test_completion_plan_native_gaps_and_manual_items(tmp_path):
+    _run_node(tmp_path, _script(r"""
+document.body=makeElement('body');
+Object.defineProperty(Element.prototype,'lastChild',{get(){return this.children.at(-1)},configurable:true});
+Element.prototype.showModal=function(){this.open=true;};Element.prototype.close=function(){this.open=false;};
+const request=async url=>{
+ if(url.includes('/tasks/latest'))return null;
+ if(url.endsWith('/rules'))return {items:[]};
+ if(url.endsWith('/completion/plan'))return {plan_sha256:'native-plan',items:[
+ {symbol:'603087',condition:'cash_review',gap:{years:[2023,2024,2025],fields:['netcash_operate','end_cash'],reason:'现金流资料不全'},source:{kind:'annual_report_cashflow',provider:'annual_report'}},
+ {symbol:'600001',condition:'governance',gap:{reason:'需要官方证据'},source:{kind:'manual_review'}}]};
+ return {items:[],total:0,counts:{}};
+};
+const dispose=renderOriginal(root,header,pool,empty,{request});await tick();await click(root,'补全待检验');
+assert.ok(document.body.textContent.includes('2023、2024、2025'));
+assert.ok(document.body.textContent.includes('经营活动现金流净额、期末现金余额'));
+assert.ok(document.body.textContent.includes('年报现金流量表 · 年报归档'));
+assert.ok(document.body.textContent.includes('需人工证据，无法自动补全'));
+assert.ok(document.body.textContent.includes('人工项继续保留待检验'));
+assert.ok(!document.body.textContent.includes('[object Object]'));
+assert.equal(find(document.body,'全部补全').disabled,false);
+dispose();
+"""))
+
+
+def test_screening_detail_uses_snapshot_not_current_recalculation(tmp_path):
+    _run_node(tmp_path, _script(r"""
+document.body=makeElement('body');
+Object.defineProperty(Element.prototype,'lastChild',{get(){return this.children.at(-1)},configurable:true});
+Element.prototype.close=function(){this.open=false;};
+const request=async url=>{
+ calls.push([url]);
+ if(url.includes('/tasks/latest'))return null;
+ if(url.endsWith('/rules'))return {items:[]};
+ if(url.includes('/screening/companies/'))return {as_of:'2026-11-07',rule_version:'formal-frozen',item:{symbol:'600001',name:'测试公司',status:'passed',reason:'补全复核通过',checks:[{code:'liquidity',outcome:'passed',reason:'60日窗口已补齐'},{code:'annual_parent_profit_2023',outcome:'passed',reason:'盈利为正',sources:[{source_url:'https://example.org/report',period_end:'2023-12-31'}]}]}};
+ if(url.includes('/companies/'))throw new Error('不得静默重算当天结果');
+ return {items:[{symbol:'600001',name:'测试公司',reason:'补全复核通过'}],total:1,counts:{passed:1}};
+};
+const dispose=renderOriginal(root,header,pool,empty,{request});await tick();await click(root,'测试公司 · 600001');
+assert.ok(root.textContent.includes('筛选截点 2026-11-07'));
+assert.ok(root.textContent.includes('成交活跃度 · 通过：60日窗口已补齐'));
+assert.ok(root.textContent.includes('当前池结论：通过'));
+assert.ok(root.textContent.includes('2023年归母净利润'));
+assert.ok(root.textContent.includes('报告期 2023-12-31'));
+assert.ok(!byClass(root,'stock-snapshot-checks')[0].open);
+assert.ok(find(root,'查看当前资料'));
+assert.equal(calls.filter(([url])=>url.includes('/screening/companies/')).length,1);
+await click(root,'返回筛选列表');assert.ok(root.textContent.includes('补全复核通过'));
+dispose();
+"""))
+
+
+def test_empty_completion_plan_keeps_unresolved_pending_visible(tmp_path):
+    _run_node(tmp_path, _script(r"""
+document.body=makeElement('body');
+Object.defineProperty(Element.prototype,'lastChild',{get(){return this.children.at(-1)},configurable:true});
+Element.prototype.showModal=function(){this.open=true;};Element.prototype.close=function(){this.open=false;};
+let pending=1;
+const request=async url=>{
+ if(url.includes('/tasks/latest'))return null;
+ if(url.endsWith('/rules'))return {items:[]};
+ if(url.endsWith('/completion/plan'))return {plan_sha256:'empty-plan',items:[],pending_total:pending,automatic_count:0,manual_count:pending,blocked_items:pending?[{symbol:'600001',name:'测试公司',reason:'共同条件未齐：治理证据缺失'}]:[]};
+ return {items:[],total:0,counts:{}};
+};
+const dispose=renderOriginal(root,header,pool,empty,{request});await tick();await click(root,'补全待检验');
+assert.ok(document.body.textContent.includes('待检验 1 家'));
+assert.ok(document.body.textContent.includes('共同条件未齐：治理证据缺失'));
+assert.ok(document.body.textContent.includes('当前尚不支持自动补全'));
+assert.ok(!document.body.textContent.includes('当前没有待补全事项'));
+assert.equal(find(document.body,'全部补全').disabled,true);
+pending=0;await click(root,'补全待检验');
+assert.ok(document.body.textContent.includes('当前没有待补全事项'));
+dispose();
+"""))
+
+
+def test_unsupported_completion_source_is_not_presented_as_automatic(tmp_path):
+    _run_node(tmp_path, _script(r"""
+document.body=makeElement('body');
+Object.defineProperty(Element.prototype,'lastChild',{get(){return this.children.at(-1)},configurable:true});
+Element.prototype.showModal=function(){this.open=true;};Element.prototype.close=function(){this.open=false;};
+const request=async url=>{
+ if(url.includes('/tasks/latest'))return null;
+ if(url.endsWith('/rules'))return {items:[]};
+ if(url.endsWith('/completion/plan'))return {items:[{symbol:'600001',condition:'dividend_history',source:{kind:'annual_report_profit_distribution'}}]};
+ return {items:[],total:0,counts:{}};
+};
+const dispose=renderOriginal(root,header,pool,empty,{request});await tick();await click(root,'补全待检验');
+assert.ok(document.body.textContent.includes('当前来源尚不支持自动补全'));
+assert.ok(document.body.textContent.includes('可自动执行 0 项'));
+assert.equal(find(document.body,'全部补全').disabled,true);
+dispose();
+"""))
+
+
+def test_finished_screening_refreshes_bound_rule_description(tmp_path):
+    _run_node(tmp_path, _script(r"""
+document.body=makeElement('body');
+Object.defineProperty(Element.prototype,'lastChild',{get(){return this.children.at(-1)},configurable:true});
+Element.prototype.close=function(){this.open=false;};
+let ruleReads=0;
+const task={run_id:'bound-run',kind:'screening',phase:'review',progress:{attempted:1,total:1},results:[]};
+const request=async url=>{
+ if(url.includes('/tasks/latest'))return {...task,status:'running'};
+ if(url.includes('/screening/tasks/bound-run'))return {...task,status:'completed'};
+ if(url.endsWith('/rules')){ruleReads++;return {items:[{label:'行业地位',description:ruleReads===1?'尚未绑定':'当前快照：前5名，同业至少5家',group:'common'}]};}
+ return {items:[],total:0,counts:{}};
+};
+const dispose=renderOriginal(root,header,pool,empty,{request});await tick();
+assert.equal(ruleReads,1);
+for(const callback of [...timers.values()])await callback();await tick();
+assert.equal(ruleReads,2);
+assert.ok(root.textContent.includes('当前快照：前5名，同业至少5家'));
 dispose();
 """))

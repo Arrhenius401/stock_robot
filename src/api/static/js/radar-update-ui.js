@@ -1,4 +1,4 @@
-import { createRadarTaskWindow } from './radar-task-window.js?v=20261022-financial-task-1';
+import { createRadarTaskWindow } from './radar-task-window.js?v=20261112-stock-results-1';
 // 更新任务独立于页面 DOM：切换页面、标的池不会终止轮询。
 const active = status => ['queued', 'running', 'retry_wait'].includes(status);
 const element = (tag, cls, text) => { const node = document.createElement(tag); node.className = cls || ''; if (text != null) node.textContent = text; return node; };

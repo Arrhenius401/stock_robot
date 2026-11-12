@@ -1,6 +1,7 @@
 """补全接口的唯一数据提供层：复用现有公告归档与成交额来源。"""
 from __future__ import annotations
 
+import re
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -35,7 +36,19 @@ def annual_archive_provider(symbol: str, name: str | None, years: list[int], as_
         if path.is_symlink() or not path.is_file() or path.resolve().parent != archive_dir.resolve():
             continue
         text = '\n'.join(page.extract_text() or '' for page in PdfReader(str(path)).pages)
-        result[year] = extract_cashflow_text(text)
+        parsed = extract_cashflow_text(text)
+        compact = re.sub(r'\s+', '', text)
+        headers = [compact[max(0, match.start() - 120):match.start() + 500]
+                   for match in re.finditer('合并现金流量表', compact)]
+        header = next((candidate for candidate in headers if '人民币' in candidate
+                       and re.search(r'单位[:：]?(?:人民币)?元(?:[^万亿]|$)', candidate)), '')
+        parsed['source'] = {'symbol': symbol, 'fiscal_year': year, 'disclosed_on': item.get('disclosed_on'),
+                            'source_url': item.get('source_url'), 'content_sha256': item.get('sha256'),
+                            'currency': 'CNY' if '人民币' in header else None,
+                            'unit': 'CNY_yuan' if re.search(r'单位[:：]?(?:人民币)?元(?:[^万亿]|$)', header) else None}
+        if year in result:
+            raise ValueError('同年度年报归档存在多份原文，无法唯一补全')
+        result[year] = parsed
     return result
 
 

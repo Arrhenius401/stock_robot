@@ -5,6 +5,7 @@ import json
 import logging
 import sqlite3
 import threading
+import time
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import date, datetime
@@ -39,6 +40,7 @@ from radar.stocks.research_store import (
     StockRevisionConflict,
     _symbol,
 )
+from radar.stocks.screening_web import ScreeningService, project
 from radar.stocks.structured_screen import RULE_VERSION as FINANCIAL_RULE_VERSION
 from radar.stocks.style import STYLE_RULE_VERSION
 from radar.stocks.turnover_source import load_turnover_source
@@ -111,6 +113,10 @@ class ReferenceInput(Input):
     target_date: date | None = None
     force_refresh: bool = False
     resume_run_id: Text | None = None
+
+
+class CompletionWebInput(Input):
+    plan_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 
 
 class ChangeInput(Input):
@@ -197,6 +203,7 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
 
     @asynccontextmanager
     async def lifespan(_app):
+        screening.recover()
         try:
             with read_connection(db) as connection:
                 pending = (has_table(connection, 'stocks_update_runs') and connection is not None
@@ -640,5 +647,133 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
                 'candidate_count': scoped['total'], 'scope_status': scoped['scope_status'],
                 'scope_complete': scoped['scope_complete'], 'source_snapshots': scoped['source_snapshots'],
                 'formal_screening_enabled': False, 'publication_enabled': False}
+
+    def collect_screening(pool_id, scope, cutoff, progress):
+        # 使用同一服务器冻结范围；绝不隐式重新发现或扩大候选池。
+        from radar.stocks.dividend_collect import VERSION as DIVIDEND_VERSION
+        from radar.stocks.turnover_source import VERSION as TURNOVER_VERSION
+        tasks = updates()
+        versions = {'financial_review': FINANCIAL_RULE_VERSION, 'dividend_review': DIVIDEND_VERSION,
+                    'turnover_review': TURNOVER_VERSION}
+        for kind in ('financial_review', 'dividend_review', 'turnover_review', 'reference_review'):
+            if kind == 'reference_review':
+                run = start_reference(ReferenceInput(pool_ids=[pool_id], target_date=cutoff))
+            else:
+                snapshot = {**scope, 'kind': kind, 'pool_ids': [pool_id]}
+                reusable = next((StockUpdateStore._decode(row) for row in task_rows()
+                                 if row['kind'] == kind and row['status'] == 'completed'
+                                 and row['target_date'] == cutoff.isoformat()
+                                 and row['rule_version'] == versions[kind]
+                                 and json.loads(row['pool_ids']) == [pool_id]
+                                 and json.loads(row['input_snapshot']).get('scope_sha256') == scope.get('scope_sha256')), None)
+                if reusable is not None:
+                    run = reusable
+                else:
+                    run = tasks.enqueue(kind=kind, pool_ids=[pool_id], target_date=cutoff,
+                                        rule_version=versions[kind], snapshot=snapshot)
+                wake(tasks)
+            while True:
+                task = tasks.get(run['run_id'])
+                latest = {r['scope']: r for r in task['results']}
+                progress(len(latest), len(scope['companies']) + (1 if kind == 'reference_review' else 0),
+                         [{'scope': r['scope'], 'status': r['status'], 'summary': r.get('summary', '')}
+                          for r in latest.values()], kind)
+                if task['status'] not in {'queued', 'running'}:
+                    if task['status'] in {'failed', 'cancelled'}:
+                        raise RuntimeError(task.get('error') or '资料采集失败，请重试')
+                    break
+                time.sleep(1)
+
+    def evaluate_screening(pool_id, companies, cutoff, progress):
+        store = research()
+        window, trace = load_market_window(state, cutoff)
+        report = {'as_of': cutoff.isoformat(), 'items': [], 'members_published': 0}
+        loaders = {'financial_sources': lambda s: load_financial_source(db, s, cutoff),
+                   'dividend_sources': lambda s: load_dividend_source(db, s, cutoff),
+                   'turnover_sources': lambda s: load_turnover_source(db, s, cutoff),
+                   'profile_sources': lambda s: load_company_profile_source(state, s, cutoff),
+                   'industry_sources': lambda s: load_industry_source(state, s, cutoff),
+                   'growth_sources': lambda s: load_growth_source(state, s, cutoff),
+                   'market_value_sources': lambda s: load_market_value_source(state, s, cutoff),
+                   'governance_sources': lambda s: load_exchange_governance_source(state, s, cutoff),
+                   'leadership_sources': lambda s: load_leadership_source(state, s, cutoff)}
+        for index, company_row in enumerate(companies):
+            symbol = company_row['symbol']
+            sources = {key: {symbol: loader(symbol)} for key, loader in loaders.items()}
+            _check_market_window(sources['market_value_sources'][symbol], window, trace)
+            _check_market_window(sources['turnover_sources'][symbol], window, trace)
+            evaluated = evaluate_store(store, cutoff, symbol=symbol, market_window=window,
+                                       include_styles=True, structured_only=True, **sources)
+            report['items'].extend(evaluated['items'])
+            progress(index + 1, len(companies), phase='review')
+        return report
+
+    screening = ScreeningService(state, evaluate_screening, collect_screening)
+
+    @router.get('/{pool_id}/screening')
+    def screening_results(pool_id: str, status: Literal['passed', 'pending', 'failed', 'all'] = 'passed',
+                          search: str = '', page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100)):
+        pool(pool_id)
+        return screening.listing(pool_id, status, search, page, page_size)
+
+    @router.get('/{pool_id}/screening/companies/{symbol}')
+    def screening_company(pool_id: str, symbol: str):
+        pool(pool_id)
+        _symbol(symbol)
+        snapshot = screening.snapshot(pool_id)
+        item = next((row for row in (snapshot or {}).get('report', {}).get('items', [])
+                     if row['symbol'] == symbol), None)
+        if item is None or snapshot is None:
+            raise HTTPException(404, '当前筛选快照中没有该公司')
+        projected = next(row for row in project(snapshot['report'], pool_id) if row['symbol'] == symbol)
+        return {'item': projected, 'rule_version': snapshot['rule_version'],
+                'company': {'symbol': symbol, 'name': item['name'],
+                            'data_as_of': snapshot['as_of'], 'revision': item.get('source_revision', 0)},
+                'evaluation': {'as_of': snapshot['as_of'], 'items': [item]},
+                'evidence': [], 'reviews': [], 'publication_enabled': False,
+                'snapshot_run_id': snapshot['run_id'], 'as_of': snapshot['as_of']}
+
+    @router.post('/{pool_id}/screening/update', status_code=202)
+    def screening_update(pool_id: str):
+        pool(pool_id)
+        with read_connection(db) as connection:
+            scope = scope_snapshot(connection, state, pool_id)
+        if not scope['scope_complete'] or not scope['companies']:
+            raise ValueError('请先准备当前池完整候选范围')
+        return screening.start(pool_id, 'screening', scope=scope)
+
+    @router.get('/{pool_id}/completion/plan')
+    def screening_plan(pool_id: str):
+        pool(pool_id)
+        return screening.plan(pool_id)
+
+    @router.post('/{pool_id}/completion/apply', status_code=202)
+    def screening_apply(pool_id: str, body: CompletionWebInput):
+        pool(pool_id)
+        return screening.start(pool_id, 'completion', plan_sha256=body.plan_sha256)
+
+    @router.get('/{pool_id}/screening/tasks/latest')
+    def screening_latest(pool_id: str):
+        pool(pool_id)
+        return screening.latest(pool_id)
+
+    @router.get('/screening/tasks/{run_id}')
+    def screening_task(run_id: str):
+        task = screening.task(run_id)
+        if task is None:
+            raise HTTPException(404, '筛选任务不存在')
+        return task
+
+    @router.get('/{pool_id}/screening/rules')
+    def screening_rules(pool_id: str):
+        from radar.stocks.screening_web_rules import rule_catalog
+        pool(pool_id)
+        snapshot = screening.snapshot(pool_id)
+        sources = [item.get('leadership_source', {}) for item in (snapshot or {}).get('report', {}).get('items', [])]
+        pairs = sorted({(source['scale_threshold'], source['scale_min_peers']) for source in sources
+                        if isinstance(source.get('scale_threshold'), int) and isinstance(source.get('scale_min_peers'), int)})
+        if pairs:
+            return rule_catalog(pool_id, '当前快照绑定：' + '；'.join(f'前{rank}名，同业至少{peers}家' for rank, peers in pairs))
+        return rule_catalog(pool_id)
 
     return router

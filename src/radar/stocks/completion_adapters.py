@@ -56,7 +56,7 @@ class AnnualReportCashflowAdapter:
                                            'assign_dividend_profit', 'end_cash')
                            if fields.get(key) is None]
                 per_year[str(year)] = {'status': 'complete' if not missing else 'pending_verification',
-                                       'fields': fields, 'missing': missing}
+                                       'fields': fields, 'missing': missing, 'source': value.get('source')}
             elif isinstance(value, str) and value.strip():
                 parsed = extract_cashflow_text(value)
                 per_year[str(year)] = parsed

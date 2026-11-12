@@ -1,3 +1,4 @@
+import { renderStockScreening } from './radar-stock-screening.js?v=20261112-stock-results-1';
 // 股票研究管理：资料、评估与正式成员保持分离。
 const API = '/api/v1/radar/stocks';
 const sessions = new Map();
@@ -26,10 +27,15 @@ function hasDrafts() { return [...sessions.values()].some(s => Object.values(s.d
 
 export function renderRadarStockPool(root, header, pool, payload, options = {}) {
   if (activeDispose) activeDispose();
+  if (!options.legacy) {
+    const dispose = renderStockScreening(root, header, pool, { ...options, request: options.request || defaultRequest, openLegacy: symbol => renderRadarStockPool(root, header, pool, payload, { ...options, legacy: true, initialSymbol: symbol }) });
+    activeDispose = dispose; return dispose;
+  }
   if (!unloadBound) { window.addEventListener('beforeunload', event => { if (hasDrafts()) { event.preventDefault(); event.returnValue = ''; } }); unloadBound = true; }
   const request = options.request || defaultRequest;
   const scrollHost = root.closest('.view') || root;
   const state = sessions.get(pool.id) || { view: 'members', search: '', page: 1, unfilteredPage: 1, symbol: null, drafts: {}, scroll: 0, detailScroll: {} };
+  if (options.initialSymbol) { state.view = 'detail'; state.symbol = options.initialSymbol; }
   sessions.set(pool.id, state);
   const content = node('section', 'panel radar-stock-empty stock-management');
   const taskBox = node('div', 'stock-task');
@@ -43,7 +49,7 @@ export function renderRadarStockPool(root, header, pool, payload, options = {}) 
   function onHash() { if (!current()) dispose(); }
   activeDispose = dispose;
   window.addEventListener('hashchange', onHash);
-  const head = append(node('div', 'radar-pool-content-head'), node('h2', '', pool.name), button('候选与成员管理', () => { state.view = 'candidates'; state.symbol = null; show(); }, 'stock-manage'));
+  const head = append(node('div', 'radar-pool-content-head'), button('返回筛选结果', () => renderRadarStockPool(root, header, pool, payload, { ...options, legacy: false })), node('h2', '', pool.name), button('候选与成员管理', () => { state.view = 'candidates'; state.symbol = null; show(); }, 'stock-manage'));
   const prepare = button('准备候选', () => startTask('/discover', { pool_id: pool.id }), 'stock-prepare');
   append(content, head, taskBox, notice, body);
   root.replaceChildren(header, content);

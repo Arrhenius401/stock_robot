@@ -1,12 +1,15 @@
 // ETF与股票共用原消息窗口外壳：拖拽、收起手柄及结果窗口只维护一份。
 const element = (tag, cls, text) => { const node=document.createElement(tag); node.className=cls||''; if(text!=null)node.textContent=text; return node; };
 const button = (text, callback) => { const node=element('button','subs-btn',text); node.type='button'; node.onclick=callback; return node; };
-export function createRadarTaskWindow(noticeId, resultTitle) {
+export function createRadarTaskWindow(noticeId, resultTitle, options = {}) {
   const positions={notice:null,dialog:null};
   const host = element('aside', 'radar-update-toast'); host.hidden = true; host.id = noticeId; host.setAttribute('role', 'status'); host.setAttribute('aria-live', 'polite');
   const dialog = element('dialog', 'radar-update-dialog'); dialog.setAttribute('aria-labelledby', noticeId + 'Title');
+  if (options.resizable) dialog.classList.add('stock-resizable-window');
   const head = element('div', 'radar-update-dialog-head'); const title = element('h2', '', resultTitle); title.id = noticeId + 'Title';
-  head.append(title, button('×', () => dialog.close())); head.lastChild.setAttribute('aria-label', '关闭更新结果');
+  const close = button('×', () => dialog.close()); close.setAttribute('aria-label', '关闭更新结果');
+  const actions = options.resizable ? element('div', 'stock-task-window-actions') : null;
+  if (actions) { actions.appendChild(close); head.append(title, actions); } else head.append(title, close);
   const body = element('div', 'radar-update-dialog-body'), footer = element('div', 'radar-update-dialog-actions'); dialog.append(head, body, footer); document.body.append(host, dialog);
   function handle(node, label) { node.dataset.dragHandle = 'true'; node.tabIndex = 0; node.setAttribute('aria-label', label + '；方向键移动，Home复位'); return node; }
   function place(node, key) {
@@ -31,5 +34,5 @@ export function createRadarTaskWindow(noticeId, resultTitle) {
     });
   }
   handle(head,'移动更新结果窗口'); draggable(host,'notice'); draggable(dialog,'dialog'); window.addEventListener('resize',()=>{place(host,'notice');if(dialog.open)place(dialog,'dialog');});
-  return {host,dialog,head,title,body,footer,handle,place};
+  return {host,dialog,head,title,body,footer,handle,place,actions};
 }
