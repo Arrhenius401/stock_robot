@@ -128,9 +128,16 @@ def _registered_load_industry_source(state_dir: Path, symbol: str, as_of: date, 
     return result
 
 
+@lru_cache(maxsize=4)
+def _classifier(path_text: str, mtime_ns: int, size: int):
+    """同一份行业表只解析一次；以路径/修改时间/大小作为缓存键。"""
+    from data.industry_classifier import IndustryClassifier
+
+    return IndustryClassifier(Path(path_text))
+
+
 def load_industry_source(state_dir: Path, symbol: str, as_of: date, *, db: Path | None = None) -> dict[str, Any]:
     """股票池直接查本地行业映射；不发起更新、不依赖在线资料任务。"""
-    from data.industry_classifier import IndustryClassifier
     from utils.paths import industry_mapping_path
 
     if type(as_of) is not date:
@@ -142,7 +149,8 @@ def load_industry_source(state_dir: Path, symbol: str, as_of: date, *, db: Path 
         path = industry_mapping_path()
         raw = _bytes(path)
         result['manifest_sha256'] = hashlib.sha256(raw).hexdigest()
-        classification = IndustryClassifier(path).lookup(symbol)
+        stat = path.stat()
+        classification = _classifier(str(path), stat.st_mtime_ns, stat.st_size).lookup(symbol)
         if not classification.is_verified:
             return result
         if _bytes(path) != raw:

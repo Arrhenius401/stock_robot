@@ -23,6 +23,7 @@ from radar.stocks.evaluation_store import StockEvaluationStore
 from radar.stocks.exchange_governance import (
     governance_snapshot_identity,
     load_exchange_governance_source,
+    load_exchange_governance_sources,
 )
 from radar.stocks.financial_source import load_financial_source
 from radar.stocks.financial_task import financial_results
@@ -688,6 +689,7 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
         store = research()
         window, trace = load_market_window(state, cutoff)
         report = {'as_of': cutoff.isoformat(), 'items': [], 'members_published': 0}
+        governance = load_exchange_governance_sources(state, [row['symbol'] for row in companies], cutoff)
         loaders = {'financial_sources': lambda s: load_financial_source(db, s, cutoff),
                    'dividend_sources': lambda s: load_dividend_source(db, s, cutoff),
                    'turnover_sources': lambda s: load_turnover_source(db, s, cutoff),
@@ -695,7 +697,7 @@ def create_stock_router(*, state_dir: Path | None = None, pool_dir: Path | None 
                    'industry_sources': lambda s: load_industry_source(state, s, cutoff),
                    'growth_sources': lambda s: load_growth_source(state, s, cutoff),
                    'market_value_sources': lambda s: load_market_value_source(state, s, cutoff),
-                   'governance_sources': lambda s: load_exchange_governance_source(state, s, cutoff),
+                   'governance_sources': lambda s: governance[s],
                    'leadership_sources': lambda s: load_leadership_source(state, s, cutoff)}
         for index, company_row in enumerate(companies):
             symbol = company_row['symbol']

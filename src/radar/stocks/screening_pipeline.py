@@ -30,7 +30,7 @@ from radar.stocks.completion_recheck import recheck_run
 from radar.stocks.dividend_collect import VERSION as DIVIDEND_VERSION
 from radar.stocks.dividend_source import load_dividend_source
 from radar.stocks.evaluation_store import StockEvaluationStore
-from radar.stocks.exchange_governance import load_exchange_governance_source
+from radar.stocks.exchange_governance import load_exchange_governance_sources
 from radar.stocks.financial_source import load_financial_source, load_financial_task
 from radar.stocks.formal_rules import FORMAL_RULE_VERSION
 from radar.stocks.growth_source import load_growth_source
@@ -281,6 +281,7 @@ class ScreeningPipeline:
         if window is None:
             raise ValueError('市场日历不可用，无法复核筛选条件')
         report: dict[str, Any] = {'as_of': cutoff.isoformat(), 'items': [], 'members_published': 0}
+        governance = load_exchange_governance_sources(self.state, [c['symbol'] for c in companies], cutoff)
         loaders = {'financial_sources': lambda s: load_financial_source(self.db, s, cutoff),
                    'dividend_sources': lambda s: load_dividend_source(self.db, s, cutoff),
                    'turnover_sources': lambda s: load_turnover_source(self.db, s, cutoff),
@@ -288,7 +289,7 @@ class ScreeningPipeline:
                    'industry_sources': lambda s: load_industry_source(self.state, s, cutoff),
                    'growth_sources': lambda s: load_growth_source(self.state, s, cutoff),
                    'market_value_sources': lambda s: load_market_value_source(self.state, s, cutoff),
-                   'governance_sources': lambda s: load_exchange_governance_source(self.state, s, cutoff),
+                   'governance_sources': lambda s: governance[s],
                    'leadership_sources': lambda s: load_leadership_source(self.state, s, cutoff)}
         for index, company in enumerate(companies):
             symbol = company['symbol']

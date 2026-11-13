@@ -601,3 +601,24 @@ def test_rebuild_command_uses_explicit_state(tmp_path, monkeypatch):
     result = CliRunner().invoke(module.exchange_governance_rebuild, ['--state-dir', str(tmp_path)])
     assert result.exit_code == 0 and called['state'] == tmp_path
     assert '未抓取新数据' in result.output
+
+def test_batch_projection_matches_single_loader(tmp_path):
+    from radar.stocks.exchange_governance import (
+        collect_exchange_governance,
+        load_exchange_governance_source,
+        load_exchange_governance_sources,
+    )
+
+    collect_exchange_governance(tmp_path, fetch=fake_fetch(*sample()), sleep=lambda _: None)
+    day = today()
+    symbols = ['600000', '600001', '600002']
+    batch = load_exchange_governance_sources(tmp_path, symbols, day)
+    for symbol in symbols:
+        assert batch[symbol] == load_exchange_governance_source(tmp_path, symbol, day)
+
+
+def test_batch_projection_is_unavailable_without_snapshot(tmp_path):
+    from radar.stocks.exchange_governance import load_exchange_governance_sources
+
+    batch = load_exchange_governance_sources(tmp_path, ['600000'], today())
+    assert batch['600000']['status'] == 'unavailable'

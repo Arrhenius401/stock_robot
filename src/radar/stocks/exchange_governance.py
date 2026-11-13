@@ -779,33 +779,73 @@ def load_exchange_governance_source(state_dir: Path, symbol: str, as_of: date) -
         return out
 
 
+def _base_source(symbol: str, as_of: date) -> dict[str, Any]:
+    return {'symbol': symbol, 'as_of': as_of.isoformat(), 'status': 'unavailable',
+            'observation': 'unknown', 'records': [], 'reviewed': False,
+            'formal_screening_enabled': False,
+            'evaluation': load_disclosure_evaluation(symbol, as_of)}
+
+
+def _project(symbol: str, as_of: date, out: dict[str, Any], data: dict[str, Any],
+             index: dict[str, Any]) -> dict[str, Any]:
+    """把已校验快照投影到单家公司；不重复读取原文。"""
+    manifest = data['manifest']
+    snapshot_day = date.fromisoformat(manifest['as_of'])
+    if snapshot_day > as_of:
+        raise ValueError('监管列表晚于研究截点')
+    rows = index['symbols'].get(symbol, [])
+    if not isinstance(rows, list):
+        raise TypeError('监管列表公司记录无效')
+    if any(row.get('code') != symbol for row in rows):
+        raise ValueError('监管列表命中与查询公司不一致')
+    out.update(status='current' if snapshot_day == as_of else 'historical',
+               observation='observed' if rows else 'not_observed',
+               records=[{key: row.get(key) for key in ('source', 'document_id', 'listed_on', 'measure_type',
+                                                       'measure_category', 'object', 'title', 'url',
+                                                       'page_sha256')} for row in rows],
+               snapshot_date=snapshot_day.isoformat(), fetched_at=manifest['fetched_at'],
+               manifest_sha256=data['manifest_sha256'], index_sha256=data['index_sha256'],
+               coverage={key: {'label': value['label'], 'params': value['params'],
+                               'declared_total': value.get('declared_total'),
+                               'raw_received': value.get('raw_received'), 'parsed': value.get('parsed'),
+                               'received': value.get('received'), 'dropped': value.get('dropped'),
+                               'page_count': value.get('page_count'), 'pages': len(value.get('pages', [])),
+                               'date_range': value.get('date_range'),
+                               'snapshot_date': snapshot_day.isoformat()}
+                         for key, value in manifest['sources'].items()},
+               reason='仅为交易所动态列表观察结果；未命中不代表治理合格，工作函不等同处分')
+    return out
+
+
 def _load_locked(state_dir: Path, symbol: str, as_of: date, out: dict[str, Any]) -> dict[str, Any]:
     try:
         data, index, _stats = _snapshot(state_dir)
-        manifest = data['manifest']
-        snapshot_day = date.fromisoformat(manifest['as_of'])
-        if snapshot_day > as_of:
-            raise ValueError('监管列表晚于研究截点')
-        rows = index['symbols'].get(symbol, [])
-        if not isinstance(rows, list):
-            raise TypeError('监管列表公司记录无效')
-        if any(row.get('code') != symbol for row in rows):
-            raise ValueError('监管列表命中与查询公司不一致')
-        out.update(status='current' if snapshot_day == as_of else 'historical',
-                   observation='observed' if rows else 'not_observed',
-                   records=[{key: row.get(key) for key in ('source', 'document_id', 'listed_on', 'measure_type',
-                                                           'measure_category', 'object', 'title', 'url',
-                                                           'page_sha256')} for row in rows],
-                   snapshot_date=snapshot_day.isoformat(), fetched_at=manifest['fetched_at'],
-                   manifest_sha256=data['manifest_sha256'], index_sha256=data['index_sha256'],
-                   coverage={key: {'label': value['label'], 'params': value['params'],
-                                   'declared_total': value.get('declared_total'),
-                                   'raw_received': value.get('raw_received'), 'parsed': value.get('parsed'),
-                                   'received': value.get('received'), 'dropped': value.get('dropped'),
-                                   'page_count': value.get('page_count'), 'pages': len(value.get('pages', [])), 'date_range': value.get('date_range'),
-                                   'snapshot_date': snapshot_day.isoformat()}
-                             for key, value in manifest['sources'].items()},
-                   reason='仅为交易所动态列表观察结果；未命中不代表治理合格，工作函不等同处分')
+        _project(symbol, as_of, out, data, index)
     except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError, json.JSONDecodeError) as exc:
         logger.debug('监管列表不可用: %s', exc)
     return out
+
+
+def load_exchange_governance_sources(state_dir: Path, symbols: list[str],
+                                     as_of: date) -> dict[str, dict[str, Any]]:
+    """一次校验、多公司投影；避免复算阶段为每家公司重读 240 页原文。"""
+    if type(as_of) is not date:
+        raise ValueError('研究截点无效')
+    codes = [_symbol(symbol) for symbol in symbols]
+    if len(set(codes)) != len(codes):
+        raise ValueError('治理查询公司重复')
+    outs = {code: _base_source(code, as_of) for code in codes}
+    root = _root(state_dir)
+    lock_path = root / '.collect.lock'
+    try:
+        with FileLock(str(lock_path), timeout=3):
+            data, index, _stats = _snapshot(state_dir)
+            for code in codes:
+                try:
+                    _project(code, as_of, outs[code], data, index)
+                except (ValueError, TypeError, KeyError) as exc:
+                    logger.debug('监管列表单公司不可用 %s: %s', code, exc)
+    except (Timeout, OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError,
+            json.JSONDecodeError) as exc:
+        logger.debug('监管列表批量读取不可用: %s', exc)
+    return outs
