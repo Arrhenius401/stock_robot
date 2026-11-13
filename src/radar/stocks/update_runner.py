@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 import logging
@@ -28,6 +27,7 @@ from radar.stocks.index_discovery import collect_index_scope_result
 from radar.stocks.market_history import collect_stock_history_result
 from radar.stocks.research_store import StockResearchError, StockRevisionConflict, _sha
 from radar.stocks.structured_collect import collect_structured_company_result
+from radar.stocks.turnover_source import collect_turnover_payload
 from radar.stocks.update_runs import StockUpdateStore
 
 logger = logging.getLogger(__name__)
@@ -80,6 +80,7 @@ class StockUpdateRunner:
                  capital_collector: Callable[..., Any] = collect_capital_history_result,
                  financial_collector: Callable[..., Any] = collect_structured_company_result,
                  dividend_collector: Callable[..., Any] = collect_dividend,
+                 turnover_collector: Callable[..., Any] = collect_turnover_payload,
                  reference_factory: Callable[..., Any] | None = None,
                  market_window: list[date] | None = None,
                  window_loader: Callable[[date], tuple[list[date] | None, Any]] | None = None):
@@ -94,6 +95,7 @@ class StockUpdateRunner:
         self.capital_collector = capital_collector
         self.financial_collector = financial_collector
         self.dividend_collector = dividend_collector
+        self.turnover_collector = turnover_collector
         self.reference_factory = reference_factory
         self.market_window = market_window
         self.window_loader = window_loader
@@ -212,9 +214,12 @@ class StockUpdateRunner:
         return 'partial' if pending else 'completed'
 
     def _turnover(self, task: dict[str, Any], worker: str, token: str) -> str:
-        from radar.stocks.turnover_source import VERSION, verify_turnover_payload
+        from radar.stocks.turnover_source import (
+            SUPPORTED_VERSIONS,
+            verify_turnover_payload,
+        )
 
-        if task['rule_version'] != VERSION:
+        if task['rule_version'] not in SUPPORTED_VERSIONS:
             raise StockResearchError('成交额任务版本不兼容')
         cutoff = date.fromisoformat(task['target_date'])
         days, trace = self.window_loader(cutoff) if self.window_loader else (self.market_window, None)
@@ -230,7 +235,7 @@ class StockUpdateRunner:
             raise StockResearchError('成交额任务需要已保存的60日市场日历')
         latest = {item['scope']: item for item in task['results']}
         pending = False
-        cache = self.cache_dir/'market_history'
+        cache = self.cache_dir
         for index, company in enumerate(task['input_snapshot']['companies']):
             symbol, scope = company['symbol'], 'turnover:' + company['symbol']
             previous = latest.get(scope)
@@ -246,27 +251,26 @@ class StockUpdateRunner:
             payload: dict[str, Any] = {'symbol': symbol, 'as_of': task['target_date']}
             stopped = False
             try:
-                collected = collection_result(self.history_collector([company], days, cache, as_of=cutoff), 'market_history')
-                result = collected.value
-                if not isinstance(result, dict):
-                    raise TypeError('成交额采集没有返回有效资料')
-                item = result['items'][0]
-                stopped = '429' in str(item.get('error', '')) or item.get('status') == 'source_stopped'
-                if item.get('status') not in {'cached', 'downloaded'} or item.get('window_complete') is not True:
-                    raise ValueError('成交额原文缺失或交易日不完整')
-                sha = _sha(item['content_sha256'])
-                raw_path = cache / (sha + '.js')
-                if raw_path.is_symlink() or item.get('raw_artifact') != raw_path.name:
-                    raise ValueError('成交额原文路径无效')
-                raw = raw_path.read_bytes()
-                payload.update(window=[day.isoformat() for day in days], calendar=calendar, url=item['url'],
-                               fetched_at=item['fetched_at'], sha256=sha, raw=base64.b64encode(raw).decode('ascii'))
+                for attempt in range(2):
+                    try:
+                        payload = self.turnover_collector(symbol, cutoff, cache, days, calendar)
+                        break
+                    except StockRevisionConflict:
+                        raise
+                    except Exception as exc:
+                        if attempt or '429' in str(exc):
+                            raise
+                        logger.warning('成交额来源重试 %s: %s', symbol, exc)
+                        sleep(1)
                 verify_turnover_payload(payload, symbol, task['target_date'])
+                if payload['window'] != [day.isoformat() for day in days] or payload['calendar'] != calendar:
+                    raise ValueError('成交额来源市场日历与任务不一致')
                 status = 'completed'
             except StockRevisionConflict:
                 raise
             except Exception as exc:  # noqa: BLE001 第三方来源逐公司隔离，失败不得当作零成交额。
                 logger.warning('成交额资料待补 %s: %s', symbol, exc)
+                stopped = '429' in str(exc)
                 status = 'partial'
             pending |= status != 'completed'
             self.store.record_item(task['run_id'], worker, {'scope': scope, 'status': status,

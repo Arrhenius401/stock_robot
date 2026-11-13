@@ -59,13 +59,9 @@ def test_task_source_archival_and_newer_failure(tmp_path, monkeypatch):
     first = tasks.enqueue(kind='turnover_review', pool_ids=['dividend_value'], target_date=cutoff,
                           rule_version=VERSION, snapshot=snapshot)
     data = payload()
-    def collect(companies, days, cache, *, as_of):
-        cache.mkdir(parents=True, exist_ok=True)
-        (cache/(data['sha256']+'.js')).write_bytes(BODY)
-        return {'as_of': as_of.isoformat(), 'items': [{'symbol': '600900', 'status': 'downloaded',
-            'window_complete': True, 'rows': decoded(), 'url': data['url'], 'fetched_at': data['fetched_at'],
-            'content_sha256': data['sha256'], 'raw_artifact': data['sha256']+'.js'}]}
-    runner = StockUpdateRunner(tasks, tmp_path/'cache', tmp_path/'stock-updates/artifacts', history_collector=collect,
+    def collect(symbol, as_of, cache, window, calendar):
+        return data
+    runner = StockUpdateRunner(tasks, tmp_path/'cache', tmp_path/'stock-updates/artifacts', turnover_collector=collect,
                                window_loader=lambda _: (None, None))
     finished = runner.execute_one('test')
     assert finished is not None and finished['status'] == 'completed'
@@ -125,13 +121,77 @@ def test_rate_limit_stops_batch_and_task_can_resume(tmp_path):
     task = tasks.enqueue(kind='turnover_review', pool_ids=['dividend_value'], target_date=cutoff,
                          rule_version=VERSION, snapshot=snapshot)
     calls = []
-    def limited(companies, days, cache, *, as_of):
-        calls.append(companies[0]['symbol'])
-        return {'as_of': as_of.isoformat(), 'items': [{'symbol': companies[0]['symbol'],
-                                                        'status': 'source_error', 'error': '来源429停止后续网络请求'}]}
-    runner = StockUpdateRunner(tasks, tmp_path/'cache', tmp_path/'stock-updates/artifacts', history_collector=limited,
+    def limited(symbol, as_of, cache, window, calendar):
+        calls.append(symbol)
+        raise ValueError('来源429停止后续网络请求')
+    runner = StockUpdateRunner(tasks, tmp_path/'cache', tmp_path/'stock-updates/artifacts', turnover_collector=limited,
                                window_loader=lambda _: (WINDOW, {'calendar': payload()['calendar']}))
     partial = runner.execute_one('test')
     assert partial is not None and partial['status'] == 'partial' and calls == ['600900']
     resumed = tasks.resume_turnover(task['run_id'], 'dividend_value')
     assert resumed['status'] == 'queued' and resumed['input_snapshot'] == task['input_snapshot']
+
+
+def test_first_round_and_completion_share_eastmoney_source(tmp_path, monkeypatch):
+    import json
+    import types
+    from datetime import date, datetime
+
+    from radar.stocks import eastmoney_history, update_service
+    from radar.stocks.completion_providers import turnover_source_provider
+    from radar.stocks.turnover_source import VERSION, load_turnover_source
+    from radar.stocks.update_runner import StockUpdateRunner
+    from tests.radar.test_stock_financial_source import environment
+
+    calendar = {'snapshot_sha256': 'a' * 64}
+    lines = [f'{day.isoformat()},1,1,1,1,1,123456789' for day in WINDOW]
+    body = json.dumps({'data': {'klines': lines}}).encode()
+    monkeypatch.setattr(eastmoney_history, 'bounded_provider_call', lambda *args, **kwargs: body)
+    monkeypatch.setattr(update_service, 'load_market_window', lambda *args: (WINDOW, {'calendar': calendar}))
+    research, _, tasks, _ = environment(tmp_path)
+    cutoff = date(2026, 10, 20)
+    monkeypatch.setattr(eastmoney_history, 'datetime', types.SimpleNamespace(
+        now=lambda tz=None: datetime(2026, 10, 20, 8, tzinfo=tz)))
+    snapshot = {'kind': 'turnover_review', 'pool_ids': ['dividend_value'], 'scope_complete': True,
+                'scope_as_of': cutoff.isoformat(), 'scope_sha256': 'b' * 64, 'source_run_id': 'scope',
+                'companies': [{'symbol': '600900', 'name': '合成公司'}]}
+    tasks.enqueue(kind='turnover_review', pool_ids=['dividend_value'], target_date=cutoff,
+                  rule_version=VERSION, snapshot=snapshot)
+    runner = StockUpdateRunner(tasks, tmp_path / 'cache', tmp_path / 'stock-updates/artifacts',
+                               window_loader=lambda _: (WINDOW, {'calendar': calendar}))
+    finished = runner.execute_one('test')
+    assert finished is not None and finished['status'] == 'completed'
+    source = load_turnover_source(research.db_path, '600900', cutoff)
+    assert source['status'] == 'current'
+    assert source['payload']['daily'][0]['amount_yuan'] == '123456789'
+    payload = turnover_source_provider(research.db_path)('600900', cutoff)
+    assert payload is not None and payload['provider'] == 'eastmoney' and len(payload['daily']) == 60
+
+
+def test_collect_turnover_falls_back_when_eastmoney_fails(tmp_path, monkeypatch):
+    import types
+    from datetime import date
+
+    from radar.stocks import eastmoney_history, market_history, turnover_source
+    from tests.radar.test_stock_market_history import BODY, WINDOW, decoded
+
+    def blocked(*args, **kwargs):
+        raise RuntimeError('proxy blocked')
+
+    monkeypatch.setattr(eastmoney_history, 'bounded_provider_call', blocked)
+    cache = tmp_path / 'cache'
+    folder = cache / 'market_history'
+    folder.mkdir(parents=True)
+    sha = hashlib.sha256(BODY).hexdigest()
+    (folder / (sha + '.js')).write_bytes(BODY)
+    item = {'symbol': '600900', 'status': 'downloaded', 'window_complete': True,
+            'content_sha256': sha, 'raw_artifact': sha + '.js',
+            'url': 'https://finance.sina.com.cn/realstock/company/sh600900/hisdata_klc2/klc_kl.js',
+            'fetched_at': datetime(2026, 10, 15, tzinfo=UTC).isoformat()}
+    monkeypatch.setattr(market_history, 'collect_stock_history_result',
+                        lambda *args, **kwargs: types.SimpleNamespace(value={'items': [item]}))
+    monkeypatch.setattr(market_history, 'decode_sina_body', lambda *args: decoded())
+    payload = turnover_source.collect_turnover_payload(
+        '600900', date(2026, 10, 15), cache, WINDOW, {'snapshot_sha256': 'a' * 64})
+    assert payload['provider'] == 'sina'
+    assert turnover_source.verify_turnover_payload(payload, '600900', '2026-10-15')['daily']

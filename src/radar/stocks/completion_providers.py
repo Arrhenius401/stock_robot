@@ -9,10 +9,13 @@ from typing import Any
 from pypdf import PdfReader
 
 from radar.stocks.announcement_discovery import discover_announcements
-from radar.stocks.eastmoney_history import fetch_eastmoney_turnover
 from radar.stocks.financial_extract import extract_cashflow_text
 from radar.stocks.source_archive import collect_documents
-from radar.stocks.turnover_source import load_turnover_source
+from radar.stocks.turnover_source import (
+    collect_turnover_payload,
+    load_turnover_source,
+    verify_turnover_payload,
+)
 from stock_robot.dividend_materials import DEFAULT_HOSTS
 
 
@@ -53,7 +56,7 @@ def annual_archive_provider(symbol: str, name: str | None, years: list[int], as_
 
 
 def turnover_source_provider(db: Path, cache_dir: Path | None = None):
-    """优先现有任务来源；没有时以正式东财日线 provider 做历史回填，并走同一校验。"""
+    """优先现有任务来源；缺失时调用与首轮相同的成交额入口并复核。"""
     def fetch(symbol: str, as_of: date) -> dict[str, Any] | None:
         source = load_turnover_source(db, symbol, as_of)
         if source.get('status') == 'current':
@@ -64,6 +67,7 @@ def turnover_source_provider(db: Path, cache_dir: Path | None = None):
         calendar = trace.get('calendar') if isinstance(trace, dict) else None
         if days is None or not isinstance(calendar, dict) or len(days) != 60:
             return None
-        root = cache_dir or db.parent / 'stock-updates' / 'cache' / 'eastmoney_history'
-        return fetch_eastmoney_turnover(symbol, as_of, root, days, calendar)
+        root = cache_dir or db.parent / 'stock-updates' / 'cache'
+        payload = collect_turnover_payload(symbol, as_of, root, days, calendar)
+        return verify_turnover_payload(payload, symbol, as_of)
     return fetch

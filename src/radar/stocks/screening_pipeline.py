@@ -402,7 +402,7 @@ class ScreeningPipeline:
         run = apply_plan({**plan, 'items': items}, yes=True, providers={
             'annual_report': lambda symbol, name, years: annual_archive_provider(
                 symbol, name, years, cutoff, workspace / 'annual'),
-            'turnover': turnover_source_provider(self.db, self.state / 'stock-updates/cache/eastmoney_history')},
+            'turnover': turnover_source_provider(self.db, self.state / 'stock-updates/cache')},
             on_progress=lambda done, total, result: progress(done, total, result, 'completion')
             if progress is not None else None)
         run_path = workspace / 'run.json'

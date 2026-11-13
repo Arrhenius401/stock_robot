@@ -256,7 +256,7 @@ class ScreeningService:
                 run = apply_plan(plan, yes=True, providers={
                     'annual_report': lambda symbol, name, years: annual_archive_provider(
                         symbol, name, years, cutoff, workspace/'annual'),
-                    'turnover': turnover_source_provider(self.state/'radar.db', self.state/'stock-updates/cache/eastmoney_history')},
+                    'turnover': turnover_source_provider(self.state/'radar.db', self.state/'stock-updates/cache')},
                     on_progress=lambda done, total, items: progress(done, total, items))
                 run_path = workspace/'run.json'
                 run_path.write_text(json.dumps(run, ensure_ascii=False), encoding='utf-8')

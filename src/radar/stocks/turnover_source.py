@@ -1,4 +1,4 @@
-"""读取候选成交额任务并从保存的原始日线重算。"""
+"""成交额来源：读取任务原文重算，并为首轮与补全提供同一采集入口。"""
 from __future__ import annotations
 
 import base64
@@ -14,11 +14,15 @@ from typing import Any
 from radar.provider_request import ProviderRequestError
 from radar.stocks import market_history
 from radar.stocks.admission import _BJ
-from radar.stocks.eastmoney_history import verify_eastmoney_turnover_payload
+from radar.stocks.eastmoney_history import (
+    fetch_eastmoney_turnover,
+    verify_eastmoney_turnover_payload,
+)
 from radar.stocks.financial_task import read_financial_artifact
 from radar.stocks.research_store import _id, _sha, _symbol
 
-VERSION = 'stock-turnover-review-v1'
+VERSION = 'stock-turnover-review-v2'
+SUPPORTED_VERSIONS = {VERSION, 'stock-turnover-review-v1'}
 logger = logging.getLogger(__name__)
 
 
@@ -71,7 +75,7 @@ def load_turnover_source(db: Path, symbol: str, as_of: date) -> dict[str, Any]:
                 continue
             source.update(run_id=row['run_id'], as_of=row['target_date'], snapshot_sha256=hashlib.sha256(row['input_snapshot'].encode()).hexdigest(),
                           task_identity_sha256=_id({key: row[key] for key in ('run_id', 'target_date', 'rule_version', 'pool_ids', 'created_at')}))
-            if row['rule_version'] != VERSION:
+            if row['rule_version'] not in SUPPORTED_VERSIONS:
                 source['status'] = 'version_mismatch'
                 return source
             item = next((item for item in reversed(json.loads(row['results'])) if item.get('scope') == 'turnover:' + symbol), None)
@@ -102,3 +106,47 @@ def load_turnover_source(db: Path, symbol: str, as_of: date) -> dict[str, Any]:
             source.update(status='invalid', payload=None, run_id=row['run_id'])
             return source
     return source
+
+TURNOVER_SOURCES = ('eastmoney', 'sina')
+
+
+def _sina_payload(symbol: str, as_of: date, cache_dir: Path, window: list[date],
+                  calendar: dict[str, Any]) -> dict[str, Any]:
+    """从新浪日线构造与任务一致的原文绑定 payload，不做静默补齐。"""
+    collected = market_history.collect_stock_history_result([{'symbol': symbol}], window, cache_dir, as_of=as_of)
+    result = collected.value
+    if not isinstance(result, dict) or not result.get('items'):
+        raise ValueError('成交额采集没有返回有效资料')
+    item = result['items'][0]
+    if item.get('status') not in {'cached', 'downloaded'} or item.get('window_complete') is not True:
+        raise ValueError(str(item.get('error') or '成交额原文缺失或交易日不完整'))
+    sha = _sha(item.get('content_sha256'))
+    path = Path(cache_dir) / (sha + '.js')
+    if path.is_symlink() or not path.is_file() or item.get('raw_artifact') != path.name:
+        raise ValueError('成交额原文路径无效')
+    raw = path.read_bytes()
+    return {'symbol': symbol, 'as_of': as_of.isoformat(), 'provider': 'sina', 'url': item['url'],
+            'window': [day.isoformat() for day in window], 'calendar': calendar,
+            'fetched_at': item['fetched_at'], 'sha256': sha,
+            'raw': base64.b64encode(raw).decode('ascii')}
+
+
+def collect_turnover_payload(symbol: str, as_of: date, cache_dir: Path, window: list[date],
+                             calendar: dict[str, Any],
+                             *, sources: tuple[str, ...] = TURNOVER_SOURCES) -> dict[str, Any]:
+    """首轮与补全共用的成交额入口：按顺序回退来源，返回原文绑定的 payload。"""
+    root = Path(cache_dir)
+    errors = []
+    for source in sources:
+        try:
+            if source == 'eastmoney':
+                return fetch_eastmoney_turnover(symbol, as_of, root / 'eastmoney_history', window, calendar)
+            if source == 'sina':
+                payload = _sina_payload(symbol, as_of, root / 'market_history', window, calendar)
+                verify_turnover_payload(payload, symbol, as_of.isoformat())
+                return payload
+            raise ValueError(f'未知成交额来源：{source}')
+        except Exception as exc:  # noqa: BLE001 来源回退边界，逐来源隔离
+            logger.warning('成交额来源失败 %s %s: %s', symbol, source, exc)
+            errors.append(f'{source}:{type(exc).__name__}')
+    raise ValueError('成交额来源均不可用：' + '、'.join(errors))
