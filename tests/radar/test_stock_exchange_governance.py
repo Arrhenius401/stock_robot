@@ -292,16 +292,61 @@ def test_tampered_source_url_unavailable(tmp_path):
     assert load_exchange_governance_source(tmp_path, '600000', today())['status'] == 'unavailable'
 
 
-def test_failure_disables_old_snapshot(tmp_path):
+def test_failed_refresh_keeps_old_snapshot(tmp_path):
     from radar.stocks.exchange_governance import (
         collect_exchange_governance,
         load_exchange_governance_source,
     )
 
     collect_exchange_governance(tmp_path, fetch=fake_fetch(*sample()), sleep=lambda _: None)
+    root = tmp_path / 'stock-exchange-governance'
+    before = (root / 'manifest.json').read_bytes()
     failed = collect_exchange_governance(tmp_path, fetch=lambda url, params, referer: (500, b''), sleep=lambda _: None)
     assert failed['status'] == 'failed'
-    assert load_exchange_governance_source(tmp_path, '600000', today())['status'] == 'unavailable'
+    assert failed['staged']
+    assert (root / 'manifest.json').read_bytes() == before
+    assert load_exchange_governance_source(tmp_path, '600000', today())['status'] == 'current'
+
+
+def test_resume_only_fetches_missing_pages(tmp_path):
+    from radar.stocks.exchange_governance import collect_exchange_governance
+
+    sse, measure, discipline = sample()
+    pages = {1: [sse[0]], 2: [sse[1]], 3: [{'stockcode': '600002', 'docId': 'third',
+                                           'docTitle': '第三页样本', 'createTime': '2026-11-03 10:00:00',
+                                           'extWTFL': '监管工作函', 'extTeacher': '上市公司'}]}
+    total = sum(len(value) for value in pages.values())
+    state = {'fail': 3}
+    first: list[int] = []
+
+    def fetch(url, params, referer):
+        if 'sse.com.cn' not in url:
+            return 200, szse_page(measure if params.get('CATALOGID') == '1800_jgxxgk_snapshot' else discipline)
+        page = int(params['pageHelp.pageNo'])
+        if state['fail'] == page:
+            return 500, b''
+        return 200, sse_page(pages[page], total=total, page=page, pages=3)
+
+    def track(url, params, referer):
+        if 'sse.com.cn' in url:
+            first.append(int(params['pageHelp.pageNo']))
+        return fetch(url, params, referer)
+
+    failed = collect_exchange_governance(tmp_path, fetch=track, sleep=lambda _: None)
+    assert failed['status'] == 'failed'
+    assert first == [1, 2, 3]
+
+    state['fail'] = 0
+    second: list[int] = []
+
+    def retry(url, params, referer):
+        if 'sse.com.cn' in url:
+            second.append(int(params['pageHelp.pageNo']))
+        return fetch(url, params, referer)
+
+    result = collect_exchange_governance(tmp_path, fetch=retry, sleep=lambda _: None)
+    assert result['status'] == 'complete'
+    assert second == [1, 3]
 
 
 def test_verify_rejects_page_tamper(tmp_path):

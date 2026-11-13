@@ -51,6 +51,15 @@ from stock_robot.stock_research import (
     review_evidence,
 )
 from stock_robot.stock_risk_warning import risk_warning_update
+from stock_robot.stock_screening import (
+    evidence_prepare,
+    peer_universe_prepare,
+    screening_close_loop,
+    screening_complete,
+    screening_plan,
+    screening_show,
+    screening_update,
+)
 from stock_robot.stock_structured_admission import structured_admission_command
 from stock_robot.stock_structured_financial import (
     structured_collect_command,
@@ -1869,6 +1878,9 @@ radar.add_command(exchange_governance_update)
 radar.add_command(exchange_governance_rebuild)
 radar.add_command(official_roster_command)
 radar.add_command(index_scope_command)
+for command in (peer_universe_prepare, evidence_prepare, screening_update, screening_plan,
+                screening_complete, screening_close_loop, screening_show):
+    radar.add_command(command)
 for command in (capture_evaluation, list_evaluations, create_draft, list_drafts, cancel_draft, apply_membership, list_memberships):
     radar.add_command(command)
 for command in (enqueue_update, list_updates, run_one_update):

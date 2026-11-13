@@ -5,9 +5,10 @@ import hashlib
 import json
 import logging
 import re
+import shutil
 import time
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -52,6 +53,8 @@ _MEASURE_TYPES = {'监管关注', '书面警示', '监管警示', '约见谈话'
 _WORK_LETTER_TYPES = {'监管工作函'}
 _PAGE_CACHE: dict[tuple[str, str], tuple[int, int, int, int, tuple[dict[str, Any], ...]]] = {}
 _PAGE_CACHE_LIMIT = 320
+_STAGING = '.staging'
+_RESUME_WINDOW = timedelta(hours=2)
 
 
 def _download(url: str, params: dict[str, str], referer: str) -> tuple[int, bytes]:
@@ -199,97 +202,164 @@ def _normalize(source: str, row: dict[str, Any], page_sha: str) -> dict[str, Any
     return record
 
 
-def _collect_sse(root: Path, fetch: Callable[[str, dict[str, str], str], tuple[int, bytes]],
-                 sleep: Callable[[float], Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    refs, rows, expected = [], [], None
-    page, page_count, raw_count = 1, None, 0
-    while True:
-        if page > 1:
-            sleep(0.3)
-        status, raw = fetch(SSE_URL, _sse_params(page), SSE_REFERER)
-        if status != 200:
-            raise ValueError(f'上交所监管列表HTTP{status}，停止采集')
-        if not isinstance(raw, bytes) or not 0 < len(raw) <= _MAX_BODY:
-            raise ValueError('上交所监管列表原文无效')
-        payload = _jsonp(raw)
-        help_ = payload.get('pageHelp')
-        if not isinstance(help_, dict):
-            raise TypeError('上交所监管列表分页结构无效')
-        data = help_.get('data')
-        total, declared_pages = help_.get('total'), help_.get('pageCount')
-        if (type(total) is not int or not 0 < total <= 20000 or type(declared_pages) is not int
-                or not 1 <= declared_pages <= 1000 or not isinstance(data, list)
-                or help_.get('pageNo') != page):
-            raise ValueError('上交所监管列表总数、页数或页码无效')
-        if expected is None:
-            expected = (total, declared_pages)
-        elif expected != (total, declared_pages):
-            raise ValueError('上交所监管列表总数或页数变化')
-        ref = _page_ref(root, f'sse-{page:03d}.json', raw)
-        refs.append({**ref, 'page': page, 'count': len(data)})
-        raw_count += len(data)
-        rows.extend(normalized for row in data if isinstance(row, dict)
-                    if (normalized := _normalize('sse', row, ref['sha256'])) is not None)
-        page_count = declared_pages
-        if page >= page_count:
-            break
-        page += 1
-    if expected is None or raw_count != expected[0] or len(refs) != page_count:
-        raise ValueError('上交所监管列表分页不完整')
-    dates = sorted(row['listed_on'] for row in rows if row.get('listed_on'))
-    source = {'label': '上交所上市公司监管列表', 'url': SSE_URL, 'params': SSE_PARAMS,
-              'declared_total': expected[0], 'page_count': page_count, 'raw_received': raw_count, 'parsed': len(rows),
-              'dropped': raw_count - len(rows), 'received': len(rows), 'pages': refs,
-              'date_range': [dates[0], dates[-1]] if dates else None}
-    return source, rows
+def _source_spec(key: str) -> dict[str, Any]:
+    if key == 'sse':
+        return {'key': key, 'label': '上交所上市公司监管列表', 'url': SSE_URL, 'referer': SSE_REFERER,
+                'params': SSE_PARAMS, 'page_size': SSE_PAGE_SIZE}
+    spec = SZSE_SOURCES[key]
+    return {'key': key, 'label': spec['label'], 'url': SZSE_URL, 'referer': SZSE_REFERER,
+            'params': {'catalog': spec['catalog'], 'tabkey': spec['tabkey']}, 'page_size': SZSE_PAGE_SIZE}
 
 
-def _collect_szse(root: Path, key: str, spec: dict[str, str],
-                  fetch: Callable[[str, dict[str, str], str], tuple[int, bytes]],
-                  sleep: Callable[[float], Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    refs, rows, expected = [], [], None
-    page, page_count, raw_count = 1, None, 0
-    while True:
-        if page > 1:
-            sleep(0.3)
-        status, raw = fetch(SZSE_URL, _szse_params(spec['catalog'], spec['tabkey'], page), SZSE_REFERER)
-        if status != 200:
-            raise ValueError(f'{spec["label"]}HTTP{status}，停止采集')
-        if not isinstance(raw, bytes) or not 0 < len(raw) <= _MAX_BODY:
-            raise ValueError(f'{spec["label"]}原文无效')
-        payload = _json(raw)
-        if not isinstance(payload, list) or len(payload) != 1 or not isinstance(payload[0], dict):
-            raise ValueError(f'{spec["label"]}结构无效')
-        metadata, data = payload[0].get('metadata'), payload[0].get('data')
-        total = metadata.get('recordcount') if isinstance(metadata, dict) else None
-        declared_pages = metadata.get('pagecount') if isinstance(metadata, dict) else None
-        page_no = metadata.get('pageno') if isinstance(metadata, dict) else None
-        if (type(total) is not int or not 0 < total <= 20000 or type(declared_pages) is not int
-                or not 1 <= declared_pages <= 1000 or not isinstance(data, list)
-                or page_no != page):
-            raise ValueError(f'{spec["label"]}总数、页数或页码无效')
-        if expected is None:
-            expected = (total, declared_pages)
-        elif expected != (total, declared_pages):
-            raise ValueError(f'{spec["label"]}总数或页数变化')
-        ref = _page_ref(root, f'{key}-{page:03d}.json', raw)
-        refs.append({**ref, 'page': page, 'count': len(data)})
-        raw_count += len(data)
-        rows.extend(normalized for row in data if isinstance(row, dict)
-                    if (normalized := _normalize(key, row, ref['sha256'])) is not None)
-        page_count = declared_pages
-        if page >= page_count:
-            break
-        page += 1
-    if expected is None or raw_count != expected[0] or len(refs) != page_count:
+def _page_params(key: str, page: int) -> dict[str, str]:
+    if key == 'sse':
+        return _sse_params(page)
+    spec = SZSE_SOURCES[key]
+    return _szse_params(spec['catalog'], spec['tabkey'], page)
+
+
+def _page_name(key: str, page: int) -> str:
+    return f'{key}-{page:03d}.json'
+
+
+def _staging_dir(root: Path) -> Path:
+    return root / _STAGING / datetime.now(_BJ).date().isoformat()
+
+
+def _read_progress(path: Path) -> dict[str, Any]:
+    try:
+        payload = _json(path.read_bytes())
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _write_progress(path: Path, payload: dict[str, Any]) -> None:
+    _atomic(path, json.dumps(payload, ensure_ascii=False, sort_keys=True).encode())
+
+
+def _resume_ok(progress: dict[str, Any], key: str, total: int, pages: int, params: dict[str, str]) -> bool:
+    """同一天、两小时内、声明总数与请求参数一致才允许续跑。"""
+    source = (progress.get('sources') or {}).get(key)
+    if not isinstance(source, dict) or source.get('declared_total') != total \
+            or source.get('page_count') != pages or source.get('params') != params:
+        return False
+    try:
+        updated = datetime.fromisoformat(str(source.get('updated_at')))
+    except ValueError:
+        return False
+    return updated.utcoffset() is not None and datetime.now(_BJ) - updated <= _RESUME_WINDOW
+
+
+def _staged_page(staging: Path, key: str, page: int, total: int, pages: int,
+                 entry: Any) -> tuple[dict[str, Any], list[dict[str, Any]]] | None:
+    """复用已抓页面：文件摘要、条数与当前声明总数/页数必须全部一致。"""
+    if not isinstance(entry, dict):
+        return None
+    try:
+        raw = (staging / _page_name(key, page)).read_bytes()
+    except OSError:
+        return None
+    sha = hashlib.sha256(raw).hexdigest()
+    if sha != entry.get('sha256') or len(raw) != entry.get('bytes'):
+        return None
+    try:
+        declared_total, declared_pages, page_no, rows = _page_payload(key, raw)
+    except (ValueError, TypeError, KeyError, json.JSONDecodeError):
+        return None
+    if (declared_total, declared_pages, page_no) != (total, pages, page) or len(rows) != entry.get('count'):
+        return None
+    normalized = [record for row in rows if isinstance(row, dict)
+                  if (record := _normalize(key, row, sha)) is not None]
+    return {'path': _page_name(key, page), 'bytes': len(raw), 'sha256': sha, 'page': page,
+            'count': len(rows)}, normalized
+
+
+def _fetch_page(spec: dict[str, Any], key: str, page: int,
+                fetch: Callable[[str, dict[str, str], str], tuple[int, bytes]],
+                sleep: Callable[[float], Any], attempts: int = 2) -> bytes:
+    """单页请求带一次重试；仍失败则交给外层保留暂存供续跑。"""
+    if fetch is not _fetch:
+        attempts = 1
+    for attempt in range(attempts):
+        try:
+            status, raw = fetch(spec['url'], _page_params(key, page), spec['referer'])
+        except (ProviderRequestError, requests.RequestException):
+            if attempt + 1 >= attempts:
+                raise
+            sleep(1.0)
+            continue
+        if status == 200:
+            return raw
+        if 500 <= status < 600 and attempt + 1 < attempts:
+            sleep(1.0)
+            continue
+        raise ValueError(f'{spec["label"]}HTTP{status}，停止采集')
+    raise ValueError(f'{spec["label"]}请求失败')
+
+
+def _collect_source(key: str, staging: Path, progress: dict[str, Any],
+                    fetch: Callable[[str, dict[str, str], str], tuple[int, bytes]],
+                    sleep: Callable[[float], Any],
+                    on_page: Callable[[int, int, str], None] | None) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """按页采集并落盘到暂存目录；同日重试只补缺页，第 1 页每次重取核对声明。"""
+    spec = _source_spec(key)
+    raw = _fetch_page(spec, key, 1, fetch, sleep)
+    if not isinstance(raw, bytes) or not 0 < len(raw) <= _MAX_BODY:
+        raise ValueError(f'{spec["label"]}原文无效')
+    total, pages, page_no, rows = _page_payload(key, raw)
+    if page_no != 1:
+        raise ValueError(f'{spec["label"]}第1页页码不符')
+    stored = (progress.get('sources') or {}).get(key)
+    resume = _resume_ok(progress, key, total, pages, spec['params'])
+    pages_meta = dict(stored.get('pages') or {}) if resume and isinstance(stored, dict) else {}
+    refs: list[dict[str, Any]] = []
+    records: list[dict[str, Any]] = []
+    raw_count = 0
+    for page in range(1, pages + 1):
+        if page == 1:
+            sha = hashlib.sha256(raw).hexdigest()
+            _atomic(staging / _page_name(key, page), raw)
+            normalized = [record for row in rows if isinstance(row, dict)
+                          if (record := _normalize(key, row, sha)) is not None]
+            ref = {'path': _page_name(key, page), 'bytes': len(raw), 'sha256': sha, 'page': page,
+                   'count': len(rows)}
+        else:
+            reused = _staged_page(staging, key, page, total, pages, pages_meta.get(str(page)))
+            if reused is not None:
+                ref, normalized = reused
+            else:
+                sleep(0.3)
+                raw = _fetch_page(spec, key, page, fetch, sleep)
+                if not isinstance(raw, bytes) or not 0 < len(raw) <= _MAX_BODY:
+                    raise ValueError(f'{spec["label"]}原文无效')
+                page_total, page_count, current, page_rows = _page_payload(key, raw)
+                if (page_total, page_count) != (total, pages) or current != page:
+                    raise ValueError(f'{spec["label"]}总数、页数或页码变化')
+                sha = hashlib.sha256(raw).hexdigest()
+                _atomic(staging / _page_name(key, page), raw)
+                normalized = [record for row in page_rows if isinstance(row, dict)
+                              if (record := _normalize(key, row, sha)) is not None]
+                ref = {'path': _page_name(key, page), 'bytes': len(raw), 'sha256': sha, 'page': page,
+                       'count': len(page_rows)}
+        refs.append(ref)
+        raw_count += ref['count']
+        records.extend(normalized)
+        pages_meta[str(page)] = {'sha256': ref['sha256'], 'bytes': ref['bytes'], 'count': ref['count']}
+        progress.setdefault('sources', {})[key] = {
+            'label': spec['label'], 'params': spec['params'], 'declared_total': total, 'page_count': pages,
+            'pages': pages_meta, 'updated_at': datetime.now(_BJ).isoformat()}
+        _write_progress(staging / 'progress.json', progress)
+        if on_page is not None:
+            on_page(page, pages, key)
+    if raw_count != total or len(refs) != pages:
         raise ValueError(f'{spec["label"]}分页不完整')
-    dates = sorted(row['listed_on'] for row in rows if row.get('listed_on'))
-    source = {'label': spec['label'], 'url': SZSE_URL,
-              'params': {'catalog': spec['catalog'], 'tabkey': spec['tabkey']},
-              'declared_total': expected[0], 'page_count': page_count, 'raw_received': raw_count, 'parsed': len(rows),
-              'dropped': raw_count - len(rows), 'received': len(rows), 'pages': refs,
-              'date_range': [dates[0], dates[-1]] if dates else None}
-    return source, rows
+    dates = sorted(record['listed_on'] for record in records if record.get('listed_on'))
+    source = {'label': spec['label'], 'url': spec['url'], 'params': spec['params'],
+              'declared_total': total, 'page_count': pages, 'raw_received': raw_count,
+              'parsed': len(records), 'dropped': raw_count - len(records), 'received': len(records),
+              'pages': refs, 'date_range': [dates[0], dates[-1]] if dates else None}
+    return source, records
 
 
 def _index(records: list[dict[str, Any]], as_of: str, sources: dict[str, Any],
@@ -318,12 +388,8 @@ def _canonical(value: Any) -> bytes:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode()
 
 
-def _parse_page(source: str, ref: dict[str, Any], raw: bytes) -> tuple[int, int, int, int,
-                                                                     tuple[dict[str, Any], ...]]:
-    key = (source, ref['sha256'])
-    cached = _PAGE_CACHE.get(key)
-    if cached is not None:
-        return cached
+def _page_payload(source: str, raw: bytes) -> tuple[int, int, int, list[Any]]:
+    """解析单页原文的声明总数、页数、页码与原始行；不含条数绑定。"""
     if source == 'sse':
         payload = _jsonp(raw)
         help_ = payload.get('pageHelp')
@@ -345,7 +411,19 @@ def _parse_page(source: str, ref: dict[str, Any], raw: bytes) -> tuple[int, int,
             or type(declared_pages) is not int or not 1 <= declared_pages <= 1000
             or type(page_no) is not int or not 1 <= page_no <= declared_pages):
         raise ValueError('监管列表原文声明总数、总页数或页码无效')
-    if not isinstance(rows, list) or len(rows) != ref.get('count'):
+    if not isinstance(rows, list):
+        raise TypeError('监管列表分页条数无效')
+    return declared_total, declared_pages, page_no, rows
+
+
+def _parse_page(source: str, ref: dict[str, Any], raw: bytes) -> tuple[int, int, int, int,
+                                                                     tuple[dict[str, Any], ...]]:
+    key = (source, ref['sha256'])
+    cached = _PAGE_CACHE.get(key)
+    if cached is not None:
+        return cached
+    declared_total, declared_pages, page_no, rows = _page_payload(source, raw)
+    if len(rows) != ref.get('count'):
         raise ValueError('监管列表分页条数与记录不一致')
     normalized: list[dict[str, Any]] = []
     for row in rows:
@@ -437,10 +515,46 @@ def _snapshot(state_dir: Path) -> tuple[dict[str, Any], dict[str, Any], dict[str
     return data, rebuilt, stats
 
 
+def _archive_current(root: Path) -> None:
+    """切换前按日期保留上一份已验证快照；失败刷新不销毁历史证据。"""
+    try:
+        manifest = _json((root / 'manifest.json').read_bytes())
+        if manifest.get('status') != 'complete' or not isinstance(manifest.get('as_of'), str):
+            return
+        target = root / 'archive' / manifest['as_of']
+        if target.exists():
+            return
+        names = ['manifest.json', 'index.json']
+        names.extend(sorted(path.name for path in root.glob('sse-*.json')))
+        names.extend(sorted(path.name for path in root.glob('szse-*.json')))
+        target.mkdir(parents=True, exist_ok=True)
+        for name in names:
+            source = root / name
+            if source.is_file():
+                shutil.copy2(source, target / name)
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+        return
+
+
+def _swap_into_place(root: Path, staging: Path) -> None:
+    """页面与索引先就位，manifest 最后原子替换；读者最多短暂 fail-closed。"""
+    names = sorted(path.name for path in staging.glob('*.json')
+                   if path.name not in {'index.json', 'manifest.json', 'progress.json'})
+    for name in names:
+        (staging / name).replace(root / name)
+    (staging / 'index.json').replace(root / 'index.json')
+    (staging / 'manifest.json').replace(root / 'manifest.json')
+
+
 def collect_exchange_governance(state_dir: Path, *,
                                 fetch: Callable[[str, dict[str, str], str], tuple[int, bytes]] = _fetch,
-                                sleep: Callable[[float], Any] = time.sleep) -> dict[str, Any]:
-    """保留四类监管列表原文；失败立即失效旧快照，不修改业务数据库。"""
+                                sleep: Callable[[float], Any] = time.sleep,
+                                resume: bool = True,
+                                on_page: Callable[[int, int, str], None] | None = None) -> dict[str, Any]:
+    """保留四类监管列表原文；新页面先写暂存，全部通过后原子切换。
+
+    失败时保留旧快照与已抓页面，同日重试只补缺页；不修改业务数据库。
+    """
     root = _root(state_dir)
     root.mkdir(parents=True, exist_ok=True)
     lock_path = root / '.collect.lock'
@@ -448,28 +562,28 @@ def collect_exchange_governance(state_dir: Path, *,
         raise ValueError('监管列表锁不能是符号链接')
     try:
         with FileLock(str(lock_path), timeout=0):
-            return _collect_locked(state_dir, root, fetch, sleep)
+            return _collect_locked(state_dir, root, fetch, sleep, resume, on_page)
     except Timeout:
         return {'status': 'failed', 'reason': '监管列表采集锁已存在，需等待或检查中断任务',
                 'research_only': True, 'formal_screening_enabled': False}
 
 
 def _collect_locked(state_dir: Path, root: Path, fetch: Callable[[str, dict[str, str], str], tuple[int, bytes]],
-                    sleep: Callable[[float], Any]) -> dict[str, Any]:
-    manifest_path = root / 'manifest.json'
+                    sleep: Callable[[float], Any], resume: bool = True,
+                    on_page: Callable[[int, int, str], None] | None = None) -> dict[str, Any]:
     started = datetime.now(_BJ)
+    staging = _staging_dir(root)
+    staging.mkdir(parents=True, exist_ok=True)
+    progress = _read_progress(staging / 'progress.json') if resume else {}
+    if progress.get('as_of') != started.date().isoformat():
+        progress = {'version': VERSION, 'as_of': started.date().isoformat(), 'sources': {}}
     failed = {'version': VERSION, 'status': 'failed', 'as_of': started.date().isoformat()}
-    _atomic(manifest_path, json.dumps(failed).encode())
     try:
         sources: dict[str, Any] = {}
         records: list[dict[str, Any]] = []
         dropped = 0
-        source, rows = _collect_sse(root, fetch, sleep)
-        sources['sse'] = source
-        records.extend(rows)
-        dropped += source['dropped']
-        for key in ('szse_measure', 'szse_discipline'):
-            source, rows = _collect_szse(root, key, SZSE_SOURCES[key], fetch, sleep)
+        for key in ('sse', 'szse_measure', 'szse_discipline'):
+            source, rows = _collect_source(key, staging, progress, fetch, sleep, on_page)
             sources[key] = source
             records.extend(rows)
             dropped += source['dropped']
@@ -478,15 +592,21 @@ def _collect_locked(state_dir: Path, root: Path, fetch: Callable[[str, dict[str,
             raise ValueError('监管列表采集跨日期')
         index = _index(records, as_of.date().isoformat(), sources, dropped)
         raw = json.dumps(index, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode()
-        index_ref = _page_ref(root, 'index.json', raw)
+        index_ref = _page_ref(staging, 'index.json', raw)
         manifest = {'version': VERSION, 'status': 'complete', 'as_of': as_of.date().isoformat(),
                     'fetched_at': as_of.isoformat(), 'sources': sources, 'index': index_ref,
                     'records': index['records'], 'unmatched': index['unmatched'],
                     'invalid': index['invalid']}
-        _atomic(manifest_path, json.dumps(manifest, ensure_ascii=False, sort_keys=True).encode())
+        _atomic(staging / 'manifest.json', json.dumps(manifest, ensure_ascii=False, sort_keys=True).encode())
+        staged_records, staged_stats = _read_pages(staging, manifest)
+        if _canonical(_build_index(manifest, staged_records, staged_stats)) != _canonical(index):
+            raise ValueError('暂存索引与原文重建结果不一致')
+        _archive_current(root)
+        _swap_into_place(root, staging)
         verified = verify_exchange_governance(state_dir, _allow_locked=True)
         if verified['status'] != 'current':
             raise ValueError('监管列表原文复读失败')
+        shutil.rmtree(staging, ignore_errors=True)
         return {'status': 'complete', 'as_of': as_of.date().isoformat(), 'records': index['records'],
                 'unmatched': index['unmatched'], 'invalid': index['invalid'],
                 'sources': {key: {'declared_total': value['declared_total'], 'received': value['received'],
@@ -495,8 +615,12 @@ def _collect_locked(state_dir: Path, root: Path, fetch: Callable[[str, dict[str,
     except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError,
             json.JSONDecodeError, ProviderRequestError, requests.RequestException) as exc:
         logger.warning('监管列表采集失败: %s', exc)
-        _atomic(manifest_path, json.dumps(failed).encode())
-        return {**failed, 'reason': str(exc), 'research_only': True, 'formal_screening_enabled': False}
+        try:
+            _write_progress(staging / 'progress.json', progress)
+        except (OSError, ValueError, TypeError):
+            logger.debug('监管列表续跑进度写入失败')
+        return {**failed, 'reason': str(exc), 'staged': str(staging),
+                'research_only': True, 'formal_screening_enabled': False}
 
 
 def _validate_manifest(state_dir: Path) -> dict[str, Any]:

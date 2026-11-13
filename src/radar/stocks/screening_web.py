@@ -100,6 +100,27 @@ def details(report: dict[str, Any], pool: str) -> list[dict[str, Any]]:
     return rows
 
 
+def read_snapshot(state: Path, pool: str) -> dict[str, Any] | None:
+    """只读读取当前池快照；不创建存储。"""
+    path = Path(state) / 'stock-screening.sqlite'
+    if not path.exists():
+        return None
+    with sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True) as connection:
+        row = connection.execute('SELECT payload FROM snapshots WHERE id=?', (pool,)).fetchone()
+    return json.loads(row[0]) if row else None
+
+
+def write_snapshot(state: Path, pool: str, payload: dict[str, Any]) -> None:
+    """写入完整快照；列表、计数和详情共用同一份报告。"""
+    path = Path(state) / 'stock-screening.sqlite'
+    Path(state).mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(path, timeout=30) as connection:
+        for name in ('tasks', 'snapshots'):
+            connection.execute('CREATE TABLE IF NOT EXISTS ' + name + '(id TEXT PRIMARY KEY,payload TEXT NOT NULL)')
+        connection.execute('INSERT INTO snapshots VALUES(?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload',
+                           (pool, json.dumps(payload, ensure_ascii=False)))
+
+
 class ScreeningService:
     """任务持久化；重启中的任务明确失败，完整结果保留供重试。"""
     def __init__(self, state: Path, evaluate: Callable[..., Any], collect: Callable[..., Any]):
