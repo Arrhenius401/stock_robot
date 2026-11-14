@@ -11,6 +11,7 @@ import tempfile
 import threading
 import uuid
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 from time import sleep
@@ -83,7 +84,11 @@ class StockUpdateRunner:
                  turnover_collector: Callable[..., Any] = collect_turnover_payload,
                  reference_factory: Callable[..., Any] | None = None,
                  market_window: list[date] | None = None,
+                 max_workers: int = 4,
                  window_loader: Callable[[date], tuple[list[date] | None, Any]] | None = None):
+        if type(max_workers) is not int or not 1 <= max_workers <= 8:
+            raise StockResearchError('采集并发数须为1至8')
+        self.max_workers = max_workers
         self.store = store
         self.cache_dir = validate_storage(cache_dir, store.research.db_path)
         self.artifact_dir = validate_storage(artifact_dir, store.research.db_path)
@@ -236,7 +241,8 @@ class StockUpdateRunner:
         latest = {item['scope']: item for item in task['results']}
         pending = False
         cache = self.cache_dir
-        for index, company in enumerate(task['input_snapshot']['companies']):
+        remaining: list[str] = []
+        for company in task['input_snapshot']['companies']:
             symbol, scope = company['symbol'], 'turnover:' + company['symbol']
             previous = latest.get(scope)
             if previous is not None and previous['status'] == 'completed':
@@ -246,8 +252,9 @@ class StockUpdateRunner:
                 if payload['window'] != [day.isoformat() for day in days] or payload['calendar'] != calendar:
                     raise StockResearchError('原成交额任务市场日历已变化，不能混合续跑')
                 continue
-            if index:
-                sleep(1)
+            remaining.append(symbol)
+
+        def collect_one(symbol: str) -> tuple[str, dict[str, Any], bool]:
             payload: dict[str, Any] = {'symbol': symbol, 'as_of': task['target_date']}
             stopped = False
             try:
@@ -265,19 +272,30 @@ class StockUpdateRunner:
                 verify_turnover_payload(payload, symbol, task['target_date'])
                 if payload['window'] != [day.isoformat() for day in days] or payload['calendar'] != calendar:
                     raise ValueError('成交额来源市场日历与任务不一致')
-                status = 'completed'
+                return 'completed', payload, False
             except StockRevisionConflict:
                 raise
             except Exception as exc:  # noqa: BLE001 第三方来源逐公司隔离，失败不得当作零成交额。
                 logger.warning('成交额资料待补 %s: %s', symbol, exc)
                 stopped = '429' in str(exc)
-                status = 'partial'
-            pending |= status != 'completed'
-            self.store.record_item(task['run_id'], worker, {'scope': scope, 'status': status,
-                'summary': '成交额来源已保存' if status == 'completed' else '成交额资料待补',
-                'artifact': _artifact(self.artifact_dir, payload)}, lease_token=token)
-            if stopped:
-                return 'partial'
+                return 'partial', payload, stopped
+
+        workers = max(1, min(self.max_workers, len(remaining) or 1))
+        for start in range(0, len(remaining), workers):
+            batch = remaining[start:start + workers]
+            if workers == 1:
+                batch_results = [collect_one(symbol) for symbol in batch]
+            else:
+                with ThreadPoolExecutor(max_workers=workers) as pool:
+                    futures = [pool.submit(collect_one, symbol) for symbol in batch]
+                    batch_results = [future.result() for future in futures]
+            for symbol, (status, payload, stopped) in zip(batch, batch_results):
+                pending |= status != 'completed'
+                self.store.record_item(task['run_id'], worker, {'scope': 'turnover:' + symbol, 'status': status,
+                    'summary': '成交额来源已保存' if status == 'completed' else '成交额资料待补',
+                    'artifact': _artifact(self.artifact_dir, payload)}, lease_token=token)
+                if stopped:
+                    return 'partial'
         return 'partial' if pending else 'completed'
 
     def _refresh(self, task: dict[str, Any], worker: str, token: str) -> list[dict[str, Any]]:
@@ -355,7 +373,32 @@ class StockUpdateRunner:
         except (OSError, ValueError) as exc:
             logger.warning('基础资料任务日历不可用：%s', type(exc).__name__)
             trace = None
-        statuses = []
+        def collect_channel(channel: str, symbol: str | None) -> tuple[str, dict[str, Any]]:
+            try:
+                result = collector.collect(channel, symbol, window=trace)
+                if result.value is None:
+                    raise StockResearchError('基础资料来源没有可保存产物')
+                state_name = {'complete': 'completed', 'partial': 'partial'}.get(result.record.result_state, 'failed')
+                artifact = {**_artifact(self.artifact_dir, result.value),
+                            'collection_record': result.record.model_dump(mode='json')}
+            except StockRevisionConflict:
+                raise
+            except Exception as exc:  # noqa: BLE001 独立资料来源隔离，不能使其他来源或公司任务丢失
+                logger.warning('基础资料来源失败 %s %s: %s', channel, symbol, type(exc).__name__)
+                state_name = 'failed'
+                artifact = {**_artifact(self.artifact_dir, {'channel': channel, 'as_of': task['target_date'], 'manifest': None}),
+                            'collection_record': make_record(channel, 'failed', error_kind='fetch_failed',
+                                error_message='来源请求、日历或内容校验失败，资料待补。').model_dump(mode='json')}
+            return state_name, artifact
+
+        def record(scope: str, state_name: str, artifact: dict[str, Any]) -> None:
+            self.store.record_item(task['run_id'], worker, {'scope': scope, 'status': state_name,
+                'summary': '基础资料来源已保存，不代表入池资格' if state_name == 'completed' else '基础资料仍待补，可查看来源诊断后继续',
+                'artifact': artifact}, lease_token=token)
+
+        statuses: list[str] = []
+        collected: dict[str, tuple[str, dict[str, Any]]] = {}
+        pending: list[str] = []
         for channel, symbol in channels:
             scope = 'reference:' + (('market_value:' + symbol) if symbol is not None else channel)
             old = previous.get(scope)
@@ -367,24 +410,29 @@ class StockUpdateRunner:
                 verify_reference_manifest(state, payload)
                 statuses.append('completed')
                 continue
-            try:
-                result = collector.collect(channel, symbol, window=trace)
-                if result.value is None:
-                    raise StockResearchError('基础资料来源没有可保存产物')
-                status = {'complete': 'completed', 'partial': 'partial'}.get(result.record.result_state, 'failed')
-                artifact = {**_artifact(self.artifact_dir, result.value), 'collection_record': result.record.model_dump(mode='json')}
-            except StockRevisionConflict:
-                raise
-            except Exception as exc:  # noqa: BLE001 独立资料来源隔离，不能使其他来源或公司任务丢失
-                logger.warning('基础资料来源失败 %s %s: %s', channel, symbol, type(exc).__name__)
-                status = 'failed'
-                artifact = {**_artifact(self.artifact_dir, {'channel': channel, 'as_of': task['target_date'], 'manifest': None}),
-                            'collection_record': make_record(channel, 'failed', error_kind='fetch_failed',
-                                error_message='来源请求、日历或内容校验失败，资料待补。').model_dump(mode='json')}
-            self.store.record_item(task['run_id'], worker, {'scope': scope, 'status': status,
-                'summary': '基础资料来源已保存，不代表入池资格' if status == 'completed' else '基础资料仍待补，可查看来源诊断后继续',
-                'artifact': artifact}, lease_token=token)
-            statuses.append(status)
+            if symbol is None:
+                state_name, artifact = collect_channel(channel, None)
+                record(scope, state_name, artifact)
+                statuses.append(state_name)
+            else:
+                pending.append(symbol)
+        if pending:
+            workers = max(1, min(self.max_workers, len(pending)))
+            if workers == 1:
+                for symbol in pending:
+                    collected[symbol] = collect_channel('market_value', symbol)
+            else:
+                with ThreadPoolExecutor(max_workers=workers) as pool:
+                    futures = {symbol: pool.submit(collect_channel, 'market_value', symbol) for symbol in pending}
+                    for symbol, future in futures.items():
+                        collected[symbol] = future.result()
+        for row in frozen['companies']:
+            symbol = row['symbol']
+            if symbol not in collected:
+                continue
+            state_name, artifact = collected[symbol]
+            record('reference:market_value:' + symbol, state_name, artifact)
+            statuses.append(state_name)
         try:
             if sum(path.stat().st_size for path in self.cache_dir.rglob('*') if path.is_file()) > 1024 ** 3:
                 logger.warning('股票资料缓存超过1GiB软上限，未自动删除')

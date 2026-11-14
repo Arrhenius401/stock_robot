@@ -86,3 +86,50 @@ def test_deep_corrupted_task_is_unavailable_instead_of_detail_error(tmp_path):
     with tasks.research._write() as connection:
         connection.execute('UPDATE stocks_update_runs SET input_snapshot=?', ('[' * 50000 + ']' * 50000,))
     assert load_company_profile_source(tmp_path, '600900', DAY)['status'] == 'unavailable'
+
+def test_reference_market_values_use_bounded_concurrency(tmp_path):
+    import threading
+    import time
+    import types
+
+    from radar.stocks.update_runner import StockUpdateRunner
+
+    document = scope_document()
+    from radar.stocks.index_scope import POOL_INDEX_CODES
+    for symbol, name in (('600901', '甲'), ('600902', '乙'), ('600903', '丙'), ('600904', '丁'), ('600905', '戊')):
+        document['companies'].append({'symbol': symbol, 'name': name, 'source_indexes': ['000510'],
+                                      'pool_ids': list(POOL_INDEX_CODES)})
+        for pool in document['pools'].values():
+            pool['companies'].append(symbol)
+    frozen = reference_snapshot(document, ['growth_trend'], DAY, source_run_id='scope', source_sha256='a' * 64)
+    _, _, tasks, _ = environment(tmp_path)
+    tasks.enqueue(kind='reference_review', pool_ids=frozen['pool_ids'], target_date=DAY,
+                  rule_version=REFERENCE_VERSION, snapshot=frozen)
+
+    class Factory:
+        def __init__(self):
+            self.active = 0
+            self.peak = 0
+            self.lock = threading.Lock()
+
+        def __call__(self, *args, **kwargs):
+            return self
+
+        def collect(self, channel, symbol, *, window=None):
+            with self.lock:
+                self.active += 1
+                self.peak = max(self.peak, self.active)
+            time.sleep(0.03)
+            with self.lock:
+                self.active -= 1
+            value = {'channel': channel, 'symbol': symbol, 'as_of': DAY.isoformat()}
+            record = types.SimpleNamespace(result_state='complete', model_dump=lambda mode: {})
+            return types.SimpleNamespace(value=value, record=record)
+
+    factory = Factory()
+    runner = StockUpdateRunner(tasks, tmp_path / 'cache', tmp_path / 'stock-updates/artifacts',
+                               reference_factory=factory, max_workers=4,
+                               window_loader=lambda _: (None, None))
+    finished = runner.execute_one('test')
+    assert finished is not None and finished['status'] == 'completed'
+    assert factory.peak == 4

@@ -124,7 +124,7 @@ def test_rate_limit_stops_batch_and_task_can_resume(tmp_path):
     def limited(symbol, as_of, cache, window, calendar):
         calls.append(symbol)
         raise ValueError('来源429停止后续网络请求')
-    runner = StockUpdateRunner(tasks, tmp_path/'cache', tmp_path/'stock-updates/artifacts', turnover_collector=limited,
+    runner = StockUpdateRunner(tasks, tmp_path/'cache', tmp_path/'stock-updates/artifacts', turnover_collector=limited, max_workers=1,
                                window_loader=lambda _: (WINDOW, {'calendar': payload()['calendar']}))
     partial = runner.execute_one('test')
     assert partial is not None and partial['status'] == 'partial' and calls == ['600900']
@@ -195,3 +195,45 @@ def test_collect_turnover_falls_back_when_eastmoney_fails(tmp_path, monkeypatch)
         '600900', date(2026, 10, 15), cache, WINDOW, {'snapshot_sha256': 'a' * 64})
     assert payload['provider'] == 'sina'
     assert turnover_source.verify_turnover_payload(payload, '600900', '2026-10-15')['daily']
+
+def test_turnover_uses_bounded_concurrency(tmp_path, monkeypatch):
+    import threading
+    import time
+    from datetime import date
+
+    from radar.stocks import market_history
+    from radar.stocks.turnover_source import VERSION
+    from radar.stocks.update_runner import StockUpdateRunner
+    from tests.radar.test_stock_financial_source import environment
+
+    monkeypatch.setattr(market_history, 'decode_sina_body', lambda *args: decoded())
+    monkeypatch.setattr(market_history, 'parse_sina_history',
+                        lambda raw, symbol, window: {'window_complete': True, 'rows': [{'date': row['date'], 'amount_yuan': str(row['amount'])} for row in decoded()]})
+    base = payload()
+    state = {'active': 0, 'peak': 0}
+    lock = threading.Lock()
+
+    def collect(symbol, as_of, cache, window, calendar):
+        with lock:
+            state['active'] += 1
+            state['peak'] = max(state['peak'], state['active'])
+        time.sleep(0.05)
+        with lock:
+            state['active'] -= 1
+        return {**base, 'symbol': symbol, 'url': market_history.sina_url(symbol)}
+
+    _, _, tasks, _ = environment(tmp_path)
+    cutoff = date(2026, 10, 15)
+    companies = [{'symbol': symbol, 'name': symbol}
+                 for symbol in ('600900', '600901', '600902', '600903', '600904', '600905')]
+    snapshot = {'kind': 'turnover_review', 'pool_ids': ['dividend_value'], 'scope_complete': True,
+                'scope_as_of': cutoff.isoformat(), 'scope_sha256': 'b' * 64, 'source_run_id': 'scope',
+                'companies': companies}
+    tasks.enqueue(kind='turnover_review', pool_ids=['dividend_value'], target_date=cutoff,
+                  rule_version=VERSION, snapshot=snapshot)
+    runner = StockUpdateRunner(tasks, tmp_path / 'cache', tmp_path / 'stock-updates/artifacts',
+                               turnover_collector=collect,
+                               window_loader=lambda _: (WINDOW, {'calendar': base['calendar']}))
+    finished = runner.execute_one('test')
+    assert finished is not None and finished['status'] == 'completed'
+    assert state['peak'] == 4
