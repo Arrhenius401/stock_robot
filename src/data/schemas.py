@@ -239,6 +239,8 @@ class ValuationData(BaseModel):
     pb_as_of: "date | None" = None
     ps_as_of: "date | None" = None
     ps_source: str = ""
+    market_cap: float | None = None
+    market_cap_as_of: "date | None" = None
     pe_history: dict[DateType, float] = Field(default_factory=dict)
     pb_history: dict[DateType, float] = Field(default_factory=dict)
     history_source: str = ""

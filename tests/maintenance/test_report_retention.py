@@ -1,4 +1,4 @@
-﻿"""报告保留策略的边界契约：只删除已验证且过期的完整报告单元。"""
+"""报告保留策略的边界契约：只删除已验证且过期的完整报告单元。"""
 import hashlib
 import json
 from datetime import UTC, datetime
@@ -64,6 +64,23 @@ def test_expired_unit_removes_markdown_and_snapshot(tmp_path):
     assert result.freed_bytes > 0
     assert result.failures == 0
     assert not (root / "stock" / "600519").exists()
+
+
+def test_us_stock_report_expires_but_legacy_root_stays_narrow(tmp_path):
+    """美股新布局可清理；根目录下旧式字母目录仍不当作个股报告。"""
+    root = tmp_path / "reports"
+    us = make_report(root, "stock", "AAPL", expired())
+    dotted = make_report(root, "stock", "BRK.B", expired())
+    legacy_dir = root / "AAPL" / "2026-10"
+    legacy_dir.mkdir(parents=True)
+    legacy = legacy_dir / "AAPL_20261001_090000.md"
+    legacy.write_text("# 旧目录\n", encoding="utf-8")
+
+    result = sweep(root, enabled=True, now=NOW)
+
+    assert not us.exists() and not dotted.exists()
+    assert legacy.exists()
+    assert result.deleted == 2
 
 
 def test_recent_and_boundary_reports_are_kept(tmp_path):

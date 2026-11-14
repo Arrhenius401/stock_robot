@@ -432,6 +432,15 @@ def us_valuation(ticker: str) -> list[ValuationData]:
 
     pe, pe_as_of = latest("pe")
     pb, pb_as_of = latest("pb")
+    market_cap = None
+    market_cap_as_of = None
+    try:
+        quote = us_quote(ticker)
+        raw_cap = quote.get("market_cap")
+        market_cap = raw_cap if is_finite_number(raw_cap) else None
+        market_cap_as_of = _parse_date(str(quote.get("quoted_at") or "")[:10])
+    except Exception as error:  # noqa: BLE001 — 快照边界，PS 派生失败不影响 PE/PB
+        logger.warning("美股总市值快照失败 %s: %s", ticker, type(error).__name__)
     dates = [value for value in (pe_as_of, pb_as_of) if value is not None]
     notes = []
     if pe is not None and pe_as_of is not None:
@@ -439,7 +448,13 @@ def us_valuation(ticker: str) -> list[ValuationData]:
     if pb is not None and pb_as_of is not None:
         notes.append(f"PB 快照：百度美股估值（{pb_as_of.isoformat()}）")
     notes.append("历史分位按百度近一年曲线与行情交易日对齐；历史低分位不等于低风险")
-    notes.append("PS(TTM)：本期未提供同源 PS 口径")
+    if market_cap is not None:
+        notes.append(
+            f"PS(TTM)：新浪美股快照总市值（{market_cap_as_of.isoformat() if market_cap_as_of else '日期未记录'}）"
+            "÷ 东财 TTM 营收派生，仅披露"
+        )
+    else:
+        notes.append("PS(TTM)：未取得新浪总市值，暂不派生")
     item = ValuationData(
         symbol=ticker,
         date=max(dates) if dates else datetime.now(HK_TZ).date(),
@@ -447,6 +462,8 @@ def us_valuation(ticker: str) -> list[ValuationData]:
         pb=pb,
         pe_as_of=pe_as_of,
         pb_as_of=pb_as_of,
+        market_cap=market_cap,
+        market_cap_as_of=market_cap_as_of,
         pe_history=curves.get("pe", {}),
         pb_history=curves.get("pb", {}),
         history_source="百度美股估值（近一年）",

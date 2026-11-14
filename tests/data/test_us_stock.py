@@ -120,11 +120,16 @@ def test_us_valuation_parses_snapshot_and_history(mocker):
         return _BaiduResponse(_baidu_payload("MSFT", metric, value))
 
     mocker.patch("data.us_stock.requests.get", side_effect=fake_get)
+    mocker.patch("data.us_stock.us_quote", return_value={
+        "market_cap": 3890434802425, "quoted_at": "2026-11-14 09:16:08",
+    })
     item = us_valuation("MSFT")[0]
     assert item.pe_ttm == pytest.approx(27.28)
     assert item.pb == pytest.approx(8.27)
     assert item.pe_as_of == date(2026, 11, 13)
     assert item.pb_as_of == date(2026, 11, 13)
+    assert item.market_cap == pytest.approx(3890434802425)
+    assert item.market_cap_as_of == date(2026, 11, 14)
     assert len(item.pe_history) == 2
     assert item.history_source == "百度美股估值（近一年）"
     assert any("PS(TTM)" in note for note in item.valuation_notes)
@@ -138,6 +143,7 @@ def test_us_valuation_marks_single_metric_failure(mocker):
         return _BaiduResponse(_baidu_payload("MSFT", "市净率", 8.27))
 
     mocker.patch("data.us_stock.requests.get", side_effect=fake_get)
+    mocker.patch("data.us_stock.us_quote", return_value={"market_cap": None})
     item = us_valuation("MSFT")[0]
     assert item.pe_ttm is None
     assert item.pb == pytest.approx(8.27)

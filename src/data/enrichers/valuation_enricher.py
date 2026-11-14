@@ -262,6 +262,18 @@ class ValuationEnricher(DataEnricher):
         enriched.pe_median = enriched.pe_history_summary.median
         enriched.pe_low = enriched.pe_history_summary.low
         enriched.pe_high = enriched.pe_history_summary.high
+        cap = snapshot.market_cap
+        if market == "us" and snapshot.ps_ttm is None and cap is not None and is_positive_finite(cap):
+            from data.us_stock import us_ttm
+
+            revenue = us_ttm(ctx.financial_data or []).get("revenue")
+            if revenue is not None and is_positive_finite(revenue):
+                snapshot.ps_ttm = cap / revenue
+                snapshot.ps_as_of = snapshot.market_cap_as_of
+                snapshot.ps_source = "新浪美股快照市值与东财TTM营收派生"
+                snapshot.valuation_notes.append(
+                    f"PS(TTM) 派生：总市值 {cap:.0f} ÷ TTM 营收 {revenue:.0f} = {snapshot.ps_ttm:.2f}"
+                )
         ctx.enriched_valuation = enriched
         complete = enriched.pe_percentile is not None and enriched.pb_percentile is not None
         ctx.sufficiency.valuation = DimensionSufficiency(
