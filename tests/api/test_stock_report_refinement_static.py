@@ -4,6 +4,20 @@ import json
 from tests.api.test_static import _DOM_STUB, _module_url, _run_node
 
 
+def test_header_groups_time_position_and_price_under_industry(tmp_path):
+    script = _DOM_STUB + r'''
+const {renderStockReport}=await import(__RENDERER__);
+const article=renderStockReport({market:'a-shares',overview:{industry:'汽车',latest_close:18.75,price_end:'2026-11-13'},generated_at:'2026-11-14T15:00:00+08:00'});
+const card=article.children.find(x=>x.id==='report-summary');
+const stamp=descendants(card).find(x=>x.classList.contains('report-generation-info'));
+if(!stamp||!stamp.children[0].textContent.startsWith('生成时间')||!stamp.children[1].textContent.startsWith('报告定位'))throw Error('时间和定位必须同组且顺序正确');
+const quote=descendants(card).find(x=>x.classList.contains('report-industry-quote'));
+if(!quote||quote.children[0].textContent!=='汽车'||!quote.children[1].textContent.includes('当前价格：18.75（最新收盘价回退；截至 2026-11-13）'))throw Error('行业与价格必须上下排列');
+if(descendants(card).filter(x=>x.classList.contains('stock-price')).length)throw Error('收盘价不应在右侧重复');
+'''.replace('__RENDERER__', json.dumps(_module_url('src/api/static/js/report-renderer.js')))
+    _run_node(tmp_path, script)
+
+
 def test_index_news_uses_stock_sample_list_and_safe_sources(tmp_path):
     script = _DOM_STUB + r'''
 const {renderStockReport}=await import(__RENDERER__);

@@ -50,6 +50,13 @@ def build_stock_payload(
         status = "failed"
         bulk = with_commentary_fallback(commentary, summary, no_llm=False).get("bulk", "")
     signal = None
+    from report.research import render_research, resolve_research
+
+    research = resolve_research(ctx, results, commentary, allow_model=status == "ok")
+    if research:
+        if status == "ok" and not research.get("model"):
+            status = "failed"
+        bulk = render_research(research)
     if quality["signal_allowed"] and signal_cfg is not None and summary.final_score is not None:
         signal = signal_presentation(summary.final_score, signal_cfg)
     if ctx.market == "hk":
@@ -63,8 +70,9 @@ def build_stock_payload(
         "symbol": symbol, "code": symbol, "name": name, "market": ctx.market,
         "overview": {
             "latest_close": price["latest_price"], "year_high": price["year_high"],
+            "current_price": price["current_price"], "quote_diagnostics": ctx.current_quote,
             "year_low": price["year_low"], "price_position": price["price_position"],
-            "change_pct": price["change_pct"],
+            "change_pct": price["current_price"]["change_pct"] if price["current_price"]["kind"] == "quote" else price["change_pct"],
             "price_start": price["price_start"], "price_end": price["price_end"],
             "industry": industry,
         },
@@ -76,6 +84,7 @@ def build_stock_payload(
                        **({"display": stock_date_presentation(ctx, r.metrics, r.summary)} if r.dimension == "valuation" else {})}
                        for r in results},
         "commentary": bulk, "comments": [bulk] if bulk else [],
+        **({"research_commentary": research} if research else {}),
         "commentary_status": status, "signal": signal, "data_quality": quality,
         "pending_verifications": quality["pending_verifications"],
         "disclaimer": build_disclaimer(hk=ctx.market == "hk"),

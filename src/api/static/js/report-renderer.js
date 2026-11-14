@@ -364,16 +364,18 @@ function reportHeader(report) {
   left.appendChild(el("span", "stock-code", reportSymbol(report)));
 
   const overview = record(report.overview);
-  if (overview.industry !== null && overview.industry !== undefined
-      && overview.industry !== "") {
-    left.appendChild(el("span", "chip ind", readable(overview.industry)));
+  {
+    const industryQuote = el("div", "report-industry-quote");
+    industryQuote.appendChild(el("span", "chip ind", readable(overview.industry, "行业未记录")));
+    const current = record(overview.current_price);
+    const value = current.value ?? overview.latest_close;
+    const note = naturalText(current.note) || (value != null ? `最新收盘价回退；截至 ${readable(overview.price_end, "未记录")}` : "暂无数据");
+    industryQuote.appendChild(el("span", "report-latest-close", `当前价格：${formatMetricValue('latest_close', value)}（${note}）`));
+    left.appendChild(industryQuote);
   }
   header.appendChild(left);
 
   const right = el("div", "price-box");
-  if (overview.latest_close !== null && overview.latest_close !== undefined) {
-    right.appendChild(el("span", "stock-price", formatMetricValue('latest_close',overview.latest_close)));
-  }
   if (overview.change_pct !== null && overview.change_pct !== undefined) {
     const pct = Number(overview.change_pct);
     const direction = pct > 0 ? "up" : pct < 0 ? "down" : "flat";
@@ -425,7 +427,12 @@ function summarySection(report, sectionIdPrefix) {
   }
   if (facts.children.length) card.appendChild(facts);
   const meta = el("div", "report-summary-meta");
-  if (report.generated_at) meta.appendChild(el("span", "", `生成时间：${reportTime(report.generated_at)}`));
+  if (report.generated_at) {
+    const stamp = el("div", "report-generation-info");
+    stamp.appendChild(el("div", "", `生成时间：${reportTime(report.generated_at)}`));
+    stamp.appendChild(el("div", "", "报告定位：以中长期跟踪评估为主，兼容波段参考。"));
+    meta.appendChild(stamp);
+  }
   if (Number.isFinite(quality.coverage)) {
     const coverage = legacyHk(report) && Number.isInteger(quality.available_dimensions)
       ? `可用维度覆盖：${quality.available_dimensions}/${quality.applicable_dimensions}（${quality.coverage}%），不代表字段完整`
@@ -846,11 +853,52 @@ function appendRiskFlags(card, dimension) {
   }
 }
 
+function researchBody(research, state) {
+  const box = el("div", "report-research");
+  const add = (parent, ...children) => children.forEach(child => parent.appendChild(child));
+  const profile = record(research.business_profile);
+  const model = state === "ok" ? record(research.model) : {};
+  const rawBusiness = naturalText(model.business) || naturalText(profile.main_business);
+  const business = naturalText(research.business_text) || (rawBusiness.length > 160 ? "主营资料已取得，简要介绍暂不可用。" : rawBusiness) || "主营业务资料暂不可用。";
+  add(box, el("h3", "", "主营业务"), el("p", "", business));
+  if (profile.source) {
+    add(box, el("p", "dim-sum", `来源：同花顺主营介绍；采集日期：${naturalText(profile.fetched_at) || "未记录"}。`));
+  }
+  const rows = (labels, values) => {
+    const list = el("dl", "report-research-rows");
+    labels.forEach((label, index) => {
+      const row = el("div", "report-research-row");
+      add(row, el("dt", "", label), el("dd", "", naturalText(values[index]) || "证据不足，暂不能判断。"));
+      add(list, row);
+    });
+    return list;
+  };
+  const conclusion = record(model.conclusion);
+  if (conclusion.overall) {
+    add(box, el("h3", "", "核心结论"), rows(["整体判断", "主要支撑", "主要疑问"],
+      [conclusion.overall, conclusion.support, conclusion.question]));
+  }
+  const dims = Array.isArray(research.dimensions) ? research.dimensions.map(record) : [];
+  add(box, el("h3", "", "五维解读"), rows(dims.map(row => row.label), dims.map(row => row.text)));
+  if (conclusion.overall) {
+    add(box, el("h3", "", "风险提示"));
+    const risks = Array.isArray(model.risks) ? model.risks.map(record) : [];
+    if (risks.length) {
+      const list = el("ul", "report-research-risks");
+      risks.forEach(risk => add(list, el("li", "", naturalText(risk.text))));
+      add(box, list);
+    } else add(box, el("p", "", "本次未形成有充分依据的独立风险提示，不代表不存在风险。"));
+  }
+  add(box, el("p", "dim-sum", `解读限制：${naturalText(research.limitation)}`));
+  return box;
+}
+
 function commentarySection(report, sectionIdPrefix, options) {
   const card = section("report-commentary", "综合研判", "llm", sectionIdPrefix);
   const state = report.commentary_status;
   if (state && state !== "ok") {
-    const messages = {failed: "AI 解读生成失败，以下为量化摘要。", disabled: "AI 解读未启用，以下为量化摘要。", insufficient: "主要分析数据不足，暂不生成综合判断。", config: "AI 解读尚未配置，以下为量化摘要。"};
+    const fallbackLabel = record(report.research_commentary).version === 2 ? "来源资料与程序生成的五维定性" : "量化摘要";
+    const messages = {failed: `AI 解读生成失败，以下为${fallbackLabel}。`, disabled: `AI 解读未启用，以下为${fallbackLabel}。`, insufficient: "主要分析数据不足，暂不生成综合判断。", config: `AI 解读尚未配置，以下为${fallbackLabel}。`};
     card.appendChild(el("div", "report-empty", messages[state] || "暂无 AI 解读"));
     const configure = state === "config";
     const callback = configure ? options.onConfigure : options.onRetryCommentary;
@@ -874,7 +922,9 @@ function commentarySection(report, sectionIdPrefix, options) {
   const rawBody = commentaryText(report) || safeLegacy;
   // 降级状态已在卡片顶部说明，去掉量化摘要正文重复的引导句。
   const body = state && state !== "ok" ? rawBody.replace(/^>\s*[^\n]*(?:\n+|$)/, "").trim() : rawBody;
-  if (body && state !== "insufficient") {
+  if (record(report.research_commentary).version === 2) {
+    card.appendChild(researchBody(report.research_commentary, state));
+  } else if (body && state !== "insufficient") {
     const nested = body.replace(/^#{1,2}[ \t]+(?=\d+[.、．])/gm, "### ");
     card.appendChild(markdownBlock(nested, "report-commentary-intro dim-sum md"));
   } else if (!state || state === "ok") {

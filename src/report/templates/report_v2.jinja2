@@ -2,14 +2,14 @@
 # {{ name }}（{{ symbol }}）分析报告
 
 > 生成时间：{{ generated_at }} | 市场：{{ market }}
+>
+> 报告定位：以中长期跟踪评估为主，兼容波段参考。
 
 {% if not extra_analysis_enabled %}
 > 客观数据模式
 {% elif no_llm %}
 > **[纯量化模式，无 AI 解读]**
 {% endif %}
-
-> 报告定位：以中长期跟踪评估为主，兼容波段参考。
 
 ---
 
@@ -20,6 +20,7 @@
 | 股票名称 | {{ name }} |
 | 股票代码 | {{ symbol }} |
 | 所属行业 | {{ industry }} |
+| 当前价格 | {% if current_price %}{{ current_price.value | metric_value("latest_close") }}（{{ current_price.note }}）{% else %}{{ latest_close | metric_value("latest_close") }}{% if latest_close is not none and price_end %}（截至 {{ price_end }}）{% endif %}{% endif %} |
 | 采集区间最高价 | {{ year_high }} |
 | 采集区间最低价 | {{ year_low }} |
 | 采集区间价格位置 | {{ price_position }} |
@@ -138,7 +139,9 @@
 
 ## 四、综合研判
 
-{% if data_quality and not data_quality.has_analysis_data %}
+{% if commentary.get("structured_version") == "2" %}
+{{ commentary["bulk"] | commentary_section }}
+{% elif data_quality and not data_quality.has_analysis_data %}
 > 主要分析数据不可用，暂不生成 AI 结论。
 {% elif commentary.get("bulk") %}
 {{ commentary["bulk"] | commentary_section }}

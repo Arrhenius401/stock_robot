@@ -464,6 +464,7 @@ foreach ($file in $changedFiles) {
     }
     if ($path.StartsWith("src\api\static\", [StringComparison]::OrdinalIgnoreCase)) {
         Add-UniqueTarget $testTargets "tests/api/test_static.py"
+        Add-UniqueTarget $testTargets "tests/api/test_structured_commentary_static.py"
         Add-UniqueTarget $testTargets "tests/api/test_radar_pools_ui.py"
         continue
     }

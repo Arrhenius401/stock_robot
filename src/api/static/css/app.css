@@ -1534,6 +1534,9 @@ body.subs-modal-open { overflow: hidden; }
 .stock-report .report-risk-item .v { color: #a44932; }
 .stock-report .report-header { justify-content: space-between; flex-wrap: wrap; padding: 0 0 12px; }
 .stock-report .report-identity { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; min-width: 0; }
+.stock-report .report-industry-quote { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.stock-report .report-latest-close { font-size: 13px; color: var(--text-2); }
+.stock-report .report-generation-info { display: grid; gap: 4px; flex-basis: 100%; }
 .stock-report .report-investment-summary { margin: 12px 0; }
 .stock-report .report-summary-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; padding: 12px 0; border-top: 1px solid var(--border-soft); }
 .stock-report .report-summary-meta { display: flex; flex-wrap: wrap; gap: 8px 24px; border-top: 1px solid var(--border-soft); padding-top: 10px; color: var(--text-4); }
@@ -1545,6 +1548,13 @@ body.subs-modal-open { overflow: hidden; }
 .stock-report .report-quality-summary th:last-child, .stock-report .report-quality-summary td:last-child { padding-right: 0; }
 .stock-report .report-pending-list { padding-left: 20px; display: grid; gap: 8px; }
 .stock-report .report-commentary-error { color: var(--warn); font-size: 13px; margin-top: 8px; }
+.stock-report .report-research h3 { margin: 18px 0 8px; font-size: 15px; }
+.stock-report .report-research p { margin: 8px 0; }
+.stock-report .report-research-row { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border-soft); }
+.stock-report .report-research-row dt { font-weight: 600; }
+.stock-report .report-research-row dd { margin: 0; overflow-wrap: anywhere; }
+.stock-report .report-research-risks { padding-left: 20px; }
+@media (max-width: 760px) { .stock-report .report-research-row { grid-template-columns: 72px minmax(0, 1fr); gap: 8px; } }
 .stock-report .report-retry-commentary, .stock-report .report-configure-commentary { margin-top: 10px; }
 .stock-report .mtr > div { min-width: 0; overflow-wrap: anywhere; }
 /* 同行证据沿用报告主题；窄卡片的摘要逐指标排列。 */
