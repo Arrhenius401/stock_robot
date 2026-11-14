@@ -2,7 +2,6 @@
 
 import hashlib
 import json
-import os
 import tempfile
 from datetime import date
 from pathlib import Path
@@ -10,6 +9,7 @@ from typing import Any
 
 import click
 
+from radar.stocks.atomic import replace_with_retry
 from radar.stocks.dividend_payout import evaluate_company
 
 EVALUATOR_VERSION = "dividend-payout-v1"
@@ -29,7 +29,7 @@ def _write_json(path: Path, value: Any) -> None:
             temporary = Path(stream.name)
             json.dump(value, stream, ensure_ascii=False, indent=2, allow_nan=False)
             stream.write("\n")
-        os.replace(temporary, path)
+        replace_with_retry(temporary, path)
         temporary = None
     finally:
         if temporary is not None:

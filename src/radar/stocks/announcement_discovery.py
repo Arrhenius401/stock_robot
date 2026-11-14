@@ -19,6 +19,8 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+from radar.stocks.atomic import replace_with_retry
+
 logger = logging.getLogger(__name__)
 _LOOKUP = 'https://www.cninfo.com.cn/new/information/topSearch/query'
 _QUERY = 'https://www.cninfo.com.cn/new/hisAnnouncement/query'
@@ -30,7 +32,7 @@ def _save(path: Path, value: Any) -> None:
     try:
         with os.fdopen(descriptor, 'w', encoding='utf-8') as handle:
             json.dump(value, handle, ensure_ascii=False, indent=2)
-        os.replace(name, path)
+        replace_with_retry(name, path)
     finally:
         Path(name).unlink(missing_ok=True)
 

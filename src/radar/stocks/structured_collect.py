@@ -18,6 +18,7 @@ import requests
 
 from data.collection_state import ValueResult
 from radar.provider_request import ProviderRequestError, bounded_provider_call
+from radar.stocks.atomic import replace_with_retry
 from radar.stocks.collection_results import collection_result
 from radar.stocks.research_store import _symbol
 
@@ -57,7 +58,7 @@ def _atomic(path: Path, raw: bytes) -> None:
             stream.write(raw)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(name, path)
+        replace_with_retry(name, path)
     finally:
         Path(name).unlink(missing_ok=True)
 

@@ -18,6 +18,8 @@ from urllib.parse import urljoin, urlsplit
 
 import requests
 
+from radar.stocks.atomic import replace_with_retry
+
 logger = logging.getLogger(__name__)
 MANIFEST_FILENAME = 'manifest.json'
 _SOFT_LIMIT = 1024 ** 3
@@ -89,7 +91,7 @@ def _save(path: Path, value: dict[str, Any]) -> None:
             json.dump(value, handle, ensure_ascii=False, indent=2)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(name, path)
+        replace_with_retry(name, path)
     finally:
         Path(name).unlink(missing_ok=True)
 
@@ -204,7 +206,7 @@ def collect_documents(documents: list[dict[str, Any]], archive_dir: Path, *,
                             path = root / _filename(url)
                             if path.is_symlink():
                                 raise ValueError('目标文件不能是符号链接')
-                            os.replace(name, path)
+                            replace_with_retry(name, path)
                             return {**result, 'status': 'downloaded', 'file': path.name,
                                     'sha256': digest.hexdigest(), 'bytes': size,
                                     'fetched_at': _now(), 'final_url': current}

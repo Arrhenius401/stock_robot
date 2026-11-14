@@ -23,6 +23,7 @@ import requests
 
 from radar.provider_request import ProviderRequestError, bounded_provider_call
 from radar.stocks.admission import _BJ, _day
+from radar.stocks.atomic import replace_with_retry
 from radar.stocks.research_store import StockResearchError, _symbol
 from radar.stocks.source_archive import _close
 
@@ -311,7 +312,7 @@ def _atomic(path: Path, raw: bytes) -> None:
             handle.write(raw)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(name, path)
+        replace_with_retry(name, path)
     finally:
         Path(name).unlink(missing_ok=True)
 

@@ -17,6 +17,7 @@ from pathlib import Path
 from time import sleep
 from typing import Any
 
+from radar.stocks.atomic import replace_with_retry
 from radar.stocks.capital_history import collect_capital_history_result
 from radar.stocks.collection_results import collection_result
 from radar.stocks.dividend_collect import collect_dividend, verify_collection
@@ -66,7 +67,7 @@ def _artifact(root: Path, value: dict[str, Any]) -> dict[str, Any]:
                 stream.write(raw)
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(name, path)
+            replace_with_retry(name, path)
         finally:
             Path(name).unlink(missing_ok=True)
     return {'path': str(path.resolve()), 'sha256': sha, 'bytes': len(raw)}
