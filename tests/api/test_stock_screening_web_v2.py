@@ -1,10 +1,12 @@
 """网页确认绑定与统一流水线接入；不发真实网络请求。"""
 from datetime import date
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
 from radar.stocks.research_store import StockRevisionConflict
+from radar.stocks.screening_pipeline import ScreeningPipeline
 from radar.stocks.screening_web import ScreeningService, write_snapshot
 from radar.stocks.screening_web_pipeline import WebPipeline
 
@@ -30,7 +32,7 @@ def pipeline(tmp_path):
 
 def test_preview_is_read_only_and_distinguishes_pool_and_complete_peer_scope(tmp_path):
     core, commits, calls = pipeline(tmp_path)
-    bridge = WebPipeline(core)
+    bridge = WebPipeline(cast(ScreeningPipeline, core))
     preview = bridge.preview('dividend_value', date(2026, 11, 7))
     assert preview['company_count'] == 1
     assert preview['shared_stages'][1]['symbol_count'] == 626
@@ -42,7 +44,7 @@ def test_preview_is_read_only_and_distinguishes_pool_and_complete_peer_scope(tmp
 
 def test_start_stale_preview_has_no_write_or_collection(tmp_path):
     core, commits, calls = pipeline(tmp_path)
-    service = ScreeningService(tmp_path, pipeline=WebPipeline(core))
+    service = ScreeningService(tmp_path, pipeline=WebPipeline(cast(ScreeningPipeline, core)))
     with pytest.raises(StockRevisionConflict):
         service.start('dividend_value', 'screening', preview_sha256='0'*64)
     assert not list(tmp_path.iterdir()) and not commits and not calls
@@ -51,7 +53,7 @@ def test_start_stale_preview_has_no_write_or_collection(tmp_path):
 @pytest.mark.parametrize('shared_success', [True, False])
 def test_pipeline_update_commits_once_only_after_shared_success(tmp_path, shared_success):
     core, commits, calls = pipeline(tmp_path)
-    bridge = WebPipeline(core)
+    bridge = WebPipeline(cast(ScreeningPipeline, core))
     preview = bridge.preview('dividend_value', date(2026, 11, 7))
     original = core.build
     def build(*args, **kwargs):
@@ -69,7 +71,7 @@ def test_pipeline_update_commits_once_only_after_shared_success(tmp_path, shared
 
 def test_snapshot_changed_during_pipeline_keeps_newer_result(tmp_path):
     core, commits, _ = pipeline(tmp_path)
-    bridge = WebPipeline(core)
+    bridge = WebPipeline(cast(ScreeningPipeline, core))
     preview = bridge.preview('dividend_value', date(2026, 11, 7))
     original = core.build
     def build(*args, **kwargs):
@@ -87,7 +89,7 @@ def test_snapshot_changed_during_pipeline_keeps_newer_result(tmp_path):
 def test_completion_provider_failure_preserves_results_and_old_snapshot(tmp_path, monkeypatch, provider_status):
     # 来源失败与明确负证据不同：来源失败必须可见，不能标成已完成。
     core, commits, _ = pipeline(tmp_path)
-    bridge = WebPipeline(core)
+    bridge = WebPipeline(cast(ScreeningPipeline, core))
     preview = bridge.preview('dividend_value', date(2026, 11, 7))
     firm = {'symbol': '000001', 'condition': 'cash_review', 'group': 'style',
             'executable': {'mode': 'firm', 'provider': 'annual_report'}}
