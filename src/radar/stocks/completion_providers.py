@@ -69,5 +69,5 @@ def turnover_source_provider(db: Path, cache_dir: Path | None = None):
             return None
         root = cache_dir or db.parent / 'stock-updates' / 'cache'
         payload = collect_turnover_payload(symbol, as_of, root, days, calendar)
-        return verify_turnover_payload(payload, symbol, as_of)
+        return verify_turnover_payload(payload, symbol, as_of.isoformat())
     return fetch

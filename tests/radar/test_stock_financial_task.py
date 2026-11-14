@@ -70,7 +70,7 @@ def test_financial_numeric_failure_is_successful_work_not_task_failure(tmp_path,
     def collect(symbol, cache, **kwargs):
         calls.append((symbol, kwargs))
         return sample
-    result = StockUpdateRunner(store, tmp_path/'cache', tmp_path/'artifacts', financial_collector=collect).execute_one('worker')
+    result = StockUpdateRunner(store, tmp_path/'cache', tmp_path/'artifacts', financial_collector=collect, max_workers=1).execute_one('worker')
     assert result is not None
     assert result['status'] == 'completed'
     assert calls == [(sample['symbol'], {'as_of': DAY})]
@@ -91,7 +91,7 @@ def test_financial_source_failure_is_pending_and_429_stops_remaining(tmp_path, e
     def collect(symbol, cache, **kwargs):
         calls.append(symbol)
         return {'symbol': symbol, 'as_of': DAY.isoformat(), 'source_stopped': True, 'errors': ['429']}
-    result = StockUpdateRunner(store, tmp_path/'cache', tmp_path/'artifacts', financial_collector=collect).execute_one('worker')
+    result = StockUpdateRunner(store, tmp_path/'cache', tmp_path/'artifacts', financial_collector=collect, max_workers=1).execute_one('worker')
     assert result is not None
     assert result['status'] == 'partial'
     assert calls == ['600900']
@@ -139,7 +139,7 @@ def test_financial_source_diagnostics_are_safe_and_visible(tmp_path, environment
     enqueue(store)
     def collect(*args, **kwargs):
         raise OSError('C:/private/cache/secret.json 无法读取')
-    result = StockUpdateRunner(store, tmp_path/'cache', tmp_path/'artifacts', financial_collector=collect).execute_one('worker')
+    result = StockUpdateRunner(store, tmp_path/'cache', tmp_path/'artifacts', financial_collector=collect, max_workers=1).execute_one('worker')
     assert result is not None
     page = financial_results(result, tmp_path/'artifacts', 1)
     item = page['items'][0]
