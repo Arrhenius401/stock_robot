@@ -12,10 +12,10 @@ class TestReportBuilder:
                                        latest_close=18.75, price_end="2026-11-13")
         head = report.split("---", 1)[0]
         assert "| 市场：A 股\n>\n> 报告定位：" in head
-        assert report.index("| 所属行业 |") < report.index("| 最新收盘价 |") < report.index("| 采集区间最高价 |")
+        assert report.index("| 所属行业 |") < report.index("| 当前价格 |") < report.index("| 采集区间最高价 |")
         assert "18.75（截至 2026-11-13）" in report
         missing = ReportBuilder().build("000338", "潍柴动力", [], {})
-        assert "| 最新收盘价 | 暂无数据 |" in missing
+        assert "| 当前价格 | 暂无数据 |" in missing
 
     @pytest.mark.parametrize("market", ["A 股", "港股"])
     def test_ai_perspectives_and_rating_are_subsections_inside_fourth_section(self, market):

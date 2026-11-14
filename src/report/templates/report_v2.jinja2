@@ -20,7 +20,7 @@
 | 股票名称 | {{ name }} |
 | 股票代码 | {{ symbol }} |
 | 所属行业 | {{ industry }} |
-| 最新收盘价 | {{ latest_close | metric_value("latest_close") }}{% if latest_close is not none and price_end %}（截至 {{ price_end }}）{% endif %} |
+| 当前价格 | {% if current_price %}{{ current_price.value | metric_value("latest_close") }}（{{ current_price.note }}）{% else %}{{ latest_close | metric_value("latest_close") }}{% if latest_close is not none and price_end %}（截至 {{ price_end }}）{% endif %}{% endif %} |
 | 采集区间最高价 | {{ year_high }} |
 | 采集区间最低价 | {{ year_low }} |
 | 采集区间价格位置 | {{ price_position }} |

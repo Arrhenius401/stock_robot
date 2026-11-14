@@ -193,7 +193,7 @@ class ReportBuilder:
               price_start: str | None = None, price_end: str | None = None,
               market: str = "A 股", valuation_display: dict | None = None,
               scoring_method: str | None = None, extra_analysis_enabled: bool = True,
-              latest_close: float | None = None) -> str:
+              latest_close: float | None = None, current_price: dict | None = None) -> str:
         results_map = {r.dimension: r for r in results}
         if market == "港股" and "financial" in results_map:
             financial = results_map["financial"]
@@ -214,6 +214,7 @@ class ReportBuilder:
             no_llm=no_llm,
             industry=industry,
             latest_close=latest_close,
+            current_price=current_price,
             year_high=year_high,
             year_low=year_low,
             price_position=price_position,

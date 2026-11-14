@@ -567,6 +567,15 @@ class Pipeline:
                     on_progress("analyze", completed, total,
                                DIMENSION_LABELS.get(mod.dimension, mod.dimension))
 
+        if ctx.market == "a-shares":
+            from data.latest_quote import load_latest_quote
+
+            daily_end = max((p.trade_date.isoformat() for p in ctx.price_data or [] if p.symbol == symbol), default=None)
+            try:
+                ctx.current_quote = load_latest_quote(symbol, daily_end=daily_end)
+            except Exception as exc:  # noqa: BLE001 — 可选报价工具隔离，不影响确定性日线报告
+                logger.warning("最新报价不可用 %s: %s", symbol, type(exc).__name__)
+                ctx.current_quote = {"status": "unavailable", "symbol": symbol}
         commentary = {}
         if not self._extra_analysis_enabled:
             from analysis.mode import objective_results

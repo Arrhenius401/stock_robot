@@ -393,6 +393,8 @@ class AnalysisContext(BaseModel):
     # 新版仅由A股真实分析流程启用；历史上下文仍走旧解读契约。
     commentary_version: int = 1
     business_profile: dict[str, Any] = Field(default_factory=dict)
+    # 报价只用于基础概况，不覆盖日线、财务分母或评分。
+    current_quote: dict[str, Any] = Field(default_factory=dict)
 
     # 新增 — 行业分类信息
     sw_industry: str = ""

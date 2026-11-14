@@ -33,3 +33,15 @@ if(!card.textContent.includes('现金流存在分歧')||!card.textContent.includ
 if(!descendants(card).some(n=>n.tagName==='BUTTON'))throw Error('重试入口丢失');
 '''.replace('__RENDERER__', json.dumps(_module_url('src/api/static/js/report-renderer.js')))
     _run_node(tmp_path, script)
+
+
+def test_current_price_prefers_quote_and_keeps_quote_timestamp(tmp_path):
+    script = _DOM_STUB + r'''
+const {renderStockReport}=await import(__RENDERER__);
+const article=renderStockReport({market:'a-shares',overview:{industry:'汽车',latest_close:18.75,
+ current_price:{value:19.15,kind:'quote',note:'行情时间：2026-11-16 10:00:00；来源：新浪行情'}}});
+const quote=descendants(article).find(x=>x.classList.contains('report-latest-close'));
+if(!quote.textContent.includes('当前价格：19.15')||!quote.textContent.includes('10:00:00')||!quote.textContent.includes('新浪行情'))throw Error('最新报价未展示');
+if(quote.textContent.includes('18.75'))throw Error('错误显示日线收盘价');
+'''.replace('__RENDERER__', json.dumps(_module_url('src/api/static/js/report-renderer.js')))
+    _run_node(tmp_path, script)

@@ -364,20 +364,18 @@ function reportHeader(report) {
   left.appendChild(el("span", "stock-code", reportSymbol(report)));
 
   const overview = record(report.overview);
-  if (overview.industry !== null && overview.industry !== undefined
-      && overview.industry !== "") {
+  {
     const industryQuote = el("div", "report-industry-quote");
-    industryQuote.appendChild(el("span", "chip ind", readable(overview.industry)));
-    const closeDate = overview.price_end && overview.latest_close != null ? `（截至 ${readable(overview.price_end)}）` : "";
-    industryQuote.appendChild(el("span", "report-latest-close", `最新收盘价：${formatMetricValue('latest_close', overview.latest_close)}${closeDate}`));
+    industryQuote.appendChild(el("span", "chip ind", readable(overview.industry, "行业未记录")));
+    const current = record(overview.current_price);
+    const value = current.value ?? overview.latest_close;
+    const note = naturalText(current.note) || (value != null ? `最新收盘价回退；截至 ${readable(overview.price_end, "未记录")}` : "暂无数据");
+    industryQuote.appendChild(el("span", "report-latest-close", `当前价格：${formatMetricValue('latest_close', value)}（${note}）`));
     left.appendChild(industryQuote);
   }
   header.appendChild(left);
 
   const right = el("div", "price-box");
-  if (!overview.industry && overview.latest_close !== null && overview.latest_close !== undefined) {
-    right.appendChild(el("span", "stock-price", formatMetricValue('latest_close',overview.latest_close)));
-  }
   if (overview.change_pct !== null && overview.change_pct !== undefined) {
     const pct = Number(overview.change_pct);
     const direction = pct > 0 ? "up" : pct < 0 ? "down" : "flat";

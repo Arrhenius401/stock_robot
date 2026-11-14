@@ -70,8 +70,9 @@ def build_stock_payload(
         "symbol": symbol, "code": symbol, "name": name, "market": ctx.market,
         "overview": {
             "latest_close": price["latest_price"], "year_high": price["year_high"],
+            "current_price": price["current_price"], "quote_diagnostics": ctx.current_quote,
             "year_low": price["year_low"], "price_position": price["price_position"],
-            "change_pct": price["change_pct"],
+            "change_pct": price["current_price"]["change_pct"] if price["current_price"]["kind"] == "quote" else price["change_pct"],
             "price_start": price["price_start"], "price_end": price["price_end"],
             "industry": industry,
         },

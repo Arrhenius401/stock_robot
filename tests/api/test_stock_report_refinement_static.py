@@ -12,7 +12,7 @@ const card=article.children.find(x=>x.id==='report-summary');
 const stamp=descendants(card).find(x=>x.classList.contains('report-generation-info'));
 if(!stamp||!stamp.children[0].textContent.startsWith('生成时间')||!stamp.children[1].textContent.startsWith('报告定位'))throw Error('时间和定位必须同组且顺序正确');
 const quote=descendants(card).find(x=>x.classList.contains('report-industry-quote'));
-if(!quote||quote.children[0].textContent!=='汽车'||!quote.children[1].textContent.includes('最新收盘价：18.75（截至 2026-11-13）'))throw Error('行业与收盘价必须上下排列');
+if(!quote||quote.children[0].textContent!=='汽车'||!quote.children[1].textContent.includes('当前价格：18.75（最新收盘价回退；截至 2026-11-13）'))throw Error('行业与价格必须上下排列');
 if(descendants(card).filter(x=>x.classList.contains('stock-price')).length)throw Error('收盘价不应在右侧重复');
 '''.replace('__RENDERER__', json.dumps(_module_url('src/api/static/js/report-renderer.js')))
     _run_node(tmp_path, script)
