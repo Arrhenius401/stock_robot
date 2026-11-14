@@ -13,7 +13,7 @@ __pycache__/
 venv/
 .direnv/
 .pytest_cache/
-.pytest-tmp-*/
+.pytest_tmp*/
 .tmp/
 /tmp/
 *.egg-info/
