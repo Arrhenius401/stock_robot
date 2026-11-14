@@ -1,4 +1,4 @@
-import { renderStockScreening } from './radar-stock-screening.js?v=20261112-stock-results-1';
+import { renderStockScreening } from './radar-stock-screening.js?v=20261114-stock-shared-2';
 // 股票研究管理：资料、评估与正式成员保持分离。
 const API = '/api/v1/radar/stocks';
 const sessions = new Map();

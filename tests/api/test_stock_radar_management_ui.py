@@ -405,3 +405,59 @@ assert.equal(ruleReads,2);
 assert.ok(root.textContent.includes('当前快照：前5名，同业至少5家'));
 dispose();
 """))
+
+
+def test_update_previews_shared_scope_before_start_and_uses_original_mini_strip(tmp_path):
+    _run_node(tmp_path, _script(r"""
+document.body=makeElement('body');
+Object.defineProperty(Element.prototype,'lastChild',{get(){return this.children.at(-1)},configurable:true});
+Element.prototype.showModal=function(){this.open=true;};Element.prototype.close=function(){this.open=false;};
+const task={run_id:'v2-run',kind:'screening',status:'running',phase:'peer_market_value',stage_errors:[{stage:'governance',reason:'监管来源缺失'}],progress:{attempted:2,total:626},results:[{scope:'reference:market_value:000001',status:'completed',summary:'复用有效缓存'}]};
+const request=async (url,options)=>{
+ calls.push([url,options]);
+ if(url.includes('/tasks/latest'))return null;
+ if(url.includes('/screening/tasks/v2-run'))return task;
+ if(url.endsWith('/rules'))return {items:[]};
+ if(url.endsWith('/screening/preview'))return {preview_sha256:'bound-preview',as_of:'2026-11-14',company_count:10,shared_stages:[{stage:'peer_market_value',label:'同业市值',symbol_count:626,cost_hint:'共享范围较大',status:'cached'}]};
+ if(url.endsWith('/screening/update')){assert.deepEqual(JSON.parse(options.body),{preview_sha256:'bound-preview'});return task;}
+ return {items:[],total:0,counts:{}};
+};
+const dispose=renderOriginal(root,header,pool,empty,{request});await tick();await refresh.onclick();await tick();
+assert.equal(calls.filter(([url])=>url.endsWith('/screening/update')).length,0);
+assert.ok(document.body.textContent.includes('本池 10 家'));
+assert.ok(document.body.textContent.includes('共享采集范围 626 家'));
+assert.ok(document.body.textContent.includes('复用有效缓存'));
+await click(document.body,'开始更新');
+assert.equal(calls.filter(([url])=>url.endsWith('/screening/update')).length,1);
+assert.ok(document.body.textContent.includes('准备完整同业市值'));
+assert.equal(byClass(document.body,'stock-task-steps')[0].children.length,4);
+assert.ok(byClass(document.body,'stock-task-steps')[0].children[0].textContent.includes('资料不足'));
+assert.ok(!byClass(document.body,'stock-task-steps')[0].children[0].textContent.includes('已完成'));
+assert.ok(!byClass(document.body,'stock-task-logs')[0].open);
+assert.ok(byClass(document.body,'radar-update-toast')[0].classList.contains('minimized'));
+assert.equal(byClass(document.body,'radar-update-mini-button').length,1);
+dispose();
+"""))
+
+
+def test_v2_completion_shared_stage_is_executable_and_external_is_not(tmp_path):
+    _run_node(tmp_path, _script(r"""
+document.body=makeElement('body');
+Object.defineProperty(Element.prototype,'lastChild',{get(){return this.children.at(-1)},configurable:true});
+Element.prototype.showModal=function(){this.open=true;};Element.prototype.close=function(){this.open=false;};
+const request=async url=>{
+ if(url.includes('/tasks/latest'))return null;
+ if(url.endsWith('/rules'))return {items:[]};
+ if(url.endsWith('/completion/plan'))return {items:[
+ {symbol:'600001',condition:'leadership',source:{kind:'manual_review'},evidence_class:'shared_refresh',executable:{mode:'shared_stage',stage:'industry_scale'}},
+ {symbol:'600002',condition:'audit',source:{kind:'manual_review'},evidence_class:'external_required',executable:{mode:'none'}}],shared_stages:[{stage:'industry_scale',symbol_count:9}],execution_preview:{shared_stages:[{stage:'industry_scale',label:'行业规模排名',symbol_count:626,status:'refresh_required',cost_hint:'完整同业范围'}]}};
+ return {items:[],total:0,counts:{}};
+};
+const dispose=renderOriginal(root,header,pool,empty,{request});await tick();await click(root,'补全待检验');
+assert.ok(document.body.textContent.includes('共享证据刷新'));
+assert.ok(document.body.textContent.includes('需补充外部证据'));
+assert.ok(document.body.textContent.includes('共享采集范围 626 家'));
+assert.ok(document.body.textContent.includes('可自动执行 1 项'));
+assert.equal(find(document.body,'全部补全').disabled,false);
+dispose();
+"""))

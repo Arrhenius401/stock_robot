@@ -1689,3 +1689,19 @@ body:not(:has(#view-radar.active .stock-management)) #radarStockUpdateNotice { d
 @media(max-width:760px){.stock-screening>.panel{padding:14px}.stock-screening-counts{gap:6px}.stock-screening-counts .stock-count{padding:7px 9px}.stock-screening .stock-completion-open{margin-left:auto}.stock-resizable-window{resize:none;min-width:0}#stockScreeningTaskNotice{bottom:12px}}
 
 .stock-task-window-actions { display:flex; align-items:center; gap:6px; margin-left:auto; flex-shrink:0; }
+/* 股票v2任务窗口：展开突出阶段，逐项日志默认折叠。 */
+.stock-resizable-window .stock-task-eyebrow{color:var(--accent);font-size:12px;margin:0 0 8px}
+.stock-resizable-window .stock-task-stage{font-size:19px;line-height:1.4;margin:0 0 8px;color:var(--text)}
+.stock-task-progress-caption{display:flex;justify-content:space-between;margin:20px 0 8px;font-size:12px}
+.stock-task-progress{display:block;width:100%;height:8px;accent-color:var(--accent)}
+.stock-task-steps{list-style:none;margin:20px 0;padding:0}
+.stock-task-steps li{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:9px;align-items:center;min-height:40px}
+.stock-task-step-symbol{width:20px;height:20px;border-radius:50%;background:var(--bg);color:var(--text-4);display:grid;place-items:center;font-size:11px}
+.stock-task-steps .done .stock-task-step-symbol{color:var(--ok)}
+.stock-task-steps .active .stock-task-step-symbol{color:var(--accent);background:var(--panel-2)}
+.stock-task-logs{margin-top:12px;font-size:12px}
+.stock-task-logs summary{cursor:pointer;color:var(--text-3)}
+.stock-task-logs .stock-check{overflow-wrap:anywhere;line-height:1.7}
+.stock-shared-stages .stock-check{padding:10px 0;border-bottom:1px solid var(--border-soft)}
+#stockScreeningTaskNotice.minimized{max-width:calc(100vw - 24px)}
+#stockScreeningTaskNotice .radar-update-mini-button{white-space:normal;overflow-wrap:anywhere;text-align:left}

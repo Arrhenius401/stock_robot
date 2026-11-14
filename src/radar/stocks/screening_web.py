@@ -123,8 +123,9 @@ def write_snapshot(state: Path, pool: str, payload: dict[str, Any]) -> None:
 
 class ScreeningService:
     """任务持久化；重启中的任务明确失败，完整结果保留供重试。"""
-    def __init__(self, state: Path, evaluate: Callable[..., Any], collect: Callable[..., Any]):
+    def __init__(self, state: Path, evaluate: Callable[..., Any] | None = None, collect: Callable[..., Any] | None = None, *, pipeline: Any = None):
         self.state, self.evaluate, self.collect = state, evaluate, collect
+        self.pipeline = pipeline
         self.path = state / 'stock-screening.sqlite'
         self.lock = threading.Lock()
 
@@ -180,7 +181,14 @@ class ScreeningService:
                 'as_of': snap['as_of'] if snap else None, 'rule_version': FORMAL_RULE_VERSION,
                 'task': self.latest(pool), 'members_published': 0}
 
+    def preview(self, pool: str) -> dict[str, Any]:
+        if self.pipeline is None:
+            raise ValueError("网页流水线尚未配置")
+        return self.pipeline.preview(pool)
+
     def plan(self, pool: str) -> dict[str, Any]:
+        if self.pipeline is not None:
+            return self.pipeline.plan(pool)
         snap = self.snapshot(pool)
         if snap is None:
             raise ValueError('请先更新股票池，生成完整筛选结果')
@@ -202,7 +210,7 @@ class ScreeningService:
         return plan
 
     def start(self, pool: str, kind: str, scope: dict[str, Any] | None = None,
-              plan_sha256: str | None = None) -> dict[str, Any]:
+              plan_sha256: str | None = None, preview_sha256: str | None = None) -> dict[str, Any]:
         with self.lock:
             active = next((t for t in self._read('tasks') if t['status'] in {'queued', 'running'}), None)
             if active:
@@ -210,14 +218,20 @@ class ScreeningService:
                     return active
                 raise StockRevisionConflict('已有股票筛选或补全任务执行中，请等待完成')
             plan = self.plan(pool) if kind == 'completion' else None
+            confirmation = None
+            if self.pipeline is not None:
+                confirmation = plan['execution_preview'] if plan is not None else self.preview(pool)
+                if plan is None and confirmation['preview_sha256'] != preview_sha256:
+                    raise StockRevisionConflict('更新预览已变化，请重新读取并确认')
+                scope = confirmation
             if plan is not None and plan['plan_sha256'] != plan_sha256:
                 raise StockRevisionConflict('补全计划或结果已变化，请重新读取计划')
-            if plan is not None and not plan['items']:
+            if plan is not None and not plan['items'] and not plan.get('shared_stages'):
                 raise ValueError('当前没有待补全事项')
             task = {'run_id': uuid.uuid4().hex, 'pool_id': pool, 'kind': kind, 'status': 'queued',
-                    'phase': 'snapshot', 'as_of': plan['as_of'] if plan else datetime.now().astimezone().date().isoformat(),
+                    'phase': 'snapshot', 'as_of': plan['as_of'] if plan else confirmation['as_of'] if confirmation else datetime.now().astimezone().date().isoformat(),
                     'owner_pid': os.getpid(), 'owner_identity': _process_identity(os.getpid()), 'created_at': _now(), 'updated_at': _now(), 'progress': {'attempted': 0, 'total':
-                        len(plan['items']) if plan else len((scope or {}).get('companies', []))},
+                        len(plan['items']) if plan else (scope or {}).get('company_count', len((scope or {}).get('companies', [])))},
                     'results': [], 'error': None}
             try:
                 self._put('tasks', task['run_id'], task)
@@ -235,7 +249,15 @@ class ScreeningService:
         try:
             pool, cutoff = task['pool_id'], date.fromisoformat(task['as_of'])
             progress(0, task['progress']['total'])
+            if self.pipeline is not None:
+                outcome = self.pipeline.execute(task, scope, plan, progress)
+                task.update(status=outcome['status'], stage_errors=outcome['stage_errors'],
+                            results=outcome.get('results') or task.get('results', []), evidence=outcome.get('evidence'),
+                            phase='finalizing', updated_at=_now())
+                self._put('tasks', task['run_id'], task)
+                return
             if plan is None:
+                assert self.collect is not None and self.evaluate is not None
                 self.collect(pool, scope, cutoff, progress)
                 report = self.evaluate(pool, scope['companies'], cutoff, progress)
                 if any(item.get('evaluation_valid') is not True for item in report['items']):
