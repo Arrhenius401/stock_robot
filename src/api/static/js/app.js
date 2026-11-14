@@ -1,13 +1,13 @@
 // 应用主入口：导航接线、工作台覆盖层与各视图初始化。
 import { bus, store, switchView } from "./state.js";
-import { initChat } from "./chat.js?v=20261114-research-2";
-import { initReportView, openReport } from "./report.js?v=20261114-research-2";
-import { initReportDrawer } from "./report-drawer.js?v=20261114-research-2";
-import { closeReportDrawer } from "./report-drawer.js?v=20261114-research-2";
+import { initChat } from "./chat.js?v=20261114-research-3";
+import { initReportView, openReport } from "./report.js?v=20261114-research-3";
+import { initReportDrawer } from "./report-drawer.js?v=20261114-research-3";
+import { closeReportDrawer } from "./report-drawer.js?v=20261114-research-3";
 import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js";
-import { initIndexView } from "./indexview.js?v=20261114-research-2";
-import { initReportLibrary } from "./report-library.js?v=20261114-research-2";
-import { initSessions, initSessionStartup } from "./sessions.js?v=20261114-research-2";
+import { initIndexView } from "./indexview.js?v=20261114-research-3";
+import { initReportLibrary } from "./report-library.js?v=20261114-research-3";
+import { initSessions, initSessionStartup } from "./sessions.js?v=20261114-research-3";
 import { initSubscriptions } from "./subscriptions.js?v=20260928-run-notice-2";
 import { initSettings } from "./settings.js?v=20261031-analysis-mode-1";
 import { initLogs } from "./logs.js?v=20260927-page-heading-1";

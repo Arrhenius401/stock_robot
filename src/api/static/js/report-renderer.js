@@ -366,12 +366,16 @@ function reportHeader(report) {
   const overview = record(report.overview);
   if (overview.industry !== null && overview.industry !== undefined
       && overview.industry !== "") {
-    left.appendChild(el("span", "chip ind", readable(overview.industry)));
+    const industryQuote = el("div", "report-industry-quote");
+    industryQuote.appendChild(el("span", "chip ind", readable(overview.industry)));
+    const closeDate = overview.price_end && overview.latest_close != null ? `（截至 ${readable(overview.price_end)}）` : "";
+    industryQuote.appendChild(el("span", "report-latest-close", `最新收盘价：${formatMetricValue('latest_close', overview.latest_close)}${closeDate}`));
+    left.appendChild(industryQuote);
   }
   header.appendChild(left);
 
   const right = el("div", "price-box");
-  if (overview.latest_close !== null && overview.latest_close !== undefined) {
+  if (!overview.industry && overview.latest_close !== null && overview.latest_close !== undefined) {
     right.appendChild(el("span", "stock-price", formatMetricValue('latest_close',overview.latest_close)));
   }
   if (overview.change_pct !== null && overview.change_pct !== undefined) {
@@ -425,7 +429,12 @@ function summarySection(report, sectionIdPrefix) {
   }
   if (facts.children.length) card.appendChild(facts);
   const meta = el("div", "report-summary-meta");
-  if (report.generated_at) meta.appendChild(el("span", "", `生成时间：${reportTime(report.generated_at)}`));
+  if (report.generated_at) {
+    const stamp = el("div", "report-generation-info");
+    stamp.appendChild(el("div", "", `生成时间：${reportTime(report.generated_at)}`));
+    stamp.appendChild(el("div", "", "报告定位：以中长期跟踪评估为主，兼容波段参考。"));
+    meta.appendChild(stamp);
+  }
   if (Number.isFinite(quality.coverage)) {
     const coverage = legacyHk(report) && Number.isInteger(quality.available_dimensions)
       ? `可用维度覆盖：${quality.available_dimensions}/${quality.applicable_dimensions}（${quality.coverage}%），不代表字段完整`
