@@ -149,6 +149,7 @@ class StockUpdateRunner:
     def _financial(self, task: dict[str, Any], worker: str, token: str) -> str:
         latest = {item['scope']: item for item in task['results']}
         pending = False
+        remaining: list[str] = []
         for company in task['input_snapshot']['companies']:
             symbol, scope = company['symbol'], 'financial:' + company['symbol']
             previous = latest.get(scope)
@@ -159,6 +160,9 @@ class StockUpdateRunner:
                 if screened['financial_numeric_status'] != previous['artifact'].get('financial_numeric_status'):
                     raise StockResearchError('已完成财务产物数值结论与记录不匹配')
                 continue
+            remaining.append(symbol)
+
+        def collect_one(symbol: str) -> tuple[str, dict[str, Any], bool]:
             stopped = False
             try:
                 collected = collection_result(self.financial_collector(symbol, self.cache_dir/'structured-financial',
@@ -176,21 +180,34 @@ class StockUpdateRunner:
                 payload = {'symbol': symbol, 'as_of': task['target_date'], 'collection': None}
                 outcome = 'pending_verification'
             incomplete = outcome == 'pending_verification' or payload.get('collection_record', {}).get('result_state', 'failed') != 'complete'
-            pending = pending or incomplete
-            item = {'scope': scope, 'status': 'partial' if incomplete else 'completed',
+            item = {'scope': 'financial:' + symbol, 'status': 'partial' if incomplete else 'completed',
                     'summary': '财务资料待补，不能当作未盈利' if incomplete else '盈利数值复核已完成，尚未通过全部入池条件',
                     'artifact': {**_artifact(self.artifact_dir, payload), 'symbol': symbol,
                                  'financial_numeric_status': outcome, 'source_stopped': stopped,
                                  'collection_record': payload.get('collection_record')}}
-            self.store.record_item(task['run_id'], worker, item, lease_token=token)
-            if stopped:
-                return 'partial'
+            return ('partial' if incomplete else 'completed'), item, stopped
+
+        workers = max(1, min(self.max_workers, len(remaining) or 1))
+        for start in range(0, len(remaining), workers):
+            batch = remaining[start:start + workers]
+            if workers == 1:
+                batch_results = [collect_one(symbol) for symbol in batch]
+            else:
+                with ThreadPoolExecutor(max_workers=workers) as pool:
+                    futures = [pool.submit(collect_one, symbol) for symbol in batch]
+                    batch_results = [future.result() for future in futures]
+            for status, item, stopped in batch_results:
+                pending |= status != 'completed'
+                self.store.record_item(task['run_id'], worker, item, lease_token=token)
+                if stopped:
+                    return 'partial'
         return 'partial' if pending else 'completed'
 
     def _dividend(self, task: dict[str, Any], worker: str, token: str) -> str:
         latest = {item['scope']: item for item in task['results']}
         pending = False
         blocked_sources: set[str] = set()
+        remaining: list[str] = []
         for company in task['input_snapshot']['companies']:
             symbol, scope = company['symbol'], 'dividend:' + company['symbol']
             previous = latest.get(scope)
@@ -199,10 +216,13 @@ class StockUpdateRunner:
                 payload = read_financial_artifact(previous, self.artifact_dir)
                 verify_collection(payload['collection'], symbol, date.fromisoformat(task['target_date']))
                 continue
+            remaining.append(symbol)
+
+        def collect_one(symbol: str) -> tuple[str, dict[str, Any]]:
             collection = None
             try:
-                collection = self.dividend_collector(symbol, date.fromisoformat(task['target_date']), self.cache_dir/'dividend',
-                                                    blocked_sources=blocked_sources)
+                collection = self.dividend_collector(symbol, date.fromisoformat(task['target_date']),
+                                                    self.cache_dir/'dividend', blocked_sources=blocked_sources)
                 verify_collection(collection, symbol, date.fromisoformat(task['target_date']))
                 status = 'completed'
             except StockRevisionConflict:
@@ -210,12 +230,24 @@ class StockUpdateRunner:
             except Exception as exc:  # noqa: BLE001 分红来源逐公司隔离，保留错误并阻断旧结果。
                 logger.warning('分红资料待补 %s: %s', symbol, exc)
                 status = 'partial'
-            pending |= status != 'completed'
             payload = {'symbol': symbol, 'as_of': task['target_date'], 'collection': collection}
-            self.store.record_item(task['run_id'], worker, {'scope': scope, 'status': status,
-                'summary': '分红来源已保存' if status == 'completed' else '分红来源待补',
-                'artifact': _artifact(self.artifact_dir, payload)}, lease_token=token)
-            collection = None
+            item = {'scope': 'dividend:' + symbol, 'status': status,
+                    'summary': '分红来源已保存' if status == 'completed' else '分红来源待补',
+                    'artifact': _artifact(self.artifact_dir, payload)}
+            return status, item
+
+        workers = max(1, min(self.max_workers, len(remaining) or 1))
+        for start in range(0, len(remaining), workers):
+            batch = remaining[start:start + workers]
+            if workers == 1:
+                batch_results = [collect_one(symbol) for symbol in batch]
+            else:
+                with ThreadPoolExecutor(max_workers=workers) as pool:
+                    futures = [pool.submit(collect_one, symbol) for symbol in batch]
+                    batch_results = [future.result() for future in futures]
+            for status, item in batch_results:
+                pending |= status != 'completed'
+                self.store.record_item(task['run_id'], worker, item, lease_token=token)
         return 'partial' if pending else 'completed'
 
     def _turnover(self, task: dict[str, Any], worker: str, token: str) -> str:

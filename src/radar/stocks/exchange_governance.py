@@ -8,6 +8,7 @@ import re
 import shutil
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -55,6 +56,7 @@ _PAGE_CACHE: dict[tuple[str, str], tuple[int, int, int, int, tuple[dict[str, Any
 _PAGE_CACHE_LIMIT = 320
 _STAGING = '.staging'
 _RESUME_WINDOW = timedelta(hours=2)
+PAGE_WORKERS = 4
 
 
 def _download(url: str, params: dict[str, str], referer: str) -> tuple[int, bytes]:
@@ -226,6 +228,18 @@ def _staging_dir(root: Path) -> Path:
     return root / _STAGING / datetime.now(_BJ).date().isoformat()
 
 
+def _write_atomic(path: Path, raw: bytes) -> None:
+    """Windows 下目标文件可能被杀软或索引短暂占用，有限重试。"""
+    for attempt in range(3):
+        try:
+            _atomic(path, raw)
+            return
+        except OSError:
+            if attempt == 2:
+                raise
+            time.sleep(0.05)
+
+
 def _read_progress(path: Path) -> dict[str, Any]:
     try:
         payload = _json(path.read_bytes())
@@ -235,7 +249,7 @@ def _read_progress(path: Path) -> dict[str, Any]:
 
 
 def _write_progress(path: Path, payload: dict[str, Any]) -> None:
-    _atomic(path, json.dumps(payload, ensure_ascii=False, sort_keys=True).encode())
+    _write_atomic(path, json.dumps(payload, ensure_ascii=False, sort_keys=True).encode())
 
 
 def _resume_ok(progress: dict[str, Any], key: str, total: int, pages: int, params: dict[str, str]) -> bool:
@@ -313,38 +327,37 @@ def _collect_source(key: str, staging: Path, progress: dict[str, Any],
     stored = (progress.get('sources') or {}).get(key)
     resume = _resume_ok(progress, key, total, pages, spec['params'])
     pages_meta = dict(stored.get('pages') or {}) if resume and isinstance(stored, dict) else {}
-    refs: list[dict[str, Any]] = []
-    records: list[dict[str, Any]] = []
-    raw_count = 0
-    for page in range(1, pages + 1):
-        if page == 1:
-            sha = hashlib.sha256(raw).hexdigest()
-            _atomic(staging / _page_name(key, page), raw)
-            normalized = [record for row in rows if isinstance(row, dict)
-                          if (record := _normalize(key, row, sha)) is not None]
-            ref = {'path': _page_name(key, page), 'bytes': len(raw), 'sha256': sha, 'page': page,
-                   'count': len(rows)}
-        else:
-            reused = _staged_page(staging, key, page, total, pages, pages_meta.get(str(page)))
-            if reused is not None:
-                ref, normalized = reused
-            else:
-                sleep(0.3)
-                raw = _fetch_page(spec, key, page, fetch, sleep)
-                if not isinstance(raw, bytes) or not 0 < len(raw) <= _MAX_BODY:
-                    raise ValueError(f'{spec["label"]}原文无效')
-                page_total, page_count, current, page_rows = _page_payload(key, raw)
-                if (page_total, page_count) != (total, pages) or current != page:
-                    raise ValueError(f'{spec["label"]}总数、页数或页码变化')
-                sha = hashlib.sha256(raw).hexdigest()
-                _atomic(staging / _page_name(key, page), raw)
-                normalized = [record for row in page_rows if isinstance(row, dict)
-                              if (record := _normalize(key, row, sha)) is not None]
-                ref = {'path': _page_name(key, page), 'bytes': len(raw), 'sha256': sha, 'page': page,
-                       'count': len(page_rows)}
-        refs.append(ref)
-        raw_count += ref['count']
-        records.extend(normalized)
+    refs_by_page: dict[int, dict[str, Any]] = {}
+    records_by_page: dict[int, list[dict[str, Any]]] = {}
+
+    def store_page(page: int, page_raw: bytes, page_rows: list[Any]) -> dict[str, Any]:
+        sha = hashlib.sha256(page_raw).hexdigest()
+        _write_atomic(staging / _page_name(key, page), page_raw)
+        normalized = [record for row in page_rows if isinstance(row, dict)
+                      if (record := _normalize(key, row, sha)) is not None]
+        ref = {'path': _page_name(key, page), 'bytes': len(page_raw), 'sha256': sha, 'page': page,
+               'count': len(page_rows)}
+        refs_by_page[page] = ref
+        records_by_page[page] = normalized
+        pages_meta[str(page)] = {'sha256': sha, 'bytes': len(page_raw), 'count': len(page_rows)}
+        progress.setdefault('sources', {})[key] = {
+            'label': spec['label'], 'params': spec['params'], 'declared_total': total, 'page_count': pages,
+            'pages': pages_meta, 'updated_at': datetime.now(_BJ).isoformat()}
+        _write_progress(staging / 'progress.json', progress)
+        if on_page is not None:
+            on_page(page, pages, key)
+        return ref
+
+    store_page(1, raw, rows)
+    pending: list[int] = []
+    for page in range(2, pages + 1):
+        reused = _staged_page(staging, key, page, total, pages, pages_meta.get(str(page)))
+        if reused is None:
+            pending.append(page)
+            continue
+        ref, normalized = reused
+        refs_by_page[page] = ref
+        records_by_page[page] = normalized
         pages_meta[str(page)] = {'sha256': ref['sha256'], 'bytes': ref['bytes'], 'count': ref['count']}
         progress.setdefault('sources', {})[key] = {
             'label': spec['label'], 'params': spec['params'], 'declared_total': total, 'page_count': pages,
@@ -352,6 +365,34 @@ def _collect_source(key: str, staging: Path, progress: dict[str, Any],
         _write_progress(staging / 'progress.json', progress)
         if on_page is not None:
             on_page(page, pages, key)
+
+    def fetch_one(page: int) -> tuple[int, bytes, list[Any]]:
+        sleep(0.2)
+        page_raw = _fetch_page(spec, key, page, fetch, sleep)
+        if not isinstance(page_raw, bytes) or not 0 < len(page_raw) <= _MAX_BODY:
+            raise ValueError(f'{spec["label"]}原文无效')
+        page_total, page_count, current, page_rows = _page_payload(key, page_raw)
+        if (page_total, page_count) != (total, pages) or current != page:
+            raise ValueError(f'{spec["label"]}总数、页数或页码变化')
+        return page, page_raw, page_rows
+
+    for start in range(0, len(pending), PAGE_WORKERS):
+        batch = pending[start:start + PAGE_WORKERS]
+        error: Exception | None = None
+        with ThreadPoolExecutor(max_workers=len(batch)) as pool:
+            futures = {pool.submit(fetch_one, page): page for page in batch}
+            for future in as_completed(futures):
+                try:
+                    page, page_raw, page_rows = future.result()
+                except Exception as exc:  # noqa: BLE001 并发页独立失败，先保存成功页再抛出
+                    error = error or exc
+                    continue
+                store_page(page, page_raw, page_rows)
+        if error is not None:
+            raise error
+    refs = [refs_by_page[page] for page in range(1, pages + 1)]
+    records = [record for page in range(1, pages + 1) for record in records_by_page[page]]
+    raw_count = sum(ref['count'] for ref in refs)
     if raw_count != total or len(refs) != pages:
         raise ValueError(f'{spec["label"]}分页不完整')
     dates = sorted(record['listed_on'] for record in records if record.get('listed_on'))

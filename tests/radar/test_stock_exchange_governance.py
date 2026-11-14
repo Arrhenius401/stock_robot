@@ -622,3 +622,34 @@ def test_batch_projection_is_unavailable_without_snapshot(tmp_path):
 
     batch = load_exchange_governance_sources(tmp_path, ['600000'], today())
     assert batch['600000']['status'] == 'unavailable'
+
+def test_page_fetch_uses_bounded_concurrency(tmp_path):
+    import threading
+    import time
+
+    from radar.stocks.exchange_governance import collect_exchange_governance
+
+    sse = [{'stockcode': '600000', 'docId': 'doc', 'docTitle': '样本', 'createTime': '2026-11-02 10:00:00',
+            'extWTFL': '监管工作函', 'extTeacher': '上市公司'}]
+    measure = [{**sse[0], 'gkxx_gsdm': '000001', 'gkxx_gsjc': '样本', 'gkxx_gdrq': '2026-11-02',
+                'gkxx_jgcs': '监管工作函', 'gkxx_sjdx': '上市公司', 'hjnr': 'https://www.szse.cn/a'}]
+    discipline = [{**sse[0], 'xx_gsdm': '000002', 'jc_gsjc': '样本', 'xx_fwrq': '2026-11-02',
+                   'xx_cflb': '通报批评', 'xx_bt': '处分', 'ck': 'https://www.szse.cn/b'}]
+    state = {'active': 0, 'peak': 0}
+    lock = threading.Lock()
+
+    def fetch(url, params, referer):
+        if 'sse.com.cn' not in url:
+            return 200, szse_page(measure if params.get('CATALOGID') == '1800_jgxxgk_snapshot' else discipline)
+        page = int(params['pageHelp.pageNo'])
+        with lock:
+            state['active'] += 1
+            state['peak'] = max(state['peak'], state['active'])
+        time.sleep(0.03)
+        with lock:
+            state['active'] -= 1
+        return 200, sse_page([{**sse[0], 'docId': f'doc-{page}'}], total=8, page=page, pages=8)
+
+    result = collect_exchange_governance(tmp_path, fetch=fetch, sleep=lambda _: None)
+    assert result['status'] == 'complete'
+    assert 1 < state['peak'] <= 4
