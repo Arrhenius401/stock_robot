@@ -1545,6 +1545,13 @@ body.subs-modal-open { overflow: hidden; }
 .stock-report .report-quality-summary th:last-child, .stock-report .report-quality-summary td:last-child { padding-right: 0; }
 .stock-report .report-pending-list { padding-left: 20px; display: grid; gap: 8px; }
 .stock-report .report-commentary-error { color: var(--warn); font-size: 13px; margin-top: 8px; }
+.stock-report .report-research h3 { margin: 18px 0 8px; font-size: 15px; }
+.stock-report .report-research p { margin: 8px 0; }
+.stock-report .report-research-row { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border-soft); }
+.stock-report .report-research-row dt { font-weight: 600; }
+.stock-report .report-research-row dd { margin: 0; overflow-wrap: anywhere; }
+.stock-report .report-research-risks { padding-left: 20px; }
+@media (max-width: 760px) { .stock-report .report-research-row { grid-template-columns: 72px minmax(0, 1fr); gap: 8px; } }
 .stock-report .report-retry-commentary, .stock-report .report-configure-commentary { margin-top: 10px; }
 .stock-report .mtr > div { min-width: 0; overflow-wrap: anywhere; }
 /* 同行证据沿用报告主题；窄卡片的摘要逐指标排列。 */

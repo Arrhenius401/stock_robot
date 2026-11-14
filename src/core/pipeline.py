@@ -480,6 +480,11 @@ class Pipeline:
         ctx = self.collect(symbol, name, market, refresh_cache=refresh_cache,
                            data_types=data_types, on_progress=on_progress)
         ctx.extra_analysis_enabled = self._extra_analysis_enabled
+        if market == "a-shares" and self._extra_analysis_enabled:
+            from data.business_profile import load_business_profile
+
+            ctx.commentary_version = 2
+            ctx.business_profile = load_business_profile(self._cache, symbol, refresh=refresh_cache)
 
         # 充实步骤（collect 之后 analyze 之前）
         from data.enricher import ContextEnricher
@@ -594,6 +599,28 @@ class Pipeline:
         if llm is None:
             logger.warning(f"未找到 LLM 后端: provider={provider}")
             return commentary
+
+        if context is not None and context.commentary_version == 2 and context.market == "a-shares":
+            from report.research import (
+                build_research,
+                model_prompt,
+                parse_model,
+                render_research,
+            )
+
+            research = build_research(context, results)
+            try:
+                if on_progress:
+                    on_progress("llm", 1, 2, "生成结构化 AI 解读")
+                raw = llm.generate(model_prompt(context, research))
+                model = parse_model(raw, research)
+                research["model"] = model
+                if on_progress:
+                    on_progress("llm", 2, 2, "生成结构化 AI 解读")
+                return {"research": json.dumps(model, ensure_ascii=False), "bulk": render_research(research)}
+            except Exception as exc:  # noqa: BLE001 — 模型SDK及输出隔离，保留确定性五维结果
+                logger.warning("结构化解读生成失败 %s: %s", symbol, type(exc).__name__)
+                return {}
 
         # 准备维度得分数据
         dim_labels = {

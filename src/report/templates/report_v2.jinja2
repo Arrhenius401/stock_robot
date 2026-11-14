@@ -138,7 +138,9 @@
 
 ## 四、综合研判
 
-{% if data_quality and not data_quality.has_analysis_data %}
+{% if commentary.get("structured_version") == "2" %}
+{{ commentary["bulk"] | commentary_section }}
+{% elif data_quality and not data_quality.has_analysis_data %}
 > 主要分析数据不可用，暂不生成 AI 结论。
 {% elif commentary.get("bulk") %}
 {{ commentary["bulk"] | commentary_section }}

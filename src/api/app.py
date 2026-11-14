@@ -139,7 +139,7 @@ def _extract_stock_reports(
             "generated_at": report.get("generated_at"),
         }
         for key in ("analysis_mode", "market", "scoring_method", "data_quality", "pending_verifications", "disclaimer", "signal", "commentary_status",
-                    "commentary_retry_id"):
+                    "commentary_retry_id", "research_commentary"):
             if key in report:
                 payload[key] = report[key]
         message_id = result.get("message_id")

@@ -145,6 +145,13 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
         commentary = {}
     if ctx.extra_analysis_enabled and quality["has_analysis_data"]:
         commentary = with_commentary_fallback(commentary, summary, no_llm)
+    from report.research import render_research, resolve_research
+
+    research = resolve_research(ctx, results, commentary, allow_model=(
+        not no_llm and bool(commentary.get("research")) and quality["has_analysis_data"]))
+    if research:
+        notice = "" if research.get("model") else "> AI解读未生成，以下保留来源资料与程序生成的五维定性。\n\n"
+        commentary = {**commentary, "structured_version": "2", "bulk": notice + render_research(research)}
     price_info = compute_price_info(ctx)
     if ctx.market == "hk":
         industry = hk_industry_label(ctx, results)
