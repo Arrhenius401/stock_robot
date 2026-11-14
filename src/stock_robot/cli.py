@@ -288,18 +288,18 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
         normalize_symbol,
         resolve_name,
         symbol_market,
-        validate_symbol,
+        validate_analyze_symbol,
     )
 
     config = Config()
     if not _check_disclaimer(config):
         return
 
-    if not validate_symbol(symbol):
+    if not validate_analyze_symbol(symbol):
         console.print(f"[red]无效的股票代码: {symbol}[/red]")
         console.print(
-            "请输入 6 位数字代码（如 000001、600036），"
-            "可选前缀 [bold]sh[/bold]（沪市）或 [bold]sz[/bold]（深市）"
+            "请输入 A 股 6 位代码（如 000001、600036）、港股 5 位代码（如 00700.HK），"
+            "或美股字母代码（如 AAPL、MSFT、BRK.B）"
         )
         sys.exit(1)
 
@@ -335,9 +335,9 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
         console.print(f"[red]分析失败: {e}[/red]")
         sys.exit(1)
 
-    # 大盘环境快照（可选，供报告中嵌入指数环境摘要）
+    # 大盘环境快照（可选，供报告中嵌入指数环境摘要）；美股不嵌入 A 股大盘
     market_env = None
-    if with_market:
+    if with_market and market != "us":
         try:
             from index.pipeline import IndexPipeline
             index_pipeline = IndexPipeline()

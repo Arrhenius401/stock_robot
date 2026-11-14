@@ -161,8 +161,22 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
     signal_complete = True
     signal_blocked: list[str] = []
     hk = ctx.market == "hk"
+    us = ctx.market == "us"
+    applicable = set(DIM_WEIGHTS) - ({"industry"} if us else set())
+    applicable_weight = sum(DIM_WEIGHTS[key] for key in applicable) or 1.0
     available = sum(participation_score(result_map.get(key)) is not None for key in DIM_WEIGHTS)
     for key, title, suff_key, source_key, weight in _DIMENSIONS:
+        if us and key == "industry":
+            dimensions.append({
+                "key": key, "title": title, "status": "not_applicable",
+                "fields": [
+                    {"label": "分析限制", "value": "本期美股不提供行业同行对比，不计入覆盖率"},
+                    {"label": "样本范围", "value": "未采集"},
+                    {"label": "数据来源", "value": "未采集"},
+                    {"label": "数据截止", "value": "未记录"},
+                ],
+            })
+            continue
         suff = getattr(ctx.sufficiency, suff_key)
         result = result_map.get(key)
         level = min(_LEVEL.get(suff.level, 0), _RESULT_LEVEL.get(result.status, 0) if result else 0)
@@ -186,7 +200,7 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
                 news_record = records.get(source_key)
                 if getattr(news_record, "error_message", "") or getattr(news_record, "cache_status", "") == "stale":
                     level = min(level, 1)
-        if weight:
+        if weight and key in applicable:
             coverage += weight * (level / 2)
             all_complete = all_complete and level == 2 and (value is not None or not ctx.extra_analysis_enabled)
         if key in {"financial", "technical", "valuation"}:
@@ -213,7 +227,7 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
             {"label": "数据来源", "value": getattr(record, "source", "") or "未记录"},
             {"label": "数据截止", "value": cutoff},
         ]
-        if key == "valuation" and hk and ctx.valuation_data:
+        if key == "valuation" and ctx.market in {"hk", "us"} and ctx.valuation_data:
             valuation = ctx.valuation_data
             snapshot_dates = valuation_snapshot_dates(ctx)
             source = getattr(record, "source", "") or valuation._data_source or "未记录"
@@ -223,7 +237,7 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
                 f"历史分位：{valuation.history_source}，各指标日期与样本数见估值说明" if valuation.history_source else "",
                 f"PS(TTM)：{valuation.ps_source or '未记录'}（{valuation.ps_as_of or '未记录'}）" if valuation.ps_ttm is not None else "",
             ]))})
-        if key == "financial" and ctx.market in {"a-shares", "hk"} and ctx.financial_data:
+        if key == "financial" and ctx.market in {"a-shares", "hk", "us"} and ctx.financial_data:
             latest = max(ctx.financial_data, key=lambda row: row.fiscal_quarter)
             if latest.financial_source and not getattr(record, "source", ""):
                 fields[1]["value"] = latest.financial_source
@@ -239,7 +253,8 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
                     sources.setdefault(source, []).append(metric_display_name(name))
                 fields.append({"label": "最新报告字段来源", "value": "；".join(
                     f"{source}：{'、'.join(names)}" for source, names in sources.items())})
-        if key == "valuation" and ctx.enriched_valuation and ctx.enriched_valuation.daily_points and not hk:
+        if (key == "valuation" and ctx.enriched_valuation and ctx.enriched_valuation.daily_points
+                and ctx.market not in {"hk", "us"}):
             fields[1]["value"] = "行情与财务派生计算"
             price_source = getattr(records.get("price"), "source", "") or "未记录"
             financial_source = getattr(records.get("financial"), "source", "") or "未记录"
@@ -251,7 +266,8 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
         collected = getattr(record, "collected_at", None)
         if collected:
             cache_text += f" · 原采集时间 {collected.isoformat()}"
-        if key == "valuation" and ctx.enriched_valuation and ctx.enriched_valuation.daily_points and not hk:
+        if (key == "valuation" and ctx.enriched_valuation and ctx.enriched_valuation.daily_points
+                and ctx.market not in {"hk", "us"}):
             cache_text = f"实测估值快照：{cache_text}；行情与财务缓存状态见对应维度"
         fields.append({"label": "缓存状态", "value": cache_text})
         if key == "financial" and result:
@@ -259,7 +275,7 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
             if isinstance(annual, dict) and annual.get("period_end"):
                 fields.append({"label": "ROE计分期间", "value": f"{annual.get('period_start') or '未记录'} 至 {annual['period_end']}"})
                 fields.append({"label": "ROE计分来源", "value": annual.get("source") or "未记录"})
-        if key == "sentiment" and result and ctx.extra_analysis_enabled:
+        if key == "sentiment" and result and ctx.extra_analysis_enabled and not us:
             fields.append({"label": "有效评估", "value": f"{result.metrics.get('evaluated_count', 0)}条相关消息"})
             fields.append({"label": "评估窗口", "value": f"{result.metrics.get('window_start') or '未记录'} 至 {result.metrics.get('window_end') or '未记录'}"})
             if result.metrics.get("assessment_reason"):
@@ -294,19 +310,21 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
     analysis_available = has_analysis_data(results, ctx)
     quality = {
         "status": "ok" if all_complete else "partial" if analysis_available else "unavailable",
-        "coverage": round(coverage * 100, 1),
-        "signal_allowed": ctx.extra_analysis_enabled and signal_complete and has_scored,
-        "signal_unavailable_reason": ("未启用额外分析。" if not ctx.extra_analysis_enabled else
+        "coverage": round(coverage / applicable_weight * 100, 1),
+        "signal_allowed": False if us else (ctx.extra_analysis_enabled and signal_complete and has_scored),
+        "signal_unavailable_reason": ("美股本期不提供综合评分与规则信号。" if us else
+            "未启用额外分析。" if not ctx.extra_analysis_enabled else
             f"{'、'.join(signal_blocked)}分析依据未满足信号生成条件。" if signal_blocked else ""),
-        "has_scored_data": ctx.extra_analysis_enabled and has_scored,
+        "has_scored_data": False if us else (ctx.extra_analysis_enabled and has_scored),
         "has_analysis_data": analysis_available,
         "dimensions": dimensions,
         "pending_verifications": list(dict.fromkeys(pending)),
-        "coverage_basis": ("五维原权重数据覆盖，不表示评分置信度" if ctx.extra_analysis_enabled else
+        "coverage_basis": ("四维原权重数据覆盖（行业对比本期不适用），不表示字段完整度" if us else
+                           "五维原权重数据覆盖，不表示评分置信度" if ctx.extra_analysis_enabled else
                            "五维原权重数据覆盖，不表示字段完整度"),
     }
-    if hk:
-        quality.update(available_dimensions=available, applicable_dimensions=len(DIM_WEIGHTS))
+    if ctx.market in {"hk", "us"}:
+        quality.update(available_dimensions=available, applicable_dimensions=len(applicable))
     from report.presentation import compact_quality
 
     quality.update(compact_quality(quality))

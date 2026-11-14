@@ -48,6 +48,8 @@
 {% else %}
 > 新闻暂时获取失败。
 {% endif %}
+{% elif dim == "industry" and market == "美股" %}
+> {{ r.summary if r else "不适用：本期美股不提供行业同行对比，不计入覆盖率" }}
 {% elif dim == "industry" and r and r.metrics.get("comparison") %}
 {% if five_dimension and extra_analysis_enabled %}
 **行业得分：** {{ (r.score | metric_value("score")) ~ "/10" if r.score is not none else "暂无" }}
@@ -109,7 +111,9 @@
 {% if extra_analysis_enabled %}
 ## 三、综合评分
 
-{% if market == "港股" and not five_dimension %}
+{% if market == "美股" %}
+> 不适用：本期美股不提供综合评分与规则信号；以下保留客观数据与可复核指标。
+{% elif market == "港股" and not five_dimension %}
 > 不适用：港股不套用 A 股综合评分或交易信号；行业对比使用恒生 HSICS 口径。
 {% else %}
 {% if five_dimension %}
@@ -157,6 +161,10 @@
 **模型信号：{{ signal.label }}**
 
 生成依据：{{ signal.basis or "信号生成依据未记录。" }}
+{% elif market == "美股" %}
+**模型信号：不适用**
+
+生成依据：本期美股不提供综合评分与交易信号。
 {% elif market == "港股" and not five_dimension %}
 **模型信号：不适用**
 

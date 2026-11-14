@@ -19,7 +19,7 @@ class ValuationAnalyzer(AnalysisModule):
                 config: dict[str, Any] | None = None) -> AnalysisResult:
         val_data = context.valuation_data
         scoring_context = context
-        if context.market != "hk" and context.sufficiency.valuation.level == SufficiencyLevel.INSUFFICIENT:
+        if context.market not in {"hk", "us"} and context.sufficiency.valuation.level == SufficiencyLevel.INSUFFICIENT:
             # A 股历史充实失败时，旧分位不能复用；本次独立同行估值仍可单项参与。
             scoring_context = context.model_copy(update={"enriched_valuation": None})
         pe_pct, pb_pct, premium = valuation_evidence(scoring_context)
@@ -51,7 +51,7 @@ class ValuationAnalyzer(AnalysisModule):
             f"{ {'pe_ttm': 'PE(TTM)', 'pb': 'PB', 'ps_ttm': 'PS(TTM)'}[key]}：{info['reason']}"
             for key, info in applicability.items() if not info["applicable"]
         ]
-        if context.market == "hk":
+        if context.market in {"hk", "us"}:
             snapshot_dates = valuation_snapshot_dates(context)
             metrics.update(pe_as_of=snapshot_dates["pe_ttm"], pb_as_of=snapshot_dates["pb"],
                            ps_as_of=snapshot_dates["ps_ttm"])
@@ -94,7 +94,7 @@ class ValuationAnalyzer(AnalysisModule):
         # PE/PB 边界不变，银行无 PE 仍按原逻辑 partial，另行决策。
         if not all(applicability[key]["applicable"] for key in _SCORING_APPLICABILITY_KEYS):
             status = "partial"
-        summary = self._build_summary(metrics, historical_reference=context.market == "hk")
+        summary = self._build_summary(metrics, historical_reference=context.market in {"hk", "us"})
 
         if (context.sufficiency and context.sufficiency.valuation.level == SufficiencyLevel.INSUFFICIENT
                 and not scoring_evidence):

@@ -59,7 +59,9 @@ def build_stock_payload(
         bulk = render_research(research)
     if quality["signal_allowed"] and signal_cfg is not None and summary.final_score is not None:
         signal = signal_presentation(summary.final_score, signal_cfg)
-    if ctx.market == "hk":
+    if ctx.market == "us":
+        industry = "不适用：本期美股不提供行业同行对比"
+    elif ctx.market == "hk":
         industry = hk_industry_label(ctx, results)
     else:
         industry = ctx.sw_industry or (
@@ -79,7 +81,7 @@ def build_stock_payload(
         "score": {"base": summary.base_score if quality["has_scored_data"] else None,
                   "final": summary.final_score if quality["has_scored_data"] else None,
                   "risk_deduction": summary.risk_deduction},
-        "score_rows": summary.score_rows if ctx.extra_analysis_enabled else [],
+        "score_rows": summary.score_rows if ctx.extra_analysis_enabled and ctx.market != "us" else [],
         "dimensions": {r.dimension: {**r.model_dump(mode="json", exclude={"dimension", "charts"}),
                        **({"display": stock_date_presentation(ctx, r.metrics, r.summary)} if r.dimension == "valuation" else {})}
                        for r in results},
@@ -87,6 +89,6 @@ def build_stock_payload(
         **({"research_commentary": research} if research else {}),
         "commentary_status": status, "signal": signal, "data_quality": quality,
         "pending_verifications": quality["pending_verifications"],
-        "disclaimer": build_disclaimer(hk=ctx.market == "hk"),
+        "disclaimer": build_disclaimer(hk=ctx.market == "hk", us=ctx.market == "us"),
         "generated_at": datetime.now().astimezone().isoformat(),
     }

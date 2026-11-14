@@ -128,7 +128,7 @@ def format_sentiment_risk_markdown(metrics: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-_STOCK_SYMBOL_PATTERN = r"(?:\d{6}|\d{5}\.HK)"
+_STOCK_SYMBOL_PATTERN = r"(?:\d{6}|\d{5}\.HK|[A-Z][A-Z0-9]{0,9}(?:[.-][A-Z0-9]{1,2})?)"
 
 _SEP_RE = re.compile(r'^\|[-\s:|]+\|$')
 
@@ -164,6 +164,7 @@ METRIC_DISPLAY_NAMES = {
     "net_profit": "净利润",
     "total_assets": "总资产",
     "total_equity": "股东权益",
+    "common_equity": "普通股东权益",
     "operating_cash_flow": "经营活动现金流",
     "operating_cash_flow_per_share": "每股经营现金流",
     "revenue_growth_yoy": "营收同比增长",

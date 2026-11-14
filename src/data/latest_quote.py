@@ -123,5 +123,5 @@ def price_presentation(quote: dict, latest_close: float | None, daily_end: str |
                 "note": f"行情时间：{stamp.replace('T', ' ')}；来源：{source}",
                 "change_pct": quote.get("change_pct")}
     return {"value": latest_close, "kind": "close_fallback", "as_of": daily_end, "source": "日线收盘价",
-            "note": f"最新报价不可用，回退最新收盘价；截至 {daily_end or '未记录'}" if latest_close is not None
+            "note": f"未取得独立报价，回退日线收盘价；截至 {daily_end or '未记录'}" if latest_close is not None
                     else "最新报价与收盘价均不可用", "change_pct": None}

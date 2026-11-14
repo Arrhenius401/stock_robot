@@ -357,6 +357,8 @@ class AkShareAdapter(DataSource):
             return True
         if market == "hk" and data_type in ("price", "financial", "valuation", "news"):
             return True
+        if market == "us" and data_type in ("price", "financial", "valuation", "news"):
+            return True
         elif data_type in ("index_price", "index_valuation", "index_capital_flow",
                            "index_macro", "index_sentiment"):
             return market in ("a-shares", "hk", "us")
@@ -383,6 +385,13 @@ class AkShareAdapter(DataSource):
                 price="东方财富港股行情（不复权）",
                 financial="东方财富港股财报",
                 valuation="东方财富港股估值快照",
+                news="东方财富关键词新闻检索",
+            )
+        if kwargs.get("market") == "us":
+            labels.update(
+                price="新浪美股行情（前复权）",
+                financial="东方财富美股F10",
+                valuation="百度美股估值",
                 news="东方财富关键词新闻检索",
             )
         if data_type == "index_price":
@@ -414,6 +423,10 @@ class AkShareAdapter(DataSource):
     def _fetch_price(self, symbol: str, **kwargs) -> list[PriceData]:
         if kwargs.get("market") == "hk":
             return self._fetch_hk_price(symbol, **kwargs)
+        if kwargs.get("market") == "us":
+            from data.us_stock import us_history
+
+            return us_history(symbol)
         # 回测等场景可显式指定起止日期（YYYYMMDD）；未完整指定时保持默认近一年（days=250）行为
         start_date = kwargs.get("start_date")
         end_date = kwargs.get("end_date")
@@ -491,6 +504,10 @@ class AkShareAdapter(DataSource):
     def _fetch_financial(self, symbol: str, **kwargs) -> list[FinancialData]:
         if kwargs.get("market") == "hk":
             return self._fetch_hk_financial(symbol)
+        if kwargs.get("market") == "us":
+            from data.us_stock import us_financials
+
+            return us_financials(symbol)
         from data.a_financial_policy import (
             DEPENDENCIES,
             SNAPSHOT_FIELDS,
@@ -699,6 +716,10 @@ class AkShareAdapter(DataSource):
         """估值：腾讯实时快照（含 PE/PB，独立口径）。失败返回空列表。"""
         if kwargs.get("market") == "hk":
             return self._fetch_hk_valuation(symbol)
+        if kwargs.get("market") == "us":
+            from data.us_stock import us_valuation
+
+            return us_valuation(symbol)
         import requests as _req
 
         tx_symbol = f"sh{symbol}" if symbol.startswith("6") else f"sz{symbol}"
@@ -1113,6 +1134,10 @@ class AkShareAdapter(DataSource):
         from pandas import isna
         from pandas.api.types import is_scalar
 
+        if kwargs.get("market") == "us":
+            from data.us_stock import us_news
+
+            return us_news(symbol, str(kwargs.get("name") or ""))
         if kwargs.get("market") == "hk":
             from data.hk_news import fetch_news
 

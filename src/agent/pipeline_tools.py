@@ -96,14 +96,15 @@ class AnalyzeStockTool:
     """单股全维度分析工具"""
     name = "analyze_stock"
     description = (
-        "对单只 A 股或港股进行全面分析，返回财务、技术面、估值、行业、舆情五个维度的分析报告。"
+        "对单只 A 股、港股或美股进行全面分析，返回财务、技术面、估值、行业、舆情五个维度的分析报告。"
+        "美股本期提供客观数据，不含行业同行对比、综合评分与交易信号。"
         "适用于需要深入了解某只股票的完整画像时使用。"
-        "参数: symbol(A 股 6 位代码，或港股 5 位代码，如 00700.HK)"
+        "参数: symbol(A 股 6 位代码、港股 5 位代码或美股字母代码，如 600519、00700.HK、AAPL)"
     )
     parameters = {
         "type": "object",
         "properties": {
-            "symbol": {"type": "string", "description": "A 股 6 位代码，或港股 5 位代码，如 000001、600519、00700.HK"},
+            "symbol": {"type": "string", "description": "A 股 6 位代码、港股 5 位代码或美股字母代码，如 000001、00700.HK、AAPL、MSFT、BRK.B"},
         },
         "required": ["symbol"],
     }

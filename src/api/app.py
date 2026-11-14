@@ -908,9 +908,9 @@ def create_app(
             normalize_symbol,
             resolve_name,
             symbol_market,
-            validate_symbol,
+            validate_analyze_symbol,
         )
-        if not validate_symbol(symbol):
+        if not validate_analyze_symbol(symbol):
             raise HTTPException(status_code=422, detail=f"无效的股票代码: {symbol}")
         symbol = normalize_symbol(symbol)
         market = symbol_market(symbol)
@@ -924,6 +924,11 @@ def create_app(
             else:
                 results, commentary, ctx = await asyncio.to_thread(
                     agent_core.pipeline.run, symbol, name, market=market)
+            if market == "us" and len(ctx.price_data or []) < 20:
+                raise HTTPException(
+                    status_code=422,
+                    detail="未取得足够的该美股行情，请核对代码或稍后重试",
+                )
             from report.commentary import CommentaryContext, commentary_store
             from report.payload import build_stock_payload
             from report.signal import load_signal_config
@@ -943,6 +948,8 @@ def create_app(
                     symbol, name, results, commentary, ctx, signal_cfg, output_path=saved_path,
                 ))
             return JSONResponse(_json_safe(payload))
+        except HTTPException:
+            raise
         except Exception as e:  # noqa: BLE001 — HTTP 边界兜底
             logger.error("个股分析失败: %s", e)
             return JSONResponse({"symbol": symbol, "error": str(e)}, status_code=500)

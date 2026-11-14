@@ -331,6 +331,8 @@ class ValuationPolicy(_Policy):
             return "failed"
         if self.market == "hk":
             return "complete" if any(value > 0 for value in values) and not item.cache_degraded else "partial"
+        if self.market == "us":
+            return "partial" if item.cache_degraded else "complete"
         return "complete" if any(
             value is not None and math.isfinite(value) for value in (item.pe_ttm, item.pb)
         ) else "failed"
@@ -369,6 +371,7 @@ DEDICATED_POLICIES: dict[tuple[str, str], CollectionPolicy] = {
     ("hk", "news"): HKNewsPolicy(),
     ("a-shares", "valuation"): ValuationPolicy("a-shares"),
     ("hk", "valuation"): ValuationPolicy("hk"),
+    ("us", "valuation"): ValuationPolicy("us"),
     ("a-shares", "industry"): IndustryPolicy("a-shares"),
     ("hk", "industry"): IndustryPolicy("hk"),
 }

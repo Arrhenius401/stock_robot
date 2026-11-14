@@ -19,7 +19,7 @@ from report.peer_comparison import format_peer_comparison_markdown
 from report.presentation import compact_quality, compact_score_detail
 
 
-def build_disclaimer(*, hk: bool = False) -> list[str]:
+def build_disclaimer(*, hk: bool = False, us: bool = False) -> list[str]:
     """Markdown 与结构化报告共用免责声明，避免两端文案漂移。"""
     paragraphs = [
         "本报告仅供信息参考与研究使用，不构成投资建议或收益保证，不应作为投资决策的唯一依据。",
@@ -27,6 +27,8 @@ def build_disclaimer(*, hk: bool = False) -> list[str]:
     ]
     if hk:
         paragraphs.append("财务金额按数据源返回值展示；目录列报币种不等同于金额币种，金额币种未核实时不作金额趋势比较，不推断上游是否换汇。港币行情与财报金额不混算。财报按报告期展示，不将半年度或年度报告视作季度数据。")
+    if us:
+        paragraphs.append("美股金额以美元、美国会计准则披露；报告期按财季月末展示，不换汇。行情为公开数据源延迟报价，不使用盘前盘后价作为当前价。美股本期不提供行业同行对比、综合评分与交易信号，数据覆盖受免费数据源限制。")
     return paragraphs + [
         "指标、评分及观察结论受数据口径、样本范围和分析方法限制，不代表对未来表现的预测。",
         "请结合自身风险承受能力独立判断，并核实相关信息。市场有风险，投资需谨慎。",
@@ -230,5 +232,5 @@ class ReportBuilder:
             price_start=price_start,
             price_end=price_end,
             valuation_display=valuation_display,
-            disclaimer=build_disclaimer(hk=market == "港股"),
+            disclaimer=build_disclaimer(hk=market == "港股", us=market == "美股"),
         )

@@ -167,6 +167,12 @@ class Pipeline:
             time.sleep(stagger_index * 0.15)
             from core.resilient_collection import Kind, supports
 
+            if market == "us" and data_type == "industry":
+                return data_type, [], make_record(
+                    "本期美股不提供行业同行对比", "not_applicable",
+                    error_kind="not_applicable",
+                    error_message="本期美股不提供行业同行对比，不计入覆盖率",
+                )
             if supports(market, data_type):
                 from typing import cast
 
@@ -243,6 +249,8 @@ class Pipeline:
                 for attempt in range(1 if data_type == "industry" else 2):
                     try:
                         fetch_kwargs: dict[str, Any] = {"data_type": data_type, "market": market}
+                        if market == "us" and data_type == "news":
+                            fetch_kwargs["name"] = name
                         if data_type == "industry":
                             fetch_kwargs.update(
                                 sw_level1=ctx.sw_industry,
@@ -380,7 +388,8 @@ class Pipeline:
                 ctx.collection_records[data_type] = record
                 if result is not None:
                     self._assign_to_context(ctx, data_type, result)
-                    if data_type == "industry" and not ctx.sw_industry:
+                    if (data_type == "industry" and not ctx.sw_industry and result
+                            and getattr(result[0], "resolved_sw_level1", "")):
                         ctx.sw_industry = result[0].resolved_sw_level1
                         ctx.sw_industry_level2 = result[0].resolved_sw_level2
                 completed += 1
@@ -510,18 +519,28 @@ class Pipeline:
 
         if on_progress and ctx.industry_data is not None and getattr(ctx.industry_data, "comparison_ready", False):
             on_progress("collect", 1, 1, "采集同行估值与同期经营指标")
-        try:
-            ctx = PeerComparisonService(self._cache).enrich(ctx, refresh=refresh_cache)
-        except Exception as error:  # noqa: BLE001 — 同行采集隔离，不能阻断其他报告维度
+        if market == "us":
             from data.schemas import DimensionSufficiency
 
-            logger.warning("同行比较失败 %s: %s", symbol, type(error).__name__)
             ctx.enriched_industry = None
             ctx.sufficiency.industry = DimensionSufficiency(
-                level=SufficiencyLevel.INSUFFICIENT, reason="同行比较数据获取失败",
+                level=SufficiencyLevel.INSUFFICIENT,
+                reason="本期美股不提供行业同行对比，不计入覆盖率",
                 sample_count=0, score_weight=0.0,
             )
-        if self._extra_analysis_enabled and dimension in (None, "financial"):
+        else:
+            try:
+                ctx = PeerComparisonService(self._cache).enrich(ctx, refresh=refresh_cache)
+            except Exception as error:  # noqa: BLE001 — 同行采集隔离，不能阻断其他报告维度
+                from data.schemas import DimensionSufficiency
+
+                logger.warning("同行比较失败 %s: %s", symbol, type(error).__name__)
+                ctx.enriched_industry = None
+                ctx.sufficiency.industry = DimensionSufficiency(
+                    level=SufficiencyLevel.INSUFFICIENT, reason="同行比较数据获取失败",
+                    sample_count=0, score_weight=0.0,
+                )
+        if self._extra_analysis_enabled and market != "us" and dimension in (None, "financial"):
             from data.financial_scoring_facts import FinancialScoringFactsService
 
             try:
@@ -539,11 +558,12 @@ class Pipeline:
             sentiment_enricher.set_llm(self._registry.get_llm_backend(provider))
         sentiment_stage = ContextEnricher()
         sentiment_stage.register(sentiment_enricher)
-        if self._extra_analysis_enabled:
+        if self._extra_analysis_enabled and market != "us":
             ctx = sentiment_stage.enrich(ctx)
 
-        # 新增：加载行业配置
-        industry_config = self._config_loader.load_for_context(ctx) if self._extra_analysis_enabled else None
+        # 新增：加载行业配置；美股本期不评分，不加载 A 股模板
+        industry_config = (self._config_loader.load_for_context(ctx)
+                           if self._extra_analysis_enabled and market != "us" else None)
 
         results = []
         total = len(analysis_modules)
@@ -601,6 +621,7 @@ class Pipeline:
         from report.scoring import compute_score_summary, participation_score
 
         if (not self._extra_analysis_enabled or (context is not None and not context.extra_analysis_enabled)
+                or (context is not None and context.market == "us")
                 or not self._llm_enabled or not has_analysis_data(results, context)):
             return commentary
         provider = self._config.get("llm.provider", "openai")

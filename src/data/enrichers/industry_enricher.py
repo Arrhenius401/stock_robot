@@ -17,6 +17,14 @@ logger = logging.getLogger(__name__)
 
 class IndustryEnricher(DataEnricher):
     def enrich(self, ctx: AnalysisContext) -> AnalysisContext:
+        if ctx.market == "us":
+            ctx.enriched_industry = None
+            ctx.sufficiency.industry = DimensionSufficiency(
+                level=SufficiencyLevel.INSUFFICIENT,
+                reason="本期美股不提供行业同行对比，不计入覆盖率",
+                sample_count=0, score_weight=0.0,
+            )
+            return ctx
         if ctx.market == "hk":
             return ctx
         ind_data = ctx.industry_data

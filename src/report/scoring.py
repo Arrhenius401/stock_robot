@@ -157,7 +157,9 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
         notice = "" if research.get("model") else "> AI解读未生成，以下保留来源资料与程序生成的五维定性。\n\n"
         commentary = {**commentary, "structured_version": "2", "bulk": notice + render_research(research)}
     price_info = compute_price_info(ctx)
-    if ctx.market == "hk":
+    if ctx.market == "us":
+        industry = "不适用：本期美股不提供行业同行对比"
+    elif ctx.market == "hk":
         industry = hk_industry_label(ctx, results)
     elif ctx.sw_industry:
         industry = ctx.sw_industry
@@ -180,7 +182,8 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
         scoring_method=SCORING_METHOD,
         symbol=symbol,
         name=name,
-        market="港股" if ctx.market == "hk" else "A 股",
+        market=("美股" if ctx.market == "us" else
+                "港股" if ctx.market == "hk" else "A 股"),
         results=results,
         commentary=commentary,
         no_llm=no_llm,

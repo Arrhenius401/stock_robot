@@ -87,8 +87,8 @@ def _compute_ttm(financials: list) -> tuple[float | None, float | None]:
 
 class ValuationEnricher(DataEnricher):
     def enrich(self, ctx: AnalysisContext) -> AnalysisContext:
-        if ctx.market == "hk":
-            return self._enrich_hk(ctx)
+        if ctx.market in {"hk", "us"}:
+            return self._enrich_measured(ctx, ctx.market)
         prices = ctx.price_data or []
         financials = ctx.financial_data or []
 
@@ -221,15 +221,17 @@ class ValuationEnricher(DataEnricher):
         return ctx
 
     @staticmethod
-    def _enrich_hk(ctx: AnalysisContext) -> AnalysisContext:
-        """只统计实测同源曲线，不用港币行情与未知财报币种推导倍数。"""
+    def _enrich_measured(ctx: AnalysisContext, market: str = "hk") -> AnalysisContext:
+        """只统计实测同源曲线，不用行情与未知财报币种推导倍数。"""
+        market_label = "港股" if market == "hk" else "美股"
         snapshot = ctx.valuation_data
         valid = snapshot is not None and any(
             is_positive_finite(value) for value in (snapshot.pe_ttm, snapshot.pb, snapshot.ps_ttm))
         if not valid or snapshot is None:
             ctx.enriched_valuation = None
             ctx.sufficiency.valuation = DimensionSufficiency(
-                level=SufficiencyLevel.INSUFFICIENT, reason="港股实测估值快照缺失，不混用财报币种推导估值",
+                level=SufficiencyLevel.INSUFFICIENT,
+                reason=f"{market_label}实测估值快照缺失，不混用财报币种推导估值",
                 sample_count=0, score_weight=0.0)
             return ctx
         prices = {p.trade_date: p for p in ctx.price_data or []

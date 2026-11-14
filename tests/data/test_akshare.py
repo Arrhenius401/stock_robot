@@ -25,9 +25,11 @@ class TestAkShareAdapter:
         adapter = AkShareAdapter()
         assert adapter.supports("a-shares", "price") is True
 
-    def test_does_not_support_us_market(self):
+    def test_supports_us_market_without_industry(self):
         adapter = AkShareAdapter()
-        assert adapter.supports("us", "price") is False
+        for data_type in ("price", "financial", "valuation", "news"):
+            assert adapter.supports("us", data_type) is True
+        assert adapter.supports("us", "industry") is False
 
     def test_fetch_price_data(self, mock_akshare):
         adapter = AkShareAdapter()

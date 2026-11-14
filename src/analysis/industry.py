@@ -114,6 +114,12 @@ class IndustryAnalyzer(AnalysisModule):
 
     def analyze(self, context: AnalysisContext,
                 config: dict[str, Any] | None = None) -> AnalysisResult:
+        if context.market == "us":
+            return AnalysisResult(
+                dimension=self.dimension, status="unavailable",
+                summary="本期美股不提供行业同行对比，不计入覆盖率", metrics={},
+                score=None, score_detail="行业对比不适用",
+            )
         if context.market == "hk":
             return self._analyze_hk(context)
         ind_data = context.industry_data
