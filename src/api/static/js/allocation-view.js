@@ -1,7 +1,7 @@
-import { createStockTaskUI } from './radar-stock-tasks.js?v=20261114-stock-shared-2';
+import { createStockTaskUI } from './radar-stock-tasks.js?v=20261114-stock-shared-4';
 import { createRadarUpdateUI } from "./radar-update-ui.js?v=20261022-financial-task-1";
 import { createRadarPoolPicker } from "./radar-pool-picker.js?v=20261014-pools-2";
-import { renderRadarStockPool } from "./radar-stock-view.js?v=20261114-stock-shared-2";
+import { renderRadarStockPool } from "./radar-stock-view.js?v=20261114-stock-shared-4";
 // 配置雷达基础视图：使用浏览器兼容语法直接消费完成快照。
 var allocationUpdates = null;
 var allocationStockTasks = null;

@@ -1686,7 +1686,7 @@ body:not(:has(#view-radar.active .stock-management)) #radarStockUpdateNotice { d
 #stockScreeningTaskNotice { bottom:24px; top:auto; }
 .stock-resizable-window { width:480px; resize:both; overflow:auto; min-width:320px; min-height:240px; max-width:calc(100vw - 24px); max-height:calc(100dvh - 24px); }
 .stock-resizable-window progress { width:100%; accent-color:var(--ok); }
-@media(max-width:760px){.stock-screening>.panel{padding:14px}.stock-screening-counts{gap:6px}.stock-screening-counts .stock-count{padding:7px 9px}.stock-screening .stock-completion-open{margin-left:auto}.stock-resizable-window{resize:none;min-width:0}#stockScreeningTaskNotice{bottom:12px}}
+@media(max-width:760px){.stock-screening>.panel{padding:14px}.stock-screening-counts{gap:6px}.stock-screening-counts .stock-count{padding:7px 9px}.stock-screening .stock-completion-open{margin-left:auto}.stock-resizable-window{resize:none;min-width:0;min-height:0;height:fit-content;width:calc(100vw - 24px);border:1px solid var(--border);border-radius:14px}#stockScreeningTaskNotice{bottom:12px}}
 
 .stock-task-window-actions { display:flex; align-items:center; gap:6px; margin-left:auto; flex-shrink:0; }
 /* 股票v2任务窗口：展开突出阶段，逐项日志默认折叠。 */
@@ -1704,4 +1704,3 @@ body:not(:has(#view-radar.active .stock-management)) #radarStockUpdateNotice { d
 .stock-task-logs .stock-check{overflow-wrap:anywhere;line-height:1.7}
 .stock-shared-stages .stock-check{padding:10px 0;border-bottom:1px solid var(--border-soft)}
 #stockScreeningTaskNotice.minimized{max-width:calc(100vw - 24px)}
-#stockScreeningTaskNotice .radar-update-mini-button{white-space:normal;overflow-wrap:anywhere;text-align:left}

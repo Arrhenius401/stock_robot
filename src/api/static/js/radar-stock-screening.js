@@ -1,4 +1,4 @@
-import { createRadarTaskWindow } from './radar-task-window.js?v=20261114-stock-shared-2';
+import { createRadarTaskWindow } from './radar-task-window.js?v=20261114-stock-shared-4';
 const API='/api/v1/radar/stocks', saved=new Map();
 const checkNames={liquidity:'成交活跃度',cash_review:'现金质量核验',cash_ratio:'经营现金流与归母利润比率',dividend_history:'连续分红',audit:'审计意见',governance:'治理风险',leadership:'行业地位',financial_quality:'财务质量',listing_age:'上市年限',capitalization_current:'当前公司总市值',capitalization_average_60d:'60日平均公司总市值',ttm_parent_profit:'TTM归母净利润',ttm_deducted_profit:'TTM扣非净利润'};
 const fieldNames={netcash_operate:'经营活动现金流净额',construct_long_asset:'购建长期资产支付现金',assign_dividend_profit:'分配股利及利息支付现金',end_cash:'期末现金余额'};
@@ -50,7 +50,10 @@ export function renderStockScreening(root,header,pool,options={}){
  function remember(value){
   task=value?.task||value;if(!task)return;host.hidden=false;host.classList.add('minimized');host.replaceChildren();
   const grip=shell.handle(node('span','radar-update-mini-grip','⠿'),'移动股票任务');
-  add(host,grip,button((task.kind==='completion'?'补全':'更新')+' · '+(statuses[task.status]||task.status)+' · 查看',()=>{taskWindow();if(!dialog.open)dialog.showModal();shell.place(dialog,'dialog');},'radar-update-mini-button'));
+  const active=['queued','running'].includes(task.status),label=task.status==='completed'?'更新完成':active?'更新中':task.status==='failed'?'更新失败':'更新部分完成';
+  const expand=button(label+' · 查看反馈',()=>{taskWindow();if(!dialog.open)dialog.showModal();shell.place(dialog,'dialog');});expand.className='radar-update-mini-button';
+  const icon=node('span','radar-update-status-icon '+(active?'loading':task.status==='completed'?'success':'warning'));icon.setAttribute('aria-hidden','true');expand.textContent='';expand.appendChild(icon);expand.appendChild(node('span','',label+' · 查看反馈'));
+  add(host,grip,expand);
   shell.place(host,'notice');if(dialog.open&&windowMode==='task')taskWindow();
  }
  async function poll(){const generation=++pollSerial;clearTimeout(timer);try{const value=await request(task?.run_id?API+'/screening/tasks/'+encodeURIComponent(task.run_id):base+'/screening/tasks/latest');if(!current()||generation!==pollSerial)return;const old=task;remember(value);if(task&&['running','queued'].includes(task.status))timer=window.setTimeout(poll,2000);else if(old&&['running','queued'].includes(old.status)){load();loadRules();}}catch(exc){if(current()&&generation===pollSerial){notice.textContent='任务状态暂不可读取：'+exc.message+'；正在重连。';timer=window.setTimeout(poll,4000);}}}
