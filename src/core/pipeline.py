@@ -596,6 +596,39 @@ class Pipeline:
             except Exception as exc:  # noqa: BLE001 — 可选报价工具隔离，不影响确定性日线报告
                 logger.warning("最新报价不可用 %s: %s", symbol, type(exc).__name__)
                 ctx.current_quote = {"status": "unavailable", "symbol": symbol}
+        elif ctx.market == "us":
+            from data.us_stock import US_TZ, us_market_session, us_quote
+
+            session = us_market_session()
+            if session == "open":
+                try:
+                    quote = us_quote(symbol)
+                    price = quote.get("price")
+                    if price is not None and is_positive_finite(price):
+                        captured = datetime.now(US_TZ)
+                        ctx.current_quote = {
+                            "status": "ok", "symbol": symbol, "price": price,
+                            "quoted_at": captured.isoformat(),
+                            "source": "新浪美股快照（延迟约15分钟）",
+                            "change_pct": quote.get("change_pct"),
+                            "note": f"盘中报价（延迟约15分钟）；采集时间：{captured:%Y-%m-%d %H:%M:%S}",
+                        }
+                    else:
+                        ctx.current_quote = {
+                            "status": "unavailable", "symbol": symbol,
+                            "note": "盘中报价暂不可用，回退最近收盘价",
+                        }
+                except Exception as exc:  # noqa: BLE001 — 可选报价隔离，不影响收盘价报告
+                    logger.warning("美股盘中报价不可用 %s: %s", symbol, type(exc).__name__)
+                    ctx.current_quote = {
+                        "status": "unavailable", "symbol": symbol,
+                        "note": "盘中报价暂不可用，回退最近收盘价",
+                    }
+            else:
+                ctx.current_quote = {
+                    "status": "market_pre" if session == "pre" else "market_closed",
+                    "symbol": symbol,
+                }
         commentary = {}
         if not self._extra_analysis_enabled:
             from analysis.mode import objective_results

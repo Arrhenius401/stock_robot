@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
+from functools import lru_cache
 from itertools import pairwise
 from typing import Any, cast
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -36,6 +38,87 @@ BAIDU_URL = "https://finance.baidu.com/opendata"
 BAIDU_METRICS = {"市盈率(TTM)": "pe", "市净率": "pb"}
 _SINA_LINE = re.compile(r'var hq_str_gb_(?P<ticker>[a-z0-9.\-]+)="(?P<body>[^"]*)"', re.IGNORECASE)
 _EASTMONEY_MARKETS = ("105", "106", "107")
+US_TZ = ZoneInfo("America/New_York")
+_REGULAR_OPEN = time(9, 30)
+_REGULAR_CLOSE = time(16, 0)
+_EARLY_CLOSE = time(13, 0)
+
+
+def _easter(year: int) -> date:
+    """复活节星期日（Anonymous Gregorian algorithm）；用于 Good Friday 休市。"""
+    a, b, c = year % 19, year // 100, year % 100
+    d, e = b // 4, b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = c // 4, c % 4
+    length = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * length) // 451
+    month = (h + length - 7 * m + 114) // 31
+    day = (h + length - 7 * m + 114) % 31 + 1
+    return date(year, month, day)
+
+
+def _nth_weekday(year: int, month: int, weekday: int, n: int) -> date:
+    first = date(year, month, 1)
+    offset = (weekday - first.weekday()) % 7
+    return first + timedelta(days=offset + 7 * (n - 1))
+
+
+def _last_weekday(year: int, month: int, weekday: int) -> date:
+    last = date(year, month + 1, 1) - timedelta(days=1) if month < 12 else date(year, 12, 31)
+    return last - timedelta(days=(last.weekday() - weekday) % 7)
+
+
+def _observed(day: date) -> date:
+    if day.weekday() == 5:
+        return day - timedelta(days=1)
+    if day.weekday() == 6:
+        return day + timedelta(days=1)
+    return day
+
+
+@lru_cache(maxsize=8)
+def us_market_holidays(year: int) -> frozenset[date]:
+    """NYSE 全日休市日；不含仅提前收盘的日期。"""
+    return frozenset({
+        _observed(date(year, 1, 1)),
+        _nth_weekday(year, 1, 0, 3),      # MLK
+        _nth_weekday(year, 2, 0, 3),      # Washington's Birthday
+        _easter(year) - timedelta(days=2),  # Good Friday
+        _last_weekday(year, 5, 0),        # Memorial Day
+        _observed(date(year, 6, 19)),     # Juneteenth
+        _observed(date(year, 7, 4)),      # Independence Day
+        _nth_weekday(year, 9, 0, 1),      # Labor Day
+        _nth_weekday(year, 11, 3, 4),     # Thanksgiving
+        _observed(date(year, 12, 25)),    # Christmas
+    })
+
+
+@lru_cache(maxsize=8)
+def us_market_early_closes(year: int) -> frozenset[date]:
+    """NYSE 提前至 13:00 ET 收盘的常见日期；节假日优先级更高。"""
+    thanksgiving = _nth_weekday(year, 11, 3, 4)
+    candidates = {
+        thanksgiving + timedelta(days=1),
+        date(year, 7, 3),
+        date(year, 12, 24),
+    }
+    return frozenset(day for day in candidates if day.weekday() < 5)
+
+
+def us_market_session(now: datetime | None = None) -> str:
+    """返回 pre/open/closed；只有常规交易时段算 open。"""
+    current = now or datetime.now(US_TZ)
+    current = current.replace(tzinfo=US_TZ) if current.tzinfo is None else current.astimezone(US_TZ)
+    day = current.date()
+    holidays = us_market_holidays(day.year) | us_market_holidays(day.year + 1)
+    if day.weekday() >= 5 or day in holidays:
+        return "closed"
+    if current.time() < _REGULAR_OPEN:
+        return "pre"
+    close = _EARLY_CLOSE if day in us_market_early_closes(day.year) else _REGULAR_CLOSE
+    return "open" if current.time() < close else "closed"
 
 
 def _field(fields: list[str], index: int) -> str:
@@ -274,6 +357,27 @@ def _row_value(period: dict[str, float], *codes: str) -> float | None:
     return None
 
 
+def _annual_roe(ticker: str) -> tuple[float | None, date | None]:
+    """最新年报 ROE_AVG（百分数转小数）；资产负债表期间不一致时的兜底。"""
+    import akshare as ak
+
+    frame: Any = ak.stock_financial_us_analysis_indicator_em(
+        symbol=ticker, indicator="年报",
+    )
+    if frame is None or frame.empty:
+        raise ValueError("美股年报指标为空")
+    records = []
+    for _, row in frame.iterrows():
+        period = _parse_date(row.get("REPORT_DATE"))
+        roe = _number(row.get("ROE_AVG"))
+        if period is not None and roe is not None:
+            records.append((period, roe))
+    if not records:
+        raise ValueError("美股年报缺少有效 ROE_AVG")
+    period, roe = max(records)
+    return roe / 100, period
+
+
 def us_financials(ticker: str, max_periods: int = 8) -> list[FinancialData]:
     """东财美股 F10 单季报：最近八个财季，报告期按财季月末归一。"""
     income = _statement(ticker, "综合损益表")
@@ -364,6 +468,17 @@ def us_financials(ticker: str, max_periods: int = 8) -> list[FinancialData]:
         latest.financial_selection_note += f"；{latest.field_sources['total_assets']}"
     else:
         latest.financial_selection_note += "。"
+    if latest.roe is None:
+        try:
+            roe, roe_period = _annual_roe(ticker)
+        except Exception as error:  # noqa: BLE001 — 年报指标边界，失败只保留空 ROE
+            logger.warning("美股年报 ROE 获取失败 %s: %s", ticker, type(error).__name__)
+        else:
+            if roe is not None and roe_period is not None:
+                latest.roe = roe
+                latest.field_sources["roe"] = (
+                    f"最新年报 ROE_AVG（{roe_period.isoformat()}）"
+                )
     return rows
 
 
@@ -522,9 +637,8 @@ def us_news(ticker: str, name: str = "") -> list[NewsData]:
             url = str(row.get("url") or "")
             if not title or not _safe_url(url):
                 continue
-            haystack = f"{title} {content}"
-            if (ticker.upper() not in haystack.upper()
-                    and not (candidate_name and candidate_name in haystack)):
+            if (ticker.upper() not in title.upper()
+                    and not (candidate_name and candidate_name in title)):
                 continue
             if not start <= stamp.date() <= today or stamp > now:
                 continue

@@ -54,10 +54,15 @@ class SentimentAnalyzer(AnalysisModule):
                 return _hk_news_result(context)
             inputs = assessment_inputs(context)
             headlines = [item["title"] for item in inputs] or (context.news_data.headlines if context.news_data else [])
+            metrics: dict[str, Any] = {
+                "news_items": inputs, "headline_count": len(headlines),
+                "headlines": headlines,
+            }
+            if context.market == "us":
+                metrics["news_disclaimer"] = "关键词检索结果，可能包含同名或间接报道；仅作新闻参考，不作情绪评分。"
             return AnalysisResult(dimension=self.dimension, status="ok" if inputs else "partial",
                                   summary=f"本次取得新闻 {len(headlines)} 条",
-                                  metrics={"news_items": inputs, "headline_count": len(headlines),
-                                           "headlines": headlines})
+                                  metrics=metrics)
         es = context.enriched_sentiment
         if es is not None and es.assessment_status != "legacy":
             inputs = assessment_inputs(context)

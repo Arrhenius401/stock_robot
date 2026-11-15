@@ -9,6 +9,7 @@ from data.latest_quote import (
     parse_eastmoney,
     parse_sina,
     parse_tencent,
+    price_presentation,
 )
 
 NOW = datetime.fromisoformat("2026-11-14T16:00:00+08:00")
@@ -122,3 +123,36 @@ def test_quote_display_never_changes_daily_indicators():
     fallback = build_stock_payload(ctx.symbol, ctx.name, [], {}, ctx)
     assert fallback["overview"]["current_price"]["value"] == 18.75
     assert "回退" in fallback["overview"]["current_price"]["note"]
+
+
+def test_us_market_closed_prefers_latest_close():
+    display = price_presentation({"status": "market_closed", "symbol": "MSFT"}, 523.88, "2026-11-13")
+    assert display["value"] == 523.88
+    assert display["kind"] == "close_fallback"
+    assert "已收盘" in display["note"] and "2026-11-13" in display["note"]
+
+
+def test_us_premarket_prefers_latest_close():
+    display = price_presentation({"status": "market_pre", "symbol": "MSFT"}, 523.88, "2026-11-13")
+    assert display["value"] == 523.88
+    assert "尚未开盘" in display["note"]
+
+
+def test_us_intraday_quote_uses_capture_note():
+    display = price_presentation({
+        "status": "ok", "symbol": "MSFT", "price": 524.1, "change_pct": 0.2,
+        "quoted_at": "2026-11-13T10:01:00-05:00", "source": "新浪美股快照（延迟约15分钟）",
+        "note": "盘中报价（延迟约15分钟）；采集时间：2026-11-13 10:01:00",
+    }, 523.88, "2026-11-13")
+    assert display["value"] == 524.1
+    assert display["kind"] == "quote"
+    assert "盘中报价" in display["note"]
+
+
+def test_us_intraday_quote_failure_falls_back_with_reason():
+    display = price_presentation({
+        "status": "unavailable", "symbol": "MSFT",
+        "note": "盘中报价暂不可用，回退最近收盘价",
+    }, 523.88, "2026-11-13")
+    assert display["value"] == 523.88
+    assert "盘中报价暂不可用" in display["note"] and "2026-11-13" in display["note"]

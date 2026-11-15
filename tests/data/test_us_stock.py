@@ -57,6 +57,7 @@ def test_us_history_parses_and_calculates_change(mocker):
 def test_us_financials_normalizes_period_and_derives_ttm(mocker):
     frames = _statement_frames()
     mocker.patch("data.us_stock._statement", side_effect=lambda _ticker, name: frames[name])
+    mocker.patch("data.us_stock._annual_roe", return_value=(1.5, date(2026, 9, 26)))
     rows = us_financials("MSFT")
     assert len(rows) == 5
     latest = rows[-1]
@@ -74,7 +75,9 @@ def test_us_financials_normalizes_period_and_derives_ttm(mocker):
     complete = rows[3]
     assert complete.field_sources.get("roe") == "按最近四个财季净利润/期末归母权益派生"
     assert complete.roe == pytest.approx((10 + 11 + 12 + 13) / 515)
-    assert latest.roe is None
+    # 最新期无同期资产负债表，回退最新年报 ROE_AVG，并标注口径。
+    assert latest.roe == pytest.approx(1.5)
+    assert latest.field_sources["roe"] == "最新年报 ROE_AVG（2026-09-26）"
     assert "最近四个财季合计为 TTM" in latest.financial_selection_note
 
 
@@ -155,7 +158,7 @@ def test_us_news_filters_relevance_and_deduplicates(mocker):
     rows = [
         {"date": "2026-11-13 10:00:00", "title": "微软发布新服务", "content": "微软表示服务恢复",
          "mediaName": "财联社", "url": "https://example.com/1"},
-        {"date": "2026-11-13 11:00:00", "title": "市场综述", "content": "其他公司新闻",
+        {"date": "2026-11-13 11:00:00", "title": "市场综述", "content": "正文提到微软但标题无关",
          "mediaName": "示例", "url": "https://example.com/2"},
         {"date": "2026-11-13 10:00:00", "title": "微软发布新服务", "content": "重复链接",
          "mediaName": "财联社", "url": "https://example.com/1"},

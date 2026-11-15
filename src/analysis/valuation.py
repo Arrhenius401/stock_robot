@@ -47,6 +47,12 @@ class ValuationAnalyzer(AnalysisModule):
                 metrics[key] = None
         metrics["valuation_applicability"] = applicability
         metrics["pe_percentile"], metrics["pb_percentile"], metrics["target_pe_premium"] = pe_pct, pb_pct, premium
+        if context.market == "us" and metrics["pe_ttm"] is None:
+            from data.us_stock import us_ttm
+
+            ttm_net = us_ttm(context.financial_data or []).get("net_profit")
+            if ttm_net is not None and ttm_net <= 0:
+                applicability["pe_ttm"]["reason"] = "最近四个财季净利润为负，PE 不适用"
         metrics["valuation_notes"] = [
             f"{ {'pe_ttm': 'PE(TTM)', 'pb': 'PB', 'ps_ttm': 'PS(TTM)'}[key]}：{info['reason']}"
             for key, info in applicability.items() if not info["applicable"]
@@ -122,6 +128,10 @@ class ValuationAnalyzer(AnalysisModule):
         pe = metrics.get("pe_ttm")
         if pe is not None:
             parts.append(f"PE(TTM) {pe:.2f}" + ("（不适用）" if not is_positive_finite(pe) else ""))
+        else:
+            reason = metrics.get("valuation_applicability", {}).get("pe_ttm", {}).get("reason", "")
+            if "为负" in reason or "亏损" in reason:
+                parts.append("PE(TTM) 不适用（亏损）")
         pb = metrics.get("pb")
         if pb is not None:
             parts.append(f"PB {pb:.2f}" + ("（不适用）" if not is_positive_finite(pb) else ""))

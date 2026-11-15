@@ -116,12 +116,20 @@ def load_latest_quote(symbol: str, *, daily_end: str | None = None,
 
 def price_presentation(quote: dict, latest_close: float | None, daily_end: str | None) -> dict:
     """所有输出端共享明确的报价或收盘回退标签。"""
-    if quote.get("status") == "ok" and is_positive_finite(quote.get("price")):
+    status = str(quote.get("status") or "unavailable")
+    if status == "ok" and is_positive_finite(quote.get("price")):
         stamp = str(quote.get("quoted_at", ""))
         source = str(quote.get("source", "来源未记录"))
+        note = str(quote.get("note") or f"行情时间：{stamp.replace('T', ' ')}；来源：{source}")
         return {"value": quote["price"], "kind": "quote", "as_of": stamp, "source": source,
-                "note": f"行情时间：{stamp.replace('T', ' ')}；来源：{source}",
-                "change_pct": quote.get("change_pct")}
+                "note": note, "change_pct": quote.get("change_pct")}
+    if status in {"market_closed", "market_pre"} and latest_close is not None:
+        prefix = "已收盘" if status == "market_closed" else "尚未开盘"
+        return {"value": latest_close, "kind": "close_fallback", "as_of": daily_end,
+                "source": "日线收盘价",
+                "note": f"{prefix}，采用最近收盘价；截至 {daily_end or '未记录'}",
+                "change_pct": None}
+    fallback = str(quote.get("note") or "未取得独立报价，回退日线收盘价")
     return {"value": latest_close, "kind": "close_fallback", "as_of": daily_end, "source": "日线收盘价",
-            "note": f"未取得独立报价，回退日线收盘价；截至 {daily_end or '未记录'}" if latest_close is not None
+            "note": f"{fallback}；截至 {daily_end or '未记录'}" if latest_close is not None
                     else "最新报价与收盘价均不可用", "change_pct": None}
