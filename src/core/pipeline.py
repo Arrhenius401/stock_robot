@@ -588,14 +588,54 @@ class Pipeline:
                                DIMENSION_LABELS.get(mod.dimension, mod.dimension))
 
         if ctx.market == "a-shares":
-            from data.latest_quote import load_latest_quote
+            from data.latest_quote import load_latest_quote, quote_is_today
+            from data.market_hours import market_session
 
             daily_end = max((p.trade_date.isoformat() for p in ctx.price_data or [] if p.symbol == symbol), default=None)
-            try:
-                ctx.current_quote = load_latest_quote(symbol, daily_end=daily_end)
-            except Exception as exc:  # noqa: BLE001 — 可选报价工具隔离，不影响确定性日线报告
-                logger.warning("最新报价不可用 %s: %s", symbol, type(exc).__name__)
-                ctx.current_quote = {"status": "unavailable", "symbol": symbol}
+            session = market_session("a-shares")
+            if session == "open":
+                try:
+                    quote = load_latest_quote(symbol, daily_end=daily_end)
+                    if quote.get("status") == "ok" and not quote_is_today(quote):
+                        ctx.current_quote = {
+                            "status": "unavailable", "symbol": symbol,
+                            "note": "今日报价时点不可用（可能休市），回退最近收盘价",
+                        }
+                    elif quote.get("status") == "unavailable":
+                        ctx.current_quote = {
+                            **quote, "note": "盘中报价暂不可用，回退最近收盘价",
+                        }
+                    else:
+                        ctx.current_quote = quote
+                except Exception as exc:  # noqa: BLE001 — 可选报价工具隔离，不影响确定性日线报告
+                    logger.warning("最新报价不可用 %s: %s", symbol, type(exc).__name__)
+                    ctx.current_quote = {"status": "unavailable", "symbol": symbol,
+                                         "note": "盘中报价暂不可用，回退最近收盘价"}
+            else:
+                ctx.current_quote = {
+                    "status": "market_pre" if session == "pre" else "market_closed",
+                    "symbol": symbol,
+                }
+        elif ctx.market == "hk":
+            from data.latest_quote import load_hk_quote
+            from data.market_hours import market_session
+
+            session = market_session("hk")
+            if session == "open":
+                try:
+                    quote = load_hk_quote(symbol)
+                    if quote.get("status") == "unavailable":
+                        quote["note"] = "盘中报价暂不可用，回退最近收盘价"
+                    ctx.current_quote = quote
+                except Exception as exc:  # noqa: BLE001 — 可选报价隔离，不影响收盘价报告
+                    logger.warning("港股盘中报价不可用 %s: %s", symbol, type(exc).__name__)
+                    ctx.current_quote = {"status": "unavailable", "symbol": symbol,
+                                         "note": "盘中报价暂不可用，回退最近收盘价"}
+            else:
+                ctx.current_quote = {
+                    "status": "market_pre" if session == "pre" else "market_closed",
+                    "symbol": symbol,
+                }
         elif ctx.market == "us":
             from data.us_stock import US_TZ, us_market_session, us_quote
 

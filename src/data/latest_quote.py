@@ -3,7 +3,7 @@ import logging
 import re
 import time
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import requests
@@ -13,6 +13,7 @@ from utils.numbers import is_finite_number, is_positive_finite
 
 logger = logging.getLogger(__name__)
 SHANGHAI = ZoneInfo("Asia/Shanghai")
+HONG_KONG = ZoneInfo("Asia/Hong_Kong")
 
 
 def _exchange(symbol: str) -> str:
@@ -112,6 +113,50 @@ def load_latest_quote(symbol: str, *, daily_end: str | None = None,
             attempts.append({"source": source, "status": "failed", "reason": str(exc)[:160]})
     return {"status": "unavailable", "symbol": symbol, "attempts": attempts,
             "fetched_at": datetime.now(SHANGHAI).isoformat()}
+
+
+def quote_is_today(quote: dict, zone: ZoneInfo = SHANGHAI) -> bool:
+    """报价时点是否为当地今天；休市日或过期快照不算盘中报价。"""
+    stamp = str(quote.get("quoted_at") or "")
+    try:
+        parsed = datetime.fromisoformat(stamp)
+    except ValueError:
+        return False
+    return parsed.astimezone(zone).date() == datetime.now(zone).date()
+
+
+def load_hk_quote(symbol: str, *, now: datetime | None = None) -> dict[str, Any]:
+    """港股盘中报价：腾讯单标的快照，失败或时点过期时回退收盘价。"""
+    from data.hk_alternatives import tencent_snapshot
+
+    code = symbol.removesuffix(".HK")
+    if not re.fullmatch(r"\d{5}", code):
+        return {"status": "unavailable", "symbol": symbol,
+                "attempts": [{"source": "港股报价身份校验", "status": "failed",
+                              "reason": "港股代码必须为五位数字"}]}
+    try:
+        snapshot = tencent_snapshot(code)
+        price = snapshot.get("price")
+        quoted = snapshot.get("quoted_at")
+        if (not is_positive_finite(price) or not isinstance(quoted, datetime)
+                or quoted.tzinfo is None):
+            raise ValueError("腾讯港股报价缺少有效价格或时点")
+        current = now or datetime.now(HONG_KONG)
+        current = current.replace(tzinfo=HONG_KONG) if current.tzinfo is None else current.astimezone(HONG_KONG)
+        if quoted.astimezone(HONG_KONG).date() != current.date():
+            return {"status": "market_closed", "symbol": symbol,
+                    "note": "港股报价时点不是今日（休市或数据延迟），回退最近收盘价"}
+        change_value = snapshot.get("change_pct")
+        change = float(cast(float, change_value)) if is_finite_number(change_value) else None
+        return {"status": "ok", "symbol": symbol, "name": snapshot.get("name", ""),
+                "price": float(cast(float, price)), "quoted_at": quoted.astimezone(HONG_KONG).isoformat(),
+                "source": "腾讯港股快照（延迟）", "change_pct": change,
+                "note": f"盘中报价（延迟约15分钟）；行情时间：{quoted.astimezone(HONG_KONG):%Y-%m-%d %H:%M:%S}"}
+    except Exception as exc:  # noqa: BLE001 — 第三方快照边界，失败回退收盘价
+        logger.warning("港股最新报价失败 %s: %s", symbol, type(exc).__name__)
+        return {"status": "unavailable", "symbol": symbol,
+                "attempts": [{"source": "腾讯港股快照", "status": "failed",
+                              "reason": str(exc)[:160]}]}
 
 
 def price_presentation(quote: dict, latest_close: float | None, daily_end: str | None) -> dict:

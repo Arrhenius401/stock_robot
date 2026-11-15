@@ -35,6 +35,22 @@ def test_hk_legacy_news_twenty_items_remain_unscored_without_new_assessment():
     assert "不保证完整覆盖" in result.metrics["news_disclaimer"]
 
 
+def test_hk_news_title_filter_keeps_company_titles_only():
+    items = [
+        HKNewsItem(title="腾讯控股发布财报", published_at=NOW,
+                   links=[HKNewsLink(media="媒体", url="https://example.com/1")]),
+        HKNewsItem(title="市场综述", published_at=NOW,
+                   links=[HKNewsLink(media="媒体", url="https://example.com/2")]),
+    ]
+    snapshot = HKNewsSnapshot(fetched_at=NOW, items=items)
+    ctx = AnalysisContext(
+        symbol="00700.HK", name="腾讯控股", market="hk", collected_at=NOW,
+        news_data=NewsData(symbol="00700.HK", date=NOW.date(), hk_news=snapshot),
+    )
+    result = SentimentAnalyzer().analyze(ctx)
+    assert [item["title"] for item in result.metrics["news_items"]] == ["腾讯控股发布财报"]
+
+
 def test_hk_news_empty_failure_and_partial_differ():
     empty = SentimentAnalyzer().analyze(context(0))
     assert "本次检索未获得近30天有效记录" in empty.summary
@@ -144,7 +160,7 @@ def test_news_diagnostics_remain_internal_not_in_report():
     ctx.news_data._from_stale_cache = True
     result = SentimentAnalyzer().analyze(ctx)
     assert result.metrics["news_fetched_at"] == NOW.isoformat()
-    assert len(result.metrics["news_notes"]) == 3
+    assert len(result.metrics["news_notes"]) == 4
     quality = build_data_quality(ctx, [result])
     markdown = ReportBuilder().build(ctx.symbol, "腾讯", [result], {}, market="港股",
         no_llm=True, data_quality=quality)

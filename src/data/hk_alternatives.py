@@ -1,10 +1,33 @@
-"""腾讯港股未复权日线及百度明确口径估值：每次请求十秒，无内部重试。"""
+"""腾讯港股未复权日线、快照及百度明确口径估值：每次请求十秒，无内部重试。"""
+import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import requests
 
 from data.hk_eastmoney import finite_number
+
+
+def tencent_snapshot(code: str) -> dict[str, Any]:
+    """腾讯港股快照：名称、最新价、昨收与行情时点；不接受其他代码的响应。"""
+    response = requests.get(f"https://qt.gtimg.cn/q=hk{code}", timeout=10)
+    response.raise_for_status()
+    text = response.content.decode("gbk", errors="replace")
+    matched = re.search(rf'v_hk{re.escape(code)}="([^"]*)"', text)
+    if matched is None:
+        raise ValueError("腾讯港股快照代码不匹配")
+    fields = matched.group(1).split("~")
+    if len(fields) < 33 or fields[2].strip() != code:
+        raise ValueError("腾讯港股快照字段不足或代码不匹配")
+    quoted_at = datetime.strptime(fields[30].strip(), "%Y/%m/%d %H:%M:%S").replace(
+        tzinfo=timezone(timedelta(hours=8)))
+    return {
+        "name": fields[1].strip(),
+        "price": finite_number(fields[3]),
+        "previous": finite_number(fields[4]),
+        "quoted_at": quoted_at,
+        "change_pct": finite_number(fields[32]),
+    }
 
 
 def tencent_history(code: str, start: str, end: str, limit: int) -> list[list[Any]]:

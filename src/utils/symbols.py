@@ -128,17 +128,34 @@ def resolve_name_result(symbol: str) -> ValueResult[str]:
         from data.us_stock import us_name_result
 
         return us_name_result(normalize_us_symbol(symbol))
-    source = "东财港股快照" if market == "hk" else "AkShare A股代码名称"
-    try:
-        if market == "hk":
+    if market == "hk":
+        code = normalize_symbol(symbol).removesuffix(".HK")
+        try:
+            from data.hk_alternatives import tencent_snapshot
+
+            name = str(tencent_snapshot(code).get("name") or "").strip()
+            if name:
+                return ValueResult(name, make_record(
+                    "腾讯港股快照", "complete", collected_at=datetime.now().astimezone()))
+        except Exception as error:  # noqa: BLE001 — 第三方接口边界，继续尝试备用名称源
+            logger.warning("腾讯港股名称解析失败 %s: %s", symbol, type(error).__name__)
+        try:
             from data.hk_eastmoney import stock_snapshot
 
-            snapshot = stock_snapshot(normalize_symbol(symbol).removesuffix(".HK"))
-            name = str(snapshot.get("f58") or "").strip()
-        else:
-            df: Any = _ak_code_name()
-            row = df[df["code"] == normalize_symbol(symbol)]
-            name = str(row["name"].iloc[0]) if not row.empty else ""
+            name = str(stock_snapshot(code).get("f58") or "").strip()
+            if name:
+                return ValueResult(name, make_record(
+                    "东财港股快照", "complete", collected_at=datetime.now().astimezone()))
+        except Exception as error:  # noqa: BLE001 — 第三方接口边界，返回安全诊断
+            logger.warning("东财港股名称解析失败 %s: %s", symbol, type(error).__name__)
+        return ValueResult(None, make_record(
+            "港股名称", "failed", error_kind="fetch_failed", error_message="港股名称解析失败"))
+
+    source = "AkShare A股代码名称"
+    try:
+        df: Any = _ak_code_name()
+        row = df[df["code"] == normalize_symbol(symbol)]
+        name = str(row["name"].iloc[0]) if not row.empty else ""
         if name:
             return ValueResult(name, make_record(source, "complete", collected_at=datetime.now().astimezone()))
     except Exception as e:  # noqa: BLE001 — 第三方接口边界，返回安全诊断
