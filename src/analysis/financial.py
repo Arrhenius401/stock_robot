@@ -65,6 +65,14 @@ class FinancialAnalyzer(AnalysisModule):
         elif latest.operating_cash_flow_per_share is not None:
             metrics["operating_cash_flow_per_share"] = latest.operating_cash_flow_per_share
 
+        from data.financial_ttm import financial_ttm
+
+        not_applicable = latest.gross_margin_basis == "银行/保险不适用"
+        for field in ("operating_cash_flow", "capital_expenditure", "free_cash_flow"):
+            metrics[field] = "不适用（银行/保险）" if not_applicable else financial_ttm(financials, field, context.market)
+        metrics["cash_flow_source"] = latest.financial_source or latest.reporting_basis or "来源未记录"
+        metrics["cash_flow_period"] = f"TTM，截至 {latest.fiscal_quarter.isoformat()}；自由现金流 = 经营活动现金流 − 资本开支；缺失不填零"
+
         roe_trend = []
         for d in sorted_data[:8]:
             if d.roe is not None:

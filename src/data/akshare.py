@@ -545,6 +545,21 @@ class AkShareAdapter(DataSource):
             )
         return annotate_selection(selection)
 
+    def _fetch_ths_capex(self, symbol: str) -> dict[date, float]:
+        """同花顺现金支出按正数记录；缺项不填零。"""
+        try:
+            frame: Any = ak.stock_financial_cash_ths(symbol=symbol, indicator="按报告期")
+            output = {}
+            for _, row in frame.iterrows():
+                period = _parse_date(str(row.get("报告期"))[:10])
+                value = parse_cn_number(row.get("购建固定资产、无形资产和其他长期资产支付的现金"))
+                if value is not None:
+                    output[period] = abs(value)
+            return output
+        except Exception as error:  # 第三方采集边界，失败保留缺失
+            logger.warning("同花顺资本开支获取失败 %s: %s", symbol, error)
+            return {}
+
     def _fetch_ths_cashflow(self, symbol: str) -> dict[date, float]:
         """同源按报告期取直接披露经营现金流；失败返回空映射，不伪造期间证据。"""
         try:
@@ -626,6 +641,7 @@ class AkShareAdapter(DataSource):
         total = len(periods)
         cash_flow_map = (self._fetch_ths_cashflow(symbol)
                          if total and kwargs.get("market", "a-shares") == "a-shares" else {})
+        capex_map = self._fetch_ths_capex(symbol) if total else {}
         start = max(0, total - 12)
         for idx in range(start, total):
             try:
@@ -696,6 +712,8 @@ class AkShareAdapter(DataSource):
                     total_equity=total_equity,
                     common_equity=common_equity,
                     operating_cash_flow=ocf,
+                    capital_expenditure=capex_map.get(fiscal_date),
+                    free_cash_flow=(ocf - capex_map[fiscal_date] if ocf is not None and fiscal_date in capex_map else None),
                     operating_cash_flow_per_share=ocf_per_share,
                     roe=roe,
                     gross_margin=gross_margin,
@@ -951,10 +969,14 @@ class AkShareAdapter(DataSource):
                 total_assets, total_equity, common_equity = "004009999", "004036999", "004030999"
             # 营业额不是营运收入；归母权益不是包含少数股东的总权益，分别保留。
             margin = margins.get(period) if start is not None and not bank_template else None
+            parts = [cf.get(key) for key in ("005005", "005007")]
+            capex = sum(abs(value) for value in parts if value is not None) if any(value is not None for value in parts) and not bank_template else None
+            ocf = cf.get("003999")
             result.append(FinancialData(symbol=symbol, fiscal_quarter=period,
                 revenue=row.get(revenue), net_profit=row.get(profit), basic_eps=row.get(eps),
                 total_assets=bs.get(total_assets), total_equity=bs.get(total_equity),
-                common_equity=bs.get(common_equity), operating_cash_flow=cf.get("003999"),
+                common_equity=bs.get(common_equity), operating_cash_flow=ocf,
+                capital_expenditure=capex, free_cash_flow=ocf - capex if ocf is not None and capex is not None else None,
                 gross_margin=margin, gross_margin_basis=GROSS_MARGIN_BASIS if margin is not None else "",
                 period_start=start, period_basis="cumulative" if start is not None else "unknown",
                 reporting_basis=reporting_basis, report_currency=currency,
