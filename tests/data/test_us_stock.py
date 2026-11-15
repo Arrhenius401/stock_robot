@@ -187,3 +187,25 @@ def test_us_news_drops_ambiguous_agriculture_and_futures_titles(mocker):
     mocker.patch("data.us_stock.search_news", return_value=rows)
     result = us_news("AAPL", "苹果")[0]
     assert result.headlines == ["苹果股价升至360美元/股", "苹果调整以旧换新价格"]
+
+
+@pytest.mark.parametrize("code,secucode", [("OTHER", "BRK_B.N"), ("BRK_B", "OTHER.N")])
+def test_class_share_rejects_conflicting_identity(mocker, code, secucode):
+    from data.us_stock import _statement
+
+    frame = pd.DataFrame([{"SECURITY_CODE": code, "SECUCODE": secucode,
+                               "REPORT_DATE": "2026-09-30", "STD_ITEM_CODE": "004001999", "AMOUNT": 100}])
+    mocker.patch("akshare.stock_financial_us_report_em", return_value=frame)
+    with pytest.raises(ValueError, match="代码不匹配"):
+        _statement("BRK.B", "综合损益表")
+
+
+def test_class_share_uses_verified_f10_variant(mocker):
+    from data.us_stock import _statement
+
+    # 2026-11-15 实测身份为 BRK_B / BRK_B.N，原始响应保留在 tmp。
+    frame = pd.DataFrame([{"SECURITY_CODE": "BRK_B", "SECUCODE": "BRK_B.N",
+                               "REPORT_DATE": "2026-09-30", "STD_ITEM_CODE": "004001999", "AMOUNT": 100}])
+    fetch = mocker.patch("akshare.stock_financial_us_report_em", return_value=frame)
+    assert _statement("BRK.B", "综合损益表") == {"2026-09-30": {"004001999": 100}}
+    fetch.assert_called_once_with(stock="BRK_B", symbol="综合损益表", indicator="单季报")

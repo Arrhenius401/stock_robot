@@ -342,7 +342,7 @@ def _statement(ticker: str, statement: str) -> dict[str, dict[str, float]]:
     import akshare as ak
 
     frame: Any = ak.stock_financial_us_report_em(
-        stock=ticker, symbol=statement, indicator="单季报",
+        stock="BRK_B" if ticker == "BRK.B" else ticker, symbol=statement, indicator="单季报",
     )
     if frame is None or frame.empty:
         raise ValueError(f"美股{statement}为空")
@@ -350,7 +350,8 @@ def _statement(ticker: str, statement: str) -> dict[str, dict[str, float]]:
     for _, row in frame.iterrows():
         code = str(row.get("SECURITY_CODE") or "").strip().upper()
         secucode = str(row.get("SECUCODE") or "").strip().upper()
-        if code and code != ticker and secucode.split(".")[0] != ticker:
+        expected = "BRK_B" if ticker == "BRK.B" else ticker
+        if (code and code != expected) or (secucode and secucode.rsplit(".", 1)[0] != expected):
             raise ValueError(f"美股{statement}代码不匹配")
         period = _parse_date(row.get("REPORT_DATE"))
         item = str(row.get("STD_ITEM_CODE") or "").strip()
@@ -478,6 +479,8 @@ def us_financials(ticker: str, max_periods: int = 8) -> list[FinancialData]:
         f"报告期按财季月末展示（源报告日 {date.fromisoformat(periods[-1]).isoformat()}）；"
         "最近四个财季合计为 TTM；美元、美国会计准则，不换汇"
     )
+    if ticker == "BRK.B":
+        latest.financial_selection_note += "；F10 代码变体 BRK_B，伯克希尔哈撒韦-B 公司整体报表"
     if latest.field_sources.get("total_assets"):
         latest.financial_selection_note += f"；{latest.field_sources['total_assets']}"
     else:
