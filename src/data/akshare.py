@@ -764,8 +764,17 @@ class AkShareAdapter(DataSource):
                     period = candidate
         except ValueError:
             logger.debug("腾讯估值快照行情日期无效，保留数值并标注日期未知")
-        return [ValuationData(symbol=symbol, date=datetime.now().astimezone().date(), pe_ttm=pe, pb=pb,
-                              pe_as_of=period if pe is not None else None, pb_as_of=period if pb is not None else None)]
+        item = ValuationData(symbol=symbol, date=datetime.now().astimezone().date(), pe_ttm=pe, pb=pb,
+                             pe_as_of=period if pe is not None else None, pb_as_of=period if pb is not None else None)
+        for metric, field in (("市盈率(TTM)", "pe_history"), ("市净率", "pb_history")):
+            try:
+                setattr(item, field, baidu_metric(symbol, metric, market="ab"))
+            except Exception as error:  # 百度网络边界，保留明确标注的派生回退
+                logger.warning("A 股百度实测 %s/%s 不可用: %s", symbol, metric, error)
+                item.valuation_notes.append(f"{metric} 百度实测不可用；派生，仅参考")
+        if item.pe_history or item.pb_history:
+            item.history_source = "百度实测估值（近一年）"
+        return [item]
 
     def _fetch_hk_price(self, symbol: str, **kwargs) -> list[PriceData]:
         code = symbol.removesuffix(".HK")
@@ -977,7 +986,7 @@ class AkShareAdapter(DataSource):
                 total_assets=bs.get(total_assets), total_equity=bs.get(total_equity),
                 common_equity=bs.get(common_equity), operating_cash_flow=ocf,
                 capital_expenditure=capex, free_cash_flow=ocf - capex if ocf is not None and capex is not None else None,
-                gross_margin=margin, gross_margin_basis=GROSS_MARGIN_BASIS if margin is not None else "",
+                gross_margin=margin, gross_margin_basis="银行/保险不适用" if bank_template else GROSS_MARGIN_BASIS if margin is not None else "",
                 period_start=start, period_basis="cumulative" if start is not None else "unknown",
                 reporting_basis=reporting_basis, report_currency=currency,
                 amount_currency_verified=bool(currency), disclosure_currency=disclosure_currency,

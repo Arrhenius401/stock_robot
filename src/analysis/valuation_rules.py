@@ -40,6 +40,10 @@ def valuation_evidence(ctx: AnalysisContext) -> tuple[float | None, float | None
     else:
         pe_pct = ev.pe_percentile if pe_ok and ev and is_valid_percentile(ev.pe_percentile) else None
         pb_pct = ev.pb_percentile if pb_ok and ev and is_valid_percentile(ev.pb_percentile) else None
+    latest_fin = max(ctx.financial_data or [], key=lambda row: row.fiscal_quarter, default=None)
+    equity = (latest_fin.common_equity if latest_fin.common_equity is not None else latest_fin.total_equity) if latest_fin else None
+    if equity is not None and equity <= 0:
+        pb_pct = None
     comparison = getattr(ei, "comparison", {}) if ei else {}
     if comparison:
         premium = None

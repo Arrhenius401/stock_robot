@@ -1,4 +1,5 @@
 """财务分析模块 — 配置驱动，无硬编码阈值"""
+import re
 from typing import Any, Literal
 
 from analysis.base import AnalysisModule
@@ -75,10 +76,17 @@ class FinancialAnalyzer(AnalysisModule):
             metrics["roe"] = "TTM 不可用"
         else:
             metrics["roe"] = profit_ttm / equity if equity is not None else None
-        denominator_date = (equity_row.field_sources.get("common_equity") or equity_row.field_sources.get("total_equity") or equity_row.fiscal_quarter.isoformat()) if equity_row else "缺失"
+        equity_source = (equity_row.field_sources.get("common_equity") or equity_row.field_sources.get("total_equity") or equity_row.financial_source or "来源未记录") if equity_row else "来源未记录"
+        source_date = re.search("[0-9]{4}-[0-9]{2}-[0-9]{2}", equity_source)
+        denominator_date = ((source_date.group() if source_date else equity_row.fiscal_quarter.isoformat()) + "；" + equity_source) if equity_row else "缺失"
         metrics["roe_basis"] = f"TTM 归母净利润 / 最新可得期末归母权益，不年化；分母日期/来源：{denominator_date}；TTM 截至 {latest.fiscal_quarter}"
 
-        not_applicable = latest.gross_margin_basis == "银行/保险不适用"
+        not_applicable = (latest.gross_margin_basis == "银行/保险不适用"
+                          or latest.revenue_basis.startswith("银行：")
+                          or context.sw_industry in {"银行", "保险"}
+                          or any(word in context.name for word in ("银行", "保险")))
+        if not_applicable:
+            metrics["gross_margin"] = "不适用（银行/保险）"
         for field in ("operating_cash_flow", "capital_expenditure", "free_cash_flow"):
             metrics[field] = "不适用（银行/保险）" if not_applicable else financial_ttm(financials, field, context.market)
         metrics["cash_flow_source"] = latest.financial_source or latest.reporting_basis or "来源未记录"

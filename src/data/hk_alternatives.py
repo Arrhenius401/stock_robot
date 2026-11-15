@@ -48,13 +48,13 @@ def tencent_history(code: str, start: str, end: str, limit: int) -> list[list[An
     return target["day"]
 
 
-def baidu_metric(code: str, metric: str) -> dict[date, float]:
+def baidu_metric(code: str, metric: str, market: str = "hk") -> dict[date, float]:
     """从指标自身曲线取日期，上市日期和采集日期不能代替指标日期。"""
     if metric not in ("市盈率(TTM)", "市净率"):
         raise ValueError("不支持的港股估值口径")
     response = requests.get("https://finance.baidu.com/opendata", params={
         "openapi": "1", "dspName": "iphone", "tn": "tangram", "client": "app", "query": metric,
-        "code": code, "word": "", "resource_id": "51171", "market": "hk", "tag": metric,
+        "code": code, "word": "", "resource_id": "51171", "market": market, "tag": metric,
         "chart_select": "近一年", "industry_select": "", "skip_industry": "1", "finClientType": "pc",
     }, timeout=10)
     response.raise_for_status()

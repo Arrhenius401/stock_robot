@@ -53,11 +53,24 @@ class ValuationAnalyzer(AnalysisModule):
             ttm_net = us_ttm(context.financial_data or []).get("net_profit")
             if ttm_net is not None and ttm_net <= 0:
                 applicability["pe_ttm"]["reason"] = "最近四个财季净利润为负，PE 不适用"
+        from data.financial_ttm import financial_ttm
+
+        financials = context.financial_data or []
+        latest_fin = max(financials, key=lambda row: row.fiscal_quarter, default=None)
+        equity = (latest_fin.common_equity if latest_fin.common_equity is not None else latest_fin.total_equity) if latest_fin else None
+        revenue_ttm = financial_ttm(financials, "revenue", context.market)
+        if equity is not None and equity <= 0:
+            metrics["pb"] = None
+            metrics["pb_percentile"] = None
+            applicability["pb"] = {"applicable": False, "reason": "净资产非正，PB 不适用"}
+        if revenue_ttm is not None and revenue_ttm <= 0:
+            metrics["ps_ttm"] = None
+            applicability["ps_ttm"] = {"applicable": False, "reason": "TTM 营收非正，PS 不适用"}
         metrics["valuation_notes"] = [
             f"{ {'pe_ttm': 'PE(TTM)', 'pb': 'PB', 'ps_ttm': 'PS(TTM)'}[key]}：{info['reason']}"
             for key, info in applicability.items() if not info["applicable"]
         ]
-        if context.market in {"hk", "us"}:
+        if context.market in {"hk", "us"} or (latest is not None and latest.history_source.startswith("百度")):
             snapshot_dates = valuation_snapshot_dates(context)
             metrics.update(pe_as_of=snapshot_dates["pe_ttm"], pb_as_of=snapshot_dates["pb"],
                            ps_as_of=snapshot_dates["ps_ttm"])

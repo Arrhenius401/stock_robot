@@ -453,7 +453,7 @@ def us_financials(ticker: str, max_periods: int = 8) -> list[FinancialData]:
                                 "毛利/营业收入（单季）" if gross_margin is not None else ""),
             period_start=start,
             period_basis="single",
-            reporting_basis="US GAAP",
+            reporting_basis="东方财富美股F10-单季报（会计准则未核实）",
             amount_currency_verified=False,
             report_currency="",
             revenue_basis="单季营业收入",
@@ -464,6 +464,9 @@ def us_financials(ticker: str, max_periods: int = 8) -> list[FinancialData]:
             financial_selection_note="",
             field_sources=field_sources,
         )
+        for field in ("revenue", "net_profit", "total_assets", "total_equity", "common_equity", "operating_cash_flow", "capital_expenditure", "free_cash_flow"):
+            source_period = balance_key if field in {"total_assets", "total_equity", "common_equity"} else period_key
+            row.field_sources.setdefault(field, f"东方财富美股F10，源报告日 {source_period or '未知'}；" + ("未披露/不适用" if getattr(row, field) is None else "源科目映射/已披露现金支出派生"))
         rows.append(row)
 
     # ROE 按最近四个财季净利润 / 期末归母权益派生；资产负债表期不一致时不混算。

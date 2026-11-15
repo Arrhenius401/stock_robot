@@ -79,7 +79,7 @@ def stock_date_presentation(ctx: AnalysisContext, metrics: dict[str, Any], summa
                 window = (min(periods).isoformat(), max(periods).isoformat(), len(periods))
                 windows.setdefault(window, []).append(label)
         for (start, end, count), labels in windows.items():
-            method = "同源实测估值" if ctx.market in {"hk", "us"} else "以本次财务分母派生估值"
+            method = "百度同源实测估值（近一年）" if ctx.valuation_data and ctx.valuation_data.history_source.startswith("百度") else "以本次财务分母派生估值，仅参考"
             display["cutoff"] += (f" {'、'.join(labels)}分位区间：{start} 至 {end}，{count}个有效样本；"
                                   f"{method}，不保证覆盖上市以来完整历史。")
     return display

@@ -40,7 +40,7 @@ class DataSufficiency(BaseModel):
 class DailyValuationPoint(BaseModel):
     """日频估值单点"""
     trade_date: date
-    close: float
+    close: float | None = None
     pe: float | None = None
     pb: float | None = None
     ps: float | None = None

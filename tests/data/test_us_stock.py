@@ -34,7 +34,7 @@ def _statement_frames() -> dict[str, Any]:
             "004017003": 1.0 + index,
         }
         cash[period] = {"003999": 20 + index}
-    # 资产负债表缺失最新期，验证回退到最近可得日期且不混算 ROE。
+    # 资产负债表缺失最新期，验证回退到最近可得日期并标注 ROE 分母。
     balance = {
         periods[0]: {"004005999": 1000, "004013999": 500, "004017999": 500},
         periods[1]: {"004005999": 1010, "004013999": 505, "004017999": 505},
@@ -75,7 +75,7 @@ def test_us_financials_normalizes_period_and_derives_ttm(mocker):
     complete = rows[3]
     assert "分母日期 2026-06-26" in complete.field_sources["roe"]
     assert complete.roe == pytest.approx((10 + 11 + 12 + 13) / 515)
-    # 最新期无同期资产负债表，回退最新年报 ROE_AVG，并标注口径。
+    # 最新期使用最近可得权益，不再回退年报 ROE。
     assert latest.roe == pytest.approx((11 + 12 + 13 + 14) / 515)
     assert "分母日期 2026-06-26" in latest.field_sources["roe"]
     assert "最近四个财季合计为 TTM" in latest.financial_selection_note
