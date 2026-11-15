@@ -169,3 +169,21 @@ def test_us_news_filters_relevance_and_deduplicates(mocker):
     assert result._raw_sentiment is not None
     assert len(result._raw_sentiment.items) == 1
     assert result._raw_sentiment.items[0].media == "财联社"
+
+
+def test_us_news_drops_ambiguous_agriculture_and_futures_titles(mocker):
+    rows = [
+        {"date": "2026-11-13 10:00:00", "title": "苹果股价升至360美元/股", "content": "续刷纪录新高",
+         "mediaName": "第一财经", "url": "https://example.com/1"},
+        {"date": "2026-11-13 10:00:00", "title": "延庆苹果红薯“进城”记", "content": "商超尝鲜",
+         "mediaName": "华夏时报", "url": "https://example.com/2"},
+        {"date": "2026-11-13 10:00:00", "title": "苹果主力合约收涨2.18%", "content": "期货",
+         "mediaName": "南方财经", "url": "https://example.com/3"},
+        {"date": "2026-11-13 10:00:00", "title": "苹果调整以旧换新价格", "content": "产品",
+         "mediaName": "界面新闻", "url": "https://example.com/4"},
+        {"date": "2026-11-13 10:00:00", "title": "苹果熟了", "content": "果园采摘",
+         "mediaName": "示例", "url": "https://example.com/5"},
+    ]
+    mocker.patch("data.us_stock.search_news", return_value=rows)
+    result = us_news("AAPL", "苹果")[0]
+    assert result.headlines == ["苹果股价升至360美元/股", "苹果调整以旧换新价格"]

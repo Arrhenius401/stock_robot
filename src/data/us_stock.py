@@ -42,6 +42,20 @@ US_TZ = ZoneInfo("America/New_York")
 _REGULAR_OPEN = time(9, 30)
 _REGULAR_CLOSE = time(16, 0)
 _EARLY_CLOSE = time(13, 0)
+# 中文名与日常名词同形时，标题需要公司/市场语境，且排除农产品/期货等明显无关主题。
+_AMBIGUOUS_NAMES = frozenset({"苹果"})
+_NEWS_NEGATIVE = (
+    "期货", "主力合约", "现货", "产地", "果园", "种植", "采摘", "批发",
+    "菜市场", "红薯", "水果", "果汁", "农业", "田间", "商超",
+)
+_NEWS_CONTEXT = (
+    "股价", "股票", "市值", "财报", "业绩", "营收", "净利", "利润", "涨", "跌",
+    "新高", "新低", "回购", "分红", "拆股", "上市", "退市", "评级", "目标价",
+    "分析师", "机构", "基金", "持仓", "减持", "增持", "收购", "并购", "诉讼",
+    "监管", "罚款", "调查", "发布", "产品", "服务", "芯片", "iPhone", "手机",
+    "AI", "云计算", "广告", "裁员", "CEO", "高管", "库克", "供应链",
+    "以旧换新", "价格",
+)
 
 
 def _easter(year: int) -> date:
@@ -637,9 +651,15 @@ def us_news(ticker: str, name: str = "") -> list[NewsData]:
             url = str(row.get("url") or "")
             if not title or not _safe_url(url):
                 continue
-            if (ticker.upper() not in title.upper()
-                    and not (candidate_name and candidate_name in title)):
+            ticker_hit = ticker.upper() in title.upper()
+            name_hit = bool(candidate_name) and candidate_name in title
+            if not ticker_hit and not name_hit:
                 continue
+            if name_hit and not ticker_hit and candidate_name in _AMBIGUOUS_NAMES:
+                if any(word in title for word in _NEWS_NEGATIVE):
+                    continue
+                if not any(word in title for word in _NEWS_CONTEXT):
+                    continue
             if not start <= stamp.date() <= today or stamp > now:
                 continue
             key = (stamp.date().isoformat(), title)
