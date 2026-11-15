@@ -62,10 +62,10 @@ def test_us_financials_normalizes_period_and_derives_ttm(mocker):
     assert len(rows) == 5
     latest = rows[-1]
     assert latest.fiscal_quarter == date(2026, 9, 30)
-    assert latest.period_start == date(2026, 7, 1)
+    assert latest.period_start is None
     assert latest.period_basis == "single"
-    assert latest.report_currency == "USD"
-    assert latest.amount_currency_verified is True
+    assert latest.report_currency == ""
+    assert latest.amount_currency_verified is False
     assert latest.gross_margin == pytest.approx(0.7)
     # 最新期资产负债表缺失，回退到最近可得日期并在字段来源标注。
     assert latest.total_assets == 1030

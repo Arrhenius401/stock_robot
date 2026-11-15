@@ -427,7 +427,7 @@ def us_financials(ticker: str, max_periods: int = 8) -> list[FinancialData]:
         gross_profit = _row_value(income_row, "004005999")
         gross_margin = (gross_profit / revenue
                         if not financial_company and revenue and revenue > 0 and gross_profit is not None else None)
-        start = _quarter_start(report_date)
+        start = None  # 源接口没有期间起点，不能按自然季度推造。
         field_sources: dict[str, str] = {}
         if balance_key and balance_key != period_key:
             balance_note = f"资产负债表最近可得 {balance_key}"
@@ -454,8 +454,8 @@ def us_financials(ticker: str, max_periods: int = 8) -> list[FinancialData]:
             period_start=start,
             period_basis="single",
             reporting_basis="US GAAP",
-            amount_currency_verified=True,
-            report_currency="USD",
+            amount_currency_verified=False,
+            report_currency="",
             revenue_basis="单季营业收入",
             cash_flow_basis="reported" if _row_value(cash_row, "003999") is not None else "unknown",
             cash_flow_period_start=start,
@@ -484,7 +484,7 @@ def us_financials(ticker: str, max_periods: int = 8) -> list[FinancialData]:
         is_finite_number(value) for value in required) else "partial"
     latest.financial_selection_note = (
         f"报告期按财季月末展示（源报告日 {date.fromisoformat(periods[-1]).isoformat()}）；"
-        "最近四个财季合计为 TTM；美元、美国会计准则，不换汇"
+        "最近四个财季合计为 TTM；源接口未提供金额币种证据，不推断换汇或 ADR 每股比例"
     )
     if ticker == "BRK.B":
         latest.financial_selection_note += "；F10 代码变体 BRK_B，伯克希尔哈撒韦-B 公司整体报表"

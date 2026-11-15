@@ -37,9 +37,8 @@ class FinancialAnalyzer(AnalysisModule):
                 amount_basis += f"；目录列报币种：{latest.disclosure_currency}（不等同于金额币种）"
             amount_basis += "；展示缩写为万/亿，不推断上游换汇情况"
         elif context.market == "us":
-            amount_basis = ("金额币种：USD（美国会计准则，单季报）；"
-                            "金额以基本货币单位记录，展示为万/亿，不换汇；"
-                            "报告期按财季月末展示")
+            amount_basis = (f"金额币种：{latest.report_currency}" if latest.amount_currency_verified and latest.report_currency
+                            else "金额币种未核实") + "；财季报，金额展示为万/亿；不推断换汇、会计准则或 ADR 每股比例；报告期按财季月末展示"
         else:
             amount_basis = (f"最新利润表原币：{latest.report_currency}（不代表其他报表币种）" if latest.report_currency
                             else "财报原币，币种未记录") + "；金额以基本货币单位记录，展示为万/亿，未换汇"
