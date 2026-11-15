@@ -173,6 +173,7 @@ METRIC_DISPLAY_NAMES = {
     "revenue_growth_yoy": "营收同比增长",
     "profit_growth_yoy": "净利润同比增长",
     "roe": "ROE",
+    "roe_basis": "ROE 期间与口径",
     "gross_margin": "毛利率",
     "latest_close": "最新收盘价",
     "ma_5": "5 日均线",

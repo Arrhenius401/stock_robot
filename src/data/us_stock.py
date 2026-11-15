@@ -468,14 +468,14 @@ def us_financials(ticker: str, max_periods: int = 8) -> list[FinancialData]:
 
     # ROE 按最近四个财季净利润 / 期末归母权益派生；资产负债表期不一致时不混算。
     for index, row in enumerate(rows):
-        if index < 3 or "roe" in row.field_sources:
+        if index < 3:
             continue
         window = rows[index - 3:index + 1]
         profits = [item.net_profit for item in window]
-        equity = row.common_equity or row.total_equity
+        equity = row.common_equity if row.common_equity is not None else row.total_equity
         if equity and equity > 0 and all(is_finite_number(value) for value in profits):
             row.roe = sum(value for value in profits if value is not None) / equity
-            row.field_sources["roe"] = "按最近四个财季净利润/期末归母权益派生"
+            row.field_sources["roe"] = "按最近四个财季归母净利润/最近可得期末归母权益派生；分母日期 " + balance_for(periods[index])[1]
 
     latest = rows[-1]
     required = (latest.revenue, latest.net_profit, latest.total_assets,
@@ -492,17 +492,6 @@ def us_financials(ticker: str, max_periods: int = 8) -> list[FinancialData]:
         latest.financial_selection_note += f"；{latest.field_sources['total_assets']}"
     else:
         latest.financial_selection_note += "。"
-    if latest.roe is None:
-        try:
-            roe, roe_period = _annual_roe(ticker)
-        except Exception as error:  # noqa: BLE001 — 年报指标边界，失败只保留空 ROE
-            logger.warning("美股年报 ROE 获取失败 %s: %s", ticker, type(error).__name__)
-        else:
-            if roe is not None and roe_period is not None:
-                latest.roe = roe
-                latest.field_sources["roe"] = (
-                    f"最新年报 ROE_AVG（{roe_period.isoformat()}）"
-                )
     return rows
 
 

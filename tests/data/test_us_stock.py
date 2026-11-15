@@ -73,11 +73,11 @@ def test_us_financials_normalizes_period_and_derives_ttm(mocker):
     assert "资产负债表最近可得 2026-06-26" in latest.financial_selection_note
     # 有完整资产负债表的那一期按四季净利/权益派生 ROE（小数，不是百分数）。
     complete = rows[3]
-    assert complete.field_sources.get("roe") == "按最近四个财季净利润/期末归母权益派生"
+    assert "分母日期 2026-06-26" in complete.field_sources["roe"]
     assert complete.roe == pytest.approx((10 + 11 + 12 + 13) / 515)
     # 最新期无同期资产负债表，回退最新年报 ROE_AVG，并标注口径。
-    assert latest.roe == pytest.approx(1.5)
-    assert latest.field_sources["roe"] == "最新年报 ROE_AVG（2026-09-26）"
+    assert latest.roe == pytest.approx((11 + 12 + 13 + 14) / 515)
+    assert "分母日期 2026-06-26" in latest.field_sources["roe"]
     assert "最近四个财季合计为 TTM" in latest.financial_selection_note
 
 

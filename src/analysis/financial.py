@@ -66,6 +66,18 @@ class FinancialAnalyzer(AnalysisModule):
 
         from data.financial_ttm import financial_ttm
 
+        profit_ttm = financial_ttm(financials, "net_profit", context.market)
+        equity_row = next((row for row in sorted_data if row.common_equity is not None or row.total_equity is not None), None)
+        equity = (equity_row.common_equity if equity_row.common_equity is not None else equity_row.total_equity) if equity_row else None
+        if equity is not None and equity <= 0:
+            metrics["roe"] = "净资产为负，ROE 不适用" if equity < 0 else "净资产为零，ROE 不适用"
+        elif profit_ttm is None:
+            metrics["roe"] = "TTM 不可用"
+        else:
+            metrics["roe"] = profit_ttm / equity if equity is not None else None
+        denominator_date = (equity_row.field_sources.get("common_equity") or equity_row.field_sources.get("total_equity") or equity_row.fiscal_quarter.isoformat()) if equity_row else "缺失"
+        metrics["roe_basis"] = f"TTM 归母净利润 / 最新可得期末归母权益，不年化；分母日期/来源：{denominator_date}；TTM 截至 {latest.fiscal_quarter}"
+
         not_applicable = latest.gross_margin_basis == "银行/保险不适用"
         for field in ("operating_cash_flow", "capital_expenditure", "free_cash_flow"):
             metrics[field] = "不适用（银行/保险）" if not_applicable else financial_ttm(financials, field, context.market)
