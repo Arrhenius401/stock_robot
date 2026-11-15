@@ -51,14 +51,14 @@ class FinancialAnalyzer(AnalysisModule):
             "total_assets": latest.total_assets,
             "total_equity": latest.total_equity,
             "roe": latest.roe,
-            "gross_margin": latest.gross_margin,
+            "gross_margin": "不适用（银行/保险）" if latest.gross_margin_basis == "银行/保险不适用" else latest.gross_margin,
             "amount_basis": amount_basis,
             "annual_roe": context.financial_scoring_facts.get("annual_roe", {}),
             **template_metrics,
         }
         if latest.revenue_basis:
             metrics["revenue_basis"] = latest.revenue_basis
-        if latest.gross_margin is not None and latest.gross_margin_basis:
+        if latest.gross_margin_basis:
             metrics["gross_margin_basis"] = latest.gross_margin_basis
         if latest.operating_cash_flow is not None:
             metrics["operating_cash_flow"] = latest.operating_cash_flow

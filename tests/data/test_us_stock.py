@@ -209,3 +209,23 @@ def test_class_share_uses_verified_f10_variant(mocker):
     fetch = mocker.patch("akshare.stock_financial_us_report_em", return_value=frame)
     assert _statement("BRK.B", "综合损益表") == {"2026-09-30": {"004001999": 100}}
     fetch.assert_called_once_with(stock="BRK_B", symbol="综合损益表", indicator="单季报")
+
+
+@pytest.mark.parametrize("ticker,prefix,revenue_code,profit_code", [
+    ("JPM", "001", "001008999", "001015999"),
+    ("BRK.B", "002", "002001999", "002011999"),
+])
+def test_financial_company_statement_mapping(mocker, ticker, prefix, revenue_code, profit_code):
+    frames = _statement_frames()
+    frames["综合损益表"] = {key: {revenue_code: 100, profit_code: 10} for key in frames["综合损益表"]}
+    frames["资产负债表"] = {key: {prefix + "001999": 1000, prefix + "005999": 500,
+                                     prefix + "009999": 550} for key in frames["资产负债表"]}
+    mocker.patch("data.us_stock._statement", side_effect=lambda _ticker, name: frames[name])
+    mocker.patch("data.us_stock._annual_roe", return_value=(None, None))
+    latest = us_financials(ticker)[-1]
+    assert latest.revenue == 100
+    assert latest.net_profit == 10
+    assert latest.total_assets == 1000
+    assert latest.common_equity == 500
+    assert latest.gross_margin is None
+    assert latest.gross_margin_basis == "银行/保险不适用"

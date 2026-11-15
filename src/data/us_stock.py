@@ -421,11 +421,12 @@ def us_financials(ticker: str, max_periods: int = 8) -> list[FinancialData]:
         income_row = income.get(period_key, {})
         balance_row, balance_key = balance_for(period_key)
         cash_row = cash.get(period_key, {})
-        revenue = _row_value(income_row, "004001999", "004001001")
-        net_profit = _row_value(income_row, "004015999", "004013999")
+        financial_company = any(code.startswith(("001", "002")) for code in income_row)
+        revenue = _row_value(income_row, "004001999", "004001001", "001008999", "002001999")
+        net_profit = _row_value(income_row, "004015999", "004013999", "001015999", "002011999")
         gross_profit = _row_value(income_row, "004005999")
         gross_margin = (gross_profit / revenue
-                        if revenue and revenue > 0 and gross_profit is not None else None)
+                        if not financial_company and revenue and revenue > 0 and gross_profit is not None else None)
         start = _quarter_start(report_date)
         field_sources: dict[str, str] = {}
         if balance_key and balance_key != period_key:
@@ -437,13 +438,14 @@ def us_financials(ticker: str, max_periods: int = 8) -> list[FinancialData]:
             fiscal_quarter=fiscal,
             revenue=revenue,
             net_profit=net_profit,
-            total_assets=_row_value(balance_row, "004005999"),
-            total_equity=_row_value(balance_row, "004017999"),
-            common_equity=_row_value(balance_row, "004013999"),
+            total_assets=_row_value(balance_row, "004005999", "001001999", "002001999"),
+            total_equity=_row_value(balance_row, "004017999", "001009999", "002009999"),
+            common_equity=_row_value(balance_row, "004013999", "001005999", "002005999"),
             operating_cash_flow=_row_value(cash_row, "003999"),
-            basic_eps=_row_value(income_row, "004017003"),
+            basic_eps=_row_value(income_row, "004017003", "001017003", "002013003"),
             gross_margin=gross_margin,
-            gross_margin_basis="毛利/营业收入（单季）" if gross_margin is not None else "",
+            gross_margin_basis=("银行/保险不适用" if financial_company else
+                                "毛利/营业收入（单季）" if gross_margin is not None else ""),
             period_start=start,
             period_basis="single",
             reporting_basis="US GAAP",
