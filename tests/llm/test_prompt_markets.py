@@ -40,6 +40,13 @@ def test_pipeline_common_prompt_preserves_market_rules(tmp_path, provider, marke
     prompt = backend.prompt
     assert "## 1.核心判断" in prompt
     assert "不重新计算分数" in prompt
+    assert "不得将 TTM 现金流与单季利润直接比较" in prompt
+    assert "半年度或累计期间不得称作季度" in prompt
+    assert "不得从价格、估值分位或新闻相关性推断资金流向" in prompt
+    assert "新闻中的目标价、仓位及买卖动作不得复述" in prompt
+    assert "不得把历史低分位或同行折价直接表述" in prompt
+    assert "volume_ratio 是近5日平均成交量与此前20日平均成交量的比值" in prompt
+    assert "不能把缺项称作低分的原因" in prompt
     assert "严格禁止词汇" in prompt
     assert "禁止自行生成交易信号" in prompt
     assert "12.00%" in prompt
