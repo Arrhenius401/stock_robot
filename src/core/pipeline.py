@@ -688,7 +688,6 @@ class Pipeline:
         from report.scoring import compute_score_summary, participation_score
 
         if (not self._extra_analysis_enabled or (context is not None and not context.extra_analysis_enabled)
-                or (context is not None and context.market == "us")
                 or not self._llm_enabled or not has_analysis_data(results, context)):
             return commentary
         provider = self._config.get("llm.provider", "openai")
@@ -739,7 +738,7 @@ class Pipeline:
                     r = result
                     break
             available = r is not None and r.status in {"ok", "partial"}
-            scoring_applicable = True
+            scoring_applicable = not (context is not None and context.market == "us" and dim == "sentiment")
             scored = participation_score(r) is not None
             scores.append({
                 "label": label,
@@ -770,9 +769,14 @@ class Pipeline:
             template_dir = Path(__file__).parent.parent / "llm" / "prompt_templates"
             env = Environment(loader=FileSystemLoader(str(template_dir)))
 
-            template = env.get_template("batch_analysis_hk.jinja2" if context is not None and context.market == "hk"
-                                        else f"batch_analysis_{provider}.jinja2")
+            from llm.market_context import market_prompt_context, prompt_metrics
+
+            market_context = market_prompt_context(context)
+            if context is None:
+                market_context["industry_name"] = sw_industry
+            template = env.get_template(f"batch_analysis_{provider}.jinja2")
             prompt = template.render(
+                **market_context,
                 sw_industry=sw_industry,
                 style_category=style_category,
                 industry_note=industry_note,
@@ -783,7 +787,7 @@ class Pipeline:
                 missing_dims="、".join(missing) if missing else "无",
                 analysis_facts=json.dumps([
                     {"dimension": r.dimension, "status": r.status, "score": r.score,
-                     "score_detail": r.score_detail, "metrics": format_metrics(r.metrics),
+                     "score_detail": r.score_detail, "metrics": format_metrics(prompt_metrics(r.metrics, str(market_context["market"]))),
                      "summary": r.summary, "risk_flags": r.risk_flags}
                     for r in results
                 ], ensure_ascii=False, default=str),
