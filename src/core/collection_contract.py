@@ -19,6 +19,7 @@ DEDICATED_CAPABILITIES: frozenset[tuple[str, str]] = frozenset({
     ("hk", "news"),
     ("a-shares", "valuation"),
     ("hk", "valuation"),
+    ("us", "valuation"),
     ("a-shares", "industry"),
     ("hk", "industry"),
 })

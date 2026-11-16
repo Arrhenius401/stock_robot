@@ -1,13 +1,13 @@
 // 应用主入口：导航接线、工作台覆盖层与各视图初始化。
 import { bus, store, switchView } from "./state.js";
-import { initChat } from "./chat.js?v=20261031-analysis-mode-1";
-import { initReportView, openReport } from "./report.js?v=20261031-analysis-mode-1";
-import { initReportDrawer } from "./report-drawer.js?v=20261031-analysis-mode-1";
-import { closeReportDrawer } from "./report-drawer.js?v=20261031-analysis-mode-1";
+import { initChat } from "./chat.js?v=20261116-us-c5-1";
+import { initReportView, openReport } from "./report.js?v=20261116-us-c5-1";
+import { initReportDrawer } from "./report-drawer.js?v=20261116-us-c5-1";
+import { closeReportDrawer } from "./report-drawer.js?v=20261116-us-c5-1";
 import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js";
-import { initIndexView } from "./indexview.js?v=20261031-analysis-mode-1";
-import { initReportLibrary } from "./report-library.js?v=20261031-analysis-mode-1";
-import { initSessions, initSessionStartup } from "./sessions.js?v=20261029-index-news-quality";
+import { initIndexView } from "./indexview.js?v=20261116-us-c5-1";
+import { initReportLibrary } from "./report-library.js?v=20261116-us-c5-1";
+import { initSessions, initSessionStartup } from "./sessions.js?v=20261116-us-c5-1";
 import { initSubscriptions } from "./subscriptions.js?v=20260928-run-notice-2";
 import { initSettings } from "./settings.js?v=20261031-analysis-mode-1";
 import { initLogs } from "./logs.js?v=20260927-page-heading-1";
@@ -239,7 +239,7 @@ function init() {
   window.addEventListener("hashchange", syncViewFromHash);
   initSessionStartup()
     .catch((error) => console.error("会话初始化失败:", error))
-    .finally(() => import("./allocation-view.js?v=20261004-overseas-2")
+    .finally(() => import("./allocation-view.js?v=20261114-stock-shared-4")
       .then(({ initRadar: initializeRadar }) => initializeRadar())
       .catch((error) => {
         console.error("配置雷达初始化失败:", error);

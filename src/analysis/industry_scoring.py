@@ -54,12 +54,14 @@ def score_industry_comparison(comparison: dict[str, Any]) -> tuple[float | None,
     """先算每期有效子项，再按年度40%/最新60%合成；所有计算保留原精度。"""
     raw = comparison.get("periods", {}) if comparison.get("version") == 1 else {}
     raw = raw if isinstance(raw, dict) else {}
-    periods = {key: _period_score(raw[key] if isinstance(raw.get(key), dict) else {}) for key in PERIOD_WEIGHTS}
+    us_ttm = str(comparison.get("scope", "")).startswith("东财美股") and "annual" not in raw
+    period_keys = ("latest",) if us_ttm else tuple(PERIOD_WEIGHTS)
+    periods = {key: _period_score(raw[key] if isinstance(raw.get(key), dict) else {}) for key in period_keys}
     evidence: dict[str, Any] = {"version": 1, "periods": periods, "period_weights": {}}
     available = [key for key, period in periods.items() if period["score"] is not None]
     if not available:
-        return None, "行业经营分暂无：两期均缺少足够的同期有效指标", evidence
-    annual, latest = periods["annual"], periods["latest"]
+        return None, "行业经营分暂无：" + ("TTM最新期缺少足够的同期有效指标" if us_ttm else "两期均缺少足够的同期有效指标"), evidence
+    annual, latest = periods.get("annual", {}), periods["latest"]
     same_period = (all(annual.get(key) == latest.get(key) for key in ("start", "end", "basis"))
                    and bool(annual.get("start")))
     if len(available) == 2 and same_period:
@@ -73,7 +75,7 @@ def score_industry_comparison(comparison: dict[str, Any]) -> tuple[float | None,
                for key, weight in weights.items()]
     if same_period and len(periods) == 2 and len(available) == 1 and evidence.get("same_period"):
         details.append("年度与最新为同一报告期，只计算一次")
-    for key in PERIOD_WEIGHTS:
+    for key in period_keys:
         if key not in available and periods[key]["score"] is None:
             details.append(f"{'年度' if key == 'annual' else '最新期'}未计分：{periods[key]['reason']}")
     details.append("营收同比/ROE/净利率原权重40%/40%/20%，缺项按有效指标原比例折算")

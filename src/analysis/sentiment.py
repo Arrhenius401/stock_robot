@@ -3,6 +3,7 @@ from typing import Any, Literal
 
 from analysis.base import AnalysisModule
 from analysis.sentiment_rules import score_sentiment
+from data.news_relevance import name_aliases
 from data.schemas import AnalysisContext, AnalysisResult, SufficiencyLevel
 from data.sentiment_rules import assessment_inputs
 
@@ -13,7 +14,7 @@ def _hk_news_result(context: AnalysisContext) -> AnalysisResult:
 
     news = context.news_data
     snapshot = news.hk_news if news else None
-    disclaimer = "关键词检索结果，可能包含间接相关报道；不作AI筛选或情绪评分，不保证完整覆盖近30天新闻。"
+    disclaimer = "关键词检索结果，按标题公司简称过滤；可能遗漏间接报道，不作AI筛选或情绪评分，不保证完整覆盖近30天新闻。"
     if snapshot is None:
         return AnalysisResult(dimension="sentiment", status="unavailable", summary="新闻暂时获取失败",
             metrics={"news_items": [], "news_disclaimer": disclaimer, "news_notes": []}, score=None)
@@ -27,7 +28,15 @@ def _hk_news_result(context: AnalysisContext) -> AnalysisResult:
         notes.append("部分关键词查询失败或未执行，检索不完整。")
     if snapshot.limit_reached:
         notes.append("已达到单关键词100条候选上限，不保证覆盖窗口内全部新闻。")
-    items = snapshot.items[:20]
+    items = snapshot.items
+    aliases = name_aliases(context.name)
+    if aliases:
+        matched = [item for item in items if any(alias in item.title for alias in aliases)]
+        if matched:
+            items = matched
+        else:
+            notes.append("标题未命中公司简称，保留候选报道供参考。")
+    items = items[:20]
     summary = (f"近30天关键词检索结果，展示最新{len(items)}条" if items
                else "本次检索未获得近30天有效记录")
     if stale and not items:
@@ -49,15 +58,43 @@ class SentimentAnalyzer(AnalysisModule):
 
     def analyze(self, context: AnalysisContext,
                 config: dict[str, Any] | None = None) -> AnalysisResult:
+        if context.market == "us" and context.extra_analysis_enabled:
+            # 美股 v1 只展示检索事实；即使残留旧评估也不进入计分。
+            objective = context.model_copy(update={"extra_analysis_enabled": False})
+            result = self.analyze(objective)
+            result.score = None
+            result.score_detail = "舆情本期未计分，权重由其余有效维度归一"
+            return result
         if not context.extra_analysis_enabled:
             if context.market == "hk":
                 return _hk_news_result(context)
             inputs = assessment_inputs(context)
-            headlines = [item["title"] for item in inputs] or (context.news_data.headlines if context.news_data else [])
+            raw_titles = [item["title"] for item in inputs] or (context.news_data.headlines if context.news_data else [])
+            aliases = name_aliases(context.name, context.symbol)
+            notes: list[str] = []
+            if aliases and raw_titles:
+                matched = [title for title in raw_titles if any(alias in title for alias in aliases)]
+                if matched:
+                    titles = matched
+                    inputs = [item for item in inputs if item["title"] in matched] if inputs else []
+                else:
+                    titles = raw_titles
+                    notes.append("标题未命中公司简称，保留候选报道供参考。")
+            else:
+                titles = raw_titles
+            metrics: dict[str, Any] = {
+                "news_items": inputs, "headline_count": len(titles),
+                "headlines": titles,
+            }
+            if notes:
+                metrics["news_notes"] = notes
+            if context.market == "us":
+                metrics["news_disclaimer"] = "关键词检索结果，可能包含同名或间接报道；仅作新闻参考，不作情绪评分。"
+            elif context.market == "a-shares":
+                metrics["news_disclaimer"] = "个股新闻与公告接口结果，可能包含间接报道；仅作新闻参考，不作情绪评分。"
             return AnalysisResult(dimension=self.dimension, status="ok" if inputs else "partial",
-                                  summary=f"本次取得新闻 {len(headlines)} 条",
-                                  metrics={"news_items": inputs, "headline_count": len(headlines),
-                                           "headlines": headlines})
+                                  summary=f"本次取得新闻 {len(titles)} 条",
+                                  metrics=metrics)
         es = context.enriched_sentiment
         if es is not None and es.assessment_status != "legacy":
             inputs = assessment_inputs(context)

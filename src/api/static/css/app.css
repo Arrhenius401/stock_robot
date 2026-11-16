@@ -1,5 +1,7 @@
 /* ============ 基础 ============ */
 * { box-sizing: border-box; margin: 0; padding: 0; }
+/* 股票页隐藏ETF消息，由同一窗口外壳展示股票任务。 */
+body:has(#view-radar.active .stock-management) #radarUpdateNotice { display: none; }
 :root {
   --bg: #0d1017; --panel: #131722; --panel-2: #20263a; --border: #262b36;
   --border-soft: #1f2430; --accent: #e5484d; --accent-2: #f76b15;
@@ -1532,6 +1534,9 @@ body.subs-modal-open { overflow: hidden; }
 .stock-report .report-risk-item .v { color: #a44932; }
 .stock-report .report-header { justify-content: space-between; flex-wrap: wrap; padding: 0 0 12px; }
 .stock-report .report-identity { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; min-width: 0; }
+.stock-report .report-industry-quote { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.stock-report .report-latest-close { font-size: 13px; color: var(--text-2); }
+.stock-report .report-generation-info { display: grid; gap: 4px; flex-basis: 100%; }
 .stock-report .report-investment-summary { margin: 12px 0; }
 .stock-report .report-summary-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; padding: 12px 0; border-top: 1px solid var(--border-soft); }
 .stock-report .report-summary-meta { display: flex; flex-wrap: wrap; gap: 8px 24px; border-top: 1px solid var(--border-soft); padding-top: 10px; color: var(--text-4); }
@@ -1543,6 +1548,13 @@ body.subs-modal-open { overflow: hidden; }
 .stock-report .report-quality-summary th:last-child, .stock-report .report-quality-summary td:last-child { padding-right: 0; }
 .stock-report .report-pending-list { padding-left: 20px; display: grid; gap: 8px; }
 .stock-report .report-commentary-error { color: var(--warn); font-size: 13px; margin-top: 8px; }
+.stock-report .report-research h3 { margin: 18px 0 8px; font-size: 15px; }
+.stock-report .report-research p { margin: 8px 0; }
+.stock-report .report-research-row { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border-soft); }
+.stock-report .report-research-row dt { font-weight: 600; }
+.stock-report .report-research-row dd { margin: 0; overflow-wrap: anywhere; }
+.stock-report .report-research-risks { padding-left: 20px; }
+@media (max-width: 760px) { .stock-report .report-research-row { grid-template-columns: 72px minmax(0, 1fr); gap: 8px; } }
 .stock-report .report-retry-commentary, .stock-report .report-configure-commentary { margin-top: 10px; }
 .stock-report .mtr > div { min-width: 0; overflow-wrap: anywhere; }
 /* 同行证据沿用报告主题；窄卡片的摘要逐指标排列。 */
@@ -1586,6 +1598,65 @@ body.subs-modal-open { overflow: hidden; }
   .stock-report .score-rows { min-width: 100%; }
 }
 
+/* 池选择范围内的样式，沿用雷达主题与共享内容坐标。 */
+.radar-pool-picker{width:280px;max-width:100%;min-width:0;}
+.radar-pool-trigger{display:flex;justify-content:space-between;align-items:center;gap:12px;width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--panel);color:var(--text-2);font:inherit;text-align:left;cursor:pointer;}
+.radar-pool-copy{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1;}
+.radar-pool-trigger .radar-pool-copy>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.radar-pool-copy small{font-size:11px;color:var(--text-4);line-height:1.5;}
+.radar-pool-option .radar-pool-copy small{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;}
+.radar-pool-dialog{position:fixed;inset:auto;margin:0;left:var(--picker-left,12px);top:var(--picker-top,80px);width:360px;max-width:calc(100vw - 24px);padding:0;border:1px solid var(--border);border-radius:10px;background:var(--panel);color:var(--text);box-shadow:var(--shadow-overlay);}
+.radar-pool-dialog::backdrop{background:transparent;}
+.radar-pool-dialog-head{display:flex;align-items:center;justify-content:space-between;padding:14px;font-size:14px;}
+.radar-pool-dialog-head button{border:0;background:transparent;color:var(--text-3);font-size:20px;cursor:pointer;}
+.radar-pool-search{display:block;width:calc(100% - 28px);margin:0 14px 10px;padding:9px 10px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text);font:inherit;}
+.radar-pool-options{max-height:min(330px,45dvh);overflow:auto;overscroll-behavior:contain;padding:0 6px 8px;}
+.radar-pool-group{margin:10px;font-size:11px;color:var(--text-4);}
+.radar-pool-option{display:flex;align-items:center;gap:12px;width:100%;padding:10px;border:0;border-radius:6px;background:transparent;color:var(--text-2);font:inherit;text-align:left;cursor:pointer;overflow-wrap:anywhere;}
+.radar-pool-option:hover{background:var(--surface-hover);}
+.radar-pool-option[aria-pressed="true"]{color:var(--accent);background:var(--panel-2);}
+.radar-pool-count{padding:10px 14px;margin:0;border-top:1px solid var(--border);font-size:11px;color:var(--text-4);}
+.radar-pool-picker button:focus-visible,.radar-pool-search:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+.radar-pool-content-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 16px;}
+.radar-pool-content-head h2{font-size:16px;margin:0;}
+.radar-stock-empty{padding:20px;}
+.radar-stock-empty h3{margin:18px 0 8px;font-size:15px;}
+.radar-stock-empty .radar-note{margin:12px 0;}
+@media(max-width:760px){.radar-pool-picker{width:100%;}.radar-pool-dialog{left:12px;right:12px;top:auto;bottom:12px;width:auto;max-width:none;border-radius:14px;}.radar-pool-dialog::backdrop{background:#17203355;}.radar-head-controls>.radar-pool-picker{flex-basis:100%;}}
+
+/* 股票研究管理仅复用现有主题，不改变共享页面坐标。 */
+.stock-management { min-width:0; }
+.stock-management .stock-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:12px 0; }
+.stock-management .stock-body { min-width:0; }
+.stock-management .stock-row { display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; padding:12px 0; border-bottom:1px solid var(--border-soft); }
+.stock-management .stock-company { min-width:180px; text-align:left; }
+.stock-management .stock-search { flex:1; min-width:140px; }
+.stock-management input, .stock-management textarea { max-width:100%; border:1px solid var(--border); border-radius:7px; background:var(--bg); color:var(--text); font:inherit; padding:8px 10px; }
+.stock-management input:focus, .stock-management textarea:focus { outline:2px solid var(--blue); outline-offset:2px; }
+.stock-management .stock-pagination { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:10px; margin:16px 0 0; }
+.stock-management .stock-fold { margin:12px 0; padding:10px 12px; border:1px solid var(--border-soft); border-radius:8px; min-width:0; }
+.stock-management summary { cursor:pointer; color:var(--text-2); overflow-wrap:anywhere; }
+.stock-management .stock-raw { white-space:pre-wrap; overflow-wrap:anywhere; font-size:11px; line-height:1.6; margin:10px 0; max-height:300px; overflow:auto; }
+.stock-management .stock-checks { margin-top:16px; }
+.stock-management .stock-check { padding:7px 0; line-height:1.65; overflow-wrap:anywhere; border-bottom:1px solid var(--border-soft); }
+.stock-management .stock-evidence-row { padding:10px 0; border-bottom:1px solid var(--border-soft); }
+.stock-management .stock-review-editor { display:flex; flex-wrap:wrap; gap:10px; margin:16px 0; padding:14px; background:var(--panel); border:1px solid var(--border-soft); border-radius:8px; }
+.stock-management .stock-review-editor>.radar-meta, .stock-management .stock-review-editor>.stock-toolbar { width:100%; margin:0; }
+.stock-management .stock-reason { display:block; width:100%; min-height:96px; resize:vertical; }
+.stock-management .stock-source a { color:var(--blue); }
+.stock-management .stock-error, .stock-management .stock-task { overflow-wrap:anywhere; }
+@media(max-width:760px) { .stock-management { padding:14px; } .stock-management .stock-company { min-width:0; } .stock-management .stock-search { flex-basis:100%; width:100%; } .stock-management .stock-reviewer { width:100%; } }
+.stock-management a { color:var(--blue); }
+
+/* 股票与ETF复用消息窗口外壳，各页只展示对应任务。 */
+body:not(:has(#view-radar.active .stock-management)) #radarStockUpdateNotice { display:none; }
+#radarStockUpdateNotice { top:auto; bottom:24px; max-height:calc(100dvh - 32px); overflow:auto; }
+.stock-task-tabs { display:flex; gap:6px; padding-bottom:10px; border-bottom:1px solid var(--border-soft); }
+.stock-task-tabs button { flex:1; padding:7px 8px; }
+.stock-task-tabs button[aria-pressed=true] { background:var(--panel-2); color:var(--accent); }
+.stock-financial-counts { line-height:1.8; font-weight:600; }
+@media(max-width:760px) { #radarStockUpdateNotice { bottom:12px; right:12px; } }
+
 /* 五维评分沿用原卡片，只补充风险方向与可追溯来源。 */
 .stock-report .score-row .lb { width: 72px; }
 .stock-report .score-row-missing .v { color: var(--text-4); }
@@ -1595,3 +1666,41 @@ body.subs-modal-open { overflow: hidden; }
 
 .index-refresh-option { display: flex; align-items: center; gap: 5px; white-space: nowrap; font-size: 12px; color: var(--text-3); }
 .analysis-entry-card .index-refresh-option input { width: auto; height: auto; }
+/* 股票筛选页复用浅色工作台变量。 */
+.stock-screening { padding:0; }
+.stock-screening>.radar-pool-content-head { margin-top:0; }
+.stock-screening>.panel { padding:16px; margin-top:16px; }
+.stock-screening .panel h3 { margin:0; }
+.stock-screening-stats,.stock-screening-counts { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.stock-screening-stats { margin:16px 0; gap:16px; }
+.stock-screening-counts .stock-count { display:flex; gap:8px; align-items:center; background:transparent; }
+.stock-count.passed span { color:var(--ok); }
+.stock-count.pending span { color:var(--warn); }
+.stock-count.failed span { color:var(--danger); }
+.stock-count strong { color:var(--text); }
+.stock-screening .stock-completion-open { margin-left:auto; color:var(--accent); }
+.stock-screening-rule-list { padding-left:24px; margin:10px 0; }
+.stock-screening-rule-list li { padding:6px 0; border-bottom:1px solid var(--border-soft); overflow-wrap:anywhere; }
+.stock-screening-reason { flex:1; min-width:160px; }
+.stock-screening progress { width:100%; accent-color:var(--ok); }
+#stockScreeningTaskNotice { bottom:24px; top:auto; }
+.stock-resizable-window { width:480px; resize:both; overflow:auto; min-width:320px; min-height:240px; max-width:calc(100vw - 24px); max-height:calc(100dvh - 24px); }
+.stock-resizable-window progress { width:100%; accent-color:var(--ok); }
+@media(max-width:760px){.stock-screening>.panel{padding:14px}.stock-screening-counts{gap:6px}.stock-screening-counts .stock-count{padding:7px 9px}.stock-screening .stock-completion-open{margin-left:auto}.stock-resizable-window{resize:none;min-width:0;min-height:0;height:fit-content;width:calc(100vw - 24px);border:1px solid var(--border);border-radius:14px}#stockScreeningTaskNotice{bottom:12px}}
+
+.stock-task-window-actions { display:flex; align-items:center; gap:6px; margin-left:auto; flex-shrink:0; }
+/* 股票v2任务窗口：展开突出阶段，逐项日志默认折叠。 */
+.stock-resizable-window .stock-task-eyebrow{color:var(--accent);font-size:12px;margin:0 0 8px}
+.stock-resizable-window .stock-task-stage{font-size:19px;line-height:1.4;margin:0 0 8px;color:var(--text)}
+.stock-task-progress-caption{display:flex;justify-content:space-between;margin:20px 0 8px;font-size:12px}
+.stock-task-progress{display:block;width:100%;height:8px;accent-color:var(--accent)}
+.stock-task-steps{list-style:none;margin:20px 0;padding:0}
+.stock-task-steps li{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:9px;align-items:center;min-height:40px}
+.stock-task-step-symbol{width:20px;height:20px;border-radius:50%;background:var(--bg);color:var(--text-4);display:grid;place-items:center;font-size:11px}
+.stock-task-steps .done .stock-task-step-symbol{color:var(--ok)}
+.stock-task-steps .active .stock-task-step-symbol{color:var(--accent);background:var(--panel-2)}
+.stock-task-logs{margin-top:12px;font-size:12px}
+.stock-task-logs summary{cursor:pointer;color:var(--text-3)}
+.stock-task-logs .stock-check{overflow-wrap:anywhere;line-height:1.7}
+.stock-shared-stages .stock-check{padding:10px 0;border-bottom:1px solid var(--border-soft)}
+#stockScreeningTaskNotice.minimized{max-width:calc(100vw - 24px)}

@@ -10,6 +10,7 @@ import sys
 import threading
 import time as clock
 import uuid
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -21,6 +22,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.report_library import ReportLibraryError, get_report_detail, list_reports
+from api.stock_radar import create_stock_router
 from radar.backtest_cache import BacktestCacheError, derive_backtest_window
 from radar.benchmarks import (
     RadarBenchmarkError,
@@ -44,8 +46,10 @@ from radar.data import (
 from radar.history import HistoryStore, HistorySynchronizer
 from radar.overseas import OverseasService
 from radar.performance import calculate_instrument_performance
+from radar.pool_catalog import PoolCatalog, PoolCatalogError
 from radar.refresh import RadarRefresher
 from radar.score_profile import ScoreProfileConfigError, ScoreProfileRepository
+from radar.stocks.pools import StockPoolConfigError, StockPoolRepository
 from radar.store import RadarStore
 from radar.universe import UniverseConfigError, UniverseRepository
 from radar.update_service import UpdateService, UpdateStore
@@ -130,7 +134,7 @@ def _require_collector_online(store: CollectorStore) -> None:
         })
 
 
-def create_radar_router() -> APIRouter:
+def create_radar_router(*, research_model_factory: Callable[[], Any] | None = None) -> APIRouter:
     """查询只读本地数据；生命周期拥有一个人工更新线程。"""
     manual_service: UpdateService | None = None
 
@@ -144,6 +148,8 @@ def create_radar_router() -> APIRouter:
             service.stop()
 
     router = APIRouter(prefix="/api/v1/radar", tags=["radar"], lifespan=lifespan)
+    # 股票管理的固定路径必须先于池标识通配路径注册。
+    router.include_router(create_stock_router(research_model_factory=research_model_factory))
     tasks: dict[str, dict[str, Any]] = {}
     lock = threading.Lock()
 
@@ -242,6 +248,34 @@ def create_radar_router() -> APIRouter:
             "cost_profile": manifest.get("cost_profile", {}),
             "warnings": detail.summary.get("warnings", []) if detail.summary else [],
         }
+
+    def stock_repository() -> StockPoolRepository:
+        """股票只读入口不初始化采集器和任务服务。"""
+        return StockPoolRepository(Path(__file__).parents[2] / "config" / "radar_stock_pools")
+
+    def require_stock_pool(pool_id: str):
+        try:
+            pool = stock_repository().get(pool_id)
+        except StockPoolConfigError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        if pool is None:
+            raise HTTPException(status_code=404, detail="未找到启用的股票池")
+        return pool
+
+    @router.get("/pools")
+    def list_pools():
+        """只读取本地配置，不创建数据库和后台任务。"""
+        root = Path(__file__).parents[2]
+        catalog = PoolCatalog(UniverseRepository(root / "config" / "radar_universes"),
+                              stock_repository())
+        try:
+            return [item.model_dump(mode="json") for item in catalog.list()]
+        except PoolCatalogError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @router.get("/stocks/{pool_id}")
+    def stock_pool(pool_id: str):
+        return require_stock_pool(pool_id).model_dump(mode="json")
 
     @router.get("/universes")
     def list_universes():

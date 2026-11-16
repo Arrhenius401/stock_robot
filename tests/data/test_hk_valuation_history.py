@@ -1,5 +1,5 @@
 """港股同源历史分位与 PS 当前值的离线回归。"""
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -15,12 +15,13 @@ def history_context(count=130):
     days = [start + timedelta(days=i) for i in range(220)]
     trading = [day for day in days if day.weekday() < 5][:count]
     valuation = ValuationData(symbol="00700.HK", date=trading[-1], pe_ttm=999, pb=999,
-        pe_history={day: float(i + 1) for i, day in enumerate(days)},
-        pb_history={day: float(i + 2) for i, day in enumerate(days)},
+        pe_history={day: float(i + 1) for i, day in enumerate(trading)},
+        pb_history={day: float(i + 2) for i, day in enumerate(trading)},
         history_source="百度港股估值（近一年）")
     prices = [PriceData(symbol="00700.HK", trade_date=day, open=10, high=10, low=10,
                         close=10, volume=10) for day in trading]
     return AnalysisContext(symbol="00700.HK", name="腾讯", market="hk",
+                           collected_at=datetime(2026, 5, 10, tzinfo=UTC),
                            valuation_data=valuation, price_data=prices)
 
 

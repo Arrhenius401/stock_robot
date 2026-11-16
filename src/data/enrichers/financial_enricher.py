@@ -12,7 +12,20 @@ class FinancialEnricher(DataEnricher):
         valid_profit_count = sum(1 for f in financials if f.net_profit is not None)
         valid_revenue_count = sum(1 for f in financials if f.revenue is not None)
 
-        if ctx.market == "hk":
+        if ctx.market == "us":
+            if count >= 4 and valid_profit_count >= 3 and valid_revenue_count >= 3:
+                level = SufficiencyLevel.SUFFICIENT
+                weight = 1.0
+                reason = f"具备 {count} 个单季报告期，关键字段完整，可按最近四个财季计算 TTM"
+            elif count >= 2 and valid_profit_count >= 1:
+                level = SufficiencyLevel.PARTIAL
+                weight = 0.5
+                reason = f"仅 {count} 个单季报告期（2–3 期），历史对比数据有限"
+            else:
+                level = SufficiencyLevel.INSUFFICIENT
+                weight = 0.0
+                reason = f"单季报告期仅 {count} 期或关键字段大面积缺失，无法完成财务分析"
+        elif ctx.market == "hk":
             # 港股可能混合年度、半年度与季度披露，不能把四期等同四个独立季度。
             valid_count = sum(f.revenue is not None or f.net_profit is not None for f in financials)
             level = SufficiencyLevel.PARTIAL if valid_count else SufficiencyLevel.INSUFFICIENT

@@ -168,7 +168,7 @@ def test_hk_technical_enabled_and_missing_macd_is_renormalized():
 def test_analyzer_exposes_independent_annual_facts():
     scoring, ctx = scorer(.15, roe=.07)
     result = FinancialAnalyzer().analyze(ctx, deepcopy(scoring.config))
-    assert result.metrics["roe"] == .07
+    assert result.metrics["roe"] == "TTM 不可用"
     assert result.metrics["annual_roe"] == ctx.financial_scoring_facts["annual_roe"]
 
 

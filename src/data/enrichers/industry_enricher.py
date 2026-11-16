@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 
 class IndustryEnricher(DataEnricher):
     def enrich(self, ctx: AnalysisContext) -> AnalysisContext:
+        if ctx.market == "us":
+            # 美股由独立充实器消费同源行情快照。
+            return ctx
         if ctx.market == "hk":
             return ctx
         ind_data = ctx.industry_data

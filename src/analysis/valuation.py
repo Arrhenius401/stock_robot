@@ -19,7 +19,7 @@ class ValuationAnalyzer(AnalysisModule):
                 config: dict[str, Any] | None = None) -> AnalysisResult:
         val_data = context.valuation_data
         scoring_context = context
-        if context.market != "hk" and context.sufficiency.valuation.level == SufficiencyLevel.INSUFFICIENT:
+        if context.market not in {"hk", "us"} and context.sufficiency.valuation.level == SufficiencyLevel.INSUFFICIENT:
             # A 股历史充实失败时，旧分位不能复用；本次独立同行估值仍可单项参与。
             scoring_context = context.model_copy(update={"enriched_valuation": None})
         pe_pct, pb_pct, premium = valuation_evidence(scoring_context)
@@ -47,11 +47,30 @@ class ValuationAnalyzer(AnalysisModule):
                 metrics[key] = None
         metrics["valuation_applicability"] = applicability
         metrics["pe_percentile"], metrics["pb_percentile"], metrics["target_pe_premium"] = pe_pct, pb_pct, premium
+        if context.market == "us" and metrics["pe_ttm"] is None:
+            from data.us_stock import us_ttm
+
+            ttm_net = us_ttm(context.financial_data or []).get("net_profit")
+            if ttm_net is not None and ttm_net <= 0:
+                applicability["pe_ttm"]["reason"] = "最近四个财季净利润为负，PE 不适用"
+        from data.financial_ttm import financial_ttm
+
+        financials = context.financial_data or []
+        latest_fin = max(financials, key=lambda row: row.fiscal_quarter, default=None)
+        equity = (latest_fin.common_equity if latest_fin.common_equity is not None else latest_fin.total_equity) if latest_fin else None
+        revenue_ttm = financial_ttm(financials, "revenue", context.market)
+        if equity is not None and equity <= 0:
+            metrics["pb"] = None
+            metrics["pb_percentile"] = None
+            applicability["pb"] = {"applicable": False, "reason": "净资产非正，PB 不适用"}
+        if revenue_ttm is not None and revenue_ttm <= 0:
+            metrics["ps_ttm"] = None
+            applicability["ps_ttm"] = {"applicable": False, "reason": "TTM 营收非正，PS 不适用"}
         metrics["valuation_notes"] = [
             f"{ {'pe_ttm': 'PE(TTM)', 'pb': 'PB', 'ps_ttm': 'PS(TTM)'}[key]}：{info['reason']}"
             for key, info in applicability.items() if not info["applicable"]
         ]
-        if context.market == "hk":
+        if context.market in {"hk", "us"} or (latest is not None and latest.history_source.startswith("百度")):
             snapshot_dates = valuation_snapshot_dates(context)
             metrics.update(pe_as_of=snapshot_dates["pe_ttm"], pb_as_of=snapshot_dates["pb"],
                            ps_as_of=snapshot_dates["ps_ttm"])
@@ -94,7 +113,7 @@ class ValuationAnalyzer(AnalysisModule):
         # PE/PB 边界不变，银行无 PE 仍按原逻辑 partial，另行决策。
         if not all(applicability[key]["applicable"] for key in _SCORING_APPLICABILITY_KEYS):
             status = "partial"
-        summary = self._build_summary(metrics, historical_reference=context.market == "hk")
+        summary = self._build_summary(metrics, historical_reference=context.market in {"hk", "us"})
 
         if (context.sufficiency and context.sufficiency.valuation.level == SufficiencyLevel.INSUFFICIENT
                 and not scoring_evidence):
@@ -122,6 +141,10 @@ class ValuationAnalyzer(AnalysisModule):
         pe = metrics.get("pe_ttm")
         if pe is not None:
             parts.append(f"PE(TTM) {pe:.2f}" + ("（不适用）" if not is_positive_finite(pe) else ""))
+        else:
+            reason = metrics.get("valuation_applicability", {}).get("pe_ttm", {}).get("reason", "")
+            if "为负" in reason or "亏损" in reason:
+                parts.append("PE(TTM) 不适用（亏损）")
         pb = metrics.get("pb")
         if pb is not None:
             parts.append(f"PB {pb:.2f}" + ("（不适用）" if not is_positive_finite(pb) else ""))

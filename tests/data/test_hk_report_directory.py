@@ -179,7 +179,7 @@ def test_metadata_enables_verified_cashflow_score_without_changing_raw_values(so
     assert after.risk_flags == before.risk_flags == []
     assert after.status == before.status == "partial"
     assert after.metrics["net_profit"] == before.metrics["net_profit"] == 120
-    assert after.metrics["operating_cash_flow"] == before.metrics["operating_cash_flow"] == 120
+    assert after.metrics["operating_cash_flow"] is before.metrics["operating_cash_flow"] is None  # 缺上年同期，不能把中期累计当 TTM
     assert after.metrics["operating_trends"] and not before.metrics["operating_trends"]
     assert "金额币种：CNY" in after.metrics["amount_basis"]
     assert "金额币种未核实" in before.metrics["amount_basis"]

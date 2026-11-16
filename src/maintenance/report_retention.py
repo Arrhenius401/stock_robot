@@ -23,6 +23,9 @@ NAME_PATTERN = re.compile(
     r"^(?P<symbol>.+)_(?P<date>\d{8})_(?P<time>\d{6})(?:_[0-9a-f]{32})?\.md$"
 )
 LEGACY_SYMBOL_PATTERN = re.compile(r"(?:\d{6}|\d{5}\.HK)")
+STOCK_SYMBOL_PATTERN = re.compile(
+    r"(?:\d{6}|\d{5}\.HK|[A-Z][A-Z0-9]{0,9}(?:[.-][A-Z0-9]{1,2})?)"
+)
 INDEX_SYMBOL_PATTERN = re.compile(r"[A-Za-z0-9~][A-Za-z0-9._~-]*")
 SNAPSHOT_SUFFIX = ".report.json"
 MAX_SNAPSHOT_BYTES = 16 * 1024 * 1024
@@ -124,7 +127,7 @@ def _symbol_allowed(category: str, name: str) -> bool:
     if category == "gold":
         return name == "GOLD"
     if category == "stock":
-        return LEGACY_SYMBOL_PATTERN.fullmatch(name) is not None
+        return STOCK_SYMBOL_PATTERN.fullmatch(name) is not None
     return INDEX_SYMBOL_PATTERN.fullmatch(name) is not None
 
 

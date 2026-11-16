@@ -18,7 +18,61 @@ from rich.table import Table
 console = Console()
 logger = logging.getLogger(__name__)
 
+from stock_robot.dividend_materials import prepare_dividends
+from stock_robot.dividend_research import dividend_research
 from stock_robot.metadata import APP_NAME, VERSION
+from stock_robot.stock_admission import admission_evaluate, style_evaluate
+from stock_robot.stock_archive import (
+    apply_membership,
+    cancel_draft,
+    capture_evaluation,
+    create_draft,
+    list_drafts,
+    list_evaluations,
+    list_memberships,
+)
+from stock_robot.stock_capital_history import capital_history_command
+from stock_robot.stock_financial_facts import prepare_facts
+from stock_robot.stock_governance import (
+    exchange_governance_rebuild,
+    exchange_governance_update,
+)
+from stock_robot.stock_index_scope import index_scope_command
+from stock_robot.stock_market_context import market_window_command
+from stock_robot.stock_market_history import market_history_command
+from stock_robot.stock_official_roster import official_roster_command
+from stock_robot.stock_research import (
+    add_evidence,
+    completion_apply,
+    completion_plan,
+    completion_recheck,
+    import_records,
+    list_records,
+    review_evidence,
+)
+from stock_robot.stock_risk_warning import risk_warning_update
+from stock_robot.stock_screening import (
+    evidence_prepare,
+    peer_universe_prepare,
+    screening_close_loop,
+    screening_complete,
+    screening_plan,
+    screening_show,
+    screening_update,
+)
+from stock_robot.stock_structured_admission import structured_admission_command
+from stock_robot.stock_structured_financial import (
+    structured_collect_command,
+    structured_screen_command,
+)
+from stock_robot.stock_updates import (
+    dividend_update,
+    enqueue_update,
+    list_updates,
+    reference_update,
+    run_one_update,
+    turnover_update,
+)
 from utils.config import DEFAULT_CONFIG, Config
 from utils.paths import resource_root, runtime_root
 
@@ -234,18 +288,18 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
         normalize_symbol,
         resolve_name,
         symbol_market,
-        validate_symbol,
+        validate_analyze_symbol,
     )
 
     config = Config()
     if not _check_disclaimer(config):
         return
 
-    if not validate_symbol(symbol):
+    if not validate_analyze_symbol(symbol):
         console.print(f"[red]无效的股票代码: {symbol}[/red]")
         console.print(
-            "请输入 6 位数字代码（如 000001、600036），"
-            "可选前缀 [bold]sh[/bold]（沪市）或 [bold]sz[/bold]（深市）"
+            "请输入 A 股 6 位代码（如 000001、600036）、港股 5 位代码（如 00700.HK），"
+            "或美股字母代码（如 AAPL、MSFT、BRK.B）"
         )
         sys.exit(1)
 
@@ -281,9 +335,9 @@ def analyze(symbol, dimension, refresh_cache, no_llm, verbose, with_market):
         console.print(f"[red]分析失败: {e}[/red]")
         sys.exit(1)
 
-    # 大盘环境快照（可选，供报告中嵌入指数环境摘要）
+    # 大盘环境快照（可选，供报告中嵌入指数环境摘要）；美股不嵌入 A 股大盘
     market_env = None
-    if with_market:
+    if with_market and market != "us":
         try:
             from index.pipeline import IndexPipeline
             index_pipeline = IndexPipeline()
@@ -1797,6 +1851,40 @@ def radar_backtest_walkforward(ctx, universe_id, start, end, window_years, strat
     console.print(f"[green]稳健性报告已保存: {output}[/green]")
     return output
 
+
+radar.add_command(dividend_research)
+radar.add_command(prepare_dividends)
+radar.add_command(import_records)
+radar.add_command(completion_plan)
+radar.add_command(completion_apply)
+radar.add_command(completion_recheck)
+radar.add_command(list_records)
+radar.add_command(add_evidence)
+radar.add_command(review_evidence)
+radar.add_command(admission_evaluate)
+radar.add_command(style_evaluate)
+radar.add_command(prepare_facts)
+radar.add_command(structured_collect_command)
+radar.add_command(structured_screen_command)
+radar.add_command(structured_admission_command)
+radar.add_command(reference_update)
+radar.add_command(dividend_update)
+radar.add_command(turnover_update)
+radar.add_command(market_window_command)
+radar.add_command(market_history_command)
+radar.add_command(capital_history_command)
+radar.add_command(risk_warning_update)
+radar.add_command(exchange_governance_update)
+radar.add_command(exchange_governance_rebuild)
+radar.add_command(official_roster_command)
+radar.add_command(index_scope_command)
+for command in (peer_universe_prepare, evidence_prepare, screening_update, screening_plan,
+                screening_complete, screening_close_loop, screening_show):
+    radar.add_command(command)
+for command in (capture_evaluation, list_evaluations, create_draft, list_drafts, cancel_draft, apply_membership, list_memberships):
+    radar.add_command(command)
+for command in (enqueue_update, list_updates, run_one_update):
+    radar.add_command(command)
 
 if __name__ == "__main__":
     main()

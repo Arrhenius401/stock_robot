@@ -161,3 +161,25 @@ const hkSignal=byClass(hk,'report-signal')[0].textContent;
 if(!hkSignal.includes('本期港股不提供模型信号')||hkSignal.includes('积极观察'))throw new Error('港股信号边界丢失');
 '''
     _run_node(tmp_path, script)
+
+
+def test_us_web_keeps_na_and_selects_only_ttm_period(tmp_path):
+    script = _DOM_STUB + "\nconst {renderStockReport}=await import(" + json.dumps(
+        _module_url("src/api/static/js/report-renderer.js")) + ");\n"
+    script += r'''
+const report={market:'us',scoring_method:'five-dimension-v1',score:{final:5},
+ score_rows:[{label:'舆情风险',score:'N/A',weight:'5%'}],dimensions:{
+ industry:{status:'partial',metrics:{comparison:{version:1,scope:'东财美股 F10 行业',peer_count:0,
+ valuation:{metrics:[]},periods:{latest:{basis:'TTM',label:'TTM',metrics:[],reason:'营收字段未证实'}}}}},
+ sentiment:{score:null,summary:'关键词新闻',metrics:{headlines:['原始新闻']}}}};
+const article=renderStockReport(report);
+const score=descendants(article).find(n=>n.id==='report-score');
+if(!score.textContent.includes('N/A')||!score.textContent.includes('舆情本期未计分'))throw new Error('US未计分展示错误');
+const industry=descendants(article).find(n=>n.id==='report-industry');
+if(industry.textContent.includes('完整年度')||!industry.textContent.includes('营收字段未证实'))throw new Error('US错误期间');
+const tabs=descendants(industry).filter(n=>n.getAttribute('role')==='tab');
+if(tabs.length!==1||tabs[0].textContent!=='TTM'||tabs[0].getAttribute('aria-selected')!=='true')throw new Error('TTM未选中');
+const news=descendants(article).find(n=>n.id==='report-sentiment');
+if(!news.textContent.includes('原始新闻')||news.textContent.includes('越高风险越大'))throw new Error('未计分新闻伪装评估');
+'''
+    _run_node(tmp_path, script)

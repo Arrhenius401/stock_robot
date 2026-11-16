@@ -1,0 +1,44 @@
+{
+  "sqlId": "COMMON_SSE_CP_GPJCTPZ_GPLB_GP_L",
+  "queryDate": "",
+  "pageHelp": {
+    "beginPage": 1,
+    "cacheSize": 1,
+    "endDate": null,
+    "endPage": 1,
+    "objectResult": null,
+    "pageCount": 1,
+    "pageNo": 1,
+    "pageSize": 2000,
+    "pageSizeWithOutLimit": 10000,
+    "searchDate": null,
+    "sort": null,
+    "startDate": null,
+    "total": 618
+  },
+  "result": [
+    {
+      "COMPANY_ABBR_EN": "HYC",
+      "STOCK_TYPE": "8",
+      "LIST_BOARD": "2",
+      "COMPANY_ABBR": "华兴源创",
+      "A_STOCK_CODE": "688001",
+      "AREA_NAME": "320000",
+      "DELIST_DATE": "-",
+      "NUM": "1",
+      "SEC_NAME_CN": "华兴源创",
+      "AREA_NAME_DESC": "江苏省",
+      "FULL_NAME_IN_ENGLISH": "SUZHOU HYC TECHNOLOGY CO.,LTD",
+      "SEC_NAME_FULL": "苏州华兴源创科技",
+      "STATE_CODE": "2",
+      "B_STOCK_CODE": "-",
+      "STATE_CODE_STOCK": "4",
+      "LIST_DATE": "20190722",
+      "CSRC_CODE": "C",
+      "PRODUCT_STATUS": "   D  F  NY         ",
+      "CSRC_CODE_DESC": "制造业",
+      "COMPANY_CODE": "688001",
+      "FULL_NAME": "苏州华兴源创科技股份有限公司"
+    }
+  ]
+}

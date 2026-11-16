@@ -66,6 +66,13 @@ def _block(block: dict[str, Any], *, operating: bool = False) -> list[str]:
         lines += ["", _table(headers, rows)]
     elif not block.get("reason"):
         lines += ["", "暂无可比较指标"]
+    if not operating and block.get("show_source_rows"):
+        # 美股允许行情与 F10 主指标混合，逐行展示来源，不能统称为行情。
+        target = block.get("target") or {}
+        peers = [target, *block.get("peers", [])]
+        rows = [[row.get("symbol", "目标"), row.get("source", "未记录"), row.get("pb_source") or "期间未核实"]
+                for row in peers if row]
+        lines += ["", _table(["代码", "来源", "PB期间（PB_SOURCE）"], rows)]
     for key in ("notes", "errors"):
         lines.extend(f"- {_text(item)}" for item in block.get(key, []) if item)
     return lines
@@ -80,6 +87,8 @@ def format_peer_comparison_markdown(comparison: dict[str, Any], scoring_method: 
     lines += _block(comparison.get("valuation") or {})
     periods = comparison.get("periods") or {}
     for key, label in (("annual", "完整年度"), ("latest", "最新一期")):
+        if key == "annual" and str(comparison.get("scope", "")).startswith("东财美股") and key not in periods:
+            continue
         lines += ["", f"#### 经营表现 · {label}", ""]
         lines += _block(periods.get(key) or {}, operating=True)
     lines += ["", "#### 数据来源与统计口径", ""]

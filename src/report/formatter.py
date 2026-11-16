@@ -128,7 +128,7 @@ def format_sentiment_risk_markdown(metrics: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-_STOCK_SYMBOL_PATTERN = r"(?:\d{6}|\d{5}\.HK)"
+_STOCK_SYMBOL_PATTERN = r"(?:\d{6}|\d{5}\.HK|[A-Z][A-Z0-9]{0,9}(?:[.-][A-Z0-9]{1,2})?)"
 
 _SEP_RE = re.compile(r'^\|[-\s:|]+\|$')
 
@@ -164,11 +164,16 @@ METRIC_DISPLAY_NAMES = {
     "net_profit": "净利润",
     "total_assets": "总资产",
     "total_equity": "股东权益",
+    "common_equity": "普通股东权益",
     "operating_cash_flow": "经营活动现金流",
+    "capital_expenditure": "资本开支",
+    "free_cash_flow": "自由现金流",
+    "cash_flow_period": "现金流期间与口径",
     "operating_cash_flow_per_share": "每股经营现金流",
     "revenue_growth_yoy": "营收同比增长",
     "profit_growth_yoy": "净利润同比增长",
     "roe": "ROE",
+    "roe_basis": "ROE 期间与口径",
     "gross_margin": "毛利率",
     "latest_close": "最新收盘价",
     "ma_5": "5 日均线",
@@ -261,7 +266,7 @@ _PERCENT_KEYS = {"change_pct", "pe_percentile", "pb_percentile", "target_pe_prem
                  "target_pe_percentile", "target_pb_percentile"}
 # 这些字段在适配层按基本货币单位记录；币种由各报告上下文披露，不由上市地推断。
 _AMOUNT_KEYS = {"revenue", "net_profit", "deducted_net_profit", "total_assets", "total_equity", "common_equity",
-                "operating_cash_flow", "market_cap"}
+                "operating_cash_flow", "capital_expenditure", "free_cash_flow", "market_cap"}
 _ONE_DIGIT_KEYS = {"score", "base_score", "final_score", "risk_deduction"}
 _THREE_DIGIT_KEYS = {"macd_dif", "macd_dea", "macd_bar"}
 _TWO_DIGIT_KEYS = {"volume_ratio", "operating_cash_flow_per_share", "basic_eps", "pmi", "usd_cny"}

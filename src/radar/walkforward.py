@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+
+from radar.stocks.atomic import replace_with_retry
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,7 +171,7 @@ def write_walkforward_artifacts(
                         f"{_percentage(benchmark['超额累计收益'])} | {_percentage(benchmark['相对净值最大回撤'])} |"
                     )
         (temporary / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-        os.replace(temporary, final_dir)
+        replace_with_retry(temporary, final_dir)
     except Exception:  # 文件写入边界必须清理临时目录后重新抛出
         shutil.rmtree(temporary, ignore_errors=True)
         raise

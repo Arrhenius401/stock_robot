@@ -40,7 +40,7 @@ class DataSufficiency(BaseModel):
 class DailyValuationPoint(BaseModel):
     """日频估值单点"""
     trade_date: date
-    close: float
+    close: float | None = None
     pe: float | None = None
     pb: float | None = None
     ps: float | None = None
@@ -164,6 +164,8 @@ class FinancialData(BaseModel):
     total_equity: float | None = None
     common_equity: float | None = None  # 普通股东权益（剔除永续债/优先股），PB 口径对齐市场惯例
     operating_cash_flow: float | None = None
+    capital_expenditure: float | None = None
+    free_cash_flow: float | None = None
     operating_cash_flow_per_share: float | None = None
     roe: float | None = None
     gross_margin: float | None = None
@@ -239,6 +241,8 @@ class ValuationData(BaseModel):
     pb_as_of: "date | None" = None
     ps_as_of: "date | None" = None
     ps_source: str = ""
+    market_cap: float | None = None
+    market_cap_as_of: "date | None" = None
     pe_history: dict[DateType, float] = Field(default_factory=dict)
     pb_history: dict[DateType, float] = Field(default_factory=dict)
     history_source: str = ""
@@ -390,6 +394,11 @@ class AnalysisContext(BaseModel):
     enriched_industry: EnrichedIndustry | None = None
     enriched_sentiment: EnrichedSentiment | None = None
     financial_scoring_facts: dict[str, Any] = Field(default_factory=dict)
+    # 新版仅由A股真实分析流程启用；历史上下文仍走旧解读契约。
+    commentary_version: int = 1
+    business_profile: dict[str, Any] = Field(default_factory=dict)
+    # 报价只用于基础概况，不覆盖日线、财务分母或评分。
+    current_quote: dict[str, Any] = Field(default_factory=dict)
 
     # 新增 — 行业分类信息
     sw_industry: str = ""

@@ -357,6 +357,8 @@ class AkShareAdapter(DataSource):
             return True
         if market == "hk" and data_type in ("price", "financial", "valuation", "news"):
             return True
+        if market == "us" and data_type in ("price", "financial", "valuation", "industry", "news"):
+            return True
         elif data_type in ("index_price", "index_valuation", "index_capital_flow",
                            "index_macro", "index_sentiment"):
             return market in ("a-shares", "hk", "us")
@@ -383,6 +385,13 @@ class AkShareAdapter(DataSource):
                 price="东方财富港股行情（不复权）",
                 financial="东方财富港股财报",
                 valuation="东方财富港股估值快照",
+                news="东方财富关键词新闻检索",
+            )
+        if kwargs.get("market") == "us":
+            labels.update(
+                price="新浪美股行情（前复权）",
+                financial="东方财富美股F10",
+                valuation="百度美股估值",
                 news="东方财富关键词新闻检索",
             )
         if data_type == "index_price":
@@ -414,6 +423,10 @@ class AkShareAdapter(DataSource):
     def _fetch_price(self, symbol: str, **kwargs) -> list[PriceData]:
         if kwargs.get("market") == "hk":
             return self._fetch_hk_price(symbol, **kwargs)
+        if kwargs.get("market") == "us":
+            from data.us_stock import us_history
+
+            return us_history(symbol)
         # 回测等场景可显式指定起止日期（YYYYMMDD）；未完整指定时保持默认近一年（days=250）行为
         start_date = kwargs.get("start_date")
         end_date = kwargs.get("end_date")
@@ -491,6 +504,10 @@ class AkShareAdapter(DataSource):
     def _fetch_financial(self, symbol: str, **kwargs) -> list[FinancialData]:
         if kwargs.get("market") == "hk":
             return self._fetch_hk_financial(symbol)
+        if kwargs.get("market") == "us":
+            from data.us_stock import us_financials
+
+            return us_financials(symbol)
         from data.a_financial_policy import (
             DEPENDENCIES,
             SNAPSHOT_FIELDS,
@@ -527,6 +544,21 @@ class AkShareAdapter(DataSource):
                 error_message="同花顺财报：字段或历史不足，采用备用财务来源",
             )
         return annotate_selection(selection)
+
+    def _fetch_ths_capex(self, symbol: str) -> dict[date, float]:
+        """同花顺现金支出按正数记录；缺项不填零。"""
+        try:
+            frame: Any = ak.stock_financial_cash_ths(symbol=symbol, indicator="按报告期")
+            output = {}
+            for _, row in frame.iterrows():
+                period = _parse_date(str(row.get("报告期"))[:10])
+                value = parse_cn_number(row.get("购建固定资产、无形资产和其他长期资产支付的现金"))
+                if value is not None:
+                    output[period] = abs(value)
+            return output
+        except Exception as error:  # 第三方采集边界，失败保留缺失
+            logger.warning("同花顺资本开支获取失败 %s: %s", symbol, error)
+            return {}
 
     def _fetch_ths_cashflow(self, symbol: str) -> dict[date, float]:
         """同源按报告期取直接披露经营现金流；失败返回空映射，不伪造期间证据。"""
@@ -609,6 +641,7 @@ class AkShareAdapter(DataSource):
         total = len(periods)
         cash_flow_map = (self._fetch_ths_cashflow(symbol)
                          if total and kwargs.get("market", "a-shares") == "a-shares" else {})
+        capex_map = self._fetch_ths_capex(symbol) if total else {}
         start = max(0, total - 12)
         for idx in range(start, total):
             try:
@@ -679,6 +712,8 @@ class AkShareAdapter(DataSource):
                     total_equity=total_equity,
                     common_equity=common_equity,
                     operating_cash_flow=ocf,
+                    capital_expenditure=capex_map.get(fiscal_date),
+                    free_cash_flow=(ocf - capex_map[fiscal_date] if ocf is not None and fiscal_date in capex_map else None),
                     operating_cash_flow_per_share=ocf_per_share,
                     roe=roe,
                     gross_margin=gross_margin,
@@ -699,6 +734,10 @@ class AkShareAdapter(DataSource):
         """估值：腾讯实时快照（含 PE/PB，独立口径）。失败返回空列表。"""
         if kwargs.get("market") == "hk":
             return self._fetch_hk_valuation(symbol)
+        if kwargs.get("market") == "us":
+            from data.us_stock import us_valuation
+
+            return us_valuation(symbol)
         import requests as _req
 
         tx_symbol = f"sh{symbol}" if symbol.startswith("6") else f"sz{symbol}"
@@ -725,8 +764,17 @@ class AkShareAdapter(DataSource):
                     period = candidate
         except ValueError:
             logger.debug("腾讯估值快照行情日期无效，保留数值并标注日期未知")
-        return [ValuationData(symbol=symbol, date=datetime.now().astimezone().date(), pe_ttm=pe, pb=pb,
-                              pe_as_of=period if pe is not None else None, pb_as_of=period if pb is not None else None)]
+        item = ValuationData(symbol=symbol, date=datetime.now().astimezone().date(), pe_ttm=pe, pb=pb,
+                             pe_as_of=period if pe is not None else None, pb_as_of=period if pb is not None else None)
+        for metric, field in (("市盈率(TTM)", "pe_history"), ("市净率", "pb_history")):
+            try:
+                setattr(item, field, baidu_metric(symbol, metric, market="ab"))
+            except Exception as error:  # 百度网络边界，保留明确标注的派生回退
+                logger.warning("A 股百度实测 %s/%s 不可用: %s", symbol, metric, error)
+                item.valuation_notes.append(f"{metric} 百度实测不可用；派生，仅参考")
+        if item.pe_history or item.pb_history:
+            item.history_source = "百度实测估值（近一年）"
+        return [item]
 
     def _fetch_hk_price(self, symbol: str, **kwargs) -> list[PriceData]:
         code = symbol.removesuffix(".HK")
@@ -930,11 +978,15 @@ class AkShareAdapter(DataSource):
                 total_assets, total_equity, common_equity = "004009999", "004036999", "004030999"
             # 营业额不是营运收入；归母权益不是包含少数股东的总权益，分别保留。
             margin = margins.get(period) if start is not None and not bank_template else None
+            parts = [cf.get(key) for key in ("005005", "005007")]
+            capex = sum(abs(value) for value in parts if value is not None) if any(value is not None for value in parts) and not bank_template else None
+            ocf = cf.get("003999")
             result.append(FinancialData(symbol=symbol, fiscal_quarter=period,
                 revenue=row.get(revenue), net_profit=row.get(profit), basic_eps=row.get(eps),
                 total_assets=bs.get(total_assets), total_equity=bs.get(total_equity),
-                common_equity=bs.get(common_equity), operating_cash_flow=cf.get("003999"),
-                gross_margin=margin, gross_margin_basis=GROSS_MARGIN_BASIS if margin is not None else "",
+                common_equity=bs.get(common_equity), operating_cash_flow=ocf,
+                capital_expenditure=capex, free_cash_flow=ocf - capex if ocf is not None and capex is not None else None,
+                gross_margin=margin, gross_margin_basis="银行/保险不适用" if bank_template else GROSS_MARGIN_BASIS if margin is not None else "",
                 period_start=start, period_basis="cumulative" if start is not None else "unknown",
                 reporting_basis=reporting_basis, report_currency=currency,
                 amount_currency_verified=bool(currency), disclosure_currency=disclosure_currency,
@@ -1100,6 +1152,13 @@ class AkShareAdapter(DataSource):
         return [item]
 
     def _fetch_industry(self, symbol: str, **kwargs) -> list[IndustryData]:
+        if kwargs.get("market") == "us":
+            from data.us_industry import us_industry_result
+
+            result = us_industry_result(symbol, cache=kwargs.get("comparison_cache"),
+                                        refresh=bool(kwargs.get("refresh_cache", False)))
+            self._collection_diagnostics.record = result.record
+            return [result.value] if result.value is not None else []
         from data.peer_comparison import fetch_a_industry
 
         return fetch_a_industry(
@@ -1113,6 +1172,10 @@ class AkShareAdapter(DataSource):
         from pandas import isna
         from pandas.api.types import is_scalar
 
+        if kwargs.get("market") == "us":
+            from data.us_stock import us_news
+
+            return us_news(symbol, str(kwargs.get("name") or ""))
         if kwargs.get("market") == "hk":
             from data.hk_news import fetch_news
 

@@ -1,4 +1,5 @@
 """财务分析模块 — 配置驱动，无硬编码阈值"""
+import re
 from typing import Any, Literal
 
 from analysis.base import AnalysisModule
@@ -22,6 +23,10 @@ class FinancialAnalyzer(AnalysisModule):
             template_note = (f"评分模板：{meta['scoring_template_source']}；投资风格：{meta.get('style_category', '未记录')}；"
                              f"通用规则回退：{fallback}；真实 HSICS 分类不变")
             template_metrics = {"评分模板": template_note}
+        if context.market == "us" and meta.get("scoring_template_source"):
+            template_note = (f"评分模板：{meta['scoring_template_source']}；投资风格：{meta.get('style_category', '未记录')}；"
+                             f"通用规则回退：{'是' if meta.get('scoring_template_fallback') else '否'}；未做美股历史回测校准")
+            template_metrics = {"评分模板": template_note}
         financials = context.financial_data or []
         if not financials:
             return AnalysisResult(dimension=self.dimension, status="unavailable",
@@ -36,6 +41,9 @@ class FinancialAnalyzer(AnalysisModule):
             if latest.disclosure_currency:
                 amount_basis += f"；目录列报币种：{latest.disclosure_currency}（不等同于金额币种）"
             amount_basis += "；展示缩写为万/亿，不推断上游换汇情况"
+        elif context.market == "us":
+            amount_basis = (f"金额币种：{latest.report_currency}" if latest.amount_currency_verified and latest.report_currency
+                            else "金额币种未核实") + "；财季报，金额展示为万/亿；不推断换汇、会计准则或 ADR 每股比例；报告期按财季月末展示"
         else:
             amount_basis = (f"最新利润表原币：{latest.report_currency}（不代表其他报表币种）" if latest.report_currency
                             else "财报原币，币种未记录") + "；金额以基本货币单位记录，展示为万/亿，未换汇"
@@ -47,19 +55,46 @@ class FinancialAnalyzer(AnalysisModule):
             "total_assets": latest.total_assets,
             "total_equity": latest.total_equity,
             "roe": latest.roe,
-            "gross_margin": latest.gross_margin,
+            "gross_margin": "不适用（银行/保险）" if latest.gross_margin_basis == "银行/保险不适用" else latest.gross_margin,
             "amount_basis": amount_basis,
             "annual_roe": context.financial_scoring_facts.get("annual_roe", {}),
             **template_metrics,
         }
         if latest.revenue_basis:
             metrics["revenue_basis"] = latest.revenue_basis
-        if latest.gross_margin is not None and latest.gross_margin_basis:
+        if latest.gross_margin_basis:
             metrics["gross_margin_basis"] = latest.gross_margin_basis
         if latest.operating_cash_flow is not None:
             metrics["operating_cash_flow"] = latest.operating_cash_flow
         elif latest.operating_cash_flow_per_share is not None:
             metrics["operating_cash_flow_per_share"] = latest.operating_cash_flow_per_share
+
+        from data.financial_ttm import financial_ttm
+
+        profit_ttm = financial_ttm(financials, "net_profit", context.market)
+        equity_row = next((row for row in sorted_data if row.common_equity is not None or row.total_equity is not None), None)
+        equity = (equity_row.common_equity if equity_row.common_equity is not None else equity_row.total_equity) if equity_row else None
+        if equity is not None and equity <= 0:
+            metrics["roe"] = "净资产为负，ROE 不适用" if equity < 0 else "净资产为零，ROE 不适用"
+        elif profit_ttm is None:
+            metrics["roe"] = "TTM 不可用"
+        else:
+            metrics["roe"] = profit_ttm / equity if equity is not None else None
+        equity_source = (equity_row.field_sources.get("common_equity") or equity_row.field_sources.get("total_equity") or equity_row.financial_source or "来源未记录") if equity_row else "来源未记录"
+        source_date = re.search("[0-9]{4}-[0-9]{2}-[0-9]{2}", equity_source)
+        denominator_date = ((source_date.group() if source_date else equity_row.fiscal_quarter.isoformat()) + "；" + equity_source) if equity_row else "缺失"
+        metrics["roe_basis"] = f"TTM 归母净利润 / 最新可得期末归母权益，不年化；分母日期/来源：{denominator_date}；TTM 截至 {latest.fiscal_quarter}"
+
+        not_applicable = (latest.gross_margin_basis == "银行/保险不适用"
+                          or latest.revenue_basis.startswith("银行：")
+                          or context.sw_industry in {"银行", "保险"}
+                          or any(word in context.name for word in ("银行", "保险")))
+        if not_applicable:
+            metrics["gross_margin"] = "不适用（银行/保险）"
+        for field in ("operating_cash_flow", "capital_expenditure", "free_cash_flow"):
+            metrics[field] = "不适用（银行/保险）" if not_applicable else financial_ttm(financials, field, context.market)
+        metrics["cash_flow_source"] = latest.financial_source or latest.reporting_basis or "来源未记录"
+        metrics["cash_flow_period"] = f"TTM，截至 {latest.fiscal_quarter.isoformat()}；自由现金流 = 经营活动现金流 − 资本开支；缺失不填零"
 
         roe_trend = []
         for d in sorted_data[:8]:

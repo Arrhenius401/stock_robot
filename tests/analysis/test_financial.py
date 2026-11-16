@@ -92,4 +92,4 @@ class TestFinancialAnalyzer:
         result = FinancialAnalyzer().analyze(make_ctx(symbol="002714", name="牧原股份", financial_data=known_periods(financials)))
         assert result.metrics["revenue_growth_yoy"] == pytest.approx(-0.2230)
         assert result.metrics["operating_cash_flow_per_share"] == pytest.approx(-0.39)
-        assert "operating_cash_flow" not in result.metrics
+        assert result.metrics["operating_cash_flow"] is None

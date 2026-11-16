@@ -1,10 +1,33 @@
-"""腾讯港股未复权日线及百度明确口径估值：每次请求十秒，无内部重试。"""
+"""腾讯港股未复权日线、快照及百度明确口径估值：每次请求十秒，无内部重试。"""
+import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import requests
 
 from data.hk_eastmoney import finite_number
+
+
+def tencent_snapshot(code: str) -> dict[str, Any]:
+    """腾讯港股快照：名称、最新价、昨收与行情时点；不接受其他代码的响应。"""
+    response = requests.get(f"https://qt.gtimg.cn/q=hk{code}", timeout=10)
+    response.raise_for_status()
+    text = response.content.decode("gbk", errors="replace")
+    matched = re.search(rf'v_hk{re.escape(code)}="([^"]*)"', text)
+    if matched is None:
+        raise ValueError("腾讯港股快照代码不匹配")
+    fields = matched.group(1).split("~")
+    if len(fields) < 33 or fields[2].strip() != code:
+        raise ValueError("腾讯港股快照字段不足或代码不匹配")
+    quoted_at = datetime.strptime(fields[30].strip(), "%Y/%m/%d %H:%M:%S").replace(
+        tzinfo=timezone(timedelta(hours=8)))
+    return {
+        "name": fields[1].strip(),
+        "price": finite_number(fields[3]),
+        "previous": finite_number(fields[4]),
+        "quoted_at": quoted_at,
+        "change_pct": finite_number(fields[32]),
+    }
 
 
 def tencent_history(code: str, start: str, end: str, limit: int) -> list[list[Any]]:
@@ -25,13 +48,13 @@ def tencent_history(code: str, start: str, end: str, limit: int) -> list[list[An
     return target["day"]
 
 
-def baidu_metric(code: str, metric: str) -> dict[date, float]:
+def baidu_metric(code: str, metric: str, market: str = "hk") -> dict[date, float]:
     """从指标自身曲线取日期，上市日期和采集日期不能代替指标日期。"""
     if metric not in ("市盈率(TTM)", "市净率"):
         raise ValueError("不支持的港股估值口径")
     response = requests.get("https://finance.baidu.com/opendata", params={
         "openapi": "1", "dspName": "iphone", "tn": "tangram", "client": "app", "query": metric,
-        "code": code, "word": "", "resource_id": "51171", "market": "hk", "tag": metric,
+        "code": code, "word": "", "resource_id": "51171", "market": market, "tag": metric,
         "chart_select": "近一年", "industry_select": "", "skip_industry": "1", "finClientType": "pc",
     }, timeout=10)
     response.raise_for_status()

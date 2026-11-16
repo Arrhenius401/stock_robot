@@ -127,9 +127,9 @@ def test_usage_error_points_to_matching_help(arguments, path):
 
 def test_business_input_error_keeps_reason_and_adds_help(mocker):
     mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
-    result = CliRunner().invoke(main, ["analyze", "abc"])
+    result = CliRunner().invoke(main, ["analyze", "AAPL US"])
     assert result.exit_code == 1
-    assert "abc" in result.stdout
+    assert "AAPL US" in result.stdout
     assert "运行 stock-robot help analyze 查看详细用法。" in result.stderr
 
 
@@ -210,7 +210,7 @@ class TestCLI:
     def test_analyze_with_invalid_symbol_shows_error(self, mocker):
         mocker.patch("stock_robot.cli._check_disclaimer", return_value=True)
         runner = CliRunner()
-        result = runner.invoke(main, ["analyze", "abc"])
+        result = runner.invoke(main, ["analyze", "AAPL US"])
         assert result.exit_code != 0
 
     def test_analyze_with_valid_symbol(self, mocker, tmp_path):

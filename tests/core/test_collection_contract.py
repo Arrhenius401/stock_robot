@@ -61,6 +61,7 @@ def test_dedicated_capabilities_and_entrypoint_ledger():
     assert ("src/backtest/data.py", "HistoricalPriceProvider.fetch_stock_result") in ALLOWED_FETCH_RESULT_CALLS
     assert DEDICATED_CAPABILITIES == {
         ("hk", "news"), ("a-shares", "valuation"), ("hk", "valuation"),
+        ("us", "valuation"),
         ("a-shares", "industry"), ("hk", "industry"),
     }
     assert set(DEDICATED_POLICIES) == DEDICATED_CAPABILITIES

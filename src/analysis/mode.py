@@ -38,7 +38,7 @@ def objective_results(results: list[AnalysisResult]) -> list[AnalysisResult]:
         if result.status != "ok":
             # 仅存在摘要中的适用性/失败原因不能因关闭判断而丢失。
             reasons = [part for part in re.split(r"[；，。]", result.summary) if re.search(
-                r"不足|缺失|不可用|无有效|未取得|未核实|不支持|非港股通|待补齐|失败|不适用|尚未适配|不能|冲突|没有", part)]
+                r"不足|缺失|不可用|无有效|未取得|未核实|不支持|不提供|非港股通|待补齐|失败|不适用|尚未适配|不能|冲突|没有", part)]
             if reasons:
                 summary = "；".join(reasons)
         if result.dimension == "sentiment":

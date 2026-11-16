@@ -9,6 +9,10 @@ from utils.retry import retry_on_network_error
 
 logger = logging.getLogger(__name__)
 
+# 美股代码：字母开头，允许 1–2 位字母数字类别后缀（BRK.B / BRK-B）。
+_US_SYMBOL_PATTERN = re.compile(r"^[A-Z][A-Z0-9]{0,9}(?:[.-][A-Z0-9]{1,2})?$")
+_US_SUFFIX = ".US"
+
 
 @retry_on_network_error()
 def _ak_code_name():
@@ -29,9 +33,46 @@ def _hk_digits(raw: str) -> str:
     return matched.group(1) if matched else ""
 
 
+def _strip_us_suffix(raw: str) -> str:
+    return raw.strip().upper().removesuffix(_US_SUFFIX)
+
+
+def _is_us_symbol_value(value: str) -> bool:
+    """已大写、已去 .US 的代码是否为美股代码；纯数字永不识别为美股。"""
+    if not value or len(value) > 12 or value.isdigit():
+        return False
+    return bool(_US_SYMBOL_PATTERN.fullmatch(value))
+
+
+def is_us_symbol(raw: str) -> bool:
+    """是否为可直接分析的美股代码；A 股、港股与纯数字代码返回 False。"""
+    value = _strip_us_suffix(raw)
+    if _hk_digits(value):
+        return False
+    _prefix, digits = _extract_prefix_and_digits(value)
+    if digits:
+        return False
+    return _is_us_symbol_value(value)
+
+
+def normalize_us_symbol(raw: str) -> str:
+    """美股代码统一大写并去 .US；单字母类别股用点号（BRK-B → BRK.B）。"""
+    value = _strip_us_suffix(raw)
+    if not _is_us_symbol_value(value):
+        raise ValueError(f"无效的美股代码: {raw}")
+    # 仅单字母类别后缀归一为点号，避免误改普通连字符代码。
+    if re.fullmatch(r"[A-Z][A-Z0-9]{0,9}-[A-Z]", value):
+        value = value.replace("-", ".", 1)
+    return value
+
+
 def symbol_market(symbol: str) -> str:
     """返回已校验个股代码的市场标识。"""
-    return "hk" if _hk_digits(symbol) else "a-shares"
+    if _hk_digits(symbol):
+        return "hk"
+    if is_us_symbol(symbol):
+        return "us"
+    return "a-shares"
 
 
 def _code_to_market(code: str) -> str:
@@ -45,16 +86,18 @@ def _code_to_market(code: str) -> str:
 
 
 def normalize_symbol(raw: str) -> str:
-    """清理前缀并补零到 6 位"""
+    """清理前缀并补零到 6 位；港股与美股保持各自市场格式。"""
     hk_code = _hk_digits(raw)
     if hk_code:
         return f"{hk_code}.HK"
+    if is_us_symbol(raw):
+        return normalize_us_symbol(raw)
     cleaned = re.sub(r"^(sh|sz|SH|SZ)", "", raw.strip())
     return cleaned.zfill(6)
 
 
 def validate_symbol(symbol: str) -> bool:
-    """校验 A 股代码格式，前缀与代码交易所必须一致"""
+    """校验 A 股/港股代码格式，前缀与代码交易所必须一致。"""
     if _hk_digits(symbol):
         return True
     prefix, digits = _extract_prefix_and_digits(symbol)
@@ -73,19 +116,46 @@ def validate_symbol(symbol: str) -> bool:
     return True
 
 
+def validate_analyze_symbol(symbol: str) -> bool:
+    """分析入口：A 股/港股沿用原校验，字母代码按美股校验。"""
+    return validate_symbol(symbol) or is_us_symbol(symbol)
+
+
 def resolve_name_result(symbol: str) -> ValueResult[str]:
     """解析名称并保留来源和安全诊断。"""
-    source = "东财港股快照" if symbol_market(symbol) == "hk" else "AkShare A股代码名称"
-    try:
-        if symbol_market(symbol) == "hk":
+    market = symbol_market(symbol)
+    if market == "us":
+        from data.us_stock import us_name_result
+
+        return us_name_result(normalize_us_symbol(symbol))
+    if market == "hk":
+        code = normalize_symbol(symbol).removesuffix(".HK")
+        try:
+            from data.hk_alternatives import tencent_snapshot
+
+            name = str(tencent_snapshot(code).get("name") or "").strip()
+            if name:
+                return ValueResult(name, make_record(
+                    "腾讯港股快照", "complete", collected_at=datetime.now().astimezone()))
+        except Exception as error:  # noqa: BLE001 — 第三方接口边界，继续尝试备用名称源
+            logger.warning("腾讯港股名称解析失败 %s: %s", symbol, type(error).__name__)
+        try:
             from data.hk_eastmoney import stock_snapshot
 
-            snapshot = stock_snapshot(normalize_symbol(symbol).removesuffix(".HK"))
-            name = str(snapshot.get("f58") or "").strip()
-        else:
-            df: Any = _ak_code_name()
-            row = df[df["code"] == normalize_symbol(symbol)]
-            name = str(row["name"].iloc[0]) if not row.empty else ""
+            name = str(stock_snapshot(code).get("f58") or "").strip()
+            if name:
+                return ValueResult(name, make_record(
+                    "东财港股快照", "complete", collected_at=datetime.now().astimezone()))
+        except Exception as error:  # noqa: BLE001 — 第三方接口边界，返回安全诊断
+            logger.warning("东财港股名称解析失败 %s: %s", symbol, type(error).__name__)
+        return ValueResult(None, make_record(
+            "港股名称", "failed", error_kind="fetch_failed", error_message="港股名称解析失败"))
+
+    source = "AkShare A股代码名称"
+    try:
+        df: Any = _ak_code_name()
+        row = df[df["code"] == normalize_symbol(symbol)]
+        name = str(row["name"].iloc[0]) if not row.empty else ""
         if name:
             return ValueResult(name, make_record(source, "complete", collected_at=datetime.now().astimezone()))
     except Exception as e:  # noqa: BLE001 — 第三方接口边界，返回安全诊断

@@ -1,0 +1,169 @@
+"""只读官方名录，计算上市年限并保留身份与来源差异。"""
+from __future__ import annotations
+
+import hashlib
+import logging
+import re
+import unicodedata
+from collections.abc import Callable
+from datetime import UTC, date, datetime, timedelta, timezone
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
+
+from radar.stocks.admission import _day
+from radar.stocks.issuer_type import classify_issuer
+from radar.stocks.market_value_registry import _bytes, _path, _reference
+from radar.stocks.market_value_source import _scope
+from radar.stocks.official_roster import _parse_source, _url
+from radar.stocks.structured_collect import _json
+
+logger = logging.getLogger(__name__)
+
+
+def _normalize_listed_name(value: Any) -> str:
+    if not isinstance(value, str):
+        return ''
+    text = unicodedata.normalize('NFKC', value)
+    text = re.sub(r'[\s\u3000]+', '', text)
+    return re.sub(r'^(?:XD|XR|DR)', '', text)
+
+
+def _ex_marker(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    text = re.sub(r'[\s\u3000]+', '', unicodedata.normalize('NFKC', value))
+    return re.match(r'^(?:XD|XR|DR)', text) is not None
+
+
+def _names_match(roster_short: Any, company_short: Any, roster_full: Any) -> bool:
+    """精确匹配；仅允许交易所 XD/XR/DR 除权标记下的被截断简称做窄归一。"""
+    short, company = _normalize_listed_name(roster_short), _normalize_listed_name(company_short)
+    full = _normalize_listed_name(roster_full)
+    if not short or not company:
+        return False
+    if short == company or (bool(full) and full == company):
+        return True
+    return _ex_marker(roster_short) and len(short) >= 3 and company.startswith(short)
+
+
+@lru_cache(maxsize=3)
+def _parsed(raw: bytes, source: str, parser: Callable[[bytes, str], dict[str, Any]]) -> dict[str, Any]:
+    """仅缓存最多三份原始字节的纯解析；每次读取仍核验文件与摘要。"""
+    return parser(raw, source)
+
+
+def _registered_load_company_profile_source(state_dir: Path, symbol: str, as_of: date, manifest_file: Path | None = None) -> dict[str, Any]:
+    """缺失及冲突不放行；历史年限不伪装当前资格。"""
+    if type(as_of) is not date:
+        raise ValueError('评估日期无效')
+    result: dict[str, Any] = {'symbol': symbol, 'evaluation_as_of': as_of.isoformat(), 'as_of': None,
+                              'status': 'unavailable', 'manifest_sha256': None, 'name_match': None,
+                              'roster_name': None, 'checks': [{'code': 'listing_age', 'outcome': 'pending_verification',
+                                                              'reason': '上市名录来源缺失或校验失败'}]}
+    try:
+        root = Path(state_dir).absolute() / 'stock-company-profile'
+        if manifest_file is not None:
+            root = manifest_file.parent
+        manifest_path = _path(root, manifest_file.name if manifest_file is not None else 'manifest.json')
+        raw = _bytes(manifest_path)
+        result['manifest_sha256'] = hashlib.sha256(raw).hexdigest()
+        manifest = _json(raw)
+        if not isinstance(manifest, dict) or manifest.get('version') != 'stock-company-profile-v1':
+            raise ValueError('登记版本无效')
+        target = _day(manifest.get('as_of'))
+        if target is None or target > as_of:
+            raise ValueError('登记日期无效')
+        scope_path, scope_raw = _reference(root, manifest.get('scope'), need_size=True)
+        scope = _json(scope_raw)
+        _scope(scope, symbol, target)
+        company = next(row for row in scope['companies'] if row['symbol'] == symbol)
+        refs = manifest.get('rosters')
+        if not isinstance(refs, list) or not refs:
+            raise ValueError('名录缺失')
+        originals = [(scope_path, scope_raw)]
+        seen = set()
+        matches = []
+        provenance = []
+        different_capture_day = False
+        for ref in refs:
+            if not isinstance(ref, dict):
+                raise TypeError('名录引用无效')
+            source = ref.get('source')
+            if not isinstance(source, str) or source not in {'szse_a', 'sse_main', 'sse_star'} or source in seen:
+                raise ValueError('名录来源无效或重复')
+            seen.add(source)
+            if ref.get('source_url') != _url(source):
+                raise ValueError('名录端点不匹配')
+            fetched = datetime.fromisoformat(ref.get('fetched_at', ''))
+            if fetched.tzinfo is None or fetched.utcoffset() is None or fetched > datetime.now(UTC):
+                raise ValueError('抓取时间无效')
+            fetched_day = fetched.astimezone(timezone(timedelta(hours=8))).date()
+            different_capture_day |= fetched_day != target
+            path, data = _reference(root, ref, need_size=True)
+            parsed = _parsed(data, source, _parse_source)
+            if parsed.get('complete') is not True:
+                raise ValueError('名录不完整')
+            for candidate in parsed['rows']:
+                if candidate['symbol'] != symbol:
+                    continue
+                listed_day = _day(candidate.get('a_listed_on'))
+                if listed_day is not None and listed_day > fetched_day:
+                    raise ValueError('上市日期晚于名录抓取日期')
+                matches.append((candidate, ref))
+            originals.append((path, data))
+            provenance.append({key: ref[key] for key in ('source', 'source_url', 'sha256', 'bytes', 'fetched_at')})
+        if len(matches) != 1:
+            raise ValueError('代码缺失或重复')
+        row, matched_ref = matches[0]
+        listed = _day(row.get('a_listed_on'))
+        if listed is None or listed > target:
+            raise ValueError('上市日期无效')
+        try:
+            anniversary = listed.replace(year=listed.year + 3)
+        except ValueError:
+            anniversary = date(listed.year + 3, 2, 28)
+        if _bytes(manifest_path) != raw or any(_bytes(path) != data for path, data in originals):
+            raise ValueError('来源在读取期间变化')
+        current = target == as_of and not different_capture_day
+        fields = row.get('source_fields') if isinstance(row.get('source_fields'), dict) else {}
+        full_name = fields.get('FULL_NAME') or fields.get('公司全称') or fields.get('SEC_NAME_FULL') or ''
+        name_match = _names_match(row['name'], company['name'], full_name)
+        industry_label = row.get('industry_source_label') or fields.get('所属行业') or ''
+        issuer = classify_issuer(full_name, industry_label, target)
+        result.update(as_of=target.isoformat(), status='current' if current else 'historical',
+                      name_match=name_match, roster_name=row['name'],
+                      source={'scope_sha256': manifest['scope']['sha256'], 'rosters': provenance},
+                      security_market={'symbol': symbol, 'status': ('verified' if name_match else 'pending_verification') if current else 'historical',
+                                       'exchange': 'SZSE' if matched_ref['source'] == 'szse_a' else 'SSE',
+                                       'security_type': 'ordinary_a', 'issuer_type': issuer['issuer_type'],
+                                       'issuer_type_status': issuer['status'], 'issuer_type_reason': issuer['reason'],
+                                       'issuer_type_source': issuer.get('source'), 'full_name': full_name,
+                                       'industry_label': industry_label,
+                                       'source_sha256': matched_ref['sha256'], 'fetched_at': matched_ref['fetched_at']},
+                      checks=[{'code': 'listing_age', 'outcome': 'passed' if target >= anniversary else 'failed',
+                               'reason': '按A股上市完整三周年计算；代码匹配不替代发行人身份核验',
+                               'values': {'a_listed_on': listed.isoformat(), 'third_anniversary': anniversary.isoformat()}}])
+    except (OSError, ValueError, TypeError, KeyError, OverflowError, RecursionError) as exc:
+        logger.debug('上市名录来源校验失败，保留待核验: %s', exc)
+    return result
+
+
+def load_company_profile_source(state_dir: Path, symbol: str, as_of: date, *, db: Path | None = None) -> dict[str, Any]:
+    """基础资料新任务优先，无适用任务时兼容旧登记。"""
+    from radar.stocks.reference_task import select_reference_manifest
+
+    path, identity = select_reference_manifest(state_dir, symbol, as_of, 'profile', db=db)
+    if identity is None:
+        return _registered_load_company_profile_source(state_dir, symbol, as_of)
+    result = _registered_load_company_profile_source(state_dir, symbol, as_of, path) if path is not None else {'symbol': symbol, 'evaluation_as_of': as_of.isoformat(), 'as_of': None, 'status': 'unavailable', 'manifest_sha256': None, 'name_match': None, 'roster_name': None, 'checks': [{'code': 'listing_age', 'outcome': 'pending_verification', 'reason': '基础资料任务尚无可用上市来源'}]}
+    after_path, after = select_reference_manifest(state_dir, symbol, as_of, 'profile', db=db)
+    if after_path != path or after != identity:
+        result = {'symbol': symbol, 'evaluation_as_of': as_of.isoformat(), 'as_of': None, 'status': 'unavailable', 'manifest_sha256': None, 'name_match': None, 'roster_name': None, 'checks': [{'code': 'listing_age', 'outcome': 'pending_verification', 'reason': '基础资料任务尚无可用上市来源'}]}
+        identity = after or identity
+    result['reference_task'] = identity
+    if result.get('status') == 'unavailable':
+        result['reason'] = identity['reason'] if path is None else '最新基础资料任务内容未通过校验，不能回退旧登记'
+        for check in result.get('checks', []):
+            check['reason'] = result['reason']
+    return result

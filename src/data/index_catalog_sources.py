@@ -204,8 +204,9 @@ def sync_catalog(path, fetch, *, refresh: bool = False, ttl_seconds: int = 7 * 8
     old = None
     try:
         old = load_catalog_snapshot(path)
-        age = time.time() - path.stat().st_mtime
-        if not refresh and 0 <= age < ttl_seconds:
+        # 浮点秒可能让刚写入的时间戳出现亚微秒负差，使用整数纳秒保留原边界。
+        age_ns = time.time_ns() - path.stat().st_mtime_ns
+        if not refresh and 0 <= age_ns < ttl_seconds * 1_000_000_000:
             return old, 'cache'
     except (OSError, ValueError, TypeError, KeyError) as error:
         logging.getLogger(__name__).debug('指数目录快照不可用：%s', error)

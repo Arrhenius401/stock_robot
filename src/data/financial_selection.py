@@ -16,7 +16,7 @@ from data.schemas import FinancialData
 NUMERIC_FIELDS = frozenset({
     "revenue", "net_profit", "deducted_net_profit", "total_assets", "total_equity",
     "common_equity", "operating_cash_flow", "operating_cash_flow_per_share",
-    "roe", "gross_margin", "basic_eps",
+    "roe", "gross_margin", "basic_eps", "capital_expenditure", "free_cash_flow",
 })
 
 

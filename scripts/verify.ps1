@@ -108,6 +108,11 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/gold"
         continue
     }
+    if ($path.StartsWith("config\radar_stock_pools\", [StringComparison]::OrdinalIgnoreCase)) {
+        Add-UniqueTarget $testTargets "tests/radar/test_pool_catalog.py"
+        Add-UniqueTarget $testTargets "tests/api/test_radar_pools.py"
+        continue
+    }
     if ($path.StartsWith("config\", [StringComparison]::OrdinalIgnoreCase)) {
         Add-UniqueTarget $testTargets "tests/utils"
         Add-UniqueTarget $testTargets "tests/test_cli.py"
@@ -131,10 +136,299 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/radar/test_collector_cli.py"
         continue
     }
+    if ($path -in @("src\radar\stocks\dividend_payout.py", "src\stock_robot\dividend_research.py", "scripts\research-stock-dividends.py", "tests\resources\radar\stock-dividend-evidence.json")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_dividend_payout.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_dividend_research_cli.py"
+        continue
+    }
+    if ($path -in @("src\radar\stocks\source_archive.py", "src\stock_robot\dividend_materials.py", "tests\resources\radar\stock-dividend-documents.json")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_source_archive.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_dividend_materials.py"
+        continue
+    }
+    if ($path -in @("src\radar\stocks\reference_task.py", "src\radar\stocks\reference_collect.py")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_reference_task.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_reference_collect.py"
+        Add-UniqueTarget $testTargets "tests/api/test_stock_reference_update.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_evaluation_store.py"
+        Add-UniqueTarget $testTargets "tests/api/test_stock_radar_management.py"
+        continue
+    }
+    if ($path -in @("src\radar\stocks\company_profile_source.py", "src\radar\stocks\company_profile_admission.py", "src\radar\stocks\industry_source.py")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_reference_task.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_reference_collect.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_company_profile_source.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_company_profile_admission.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_industry_source.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_local_industry_source.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_evaluation_store.py"
+        Add-UniqueTarget $testTargets "tests/api/test_stock_radar_management.py"
+        continue
+    }
+    if ($path -eq "src\radar\stocks\collection_results.py") {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_collection_results.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_structured_collect.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_index_discovery.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_market_history.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_capital_history.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_update_runner.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_task.py"
+        continue
+    }
+    if ($path -in @("src\radar\stocks\growth_research.py", "src\radar\stocks\growth_source.py")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_growth_task_source.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_growth_research.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_growth_source.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_growth_integration.py"
+        Add-UniqueTarget $testTargets "tests/api/test_stock_radar_management.py"
+        continue
+    }
+    if ($path -in @("src\radar\stocks\market_value_source.py", "src\radar\stocks\market_value_registry.py", "src\radar\stocks\market_value_admission.py")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_reference_task.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_reference_collect.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_market_value_source.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_market_value_registry.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_market_value_admission.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_evaluation_store.py"
+        Add-UniqueTarget $testTargets "tests/api/test_stock_radar_management.py"
+        continue
+    }
+    if ($path -in @("src\radar\stocks\financial_source.py", "src\radar\stocks\financial_admission.py")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_growth_task_source.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_source.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_admission.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_structured_admission.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_evaluation_store.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_style.py"
+        Add-UniqueTarget $testTargets "tests/api/test_stock_radar_management.py"
+        continue
+    }
+    if ($path -in @("src\radar\stocks\evaluation_store.py", "src\radar\stocks\membership_drafts.py", "src\stock_robot\stock_archive.py")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_source.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_evaluation_store.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_membership_drafts.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_membership_store.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_archive_cli.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_research_store.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_style_cli.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_admission_cli.py"
+        continue
+    }
+    if ($path -in @("src\radar\stocks\update_runs.py", "src\radar\stocks\update_runner.py", "src\radar\stocks\financial_task.py", "src\stock_robot\stock_updates.py")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_update_runs.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_update_runner.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_task.py"
+        Add-UniqueTarget $testTargets "tests/api/test_stock_radar_management.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_updates_cli.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_membership_store.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_research_store.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_official_roster.py"
+        continue
+    }
+    if ($path -eq "src\radar\stocks\membership_store.py") {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_membership_store.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_membership_drafts.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_archive_cli.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_evaluation_store.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_research_store.py"
+        continue
+    }
+    if ($path -eq "src\radar\stocks\style.py") {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_style.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_style_cli.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_admission.py"
+        continue
+    }
+    if ($path -in @("src\radar\stocks\admission.py", "src\stock_robot\stock_admission.py")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_market_context.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_archive_cli.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_style.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_style_cli.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_admission.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_admission_cli.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_research_store.py"
+        continue
+    }
+    if ($path -in @("src\radar\stocks\capital_history.py", "src\stock_robot\stock_capital_history.py",
+        "tests\resources\radar\cninfo-600900-capital-history.json", "tests\resources\radar\cninfo-601318-capital-history.json")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_capital_history.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_capital_history_cli.py"
+        continue
+    }
+    if ($path -in @("src\radar\stocks\index_scope.py", "src\radar\stocks\index_discovery.py", "src\stock_robot\stock_index_scope.py",
+        "tests\resources\radar\cni-399006-constituents-20260930.xlsx",
+        "tests\resources\radar\csi-000922-constituents-20261016.xlsx", "tests\resources\radar\csi-000688-constituents-20261016.xlsx")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_index_scope.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_index_discovery.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_index_scope_cli.py"
+        continue
+    }
+    if ($path -in @("src\radar\stocks\official_roster.py", "src\stock_robot\stock_official_roster.py",
+        "tests\resources\radar\sse-600900-601318-listing.json", "tests\resources\radar\sse-688001-listing.json",
+        "tests\resources\radar\szse-000001-000333-listing.xlsx")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_official_roster.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_official_roster_cli.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_research_store.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_research_cli.py"
+        continue
+    }
+    if ($path -in @("src\radar\stocks\market_history.py", "src\stock_robot\stock_market_history.py",
+        "tests\resources\radar\sina-600900-2026-daily-sample.json")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_market_history.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_market_history_cli.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_market_context.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_admission_cli.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_style_cli.py"
+        continue
+    }
+    if ($path -in @("src\radar\stocks\market_context.py", "src\stock_robot\stock_market_context.py")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_market_context.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_calendar.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_admission_cli.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_style_cli.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_archive_cli.py"
+        continue
+    }
+    if ($path -in @("src\radar\stocks\interim_extract.py", "src\stock_robot\interim_documents.py") -or
+        $path -like "tests\resources\radar\cninfo-600900-*-accounting.txt") {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_extract.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_documents.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_announcement_discovery.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_financial_extract.py"
+        continue
+    }
+    if ($path -in @("src\radar\stocks\interim_ttm.py", "tests\resources\radar\cninfo-688111-financial-order-evidence.json")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_ttm.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_ttm_integration.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_facts.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_fact_store.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_facts_cli.py"
+        continue
+    }
+    if ($path -eq "src\radar\stocks\research_candidates.py") {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_research_candidates.py"
+        Add-UniqueTarget $testTargets "tests/api/test_stock_radar_management.py"
+        continue
+    }
+    if ($path -eq "src\radar\stocks\manual_review_packet.py") {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_manual_review_packet.py"
+        Add-UniqueTarget $testTargets "tests/api/test_stock_radar_management.py"
+        continue
+    }
+    if ($path -eq "src\radar\stocks\turnover_source.py") {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_turnover_source.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_market_history.py"
+        continue
+    }
+    if ($path -in @("src\radar\stocks\dividend_collect.py", "src\radar\stocks\dividend_source.py", "src\radar\stocks\dividend_structured.py", "tests\resources\radar\cninfo-600900-dividend-history.json", "tests\resources\radar\eastmoney-600900-dividend-history.json", "tests\resources\radar\eastmoney-600036-dividend-history.json")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_dividend_structured.py"
+        continue
+    }
+    if ($path -in @("src\radar\stocks\structured_financial.py", "src\radar\stocks\structured_collect.py", "src\radar\stocks\structured_screen.py", "src\stock_robot\stock_structured_financial.py", "src\stock_robot\stock_structured_admission.py", "tests\resources\radar\eastmoney-structured-financial-samples.json")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_structured_financial.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_structured_collect.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_structured_cli.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_structured_screen.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_structured_screen_cli.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_structured_admission.py"
+        continue
+    }
+    if ($path -in @("src\radar\stocks\financial_facts.py", "src\stock_robot\stock_financial_facts.py")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_ttm.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_ttm_integration.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_facts.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_fact_store.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_facts_cli.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_financial_extract.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_research_store.py"
+        continue
+    }
+    if ($path -in @("src\radar\stocks\research_store.py", "src\stock_robot\stock_research.py")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_ttm.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_ttm_integration.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_facts.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_fact_store.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_financial_facts_cli.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_evaluation_store.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_membership_drafts.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_archive_cli.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_research_store.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_documents.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_research_cli.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_store.py"
+        continue
+    }
+    if ($path -in @("src\radar\stocks\annual_batch.py", "src\stock_robot\stock_annual_collect.py")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_annual_batch.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_annual_reparse.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_annual_collect_cli.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_annual_reparse_cli.py"
+        continue
+    }
+    if ($path -in @("src\radar\stocks\annual_reparse.py", "src\stock_robot\stock_annual_reparse.py")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_annual_reparse.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_annual_reparse_cli.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_annual_collect_cli.py"
+        continue
+    }
+    if ($path -in @("src\radar\stocks\financial_extract.py", "src\stock_robot\financial_documents.py", "tests\resources\radar\cypc-600900-2025-annual-summary.txt", "tests\resources\radar\cninfo-000333-2025-annual-data.txt", "tests\resources\radar\cninfo-000100-2025-annual-data.txt")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_financial_extract.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_annual_reparse.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_extract.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_documents.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_financial_documents_cli.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_dividend_review_packet.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_dividend_workflow.py"
+        continue
+    }
+    if ($path -in @("src\radar\stocks\dividend_review.py", "src\stock_robot\dividend_workflow.py")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_dividend_review_packet.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_dividend_workflow.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_dividend_research_cli.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_dividend_materials.py"
+        continue
+    }
+    if ($path -in @("src\radar\stocks\announcement_discovery.py", "src\radar\stocks\dividend_extract.py", "src\stock_robot\dividend_documents.py", "tests\resources\radar\cninfo-000100-interim-titles.json")) {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_documents.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_extract.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_announcement_discovery.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_dividend_extract.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_dividend_documents_cli.py"
+        continue
+    }
     if ($path.StartsWith("src\stock_robot\", [StringComparison]::OrdinalIgnoreCase)) {
         Add-UniqueTarget $testTargets "tests/test_cli.py"
         Add-UniqueTarget $testTargets "tests/test_cli_index.py"
         Add-UniqueTarget $testTargets "tests/radar/test_collector_cli.py"
+        continue
+    }
+    if ($path -in @("src\api\stock_radar.py", "src\radar\stocks\web_queries.py", "src\radar\stocks\update_service.py")) {
+        Add-UniqueTarget $testTargets "tests/api/test_stock_radar_management.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_update_service.py"
+        Add-UniqueTarget $testTargets "tests/api/test_radar_pools.py"
+        Add-UniqueTarget $testTargets "tests/api/test_app.py"
+        continue
+    }
+    if ($path -in @("src\api\static\js\radar-task-window.js", "src\api\static\js\radar-stock-tasks.js")) {
+        Add-UniqueTarget $testTargets "tests/api/test_radar_task_window.py"
+        Add-UniqueTarget $testTargets "tests/api/test_radar_update_ui.py"
+        Add-UniqueTarget $testTargets "tests/api/test_stock_task_ui.py"
+        Add-UniqueTarget $testTargets "tests/api/test_stock_radar_management_ui.py"
+        continue
+    }
+    if ($path -eq "src\api\static\js\radar-stock-view.js") {
+        Add-UniqueTarget $testTargets "tests/api/test_stock_radar_management_ui.py"
+        Add-UniqueTarget $testTargets "tests/api/test_radar_pools_ui.py"
+        Add-UniqueTarget $testTargets "tests/api/test_static.py"
+        continue
+    }
+    if ($path -eq "tests\resources\radar\cninfo-000333-announcements-empty.json" -or
+        $path -like "tests\resources\radar\*-implementation.txt") {
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_documents.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_interim_extract.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_announcement_discovery.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_stock_dividend_extract.py"
+        Add-UniqueTarget $testTargets "tests/radar/test_dividend_documents_cli.py"
         continue
     }
     if ($path.StartsWith("tests\resources\", [StringComparison]::OrdinalIgnoreCase)) {
@@ -170,6 +464,8 @@ foreach ($file in $changedFiles) {
     }
     if ($path.StartsWith("src\api\static\", [StringComparison]::OrdinalIgnoreCase)) {
         Add-UniqueTarget $testTargets "tests/api/test_static.py"
+        Add-UniqueTarget $testTargets "tests/api/test_structured_commentary_static.py"
+        Add-UniqueTarget $testTargets "tests/api/test_radar_pools_ui.py"
         continue
     }
     if ($path.StartsWith("src\api\", [StringComparison]::OrdinalIgnoreCase)) {

@@ -1,6 +1,7 @@
 """估值充实器 — 行情+财报推导日频 PE/PB/PS 序列"""
 import itertools
 import logging
+from datetime import timedelta
 from statistics import median
 
 from data.akshare import get_total_shares_result
@@ -87,8 +88,8 @@ def _compute_ttm(financials: list) -> tuple[float | None, float | None]:
 
 class ValuationEnricher(DataEnricher):
     def enrich(self, ctx: AnalysisContext) -> AnalysisContext:
-        if ctx.market == "hk":
-            return self._enrich_hk(ctx)
+        if ctx.market in {"hk", "us"} or (ctx.valuation_data is not None and ctx.valuation_data.history_source.startswith("百度")):
+            return self._enrich_measured(ctx, ctx.market)
         prices = ctx.price_data or []
         financials = ctx.financial_data or []
 
@@ -221,27 +222,34 @@ class ValuationEnricher(DataEnricher):
         return ctx
 
     @staticmethod
-    def _enrich_hk(ctx: AnalysisContext) -> AnalysisContext:
-        """只统计实测同源曲线，不用港币行情与未知财报币种推导倍数。"""
+    def _enrich_measured(ctx: AnalysisContext, market: str = "hk") -> AnalysisContext:
+        """只统计实测同源曲线，不用行情与未知财报币种推导倍数。"""
+        market_label = {"hk": "港股", "us": "美股"}.get(market, "A 股")
         snapshot = ctx.valuation_data
         valid = snapshot is not None and any(
             is_positive_finite(value) for value in (snapshot.pe_ttm, snapshot.pb, snapshot.ps_ttm))
         if not valid or snapshot is None:
             ctx.enriched_valuation = None
             ctx.sufficiency.valuation = DimensionSufficiency(
-                level=SufficiencyLevel.INSUFFICIENT, reason="港股实测估值快照缺失，不混用财报币种推导估值",
+                level=SufficiencyLevel.INSUFFICIENT,
+                reason=f"{market_label}实测估值快照缺失，不混用财报币种推导估值",
                 sample_count=0, score_weight=0.0)
             return ctx
         prices = {p.trade_date: p for p in ctx.price_data or []
                   if is_positive_finite(p.close) and p.trade_date <= ctx.collected_at.date()}
         points = []
-        for period, price in sorted(prices.items()):
+        cutoff = ctx.collected_at.date()
+        periods = set(snapshot.pe_history) | set(snapshot.pb_history)
+        for period in sorted(periods):
+            if not cutoff - timedelta(days=365) <= period <= cutoff:
+                continue
+            price = prices.get(period)
             pe = snapshot.pe_history.get(period) if snapshot.history_source else None
             pb = snapshot.pb_history.get(period) if snapshot.history_source else None
             pe = pe if is_positive_finite(pe) else None
             pb = pb if is_positive_finite(pb) else None
             if pe is not None or pb is not None:
-                points.append(DailyValuationPoint(trade_date=period, close=price.close, pe=pe, pb=pb))
+                points.append(DailyValuationPoint(trade_date=period, close=price.close if price is not None else None, pe=pe, pb=pb))
         enriched = EnrichedValuation(daily_points=points, validated=True)
         for metric in ("pe", "pb"):
             samples = [(p.trade_date, getattr(p, metric)) for p in points if getattr(p, metric) is not None]
@@ -255,16 +263,32 @@ class ValuationEnricher(DataEnricher):
                 percentile = round(sum(value < values[-1] for value in values) / len(values) * 100, 1)
                 setattr(enriched, f"{metric}_percentile", percentile)
             else:
-                summary.reason = f"有效交易日样本 {len(samples)}，不足 120 个，不计算分位"
+                summary.reason = f"有效日期样本 {len(samples)}，不足 120 个，不计算分位"
             setattr(enriched, f"{metric}_history_summary", summary)
         enriched.pe_median = enriched.pe_history_summary.median
         enriched.pe_low = enriched.pe_history_summary.low
         enriched.pe_high = enriched.pe_history_summary.high
+        cap = snapshot.market_cap
+        if market == "us" and snapshot.ps_ttm is None and cap is not None and is_positive_finite(cap):
+            from data.us_stock import us_ttm
+
+            revenue = us_ttm(ctx.financial_data or []).get("revenue")
+            latest_fin = max(ctx.financial_data or [], key=lambda row: row.fiscal_quarter, default=None)
+            currency_ok = latest_fin is not None and latest_fin.amount_currency_verified and latest_fin.report_currency == "USD"
+            if revenue is not None and is_positive_finite(revenue) and currency_ok:
+                snapshot.ps_ttm = cap / revenue
+                snapshot.ps_as_of = snapshot.market_cap_as_of
+                snapshot.ps_source = "新浪美股快照市值与东财TTM营收派生"
+                snapshot.valuation_notes.append(
+                    f"PS(TTM) 派生：总市值 {cap:.0f} ÷ TTM 营收 {revenue:.0f} = {snapshot.ps_ttm:.2f}；市值日期 {snapshot.market_cap_as_of or '未记录'}；TTM 最近四个财季截至 {latest_fin.fiscal_quarter if latest_fin else '未记录'}"
+                )
+            elif not currency_ok:
+                snapshot.valuation_notes.append("PS(TTM) 暂不可用：财报金额币种未核实，不能与美元市值直接相除")
         ctx.enriched_valuation = enriched
         complete = enriched.pe_percentile is not None and enriched.pb_percentile is not None
         ctx.sufficiency.valuation = DimensionSufficiency(
             level=SufficiencyLevel.SUFFICIENT if complete else SufficiencyLevel.PARTIAL,
-            reason="近一年实测曲线，按行情交易日对齐；PE/PB 分别以同源末值计算分位" if complete else
+            reason="近一年百度实测曲线，按各指标有效日期计样本；PE/PB 分别以同源末值计算分位" if complete else
                    "仅有快照或部分历史；" + "；".join(s.reason for s in
                    (enriched.pe_history_summary, enriched.pb_history_summary) if s.reason),
             sample_count=max(1, len(points)), score_weight=1.0 if complete else 0.5)

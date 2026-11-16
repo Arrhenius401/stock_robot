@@ -1,0 +1,204 @@
+"""股票共享研究资料导入与证据审核入口，不提供入池批准。"""
+
+import csv
+import json
+import sqlite3
+from pathlib import Path
+from typing import Any
+
+import click
+
+from radar.stocks.completion_apply import apply_plan, load_plan
+from radar.stocks.completion_plan import build_completion_plan
+from radar.stocks.completion_providers import (
+    annual_archive_provider,
+    turnover_source_provider,
+)
+from radar.stocks.completion_recheck import recheck_run
+from radar.stocks.research_store import StockResearchStore
+from stock_robot.dividend_documents import _cutoff
+from stock_robot.dividend_materials import _read
+from stock_robot.dividend_research import _write_json
+
+
+def _protect_database(db: Path, *paths: Path | None) -> None:
+    bases = {db, db.resolve()}
+    targets = {Path(str(base) + suffix).resolve() for base in bases for suffix in ("", "-wal", "-shm", "-journal")}
+    if any(path is not None and path.resolve() in targets for path in paths):
+        raise ValueError("输入或输出不能覆盖SQLite数据库及其日志文件")
+
+
+def _emit(value: Any, db: Path, output: Path | None = None) -> None:
+    _protect_database(db, output)
+    if output is None:
+        click.echo(json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False))
+    else:
+        _write_json(output, value)
+        click.echo(f"研究资料已导出：{output}；未发布股票池成员。")
+
+
+@click.command("stock-records-import")
+@click.option("--kind", type=click.Choice(["candidates", "review_packet"]), required=True)
+@click.option("--input", "input_path", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
+@click.option("--db", type=click.Path(dir_okay=False, path_type=Path), required=True)
+@click.option("--as-of", required=True, help="资料截点，YYYY-MM-DD")
+def import_records(kind: str, input_path: Path, db: Path, as_of: str) -> None:
+    """将任意候选或审核资料包留档为待核验记录，输入标志不具备批准权。"""
+    try:
+        _protect_database(db, input_path)
+        cutoff = _cutoff(as_of)
+        payload, source = _read(input_path)
+        # 非有限供应商金额保留为文字线索，不写入非标准JSON。
+        payload = json.loads(json.dumps(payload, ensure_ascii=False), parse_constant=str)
+        store = StockResearchStore(db)
+        if kind == "candidates":
+            companies = payload.get("companies") if isinstance(payload, dict) else payload
+            if not isinstance(companies, list) or any(not isinstance(row, dict) for row in companies):
+                raise TypeError("companies必须是公司对象列表")
+            result = store.import_companies(companies, source_sha256=source["sha256"], source_label=source["path"], data_as_of=cutoff)
+        else:
+            if not isinstance(payload, dict):
+                raise TypeError("审核资料包必须是JSON对象")
+            result = store.import_review_packet(payload, source_sha256=source["sha256"], source_label=source["path"], data_as_of=cutoff)
+        _emit({**result, "admission_status": "pending_verification", "members_published": 0}, db)
+    except (OSError, ValueError, TypeError, sqlite3.Error) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@click.command("stock-records-list")
+@click.option("--db", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
+@click.option("--search", default="", help="全候选库名称或代码搜索")
+@click.option("--page", type=click.IntRange(min=1), default=1)
+@click.option("--symbol", help="查看单公司证据和审核历史，与搜索列表分开")
+@click.option("--output", type=click.Path(dir_okay=False, path_type=Path))
+def list_records(db: Path, search: str, page: int, symbol: str | None, output: Path | None) -> None:
+    """查看共享候选、证据或历史，不将资料完整程度当入池资格。"""
+    try:
+        _protect_database(db, output)
+        store = StockResearchStore(db)
+        if symbol is None:
+            result = store.list_companies(search=search, page=page)
+            result["summary"] = store.summary()
+        else:
+            company = store.get_company(symbol)
+            if company is None:
+                raise ValueError("公司不存在")
+            result = {"company": company, "evidence": store.list_evidence(symbol),
+                      "reviews": store.review_history(symbol)}
+        _emit(result, db, output)
+    except (OSError, ValueError, TypeError, sqlite3.Error) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@click.command("stock-evidence-add")
+@click.option("--input", "input_path", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
+@click.option("--db", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
+@click.option("--expected-revision", type=click.IntRange(min=0), required=True)
+def add_evidence(input_path: Path, db: Path, expected_revision: int) -> None:
+    """显式补充原文证据，资料仍需单独审核。"""
+    try:
+        _protect_database(db, input_path)
+        payload, _ = _read(input_path)
+        if not isinstance(payload, dict):
+            raise TypeError("证据输入必须是JSON对象")
+        required = {"symbol", "kind", "payload", "source_url", "disclosed_on", "content_sha256"}
+        if not required <= payload.keys():
+            raise ValueError("证据输入缺少必需字段")
+        result = StockResearchStore(db).add_evidence(
+            payload["symbol"], kind=payload["kind"], payload=payload["payload"], source_url=payload["source_url"],
+            disclosed_on=_cutoff(payload["disclosed_on"]), content_sha256=payload["content_sha256"],
+            expected_revision=expected_revision)
+        _emit(result, db)
+    except (OSError, ValueError, TypeError, sqlite3.Error) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@click.command("stock-completion-plan")
+@click.option("--details", "details_path", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True,
+              help="评估明细 CSV（evaluation-details.csv）")
+@click.option("--db", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
+@click.option("--as-of", required=True, help="资料截点，YYYY-MM-DD")
+@click.option("--pools", default="", help="逗号分隔的池过滤，例如 dividend_value,growth_trend")
+@click.option("--symbols", default="", help="逗号分隔的代码过滤")
+@click.option("--output", type=click.Path(dir_okay=False, path_type=Path))
+def completion_plan(details_path: Path, db: Path, as_of: str, pools: str, symbols: str,
+                    output: Path | None) -> None:
+    """只读生成待核验补全计划；不联网、不写库、不调用模型。"""
+    try:
+        _protect_database(db, details_path, output)
+        cutoff = _cutoff(as_of)
+        with details_path.open(encoding="utf-8-sig", newline="") as stream:
+            details = list(csv.DictReader(stream))
+        pool_set = {value.strip() for value in pools.split(",") if value.strip()} or None
+        symbol_set = {value.strip() for value in symbols.split(",") if value.strip()} or None
+        plan = build_completion_plan(details, db, cutoff, pools=pool_set, symbols=symbol_set)
+        _emit({**plan, "members_published": 0}, db, output)
+    except (OSError, ValueError, TypeError, sqlite3.Error) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@click.command("stock-completion-apply")
+@click.option("--plan", "plan_path", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
+@click.option("--select", default="", help="逗号分隔的代码或条件；不填则全部")
+@click.option("--db", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
+@click.option("--annual-workspace", type=click.Path(file_okay=False, path_type=Path))
+@click.option("--cache-dir", type=click.Path(file_okay=False, path_type=Path))
+@click.option("--output", type=click.Path(dir_okay=False, path_type=Path))
+@click.option("--dry-run", is_flag=True, help="只回放计划，不读取来源")
+@click.option("--yes", is_flag=True, help="确认执行")
+def completion_apply(plan_path: Path, select: str, db: Path, annual_workspace: Path | None,
+                     cache_dir: Path | None, output: Path | None, dry_run: bool, yes: bool) -> None:
+    """按计划执行补全；来源统一走年报归档与成交额来源。"""
+    try:
+        if not dry_run and not yes:
+            raise ValueError('需要 --dry-run 或 --yes')
+        plan = load_plan(plan_path)
+        selected = {value.strip() for value in select.split(',') if value.strip()} or None
+        cutoff = _cutoff(plan['as_of'])
+        workspace = annual_workspace or plan_path.parent / 'annual-archive'
+        providers = {
+            'annual_report': lambda symbol, name, years: annual_archive_provider(
+                symbol, name, years, cutoff, workspace),
+            'turnover': turnover_source_provider(db, cache_dir),
+        }
+        run = apply_plan(plan, select=selected, dry_run=dry_run, yes=yes, providers=providers)
+        if output is None:
+            click.echo(json.dumps(run, ensure_ascii=False, indent=2))
+        else:
+            _write_json(output, run)
+            click.echo(f"补全结果已导出：{output}；未发布股票池成员。")
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@click.command("stock-completion-recheck")
+@click.option("--run", "run_path", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
+@click.option("--details", "details_path", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
+@click.option("--output", type=click.Path(dir_okay=False, path_type=Path))
+def completion_recheck(run_path: Path, details_path: Path, output: Path | None) -> None:
+    """消费 completion-run，重算受影响条件并写 overrides；不手工改 CSV。"""
+    try:
+        result = recheck_run(run_path, details_path, output)
+        click.echo(f"已回灌{len(result['overrides'])}项；未发布股票池成员。")
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@click.command("stock-evidence-review")
+@click.option("--db", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True)
+@click.option("--symbol", required=True)
+@click.option("--evidence-id", required=True)
+@click.option("--expected-revision", type=click.IntRange(min=0), required=True)
+@click.option("--decision", type=click.Choice(["confirmed", "rejected", "needs_evidence"]), required=True)
+@click.option("--reviewer", required=True)
+@click.option("--reason", required=True)
+def review_evidence(db: Path, symbol: str, evidence_id: str, expected_revision: int,
+                    decision: str, reviewer: str, reason: str) -> None:
+    """保存单条事实核验，不能代替共同准入或风格批准。"""
+    try:
+        result = StockResearchStore(db).save_review(
+            symbol, evidence_id, expected_revision=expected_revision, decision=decision,
+            reviewer=reviewer, reason=reason)
+        _emit({**result, "members_published": 0}, db)
+    except (OSError, ValueError, TypeError, sqlite3.Error) as exc:
+        raise click.ClickException(str(exc)) from exc

@@ -1,0 +1,7 @@
+id: dividend_value
+name: 红利价值池
+asset_type: stock
+description: 面向一到三年观察周期的分红与价值行业龙头；正式选股规则尚未配置。
+display_order: 20
+enabled: true
+rule_status: unconfigured

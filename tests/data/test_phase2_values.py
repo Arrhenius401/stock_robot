@@ -39,6 +39,13 @@ def test_name_result_sources_and_failure(monkeypatch):
     assert result.record.source == "AkShare A股代码名称"
     assert result.record.result_state == "complete"
     assert resolve_name("600519") == "贵州茅台"
+    monkeypatch.setattr("data.hk_alternatives.tencent_snapshot", lambda code: {"name": "腾讯控股"})
+    assert resolve_name_result("00700").record.source == "腾讯港股快照"
+
+    def fail_tencent(code):
+        raise TimeoutError("tencent unavailable")
+
+    monkeypatch.setattr("data.hk_alternatives.tencent_snapshot", fail_tencent)
     monkeypatch.setattr("data.hk_eastmoney.stock_snapshot", lambda symbol: {"f58": "腾讯控股"})
     assert resolve_name_result("00700").record.source == "东财港股快照"
     monkeypatch.setattr("data.hk_eastmoney.stock_snapshot", lambda symbol: {})

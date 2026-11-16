@@ -60,6 +60,8 @@ def test_real_financial_rows_survive_price_outage_through_saved_report(tmp_path,
         registry.register_analysis_module(analyzer)
     config = Config(tmp_path / ".stock_robot")
     config.set("llm.enabled", False)
+    # 本用例验证评分保留，需显式启用额外分析；默认模式由模式专项测试覆盖。
+    config.set("analysis.extra_enabled", True)
     symbol = normalize_symbol("hk00700")
     name = resolve_name(symbol)
     assert name == "腾讯控股"
@@ -101,7 +103,7 @@ def test_real_financial_rows_survive_price_outage_through_saved_report(tmp_path,
     assert "同花顺财报" not in markdown
     assert "腾讯估值快照" not in markdown
     assert "14.23" in markdown and "2.9" in markdown
-    assert "模型信号：不适用" in markdown
+    assert "模型信号：暂未生成" in markdown
     assert "57.25%" in markdown and "毛利率计算口径" in markdown
     assert "计算值：同期间披露毛利÷营运收入" in markdown
     assert "其他营业收入" in markdown

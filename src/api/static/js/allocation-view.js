@@ -1,8 +1,13 @@
-import { createRadarUpdateUI } from "./radar-update-ui.js?v=20261004-overseas-2";
+import { createStockTaskUI } from './radar-stock-tasks.js?v=20261114-stock-shared-4';
+import { createRadarUpdateUI } from "./radar-update-ui.js?v=20261022-financial-task-1";
+import { createRadarPoolPicker } from "./radar-pool-picker.js?v=20261014-pools-2";
+import { renderRadarStockPool } from "./radar-stock-view.js?v=20261114-stock-shared-4";
 // 配置雷达基础视图：使用浏览器兼容语法直接消费完成快照。
 var allocationUpdates = null;
+var allocationStockTasks = null;
 var allocationLoadGeneration = 0;
-var allocationState = { universes: [], universeId: null, snapshot: null, snapshotHistorical: false, collectorStatus: null, detail: null, benchmark: "csi_300", backtestPeriod: "inception", performancePeriod: "inception", performanceCache: {} };
+var allocationPickerFocusGeneration = null;
+var allocationState = { universes: [], poolHistory: Object.create(null), poolViews: Object.create(null), stockPayload: null, universeId: null, snapshot: null, snapshotHistorical: false, collectorStatus: null, detail: null, benchmark: "csi_300", backtestPeriod: "inception", performancePeriod: "inception", performanceCache: {} };
 
 function allocationRoot() { return document.getElementById("radarContent"); }
 
@@ -388,29 +393,28 @@ function allocationActivate() {
 
 function allocationHeader() {
   var header = allocationElement("div", "radar-head");
-  var selector = document.createElement("select");
-  selector.setAttribute("aria-label", "选择配置雷达标的池");
-  allocationState.universes.forEach(function (universe) {
-    selector.add(new Option(universe.name, universe.id, false, universe.id === allocationState.universeId));
+  var pool = allocationState.universes.filter(function (entry) { return entry.id === allocationState.universeId; })[0];
+  var stock = pool && pool.asset_type === "stock";
+  var selector = createRadarPoolPicker(allocationState.universes, allocationState.universeId, function (selected) {
+    allocationState.poolHistory[allocationState.universeId] = window.location.hash;
+    allocationState.poolViews[allocationState.universeId] = { benchmark: allocationState.benchmark, backtestPeriod: allocationState.backtestPeriod, performancePeriod: allocationState.performancePeriod };
+    var view = allocationState.poolViews[selected.id] || { benchmark: "csi_300", backtestPeriod: "inception", performancePeriod: "inception" };
+    allocationState.benchmark = view.benchmark; allocationState.backtestPeriod = view.backtestPeriod; allocationState.performancePeriod = view.performancePeriod;
+    allocationState.universeId = selected.id; allocationState.detail = null;
+    window.history.pushState({}, "", allocationState.poolHistory[selected.id] || "#radar/" + encodeURIComponent(selected.id));
+    allocationLoad(true);
   });
-  selector.addEventListener("change", function () {
-    allocationState.universeId = selector.value;
-    allocationState.detail = null;
-    allocationLoad();
-  });
-  var meta = allocationElement("p", "radar-meta radar-head-title", allocationSnapshotMeta(allocationState.snapshot));
+  var meta = allocationElement("p", "radar-meta radar-head-title", stock ? "股票池 · 筛选结果与资料核验" : allocationSnapshotMeta(allocationState.snapshot));
   var controls = allocationElement("div", "radar-head-controls");
   var actions = allocationElement("div", "radar-head-actions");
-  var busy = allocationUpdates && allocationUpdates.isActive(allocationState.universeId);
+  var busy = !stock && allocationUpdates && allocationUpdates.isActive(allocationState.universeId);
   var refresh = allocationElement("button", "radar-refresh", busy ? "更新中…" : "更新数据");
   refresh.type = "button";
-  refresh.disabled = busy;
-  refresh.onclick = function () { allocationUpdates.start(allocationState.universeId); };
-  var overseas = allocationElement("button", "subs-btn", "查看海外动态");
-  overseas.type = "button";
-  overseas.onclick = function () { allocationUpdates.open(allocationState.universeId, null, allocationState.snapshot, allocationState.snapshotHistorical); };
-  var buttons = allocationElement("div", "radar-update-actions"); buttons.append(overseas, refresh);
-  actions.append(buttons, allocationElement("p", "radar-meta", "手动更新可用 · 自动采集服务" + (allocationState.collectorStatus ? allocationState.collectorStatus.service_online ? "在线" : "离线" : "状态暂不可读取")));
+  refresh.disabled = busy || !pool || !pool.capabilities || !pool.capabilities.update;
+  if (stock) refresh.title = "更新当前股票池的资料与筛选结果";
+  refresh.onclick = function () { if (pool && pool.asset_type === "etf" && pool.capabilities.update) allocationUpdates.start(pool.id); };
+  var buttons = allocationElement("div", "radar-update-actions"); buttons.append(refresh);
+  actions.append(buttons, allocationElement("p", "radar-meta", stock ? "股票资料手动更新 · 自动更新关闭" : "手动更新可用 · 自动采集服务" + (allocationState.collectorStatus ? allocationState.collectorStatus.service_online ? "在线" : "离线" : "状态暂不可读取")));
   controls.append(selector, actions);
   header.append(meta, controls);
   return header;
@@ -432,12 +436,19 @@ function allocationDataStatus(item) {
   return "—";
 }
 
+function allocationPoolActions() {
+  var section = allocationElement("div", "radar-pool-content-head");
+  var overseas = allocationElement("button", "subs-btn", "查看海外动态"); overseas.type = "button";
+  overseas.onclick = function () { allocationUpdates.open(allocationState.universeId, null, allocationState.snapshot, allocationState.snapshotHistorical); };
+  section.append(overseas); return section;
+}
+
 function allocationShowList() {
   allocationState.detail = null;
   var root = allocationRoot();
   var snapshot = allocationState.snapshot;
-  if (!snapshot) { root.replaceChildren(allocationHeader(), allocationElement("p", "radar-note", "尚无完成快照，请更新数据。")); return; }
-  root.replaceChildren(allocationHeader(), allocationCollectionStatus(snapshot), allocationDataAvailability(snapshot), allocationBacktestSection(null, true), allocationElement("p", "radar-note", snapshot.research_notice || "研究评分，不构成投资建议。"));
+  if (!snapshot) { root.replaceChildren(allocationHeader(), allocationPoolActions(), allocationElement("p", "radar-note", "尚无完成快照，请更新数据。")); return; }
+  root.replaceChildren(allocationHeader(), allocationPoolActions(), allocationCollectionStatus(snapshot), allocationDataAvailability(snapshot), allocationBacktestSection(null, true), allocationElement("p", "radar-note", snapshot.research_notice || "研究评分，不构成投资建议。"));
   var groups = {};
   snapshot.items.forEach(function (item) {
     var category = item.category || "其他";
@@ -566,19 +577,43 @@ function allocationRestoreDetail() {
   if (item) allocationShowDetail(item, true);
 }
 
-function allocationLoad() {
-  var root = allocationRoot(), generation = ++allocationLoadGeneration, historical = false;
-  root.replaceChildren(allocationElement("p", "radar-meta", "正在读取配置雷达快照…"));
-  allocationRequest("/api/v1/radar/universes").then(function (universes) {
+function allocationFocusCurrentPicker(generation) {
+  if (allocationPickerFocusGeneration !== generation) return;
+  var trigger = allocationRoot().querySelector(".radar-pool-trigger");
+  if (trigger) trigger.focus();
+  allocationPickerFocusGeneration = null;
+}
+
+function allocationLoad(focusPicker) {
+  var root = allocationRoot(), generation = ++allocationLoadGeneration, historical = false, stock = false, selectedPool;
+  if (focusPicker === true) allocationPickerFocusGeneration = generation;
+  allocationState.detail = null;
+  root.replaceChildren(allocationElement("p", "radar-meta", "正在读取配置雷达…"));
+  allocationRequest("/api/v1/radar/pools").then(function (pools) {
     if (generation !== allocationLoadGeneration) return null;
-    allocationState.universes = universes;
-    if (!allocationState.universeId && universes.length) allocationState.universeId = universes[0].id;
+    allocationState.universes = pools;
+    var parts = window.location.hash.split("/");
+    var requestedPool = parts.length >= 2 && parts[1] ? decodeURIComponent(parts[1]) : null;
+    if (requestedPool) allocationState.universeId = requestedPool;
+    if (!allocationState.universeId && pools.length) {
+      var defaultPool = pools.filter(function (pool) { return pool.asset_type === "etf" && pool.id === "cn_hk_etf"; })[0] || pools.filter(function (pool) { return pool.asset_type === "etf"; })[0] || pools[0];
+      allocationState.universeId = defaultPool.id;
+    }
     var universeId = allocationState.universeId;
+    selectedPool = pools.filter(function (pool) { return pool.id === universeId; })[0];
+    if (!selectedPool) throw new Error("该标的池不存在或已停用，请选择其他池。");
+    stock = selectedPool.asset_type === "stock";
+    var subtitle = document.querySelector("#view-radar .page-heading-copy p");
+    if (subtitle) subtitle.textContent = stock ? "查看股票池筛选结果、规则与资料核验" : "查看 ETF 池快照与策略表现";
+    allocationState.snapshot = null; allocationState.snapshotHistorical = false;
+    root.replaceChildren(allocationHeader(), allocationElement("p", "radar-meta", stock ? "正在读取股票池成员…" : "正在读取完成快照…"));
+    if (stock) return allocationRequest("/api/v1/radar/stocks/" + encodeURIComponent(universeId) + "/members");
     allocationUpdates.recover(universeId);
     return Promise.all([
       allocationRequest("/api/v1/radar/snapshots/latest?universe_id=" + encodeURIComponent(universeId)).catch(function (error) { if (error.status === 404) return null; throw error; }).then(function (latest) {
-        var parts = window.location.hash.split("/"), requestedRun = parts.length >= 3 ? decodeURIComponent(parts[2]) : null;
-        if (requestedRun && decodeURIComponent(parts[1]) === universeId && (!latest || requestedRun !== latest.run_id)) {
+        if (generation !== allocationLoadGeneration) return null;
+        var requestedRun = parts.length >= 3 ? decodeURIComponent(parts[2]) : null;
+        if (requestedRun && (!latest || requestedRun !== latest.run_id)) {
           historical = true;
           return allocationRequest("/api/v1/radar/snapshots/" + encodeURIComponent(requestedRun));
         }
@@ -588,9 +623,16 @@ function allocationLoad() {
     ]);
   }).then(function (payload) {
     if (!payload || generation !== allocationLoadGeneration) return;
+    if (stock) { if (!allocationStockTasks) allocationStockTasks = createStockTaskUI(allocationRequest, function (task, finished) { if (finished && task.kind === 'discover_candidates' && (task.pool_ids || []).indexOf(allocationState.universeId) !== -1 && window.location.hash.indexOf('#radar') === 0) allocationLoad(); }); allocationState.stockPayload = payload; renderRadarStockPool(root, allocationHeader(), selectedPool, payload, { request: allocationRequest, taskUI: allocationStockTasks, isCurrent: function () { return generation === allocationLoadGeneration && allocationState.universeId === selectedPool.id && window.location.hash.indexOf("#radar") === 0; } }); allocationFocusCurrentPicker(generation); return; }
+    if (payload[0] && payload[0].universe_id !== selectedPool.id) throw new Error("快照所属池与当前选择不一致，请重新选择正确的标的池。");
     allocationState.snapshot = payload[0]; allocationState.snapshotHistorical = historical; allocationState.collectorStatus = payload[1];
-    allocationShowList(); allocationRestoreDetail();
-  }).catch(function (error) { if (generation === allocationLoadGeneration) root.replaceChildren(allocationHeader(), allocationElement("p", "radar-note", error.message)); });
+    allocationShowList(); allocationRestoreDetail(); allocationFocusCurrentPicker(generation);
+  }).catch(function (error) {
+    if (generation !== allocationLoadGeneration) return;
+    var retry = allocationElement("button", "subs-btn", "重试"); retry.type = "button"; retry.onclick = allocationLoad;
+    root.replaceChildren(allocationHeader(), allocationElement("p", "radar-note", "读取失败：" + error.message), retry);
+    allocationFocusCurrentPicker(generation);
+  });
 }
 
 export function initRadar() {
@@ -605,9 +647,19 @@ export function initRadar() {
     else if (!allocationState.detail) { var current = allocationRoot().querySelector(".radar-head"); if (current) current.replaceWith(allocationHeader()); }
   });
   var nav = document.querySelector('[data-view="radar"]');
-  if (nav) nav.addEventListener("click", allocationLoad);
+  if (nav) nav.addEventListener("click", function () {
+    var radarView = document.getElementById("view-radar");
+    if (!radarView || !radarView.classList.contains("active")) return;
+    if (window.location.hash.indexOf("#radar") !== 0) window.history.replaceState({}, "", "#radar" + (allocationState.universeId ? "/" + encodeURIComponent(allocationState.universeId) : ""));
+    allocationLoad();
+  });
+  var alreadyActive = document.getElementById("view-radar");
   if (window.location.hash.indexOf("#radar") === 0) {
     allocationActivate();
+    allocationLoad();
+  } else if (alreadyActive && alreadyActive.classList.contains("active")) {
+    // 延迟初始化时，沿用已通过全局导航保护的当前视图。
+    window.history.replaceState({}, "", "#radar" + (allocationState.universeId ? "/" + encodeURIComponent(allocationState.universeId) : ""));
     allocationLoad();
   }
   window.addEventListener("popstate", function () {

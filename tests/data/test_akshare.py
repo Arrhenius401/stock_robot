@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from http.client import RemoteDisconnected
 
 import pandas as pd
@@ -25,9 +25,10 @@ class TestAkShareAdapter:
         adapter = AkShareAdapter()
         assert adapter.supports("a-shares", "price") is True
 
-    def test_does_not_support_us_market(self):
+    def test_supports_us_market_with_industry(self):
         adapter = AkShareAdapter()
-        assert adapter.supports("us", "price") is False
+        for data_type in ("price", "financial", "valuation", "industry", "news"):
+            assert adapter.supports("us", data_type) is True
 
     def test_fetch_price_data(self, mock_akshare):
         adapter = AkShareAdapter()
@@ -556,19 +557,35 @@ def test_fetch_financial_new_table_fail_falls_back_old(mocker):
     assert results[0].common_equity is None
 
 
+def _fixed_news_clock(mocker):
+    from data.hk_news import HK_TZ
+
+    fixed_now = datetime(2026, 11, 7, 15, 0, tzinfo=HK_TZ)
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now.astimezone(tz) if tz is not None else fixed_now
+
+    mocker.patch("data.akshare.datetime", FixedDateTime)
+    return fixed_now, HK_TZ
+
+
 def test_fetch_news_uses_individual_notice(mocker):
-    """公告使用个股接口，失败时仅新闻不报错"""
+    """公告使用个股接口；过去新闻保留，未来新闻过滤。"""
     import pandas as pd
 
-    today = datetime.now().astimezone().date().isoformat()
+    fixed_now, _tz = _fixed_news_clock(mocker)
     news_df = pd.DataFrame({
-        "关键词": ["000001"], "新闻标题": ["测试新闻"], "新闻内容": ["内容"],
-        "发布时间": [f"{today} 10:00:00"],
+        "关键词": ["000001", "000001"], "新闻标题": ["过去新闻", "未来新闻"],
+        "新闻内容": ["内容", "内容"],
+        "发布时间": [(fixed_now - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S"),
+                     (fixed_now + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")],
     })
     notice_df = pd.DataFrame({
         "代码": ["000001"], "名称": ["平安银行"],
         "公告标题": ["平安银行:关于职工董事任职资格核准的公告"],
-        "公告类型": ["高管人员任职变动"], "公告日期": [today],
+        "公告类型": ["高管人员任职变动"], "公告日期": [fixed_now.date().isoformat()],
     })
     mocker.patch("data.akshare._ak_news", return_value=news_df)
     mocker.patch("akshare.stock_individual_notice_report", return_value=notice_df)
@@ -579,17 +596,21 @@ def test_fetch_news_uses_individual_notice(mocker):
     assert raw is not None
     sources = {item.source for item in raw.items}
     assert "news" in sources and "announcement" in sources
+    titles = {item.title for item in raw.items}
+    assert "过去新闻" in titles and "未来新闻" not in titles
     assert any("职工董事" in item.title for item in raw.items)
 
 
 def test_fetch_news_notice_fail_keeps_news(mocker):
-    """公告接口失败时仅新闻，不抛异常"""
+    """公告接口失败时仅保留过去新闻，不抛异常。"""
     import pandas as pd
 
-    today = datetime.now().astimezone().date().isoformat()
+    fixed_now, _tz = _fixed_news_clock(mocker)
     news_df = pd.DataFrame({
-        "关键词": ["000001"], "新闻标题": ["测试新闻"], "新闻内容": ["内容"],
-        "发布时间": [f"{today} 10:00:00"],
+        "关键词": ["000001", "000001"], "新闻标题": ["过去新闻", "未来新闻"],
+        "新闻内容": ["内容", "内容"],
+        "发布时间": [(fixed_now - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S"),
+                     (fixed_now + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")],
     })
     mocker.patch("data.akshare._ak_news", return_value=news_df)
     mocker.patch("akshare.stock_individual_notice_report",
@@ -600,6 +621,8 @@ def test_fetch_news_notice_fail_keeps_news(mocker):
     raw = results[0]._raw_sentiment
     assert raw is not None
     assert {item.source for item in raw.items} == {"news"}
+    titles = {item.title for item in raw.items}
+    assert "过去新闻" in titles and "未来新闻" not in titles
 
 
 class TestFetchSwPeers:

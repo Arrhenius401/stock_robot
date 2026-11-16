@@ -47,6 +47,8 @@ class GeneralScorer(BaseScorer):
         self.financial_score_basis = {"available_max": 0.0, "eligible_max": 0.0, "reasons": []}
         if not cfg.get("enabled", True):
             return None, "财务维度已禁用", []
+        if ctx.market == "us" and any(r.gross_margin_basis == "银行/保险不适用" for r in ctx.financial_data or []):
+            return None, "美股银行/保险财务专项指标尚未接入，财务维度 N/A", []
         rows = trusted_rows(ctx)
         if not rows:
             return None, "财务数据不可用或期间冲突", []
@@ -69,7 +71,7 @@ class GeneralScorer(BaseScorer):
         fact = annual_roe_fact(ctx)
         gms = gross_margin_periods(rows)
         financial_sector = self.config.get("meta", {}).get("strategy_key") in ("BankScorer", "NonBankFinancialScorer")
-        for key, label, default_max in (("roe", "年度 ROE", 3), ("debt_ratio", "资产负债率", 2),
+        for key, label, default_max in (("roe", "TTM ROE" if ctx.market == "us" else "年度 ROE", 3), ("debt_ratio", "资产负债率", 2),
                                         ("cashflow_match", "经营现金流/净利润", 3),
                                         ("gross_margin_stability", "毛利率稳定性", 2)):
             item = cfg.get(key, {})
@@ -150,8 +152,11 @@ class GeneralScorer(BaseScorer):
         self.financial_score_basis = {"available_max": available, "eligible_max": eligible, "reasons": reasons}
         if not available:
             return None, "；".join([*details, "没有可用财务计分子项，不计分"]), risks
-        normalized = total / available * 10
-        details.append(f"有效子项 {total:.2f}/{available:.2f} 分，按原相对权重折算为 {normalized:.1f}/10")
+        normalized = total / (eligible if ctx.market == "us" else available) * 10
+        if ctx.market == "us" and available < eligible:
+            details.append(f"财务 partial：可用权重 {available:.2f}/{eligible:.2f}，缺项不放大，得 {normalized:.1f}/10")
+        else:
+            details.append(f"有效子项 {total:.2f}/{available:.2f} 分，按原相对权重折算为 {normalized:.1f}/10")
         return normalized, "；".join(details), risks
 
     # —— 估值维度 ——

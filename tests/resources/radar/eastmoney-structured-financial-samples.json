@@ -1,0 +1,802 @@
+[
+  {
+    "symbol": "000100",
+    "as_of": "2026-10-17",
+    "captured_at": "2026-10-18T14:00:00+08:00",
+    "status": "complete",
+    "point_in_time_verified": false,
+    "records": {
+      "main": [
+        {
+          "SECUCODE": "000100.SZ",
+          "SECURITY_CODE": "000100",
+          "REPORT_DATE": "2026-06-30 00:00:00",
+          "NOTICE_DATE": "2026-08-29 00:00:00",
+          "UPDATE_DATE": "2026-08-29 00:00:00",
+          "CURRENCY": "CNY",
+          "TOTALOPERATEREVE": 88686905000,
+          "PARENTNETPROFIT": 3808272000,
+          "KCFJCXSYJLR": 3139882317
+        },
+        {
+          "SECUCODE": "000100.SZ",
+          "SECURITY_CODE": "000100",
+          "REPORT_DATE": "2025-12-31 00:00:00",
+          "NOTICE_DATE": "2026-03-28 00:00:00",
+          "UPDATE_DATE": "2026-03-28 00:00:00",
+          "CURRENCY": "CNY",
+          "TOTALOPERATEREVE": 184210915000,
+          "PARENTNETPROFIT": 4516782000,
+          "KCFJCXSYJLR": 2896878481
+        },
+        {
+          "SECUCODE": "000100.SZ",
+          "SECURITY_CODE": "000100",
+          "REPORT_DATE": "2025-06-30 00:00:00",
+          "NOTICE_DATE": "2025-08-30 00:00:00",
+          "UPDATE_DATE": "2026-08-29 00:00:00",
+          "CURRENCY": "CNY",
+          "TOTALOPERATEREVE": 85661626000,
+          "PARENTNETPROFIT": 1883500000,
+          "KCFJCXSYJLR": 1558735448
+        },
+        {
+          "SECUCODE": "000100.SZ",
+          "SECURITY_CODE": "000100",
+          "REPORT_DATE": "2024-12-31 00:00:00",
+          "NOTICE_DATE": "2025-04-29 00:00:00",
+          "UPDATE_DATE": "2026-03-28 00:00:00",
+          "CURRENCY": "CNY",
+          "TOTALOPERATEREVE": 164962838000,
+          "PARENTNETPROFIT": 1564112000,
+          "KCFJCXSYJLR": 298355801
+        },
+        {
+          "SECUCODE": "000100.SZ",
+          "SECURITY_CODE": "000100",
+          "REPORT_DATE": "2023-12-31 00:00:00",
+          "NOTICE_DATE": "2024-04-30 00:00:00",
+          "UPDATE_DATE": "2025-04-29 00:00:00",
+          "CURRENCY": "CNY",
+          "TOTALOPERATEREVE": 174446172000,
+          "PARENTNETPROFIT": 2214934000,
+          "KCFJCXSYJLR": 1021080065
+        }
+      ],
+      "cashflow": [
+        {
+          "SECUCODE": "000100.SZ",
+          "SECURITY_CODE": "000100",
+          "REPORT_DATE": "2026-06-30 00:00:00",
+          "NOTICE_DATE": "2026-08-29 00:00:00",
+          "UPDATE_DATE": "2026-08-29 00:00:00",
+          "CURRENCY": "CNY",
+          "NETCASH_OPERATE": 17622152000
+        },
+        {
+          "SECUCODE": "000100.SZ",
+          "SECURITY_CODE": "000100",
+          "REPORT_DATE": "2025-12-31 00:00:00",
+          "NOTICE_DATE": "2026-03-28 00:00:00",
+          "UPDATE_DATE": "2026-03-28 00:00:00",
+          "CURRENCY": "CNY",
+          "NETCASH_OPERATE": 44021698000
+        },
+        {
+          "SECUCODE": "000100.SZ",
+          "SECURITY_CODE": "000100",
+          "REPORT_DATE": "2025-06-30 00:00:00",
+          "NOTICE_DATE": "2025-08-30 00:00:00",
+          "UPDATE_DATE": "2026-08-29 00:00:00",
+          "CURRENCY": "CNY",
+          "NETCASH_OPERATE": 27273983000
+        },
+        {
+          "SECUCODE": "000100.SZ",
+          "SECURITY_CODE": "000100",
+          "REPORT_DATE": "2024-12-31 00:00:00",
+          "NOTICE_DATE": "2025-04-29 00:00:00",
+          "UPDATE_DATE": "2026-03-28 00:00:00",
+          "CURRENCY": "CNY",
+          "NETCASH_OPERATE": 29526571000
+        },
+        {
+          "SECUCODE": "000100.SZ",
+          "SECURITY_CODE": "000100",
+          "REPORT_DATE": "2023-12-31 00:00:00",
+          "NOTICE_DATE": "2024-04-30 00:00:00",
+          "UPDATE_DATE": "2025-04-29 00:00:00",
+          "CURRENCY": "CNY",
+          "NETCASH_OPERATE": 25314756000
+        }
+      ],
+      "profit": [
+        {
+          "SECUCODE": "000100.SZ",
+          "SECURITY_CODE": "000100",
+          "REPORT_DATE": "2026-06-30 00:00:00",
+          "NOTICE_DATE": "2026-08-29 00:00:00",
+          "UPDATE_DATE": "2026-08-29 00:00:00",
+          "CURRENCY": "CNY",
+          "OPERATE_INCOME": 88648187000,
+          "PARENT_NETPROFIT": 3808272000,
+          "DEDUCT_PARENT_NETPROFIT": 3139881350
+        },
+        {
+          "SECUCODE": "000100.SZ",
+          "SECURITY_CODE": "000100",
+          "REPORT_DATE": "2025-12-31 00:00:00",
+          "NOTICE_DATE": "2026-03-28 00:00:00",
+          "UPDATE_DATE": "2026-03-28 00:00:00",
+          "CURRENCY": "CNY",
+          "OPERATE_INCOME": 184063391000,
+          "PARENT_NETPROFIT": 4516782000,
+          "DEDUCT_PARENT_NETPROFIT": 2896877070
+        },
+        {
+          "SECUCODE": "000100.SZ",
+          "SECURITY_CODE": "000100",
+          "REPORT_DATE": "2025-06-30 00:00:00",
+          "NOTICE_DATE": "2025-08-30 00:00:00",
+          "UPDATE_DATE": "2026-08-29 00:00:00",
+          "CURRENCY": "CNY",
+          "OPERATE_INCOME": 85560004000,
+          "PARENT_NETPROFIT": 1883500000,
+          "DEDUCT_PARENT_NETPROFIT": 1558735448
+        },
+        {
+          "SECUCODE": "000100.SZ",
+          "SECURITY_CODE": "000100",
+          "REPORT_DATE": "2024-12-31 00:00:00",
+          "NOTICE_DATE": "2025-04-29 00:00:00",
+          "UPDATE_DATE": "2026-03-28 00:00:00",
+          "CURRENCY": "CNY",
+          "OPERATE_INCOME": 164822833000,
+          "PARENT_NETPROFIT": 1564112000,
+          "DEDUCT_PARENT_NETPROFIT": 298355801
+        },
+        {
+          "SECUCODE": "000100.SZ",
+          "SECURITY_CODE": "000100",
+          "REPORT_DATE": "2023-12-31 00:00:00",
+          "NOTICE_DATE": "2024-04-30 00:00:00",
+          "UPDATE_DATE": "2025-04-29 00:00:00",
+          "CURRENCY": "CNY",
+          "OPERATE_INCOME": 174366657000,
+          "PARENT_NETPROFIT": 2214934000,
+          "DEDUCT_PARENT_NETPROFIT": 1021080065
+        }
+      ]
+    },
+    "sources": {
+      "main": {
+        "source_url": "https://datacenter.eastmoney.com/securities/api/data/get",
+        "content_sha256": "852b0ef8b7d0fae5034f9284dd204fe36370ce94877dcee3353160686f388efe",
+        "fetched_at": "2026-10-18T13:06:14.163748+08:00",
+        "raw_artifact": "01-000100-main.raw",
+        "bytes": 336895
+      },
+      "cashflow": {
+        "source_url": "https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/xjllbAjaxNew",
+        "content_sha256": "9e11f70225523d8b0f02042705cce3018d7f2586563e3917e98339a7e14962b0",
+        "fetched_at": "2026-10-18T13:06:20.064693+08:00",
+        "raw_artifact": "04-000100-cashflow.raw",
+        "bytes": 56919
+      },
+      "profit": {
+        "source_url": "https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/lrbAjaxNew",
+        "content_sha256": "9662a7641b47a1ea388748de9c0e0787d0aa694b605a6d4dd6a0c30b47c61981",
+        "fetched_at": "2026-10-18T13:11:20.653485+08:00",
+        "raw_artifact": "17-000100-income-crosscheck.raw",
+        "bytes": 43862
+      }
+    },
+    "targets": [
+      "2023-12-31",
+      "2024-12-31",
+      "2025-12-31",
+      "2025-06-30",
+      "2026-06-30"
+    ]
+  },
+  {
+    "symbol": "600900",
+    "as_of": "2026-10-17",
+    "captured_at": "2026-10-18T14:00:00+08:00",
+    "status": "complete",
+    "point_in_time_verified": false,
+    "records": {
+      "main": [
+        {
+          "SECUCODE": "600900.SH",
+          "SECURITY_CODE": "600900",
+          "REPORT_DATE": "2026-06-30 00:00:00",
+          "NOTICE_DATE": "2026-08-31 00:00:00",
+          "UPDATE_DATE": "2026-08-31 00:00:00",
+          "CURRENCY": "CNY",
+          "TOTALOPERATEREVE": "37929268927.18",
+          "PARENTNETPROFIT": "14755694774.53",
+          "KCFJCXSYJLR": "14294030444.04"
+        },
+        {
+          "SECUCODE": "600900.SH",
+          "SECURITY_CODE": "600900",
+          "REPORT_DATE": "2025-12-31 00:00:00",
+          "NOTICE_DATE": "2026-04-30 00:00:00",
+          "UPDATE_DATE": "2026-04-30 00:00:00",
+          "CURRENCY": "CNY",
+          "TOTALOPERATEREVE": "86241940222.2",
+          "PARENTNETPROFIT": "34502809176.39",
+          "KCFJCXSYJLR": "33445575299.94"
+        },
+        {
+          "SECUCODE": "600900.SH",
+          "SECURITY_CODE": "600900",
+          "REPORT_DATE": "2025-06-30 00:00:00",
+          "NOTICE_DATE": "2025-08-30 00:00:00",
+          "UPDATE_DATE": "2026-08-31 00:00:00",
+          "CURRENCY": "CNY",
+          "TOTALOPERATEREVE": "36697614066.72",
+          "PARENTNETPROFIT": "13056352473.55",
+          "KCFJCXSYJLR": "13190192509.73"
+        },
+        {
+          "SECUCODE": "600900.SH",
+          "SECURITY_CODE": "600900",
+          "REPORT_DATE": "2024-12-31 00:00:00",
+          "NOTICE_DATE": "2025-04-30 00:00:00",
+          "UPDATE_DATE": "2026-04-30 00:00:00",
+          "CURRENCY": "CNY",
+          "TOTALOPERATEREVE": "84491870566.52",
+          "PARENTNETPROFIT": "32496172808.65",
+          "KCFJCXSYJLR": "32507551977.06"
+        },
+        {
+          "SECUCODE": "600900.SH",
+          "SECURITY_CODE": "600900",
+          "REPORT_DATE": "2023-12-31 00:00:00",
+          "NOTICE_DATE": "2024-04-30 00:00:00",
+          "UPDATE_DATE": "2025-04-30 00:00:00",
+          "CURRENCY": "CNY",
+          "TOTALOPERATEREVE": "78143535736.1",
+          "PARENTNETPROFIT": "27244616815.27",
+          "KCFJCXSYJLR": "27508231223.76"
+        }
+      ],
+      "cashflow": [
+        {
+          "SECUCODE": "600900.SH",
+          "SECURITY_CODE": "600900",
+          "REPORT_DATE": "2026-06-30 00:00:00",
+          "NOTICE_DATE": "2026-08-31 00:00:00",
+          "UPDATE_DATE": "2026-08-31 00:00:00",
+          "CURRENCY": "CNY",
+          "NETCASH_OPERATE": "24128313774.37"
+        },
+        {
+          "SECUCODE": "600900.SH",
+          "SECURITY_CODE": "600900",
+          "REPORT_DATE": "2025-12-31 00:00:00",
+          "NOTICE_DATE": "2026-04-30 00:00:00",
+          "UPDATE_DATE": "2026-04-30 00:00:00",
+          "CURRENCY": "CNY",
+          "NETCASH_OPERATE": "60562925570.41"
+        },
+        {
+          "SECUCODE": "600900.SH",
+          "SECURITY_CODE": "600900",
+          "REPORT_DATE": "2025-06-30 00:00:00",
+          "NOTICE_DATE": "2025-08-30 00:00:00",
+          "UPDATE_DATE": "2026-08-31 00:00:00",
+          "CURRENCY": "CNY",
+          "NETCASH_OPERATE": "23991186511.61"
+        },
+        {
+          "SECUCODE": "600900.SH",
+          "SECURITY_CODE": "600900",
+          "REPORT_DATE": "2024-12-31 00:00:00",
+          "NOTICE_DATE": "2025-04-30 00:00:00",
+          "UPDATE_DATE": "2026-04-30 00:00:00",
+          "CURRENCY": "CNY",
+          "NETCASH_OPERATE": "59648468284.22"
+        },
+        {
+          "SECUCODE": "600900.SH",
+          "SECURITY_CODE": "600900",
+          "REPORT_DATE": "2023-12-31 00:00:00",
+          "NOTICE_DATE": "2024-04-30 00:00:00",
+          "UPDATE_DATE": "2025-04-30 00:00:00",
+          "CURRENCY": "CNY",
+          "NETCASH_OPERATE": "64749448288.66"
+        }
+      ],
+      "profit": [
+        {
+          "SECUCODE": "600900.SH",
+          "SECURITY_CODE": "600900",
+          "REPORT_DATE": "2026-06-30 00:00:00",
+          "NOTICE_DATE": "2026-08-31 00:00:00",
+          "UPDATE_DATE": "2026-08-31 00:00:00",
+          "CURRENCY": "CNY",
+          "OPERATE_INCOME": "37929268927.18",
+          "PARENT_NETPROFIT": "14755694774.53",
+          "DEDUCT_PARENT_NETPROFIT": "14294030444.04"
+        },
+        {
+          "SECUCODE": "600900.SH",
+          "SECURITY_CODE": "600900",
+          "REPORT_DATE": "2025-12-31 00:00:00",
+          "NOTICE_DATE": "2026-04-30 00:00:00",
+          "UPDATE_DATE": "2026-04-30 00:00:00",
+          "CURRENCY": "CNY",
+          "OPERATE_INCOME": "86241940222.2",
+          "PARENT_NETPROFIT": "34502809176.39",
+          "DEDUCT_PARENT_NETPROFIT": "33445575299.94"
+        },
+        {
+          "SECUCODE": "600900.SH",
+          "SECURITY_CODE": "600900",
+          "REPORT_DATE": "2025-06-30 00:00:00",
+          "NOTICE_DATE": "2025-08-30 00:00:00",
+          "UPDATE_DATE": "2026-08-31 00:00:00",
+          "CURRENCY": "CNY",
+          "OPERATE_INCOME": "36697614066.72",
+          "PARENT_NETPROFIT": "13056352473.55",
+          "DEDUCT_PARENT_NETPROFIT": "13190192509.73"
+        },
+        {
+          "SECUCODE": "600900.SH",
+          "SECURITY_CODE": "600900",
+          "REPORT_DATE": "2024-12-31 00:00:00",
+          "NOTICE_DATE": "2025-04-30 00:00:00",
+          "UPDATE_DATE": "2026-04-30 00:00:00",
+          "CURRENCY": "CNY",
+          "OPERATE_INCOME": "84491870566.52",
+          "PARENT_NETPROFIT": "32496172808.65",
+          "DEDUCT_PARENT_NETPROFIT": "32507551977.06"
+        },
+        {
+          "SECUCODE": "600900.SH",
+          "SECURITY_CODE": "600900",
+          "REPORT_DATE": "2023-12-31 00:00:00",
+          "NOTICE_DATE": "2024-04-30 00:00:00",
+          "UPDATE_DATE": "2025-04-30 00:00:00",
+          "CURRENCY": "CNY",
+          "OPERATE_INCOME": "78143535736.1",
+          "PARENT_NETPROFIT": "27244616815.27",
+          "DEDUCT_PARENT_NETPROFIT": "27508231223.76"
+        }
+      ]
+    },
+    "sources": {
+      "main": {
+        "source_url": "https://datacenter.eastmoney.com/securities/api/data/get",
+        "content_sha256": "96c1a0f55ec718caef54803ba52b1668fbbd7194cdd50c6f57e3a6f233dc1126",
+        "fetched_at": "2026-10-18T13:06:22.537478+08:00",
+        "raw_artifact": "05-600900-main.raw",
+        "bytes": 334176
+      },
+      "cashflow": {
+        "source_url": "https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/xjllbAjaxNew",
+        "content_sha256": "51621c3770b64a1930366b2e11f56d4d72d0dddbacc880f37dda174b115a13e4",
+        "fetched_at": "2026-10-18T13:06:29.306746+08:00",
+        "raw_artifact": "08-600900-cashflow.raw",
+        "bytes": 56891
+      },
+      "profit": {
+        "source_url": "https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/lrbAjaxNew",
+        "content_sha256": "d63d8be8816def8567b2997138d15b5f302f3efe4045e4524341d85b38ecd883",
+        "fetched_at": "2026-10-18T13:11:22.304324+08:00",
+        "raw_artifact": "18-600900-income-crosscheck.raw",
+        "bytes": 44575
+      }
+    },
+    "targets": [
+      "2023-12-31",
+      "2024-12-31",
+      "2025-12-31",
+      "2025-06-30",
+      "2026-06-30"
+    ]
+  },
+  {
+    "symbol": "300750",
+    "as_of": "2026-10-17",
+    "captured_at": "2026-10-18T14:00:00+08:00",
+    "status": "complete",
+    "point_in_time_verified": false,
+    "records": {
+      "main": [
+        {
+          "SECUCODE": "300750.SZ",
+          "SECURITY_CODE": "300750",
+          "REPORT_DATE": "2026-06-30 00:00:00",
+          "NOTICE_DATE": "2026-07-25 00:00:00",
+          "UPDATE_DATE": "2026-07-25 00:00:00",
+          "CURRENCY": "CNY",
+          "TOTALOPERATEREVE": 276916580000,
+          "PARENTNETPROFIT": 43284002000,
+          "KCFJCXSYJLR": 39013300000
+        },
+        {
+          "SECUCODE": "300750.SZ",
+          "SECURITY_CODE": "300750",
+          "REPORT_DATE": "2025-12-31 00:00:00",
+          "NOTICE_DATE": "2026-03-10 00:00:00",
+          "UPDATE_DATE": "2026-03-10 00:00:00",
+          "CURRENCY": "CNY",
+          "TOTALOPERATEREVE": 423701834000,
+          "PARENTNETPROFIT": 72201282000,
+          "KCFJCXSYJLR": 64507864000
+        },
+        {
+          "SECUCODE": "300750.SZ",
+          "SECURITY_CODE": "300750",
+          "REPORT_DATE": "2025-06-30 00:00:00",
+          "NOTICE_DATE": "2025-07-31 00:00:00",
+          "UPDATE_DATE": "2026-07-25 00:00:00",
+          "CURRENCY": "CNY",
+          "TOTALOPERATEREVE": 178886253000,
+          "PARENTNETPROFIT": 30485139000,
+          "KCFJCXSYJLR": 27197468000
+        },
+        {
+          "SECUCODE": "300750.SZ",
+          "SECURITY_CODE": "300750",
+          "REPORT_DATE": "2024-12-31 00:00:00",
+          "NOTICE_DATE": "2025-03-15 00:00:00",
+          "UPDATE_DATE": "2026-03-10 00:00:00",
+          "CURRENCY": "CNY",
+          "TOTALOPERATEREVE": 362012554000,
+          "PARENTNETPROFIT": 50744682000,
+          "KCFJCXSYJLR": 44992919000
+        },
+        {
+          "SECUCODE": "300750.SZ",
+          "SECURITY_CODE": "300750",
+          "REPORT_DATE": "2023-12-31 00:00:00",
+          "NOTICE_DATE": "2024-03-16 00:00:00",
+          "UPDATE_DATE": "2025-03-15 00:00:00",
+          "CURRENCY": "CNY",
+          "TOTALOPERATEREVE": 400917045000,
+          "PARENTNETPROFIT": 44121248000,
+          "KCFJCXSYJLR": 40091674000
+        }
+      ],
+      "cashflow": [
+        {
+          "SECUCODE": "300750.SZ",
+          "SECURITY_CODE": "300750",
+          "REPORT_DATE": "2026-06-30 00:00:00",
+          "NOTICE_DATE": "2026-07-25 00:00:00",
+          "UPDATE_DATE": "2026-07-25 00:00:00",
+          "CURRENCY": "CNY",
+          "NETCASH_OPERATE": 60216851000
+        },
+        {
+          "SECUCODE": "300750.SZ",
+          "SECURITY_CODE": "300750",
+          "REPORT_DATE": "2025-12-31 00:00:00",
+          "NOTICE_DATE": "2026-03-10 00:00:00",
+          "UPDATE_DATE": "2026-03-10 00:00:00",
+          "CURRENCY": "CNY",
+          "NETCASH_OPERATE": 133219982000
+        },
+        {
+          "SECUCODE": "300750.SZ",
+          "SECURITY_CODE": "300750",
+          "REPORT_DATE": "2025-06-30 00:00:00",
+          "NOTICE_DATE": "2025-07-31 00:00:00",
+          "UPDATE_DATE": "2026-07-25 00:00:00",
+          "CURRENCY": "CNY",
+          "NETCASH_OPERATE": 58687066000
+        },
+        {
+          "SECUCODE": "300750.SZ",
+          "SECURITY_CODE": "300750",
+          "REPORT_DATE": "2024-12-31 00:00:00",
+          "NOTICE_DATE": "2025-03-15 00:00:00",
+          "UPDATE_DATE": "2026-03-10 00:00:00",
+          "CURRENCY": "CNY",
+          "NETCASH_OPERATE": 96990345000
+        },
+        {
+          "SECUCODE": "300750.SZ",
+          "SECURITY_CODE": "300750",
+          "REPORT_DATE": "2023-12-31 00:00:00",
+          "NOTICE_DATE": "2024-03-16 00:00:00",
+          "UPDATE_DATE": "2025-03-15 00:00:00",
+          "CURRENCY": "CNY",
+          "NETCASH_OPERATE": 92826124000
+        }
+      ],
+      "profit": [
+        {
+          "SECUCODE": "300750.SZ",
+          "SECURITY_CODE": "300750",
+          "REPORT_DATE": "2026-06-30 00:00:00",
+          "NOTICE_DATE": "2026-07-25 00:00:00",
+          "UPDATE_DATE": "2026-07-25 00:00:00",
+          "CURRENCY": "CNY",
+          "OPERATE_INCOME": 276916580000,
+          "PARENT_NETPROFIT": 43284002000,
+          "DEDUCT_PARENT_NETPROFIT": 39013299000
+        },
+        {
+          "SECUCODE": "300750.SZ",
+          "SECURITY_CODE": "300750",
+          "REPORT_DATE": "2025-12-31 00:00:00",
+          "NOTICE_DATE": "2026-03-10 00:00:00",
+          "UPDATE_DATE": "2026-03-10 00:00:00",
+          "CURRENCY": "CNY",
+          "OPERATE_INCOME": 423701834000,
+          "PARENT_NETPROFIT": 72201282000,
+          "DEDUCT_PARENT_NETPROFIT": 64507865000
+        },
+        {
+          "SECUCODE": "300750.SZ",
+          "SECURITY_CODE": "300750",
+          "REPORT_DATE": "2025-06-30 00:00:00",
+          "NOTICE_DATE": "2025-07-31 00:00:00",
+          "UPDATE_DATE": "2026-07-25 00:00:00",
+          "CURRENCY": "CNY",
+          "OPERATE_INCOME": 178886253000,
+          "PARENT_NETPROFIT": 30485139000,
+          "DEDUCT_PARENT_NETPROFIT": 27197468000
+        },
+        {
+          "SECUCODE": "300750.SZ",
+          "SECURITY_CODE": "300750",
+          "REPORT_DATE": "2024-12-31 00:00:00",
+          "NOTICE_DATE": "2025-03-15 00:00:00",
+          "UPDATE_DATE": "2026-03-10 00:00:00",
+          "CURRENCY": "CNY",
+          "OPERATE_INCOME": 362012554000,
+          "PARENT_NETPROFIT": 50744682000,
+          "DEDUCT_PARENT_NETPROFIT": 44992919000
+        },
+        {
+          "SECUCODE": "300750.SZ",
+          "SECURITY_CODE": "300750",
+          "REPORT_DATE": "2023-12-31 00:00:00",
+          "NOTICE_DATE": "2024-03-16 00:00:00",
+          "UPDATE_DATE": "2025-03-15 00:00:00",
+          "CURRENCY": "CNY",
+          "OPERATE_INCOME": 400917045000,
+          "PARENT_NETPROFIT": 44121248000,
+          "DEDUCT_PARENT_NETPROFIT": 40091674000
+        }
+      ]
+    },
+    "sources": {
+      "main": {
+        "source_url": "https://datacenter.eastmoney.com/securities/api/data/get",
+        "content_sha256": "0562fe56f28722947dfc17022faa20b4f7159cf18f53731a5b614667d56e184f",
+        "fetched_at": "2026-10-18T13:06:32.042734+08:00",
+        "raw_artifact": "09-300750-main.raw",
+        "bytes": 142677
+      },
+      "cashflow": {
+        "source_url": "https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/xjllbAjaxNew",
+        "content_sha256": "887907df6a7b2cf3131a96e3f4321df7f8c62f6e10afb07a601d2a1c11705e68",
+        "fetched_at": "2026-10-18T13:06:39.652790+08:00",
+        "raw_artifact": "12-300750-cashflow.raw",
+        "bytes": 56607
+      },
+      "profit": {
+        "source_url": "https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/lrbAjaxNew",
+        "content_sha256": "28abcb3b9900759b26698af3355b83f318eaa55a9c5d0a7f3a1fdd3b4f744f42",
+        "fetched_at": "2026-10-18T13:11:23.965052+08:00",
+        "raw_artifact": "19-300750-income-crosscheck.raw",
+        "bytes": 44378
+      }
+    },
+    "targets": [
+      "2023-12-31",
+      "2024-12-31",
+      "2025-12-31",
+      "2025-06-30",
+      "2026-06-30"
+    ]
+  },
+  {
+    "symbol": "600036",
+    "as_of": "2026-10-17",
+    "captured_at": "2026-10-18T14:00:00+08:00",
+    "status": "complete",
+    "point_in_time_verified": false,
+    "records": {
+      "main": [
+        {
+          "SECUCODE": "600036.SH",
+          "SECURITY_CODE": "600036",
+          "REPORT_DATE": "2026-06-30 00:00:00",
+          "NOTICE_DATE": "2026-08-29 00:00:00",
+          "UPDATE_DATE": "2026-08-29 00:00:00",
+          "CURRENCY": "CNY",
+          "TOTALOPERATEREVE": 178181000000,
+          "PARENTNETPROFIT": 76445000000,
+          "KCFJCXSYJLR": 76339000000
+        },
+        {
+          "SECUCODE": "600036.SH",
+          "SECURITY_CODE": "600036",
+          "REPORT_DATE": "2025-12-31 00:00:00",
+          "NOTICE_DATE": "2026-03-28 00:00:00",
+          "UPDATE_DATE": "2026-03-28 00:00:00",
+          "CURRENCY": "CNY",
+          "TOTALOPERATEREVE": 337532000000,
+          "PARENTNETPROFIT": 150181000000,
+          "KCFJCXSYJLR": 150007000000
+        },
+        {
+          "SECUCODE": "600036.SH",
+          "SECURITY_CODE": "600036",
+          "REPORT_DATE": "2025-06-30 00:00:00",
+          "NOTICE_DATE": "2025-08-30 00:00:00",
+          "UPDATE_DATE": "2026-08-29 00:00:00",
+          "CURRENCY": "CNY",
+          "TOTALOPERATEREVE": 169969000000,
+          "PARENTNETPROFIT": 74930000000,
+          "KCFJCXSYJLR": 74819000000
+        },
+        {
+          "SECUCODE": "600036.SH",
+          "SECURITY_CODE": "600036",
+          "REPORT_DATE": "2024-12-31 00:00:00",
+          "NOTICE_DATE": "2025-03-26 00:00:00",
+          "UPDATE_DATE": "2026-03-28 00:00:00",
+          "CURRENCY": "CNY",
+          "TOTALOPERATEREVE": 337488000000,
+          "PARENTNETPROFIT": 148391000000,
+          "KCFJCXSYJLR": 148011000000
+        },
+        {
+          "SECUCODE": "600036.SH",
+          "SECURITY_CODE": "600036",
+          "REPORT_DATE": "2023-12-31 00:00:00",
+          "NOTICE_DATE": "2024-03-26 00:00:00",
+          "UPDATE_DATE": "2025-03-26 00:00:00",
+          "CURRENCY": "CNY",
+          "TOTALOPERATEREVE": 339123000000,
+          "PARENTNETPROFIT": 146602000000,
+          "KCFJCXSYJLR": 146047000000
+        }
+      ],
+      "cashflow": [
+        {
+          "SECUCODE": "600036.SH",
+          "SECURITY_CODE": "600036",
+          "REPORT_DATE": "2026-06-30 00:00:00",
+          "NOTICE_DATE": "2026-08-29 00:00:00",
+          "UPDATE_DATE": "2026-08-29 00:00:00",
+          "CURRENCY": "CNY",
+          "NETCASH_OPERATE": 304611000000
+        },
+        {
+          "SECUCODE": "600036.SH",
+          "SECURITY_CODE": "600036",
+          "REPORT_DATE": "2025-12-31 00:00:00",
+          "NOTICE_DATE": "2026-03-28 00:00:00",
+          "UPDATE_DATE": "2026-03-28 00:00:00",
+          "CURRENCY": "CNY",
+          "NETCASH_OPERATE": 451457000000
+        },
+        {
+          "SECUCODE": "600036.SH",
+          "SECURITY_CODE": "600036",
+          "REPORT_DATE": "2025-06-30 00:00:00",
+          "NOTICE_DATE": "2025-08-30 00:00:00",
+          "UPDATE_DATE": "2026-08-29 00:00:00",
+          "CURRENCY": "CNY",
+          "NETCASH_OPERATE": 134461000000
+        },
+        {
+          "SECUCODE": "600036.SH",
+          "SECURITY_CODE": "600036",
+          "REPORT_DATE": "2024-12-31 00:00:00",
+          "NOTICE_DATE": "2025-03-26 00:00:00",
+          "UPDATE_DATE": "2026-03-28 00:00:00",
+          "CURRENCY": "CNY",
+          "NETCASH_OPERATE": 447023000000
+        },
+        {
+          "SECUCODE": "600036.SH",
+          "SECURITY_CODE": "600036",
+          "REPORT_DATE": "2023-12-31 00:00:00",
+          "NOTICE_DATE": "2024-03-26 00:00:00",
+          "UPDATE_DATE": "2025-03-26 00:00:00",
+          "CURRENCY": "CNY",
+          "NETCASH_OPERATE": 357753000000
+        }
+      ],
+      "profit": [
+        {
+          "SECUCODE": "600036.SH",
+          "SECURITY_CODE": "600036",
+          "REPORT_DATE": "2026-06-30 00:00:00",
+          "NOTICE_DATE": "2026-08-29 00:00:00",
+          "UPDATE_DATE": "2026-08-29 00:00:00",
+          "CURRENCY": "CNY",
+          "OPERATE_INCOME": 178181000000,
+          "PARENT_NETPROFIT": 76445000000,
+          "DEDUCT_PARENT_NETPROFIT": 76339000000
+        },
+        {
+          "SECUCODE": "600036.SH",
+          "SECURITY_CODE": "600036",
+          "REPORT_DATE": "2025-12-31 00:00:00",
+          "NOTICE_DATE": "2026-03-28 00:00:00",
+          "UPDATE_DATE": "2026-03-28 00:00:00",
+          "CURRENCY": "CNY",
+          "OPERATE_INCOME": 337532000000,
+          "PARENT_NETPROFIT": 150181000000,
+          "DEDUCT_PARENT_NETPROFIT": 150007000000
+        },
+        {
+          "SECUCODE": "600036.SH",
+          "SECURITY_CODE": "600036",
+          "REPORT_DATE": "2025-06-30 00:00:00",
+          "NOTICE_DATE": "2025-08-30 00:00:00",
+          "UPDATE_DATE": "2026-08-29 00:00:00",
+          "CURRENCY": "CNY",
+          "OPERATE_INCOME": 169969000000,
+          "PARENT_NETPROFIT": 74930000000,
+          "DEDUCT_PARENT_NETPROFIT": 74819000000
+        },
+        {
+          "SECUCODE": "600036.SH",
+          "SECURITY_CODE": "600036",
+          "REPORT_DATE": "2024-12-31 00:00:00",
+          "NOTICE_DATE": "2025-03-26 00:00:00",
+          "UPDATE_DATE": "2026-03-28 00:00:00",
+          "CURRENCY": "CNY",
+          "OPERATE_INCOME": 337488000000,
+          "PARENT_NETPROFIT": 148391000000,
+          "DEDUCT_PARENT_NETPROFIT": 148011000000
+        },
+        {
+          "SECUCODE": "600036.SH",
+          "SECURITY_CODE": "600036",
+          "REPORT_DATE": "2023-12-31 00:00:00",
+          "NOTICE_DATE": "2024-03-26 00:00:00",
+          "UPDATE_DATE": "2025-03-26 00:00:00",
+          "CURRENCY": "CNY",
+          "OPERATE_INCOME": 339123000000,
+          "PARENT_NETPROFIT": 146602000000,
+          "DEDUCT_PARENT_NETPROFIT": 146047000000
+        }
+      ]
+    },
+    "sources": {
+      "main": {
+        "source_url": "https://datacenter.eastmoney.com/securities/api/data/get",
+        "content_sha256": "9ed5aa95b676d07750e8dc11551e0b6558f89a27404b25d6160cd76f8d007edd",
+        "fetched_at": "2026-10-18T13:06:42.033684+08:00",
+        "raw_artifact": "13-600036-main.raw",
+        "bytes": 327860
+      },
+      "cashflow": {
+        "source_url": "https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/xjllbAjaxNew",
+        "content_sha256": "4b2193d31cfb85a473fc69173f1f233cd863e02c47afe1503797c7acec7af35d",
+        "fetched_at": "2026-10-18T13:06:48.449464+08:00",
+        "raw_artifact": "16-600036-cashflow.raw",
+        "bytes": 69150
+      },
+      "profit": {
+        "source_url": "https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/lrbAjaxNew",
+        "content_sha256": "fe321538542d633cbe932f0b3078797d2a29007e3e8ada10828e025e9eb4bff3",
+        "fetched_at": "2026-10-18T13:11:25.731937+08:00",
+        "raw_artifact": "20-600036-income-crosscheck.raw",
+        "bytes": 37870
+      }
+    },
+    "targets": [
+      "2023-12-31",
+      "2024-12-31",
+      "2025-12-31",
+      "2025-06-30",
+      "2026-06-30"
+    ]
+  }
+]

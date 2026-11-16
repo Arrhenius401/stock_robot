@@ -167,6 +167,11 @@ class Pipeline:
             time.sleep(stagger_index * 0.15)
             from core.resilient_collection import Kind, supports
 
+            if market == "us" and data_type == "industry":
+                from data.us_industry import us_industry_result
+
+                outcome = us_industry_result(symbol, cache=self._cache, refresh=refresh_cache)
+                return data_type, [outcome.value] if outcome.value is not None else [], outcome.record
             if supports(market, data_type):
                 from typing import cast
 
@@ -243,6 +248,8 @@ class Pipeline:
                 for attempt in range(1 if data_type == "industry" else 2):
                     try:
                         fetch_kwargs: dict[str, Any] = {"data_type": data_type, "market": market}
+                        if market == "us" and data_type == "news":
+                            fetch_kwargs["name"] = name
                         if data_type == "industry":
                             fetch_kwargs.update(
                                 sw_level1=ctx.sw_industry,
@@ -380,7 +387,8 @@ class Pipeline:
                 ctx.collection_records[data_type] = record
                 if result is not None:
                     self._assign_to_context(ctx, data_type, result)
-                    if data_type == "industry" and not ctx.sw_industry:
+                    if (data_type == "industry" and not ctx.sw_industry and result
+                            and getattr(result[0], "resolved_sw_level1", "")):
                         ctx.sw_industry = result[0].resolved_sw_level1
                         ctx.sw_industry_level2 = result[0].resolved_sw_level2
                 completed += 1
@@ -480,6 +488,11 @@ class Pipeline:
         ctx = self.collect(symbol, name, market, refresh_cache=refresh_cache,
                            data_types=data_types, on_progress=on_progress)
         ctx.extra_analysis_enabled = self._extra_analysis_enabled
+        if market == "a-shares" and self._extra_analysis_enabled:
+            from data.business_profile import load_business_profile
+
+            ctx.commentary_version = 2
+            ctx.business_profile = load_business_profile(self._cache, symbol, refresh=refresh_cache)
 
         # 充实步骤（collect 之后 analyze 之前）
         from data.enricher import ContextEnricher
@@ -505,17 +518,22 @@ class Pipeline:
 
         if on_progress and ctx.industry_data is not None and getattr(ctx.industry_data, "comparison_ready", False):
             on_progress("collect", 1, 1, "采集同行估值与同期经营指标")
-        try:
-            ctx = PeerComparisonService(self._cache).enrich(ctx, refresh=refresh_cache)
-        except Exception as error:  # noqa: BLE001 — 同行采集隔离，不能阻断其他报告维度
-            from data.schemas import DimensionSufficiency
+        if market == "us":
+            from data.enrichers.us_industry_enricher import UsIndustryEnricher
 
-            logger.warning("同行比较失败 %s: %s", symbol, type(error).__name__)
-            ctx.enriched_industry = None
-            ctx.sufficiency.industry = DimensionSufficiency(
-                level=SufficiencyLevel.INSUFFICIENT, reason="同行比较数据获取失败",
-                sample_count=0, score_weight=0.0,
-            )
+            ctx = UsIndustryEnricher().enrich(ctx)
+        else:
+            try:
+                ctx = PeerComparisonService(self._cache).enrich(ctx, refresh=refresh_cache)
+            except Exception as error:  # noqa: BLE001 — 同行采集隔离，不能阻断其他报告维度
+                from data.schemas import DimensionSufficiency
+
+                logger.warning("同行比较失败 %s: %s", symbol, type(error).__name__)
+                ctx.enriched_industry = None
+                ctx.sufficiency.industry = DimensionSufficiency(
+                    level=SufficiencyLevel.INSUFFICIENT, reason="同行比较数据获取失败",
+                    sample_count=0, score_weight=0.0,
+                )
         if self._extra_analysis_enabled and dimension in (None, "financial"):
             from data.financial_scoring_facts import FinancialScoringFactsService
 
@@ -534,11 +552,12 @@ class Pipeline:
             sentiment_enricher.set_llm(self._registry.get_llm_backend(provider))
         sentiment_stage = ContextEnricher()
         sentiment_stage.register(sentiment_enricher)
-        if self._extra_analysis_enabled:
+        if self._extra_analysis_enabled and market != "us":
             ctx = sentiment_stage.enrich(ctx)
 
-        # 新增：加载行业配置
-        industry_config = self._config_loader.load_for_context(ctx) if self._extra_analysis_enabled else None
+        # 加载按真实市场分类匹配的计分配置
+        industry_config = (self._config_loader.load_for_context(ctx)
+                           if self._extra_analysis_enabled else None)
 
         results = []
         total = len(analysis_modules)
@@ -562,6 +581,88 @@ class Pipeline:
                     on_progress("analyze", completed, total,
                                DIMENSION_LABELS.get(mod.dimension, mod.dimension))
 
+        if ctx.market == "a-shares":
+            from data.latest_quote import load_latest_quote, quote_is_today
+            from data.market_hours import market_session
+
+            daily_end = max((p.trade_date.isoformat() for p in ctx.price_data or [] if p.symbol == symbol), default=None)
+            session = market_session("a-shares")
+            if session == "open":
+                try:
+                    quote = load_latest_quote(symbol, daily_end=daily_end)
+                    if quote.get("status") == "ok" and not quote_is_today(quote):
+                        ctx.current_quote = {
+                            "status": "unavailable", "symbol": symbol,
+                            "note": "今日报价时点不可用（可能休市），回退最近收盘价",
+                        }
+                    elif quote.get("status") == "unavailable":
+                        ctx.current_quote = {
+                            **quote, "note": "盘中报价暂不可用，回退最近收盘价",
+                        }
+                    else:
+                        ctx.current_quote = quote
+                except Exception as exc:  # noqa: BLE001 — 可选报价工具隔离，不影响确定性日线报告
+                    logger.warning("最新报价不可用 %s: %s", symbol, type(exc).__name__)
+                    ctx.current_quote = {"status": "unavailable", "symbol": symbol,
+                                         "note": "盘中报价暂不可用，回退最近收盘价"}
+            else:
+                ctx.current_quote = {
+                    "status": "market_pre" if session == "pre" else "market_closed",
+                    "symbol": symbol,
+                }
+        elif ctx.market == "hk":
+            from data.latest_quote import load_hk_quote
+            from data.market_hours import market_session
+
+            session = market_session("hk")
+            if session == "open":
+                try:
+                    quote = load_hk_quote(symbol)
+                    if quote.get("status") == "unavailable":
+                        quote["note"] = "盘中报价暂不可用，回退最近收盘价"
+                    ctx.current_quote = quote
+                except Exception as exc:  # noqa: BLE001 — 可选报价隔离，不影响收盘价报告
+                    logger.warning("港股盘中报价不可用 %s: %s", symbol, type(exc).__name__)
+                    ctx.current_quote = {"status": "unavailable", "symbol": symbol,
+                                         "note": "盘中报价暂不可用，回退最近收盘价"}
+            else:
+                ctx.current_quote = {
+                    "status": "market_pre" if session == "pre" else "market_closed",
+                    "symbol": symbol,
+                }
+        elif ctx.market == "us":
+            from data.us_stock import US_TZ, us_market_session, us_quote
+
+            session = us_market_session()
+            if session == "open":
+                try:
+                    quote = us_quote(symbol)
+                    price = quote.get("price")
+                    if price is not None and is_positive_finite(price):
+                        captured = datetime.now(US_TZ)
+                        ctx.current_quote = {
+                            "status": "ok", "symbol": symbol, "price": price,
+                            "quoted_at": captured.isoformat(),
+                            "source": "新浪美股快照（延迟约15分钟）",
+                            "change_pct": quote.get("change_pct"),
+                            "note": f"盘中报价（延迟约15分钟）；采集时间：{captured:%Y-%m-%d %H:%M:%S}",
+                        }
+                    else:
+                        ctx.current_quote = {
+                            "status": "unavailable", "symbol": symbol,
+                            "note": "盘中报价暂不可用，回退最近收盘价",
+                        }
+                except Exception as exc:  # noqa: BLE001 — 可选报价隔离，不影响收盘价报告
+                    logger.warning("美股盘中报价不可用 %s: %s", symbol, type(exc).__name__)
+                    ctx.current_quote = {
+                        "status": "unavailable", "symbol": symbol,
+                        "note": "盘中报价暂不可用，回退最近收盘价",
+                    }
+            else:
+                ctx.current_quote = {
+                    "status": "market_pre" if session == "pre" else "market_closed",
+                    "symbol": symbol,
+                }
         commentary = {}
         if not self._extra_analysis_enabled:
             from analysis.mode import objective_results
@@ -595,6 +696,28 @@ class Pipeline:
             logger.warning(f"未找到 LLM 后端: provider={provider}")
             return commentary
 
+        if context is not None and context.commentary_version == 2 and context.market == "a-shares":
+            from report.research import (
+                build_research,
+                model_prompt,
+                parse_model,
+                render_research,
+            )
+
+            research = build_research(context, results)
+            try:
+                if on_progress:
+                    on_progress("llm", 1, 2, "生成结构化 AI 解读")
+                raw = llm.generate(model_prompt(context, research))
+                model = parse_model(raw, research)
+                research["model"] = model
+                if on_progress:
+                    on_progress("llm", 2, 2, "生成结构化 AI 解读")
+                return {"research": json.dumps(model, ensure_ascii=False), "bulk": render_research(research)}
+            except Exception as exc:  # noqa: BLE001 — 模型SDK及输出隔离，保留确定性五维结果
+                logger.warning("结构化解读生成失败 %s: %s", symbol, type(exc).__name__)
+                return {}
+
         # 准备维度得分数据
         dim_labels = {
             "financial": "财务健康", "technical": "技术趋势",
@@ -615,7 +738,7 @@ class Pipeline:
                     r = result
                     break
             available = r is not None and r.status in {"ok", "partial"}
-            scoring_applicable = True
+            scoring_applicable = not (context is not None and context.market == "us" and dim == "sentiment")
             scored = participation_score(r) is not None
             scores.append({
                 "label": label,
@@ -646,9 +769,14 @@ class Pipeline:
             template_dir = Path(__file__).parent.parent / "llm" / "prompt_templates"
             env = Environment(loader=FileSystemLoader(str(template_dir)))
 
-            template = env.get_template("batch_analysis_hk.jinja2" if context is not None and context.market == "hk"
-                                        else f"batch_analysis_{provider}.jinja2")
+            from llm.market_context import market_prompt_context, prompt_metrics
+
+            market_context = market_prompt_context(context)
+            if context is None:
+                market_context["industry_name"] = sw_industry
+            template = env.get_template(f"batch_analysis_{provider}.jinja2")
             prompt = template.render(
+                **market_context,
                 sw_industry=sw_industry,
                 style_category=style_category,
                 industry_note=industry_note,
@@ -659,7 +787,7 @@ class Pipeline:
                 missing_dims="、".join(missing) if missing else "无",
                 analysis_facts=json.dumps([
                     {"dimension": r.dimension, "status": r.status, "score": r.score,
-                     "score_detail": r.score_detail, "metrics": format_metrics(r.metrics),
+                     "score_detail": r.score_detail, "metrics": format_metrics(prompt_metrics(r.metrics, str(market_context["market"]))),
                      "summary": r.summary, "risk_flags": r.risk_flags}
                     for r in results
                 ], ensure_ascii=False, default=str),
@@ -700,6 +828,10 @@ class Pipeline:
             return None
         try:
             data_list = json.loads(raw)
+            if (data_type == "financial" and symbol[:1].isalpha() and not symbol.endswith(".HK")
+                    and (not isinstance(data_list, list) or not data_list
+                         or any(row.get("_us_financial_version") != 1 for row in data_list))):
+                return None
             results = self._deserialize_cache(data_type, symbol, data_list)
             if not self._is_healthy(data_type, results, symbol):
                 logger.info(f"缓存 {data_type}/{symbol} 数据退化，视为未命中")
@@ -890,6 +1022,8 @@ class Pipeline:
             dicts = []
             for item in data:
                 d = item.model_dump(mode="json")
+                if data_type == "financial" and symbol[:1].isalpha() and not symbol.endswith(".HK"):
+                    d["_us_financial_version"] = 1
                 # 保存 model_dump 不包含的私有属性
                 if hasattr(item, '_raw_sentiment') and item._raw_sentiment is not None:
                     d['_raw_sentiment'] = item._raw_sentiment.model_dump(mode="json")
