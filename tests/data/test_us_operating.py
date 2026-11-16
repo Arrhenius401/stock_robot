@@ -66,6 +66,8 @@ def test_two_operating_metrics_each_need_five_peers(count, scored):
     assert 'annual' not in comparison['periods']
     if scored:
         assert ctx.sufficiency.industry.level == 'sufficient'
+        assert ctx.enriched_industry.top_peers[0].net_margin == pytest.approx(.1)
+        assert comparison['periods']['latest']['metrics'][1]['target'] == 10
     # 目标缺失或同行报告过旧都不能借估值数字计分。
     assert operating is not None
     operating['end'] = (date(2026, 9, 30) - timedelta(days=200)).isoformat()

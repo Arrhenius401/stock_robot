@@ -573,8 +573,8 @@ function comparisonBlock(block, operating = false) {
   }
   if (!operating && block.show_source_rows) {
     const peers = [record(block.target), ...(Array.isArray(block.peers) ? block.peers : [])];
-    const rows = peers.filter(row => row.symbol).map(row => [row.symbol, readable(row.source, "未记录")]);
-    result.appendChild(comparisonTable(["代码", "来源"], rows,
+    const rows = peers.filter(row => row.symbol).map(row => [row.symbol, readable(row.source, "未记录"), readable(row.pb_source, "期间未核实")]);
+    result.appendChild(comparisonTable(["代码", "来源", "PB期间（PB_SOURCE）"], rows,
       "peer-sources", "目标与选中同行的数据来源"));
   }
   for (const key of ["notes", "errors"]) {

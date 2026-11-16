@@ -12,9 +12,12 @@ from data.schemas import (
     SufficiencyLevel,
 )
 from data.us_industry import SOURCE, _positive
+from utils.numbers import is_finite_number
 
 
 def _metric(key: str, label: str, target: float | None, values: list[float], unit: str = "") -> dict[str, Any]:
+    target = target if is_finite_number(target) else None
+    values = [value for value in values if is_finite_number(value)]
     enough = len(values) >= 5
     return {"key": key, "label": label, "target": target, "unit": unit,
             "sample_count": len(values), "median": statistics.median(values) if enough else None,
@@ -100,7 +103,10 @@ class UsIndustryEnricher(DataEnricher):
         data.comparison_ready = enough
         ctx.enriched_industry = EnrichedIndustry(peer_count=len(selected),
             top_peers=[PeerComparison(symbol=row["symbol"], name=row.get("name") or "", market_cap=row["market_cap"],
-                pe_ttm=row["pe"], pb=row["pb"], roe=None, net_margin=(operating.get(row["symbol"]) or {}).get("net_margin")) for row in selected],
+                pe_ttm=row["pe"], pb=row["pb"], roe=None,
+                net_margin=(operating[row["symbol"]]["net_margin"] / 100
+                            if isinstance(operating.get(row["symbol"]), dict)
+                            and is_finite_number(operating[row["symbol"]].get("net_margin")) else None)) for row in selected],
             industry_median_pe=pe_metric["median"], industry_median_pb=pb_metric["median"],
             target_pe_premium=(pe / pe_metric["median"] - 1) * 100 if pe and pe_metric["median"] else None,
             target_pe_percentile=pe_metric["percentile"], target_pb_percentile=pb_metric["percentile"],

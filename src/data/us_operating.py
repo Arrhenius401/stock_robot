@@ -81,7 +81,7 @@ def fetch_operating(code: str) -> dict[str, Any] | None:
 
 
 def load_operating(codes: list[str], *, cache: CacheManager | None = None, refresh: bool = False) -> dict[str, Any]:
-    """每代码每日缓存，失败亦缓存None，单轮有界并发，刷新显式绕过。"""
+    """每代码每日缓存，空结果亦缓存None；请求失败隔离，刷新显式绕过。"""
     day = datetime.now().astimezone().date().isoformat()
 
     def load(code: str) -> tuple[str, Any]:

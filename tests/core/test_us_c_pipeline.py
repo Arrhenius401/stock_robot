@@ -45,3 +45,19 @@ def test_us_financial_path_builds_ttm_scoring_facts(mocker, tmp_path):
     facts = mocker.patch('data.financial_scoring_facts.FinancialScoringFactsService.enrich', return_value=ctx)
     pipeline.run('AAPL', '苹果', market='us', dimension='financial')
     facts.assert_called_once()
+
+
+def test_old_us_financial_cache_cannot_skip_new_evidence(mocker, tmp_path):
+    import json
+    from datetime import date
+
+    from data.schemas import FinancialData
+
+    pipeline = Pipeline(Registry(), Config(tmp_path), llm_enabled=False)
+    row = FinancialData(symbol='AAPL', fiscal_quarter=date(2026, 9, 30), revenue=100, net_profit=20)
+    pipeline._cache.put('financial', 'AAPL', 'latest', json.dumps([row.model_dump(mode='json')]))
+    assert pipeline._get_cached('AAPL', 'financial') is None
+    fresh = row.model_dump(mode='json') | {'_us_financial_version': 1}
+    pipeline._cache.put('financial', 'AAPL', 'latest', json.dumps([fresh]))
+    mocker.patch.object(pipeline, '_is_healthy', return_value=True)
+    assert pipeline._get_cached('AAPL', 'financial') is not None

@@ -54,6 +54,8 @@ def test_pipeline_common_prompt_preserves_market_rules(tmp_path, provider, marke
         assert "东财美股 F10 行业（BELONG_INDUSTRY）" in prompt
         assert "USD" in prompt and "美国会计准则" in prompt and "财季" in prompt
         assert "舆情本期未计分" in prompt
+        assert "仅 TTM 最新期，不虚构年度同行经营分" in prompt
+        assert "财务 partial" in prompt
         for word in ("GICS", "申万", "HSICS", "FCF"):
             assert word not in prompt
     elif market == "hk":

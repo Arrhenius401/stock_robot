@@ -828,6 +828,10 @@ class Pipeline:
             return None
         try:
             data_list = json.loads(raw)
+            if (data_type == "financial" and symbol[:1].isalpha() and not symbol.endswith(".HK")
+                    and (not isinstance(data_list, list) or not data_list
+                         or any(row.get("_us_financial_version") != 1 for row in data_list))):
+                return None
             results = self._deserialize_cache(data_type, symbol, data_list)
             if not self._is_healthy(data_type, results, symbol):
                 logger.info(f"缓存 {data_type}/{symbol} 数据退化，视为未命中")
@@ -1018,6 +1022,8 @@ class Pipeline:
             dicts = []
             for item in data:
                 d = item.model_dump(mode="json")
+                if data_type == "financial" and symbol[:1].isalpha() and not symbol.endswith(".HK"):
+                    d["_us_financial_version"] = 1
                 # 保存 model_dump 不包含的私有属性
                 if hasattr(item, '_raw_sentiment') and item._raw_sentiment is not None:
                     d['_raw_sentiment'] = item._raw_sentiment.model_dump(mode="json")

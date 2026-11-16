@@ -10,7 +10,7 @@ def market_prompt_context(ctx: AnalysisContext | None) -> dict[str, Any]:
     if market == "us":
         return {"market": market, "market_label": "美股", "industry_name": industry,
             "industry_scheme": "东财美股 F10 行业（BELONG_INDUSTRY）", "hk_amount_guard": False,
-            "market_rules": "美股规则：上市报价为 USD；财报按财季和已记录的美国会计准则证据解读，缺少币种或会计准则证据时明确未核实，不能以上市地推断。行业经营比较为 TTM 派生，未经核实的营收和净利率不得补造，不能混作年度或最新财报期。舆情本期未计分。统一使用中文‘自由现金流’。"}
+            "market_rules": "美股规则：上市报价为 USD；财报按财季和已记录的美国会计准则证据解读，缺少币种或会计准则证据时明确未核实，不能以上市地推断。行业经营比较仅 TTM 最新期，不虚构年度同行经营分；只解读程序给出的两项经营指标及样本数，财务 partial 必须说明可用子项和缺项。行业经营比较为 TTM 派生，未经核实的营收和净利率不得补造，不能混作年度或最新财报期。舆情本期未计分。统一使用中文‘自由现金流’。"}
     if market == "hk":
         return {"market": market, "market_label": "港股", "industry_name": industry,
             "industry_scheme": "恒生HSICS", "hk_amount_guard": True,
