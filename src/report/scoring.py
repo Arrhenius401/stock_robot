@@ -158,7 +158,7 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
         commentary = {**commentary, "structured_version": "2", "bulk": notice + render_research(research)}
     price_info = compute_price_info(ctx)
     if ctx.market == "us":
-        industry = "不适用：本期美股不提供行业同行对比"
+        industry = ctx.industry_data.industry if ctx.industry_data else "行业数据不足"
     elif ctx.market == "hk":
         industry = hk_industry_label(ctx, results)
     elif ctx.sw_industry:

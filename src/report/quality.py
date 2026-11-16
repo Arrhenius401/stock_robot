@@ -1,5 +1,5 @@
 """报告数据覆盖、来源和复核事项的共享事实视图。"""
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from analysis.valuation_rules import valuation_snapshot_dates
@@ -84,9 +84,9 @@ def _sample_dates(ctx: AnalysisContext, key: str) -> tuple[str, str]:
             getattr(ctx.industry_data, "_data_date", "") if ctx.industry_data else "")
         if data_date:
             try:
-                dates.append(date.fromisoformat(data_date))
-            except ValueError:
-                pass
+                dates.append(datetime.fromisoformat(str(data_date)).date())
+            except (ValueError, TypeError):
+                dates = []
     elif key == "news":
         if ctx.raw_sentiment:
             dates = [p.publish_date for p in ctx.raw_sentiment.items]
@@ -162,21 +162,10 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
     signal_blocked: list[str] = []
     hk = ctx.market == "hk"
     us = ctx.market == "us"
-    applicable = set(DIM_WEIGHTS) - ({"industry"} if us else set())
+    applicable = set(DIM_WEIGHTS)
     applicable_weight = sum(DIM_WEIGHTS[key] for key in applicable) or 1.0
     available = sum(participation_score(result_map.get(key)) is not None for key in DIM_WEIGHTS)
     for key, title, suff_key, source_key, weight in _DIMENSIONS:
-        if us and key == "industry":
-            dimensions.append({
-                "key": key, "title": title, "status": "not_applicable",
-                "fields": [
-                    {"label": "分析限制", "value": "本期美股不提供行业同行对比，不计入覆盖率"},
-                    {"label": "样本范围", "value": "未采集"},
-                    {"label": "数据来源", "value": "未采集"},
-                    {"label": "数据截止", "value": "未记录"},
-                ],
-            })
-            continue
         suff = getattr(ctx.sufficiency, suff_key)
         result = result_map.get(key)
         level = min(_LEVEL.get(suff.level, 0), _RESULT_LEVEL.get(result.status, 0) if result else 0)
@@ -203,7 +192,7 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
         if weight and key in applicable:
             coverage += weight * (level / 2)
             all_complete = all_complete and level == 2 and (value is not None or not ctx.extra_analysis_enabled)
-        if key in {"financial", "technical", "valuation"}:
+        if key in {"financial", "technical", "valuation"} or (us and key == "industry"):
             sufficient = suff.level == "sufficient"
             if key == "financial" and result and result.metrics.get("scoring_basis"):
                 basis = result.metrics["scoring_basis"]
@@ -313,15 +302,15 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
     quality = {
         "status": "ok" if all_complete else "partial" if analysis_available else "unavailable",
         "coverage": round(coverage / applicable_weight * 100, 1),
-        "signal_allowed": False if us else (ctx.extra_analysis_enabled and signal_complete and has_scored),
-        "signal_unavailable_reason": ("美股本期不提供综合评分与规则信号。" if us else
-            "未启用额外分析。" if not ctx.extra_analysis_enabled else
+        "signal_allowed": ctx.extra_analysis_enabled and signal_complete and has_scored,
+        "signal_unavailable_reason": ("未启用额外分析。" if not ctx.extra_analysis_enabled else
+            "行业对比样本不足或经营指标未证实，未生成信号。" if us and "行业" in signal_blocked else
             f"{'、'.join(signal_blocked)}分析依据未满足信号生成条件。" if signal_blocked else ""),
-        "has_scored_data": False if us else (ctx.extra_analysis_enabled and has_scored),
+        "has_scored_data": ctx.extra_analysis_enabled and has_scored,
         "has_analysis_data": analysis_available,
         "dimensions": dimensions,
         "pending_verifications": list(dict.fromkeys(pending)),
-        "coverage_basis": ("四维原权重数据覆盖（行业对比本期不适用），不表示字段完整度" if us else
+        "coverage_basis": ("五维原权重数据覆盖（美股舆情本期未计分），不表示评分置信度" if us else
                            "五维原权重数据覆盖，不表示评分置信度" if ctx.extra_analysis_enabled else
                            "五维原权重数据覆盖，不表示字段完整度"),
     }

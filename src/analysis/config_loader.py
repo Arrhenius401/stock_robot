@@ -24,6 +24,23 @@ class ConfigLoader:
 
     def load_for_context(self, ctx: AnalysisContext) -> dict:
         """计分层选择投资风格，不改写真实市场分类或同行资格。"""
+        if ctx.market == "us":
+            data = ctx.industry_data
+            industry, sector = (data.industry, data.sector) if data else ("", "")
+            mapping = self._load_yaml(self.config_dir / "美股_计分模板_映射.yaml")
+            representative = (mapping.get("industries", {}).get(industry)
+                              or mapping.get("sectors", {}).get(sector))
+            config = deepcopy(self.load(representative or "综合"))
+            config["meta"].update(
+                cache_key=f"us::{industry}::{sector}",
+                scoring_template_source="东财美股 F10 行业投资风格映射" if representative else "通用规则（行业未映射）",
+                scoring_template_fallback=representative is None,
+            )
+            if any(word in industry + sector for word in ("银行", "保险", "金融")):
+                config["financial"]["debt_ratio"]["enabled"] = False
+                config["financial"]["gross_margin_stability"]["enabled"] = False
+                config["meta"]["strategy_key"] = "BankScorer" if "银行" in industry else "NonBankFinancialScorer"
+            return config
         if ctx.market != "hk":
             return self.load(ctx.sw_industry)
         data = ctx.industry_data

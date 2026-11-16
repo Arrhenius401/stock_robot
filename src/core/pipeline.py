@@ -555,9 +555,9 @@ class Pipeline:
         if self._extra_analysis_enabled and market != "us":
             ctx = sentiment_stage.enrich(ctx)
 
-        # 新增：加载行业配置；美股本期不评分，不加载 A 股模板
+        # 加载按真实市场分类匹配的计分配置
         industry_config = (self._config_loader.load_for_context(ctx)
-                           if self._extra_analysis_enabled and market != "us" else None)
+                           if self._extra_analysis_enabled else None)
 
         results = []
         total = len(analysis_modules)

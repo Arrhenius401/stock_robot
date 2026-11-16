@@ -58,6 +58,13 @@ class SentimentAnalyzer(AnalysisModule):
 
     def analyze(self, context: AnalysisContext,
                 config: dict[str, Any] | None = None) -> AnalysisResult:
+        if context.market == "us" and context.extra_analysis_enabled:
+            # 美股 v1 只展示检索事实；即使残留旧评估也不进入计分。
+            objective = context.model_copy(update={"extra_analysis_enabled": False})
+            result = self.analyze(objective)
+            result.score = None
+            result.score_detail = "舆情本期未计分，权重由其余有效维度归一"
+            return result
         if not context.extra_analysis_enabled:
             if context.market == "hk":
                 return _hk_news_result(context)
