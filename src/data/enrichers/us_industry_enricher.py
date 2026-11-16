@@ -42,6 +42,9 @@ class UsIndustryEnricher(DataEnricher):
         candidates = list(raw_quotes.values()) if isinstance(raw_quotes, dict) else []
         candidates = [row for row in candidates if isinstance(row, dict) and row.get("symbol") in data.peers and row.get("symbol") != ctx.symbol
                       and row.get("basis_verified") is True and all(_positive(row.get(key)) is not None for key in ("market_cap", "pe", "pb"))]
+        # 缓存中的数字字符串必须规范化后再比较，不能通过校验后仍按字符串计算。
+        candidates = [{**row, **{key: _positive(row[key]) for key in ("market_cap", "pe", "pb")}}
+                      for row in candidates]
         selected = []
         if cap is not None:
             for low, high in ((.1, 5), (.01, 20)):

@@ -67,3 +67,14 @@ def test_roe_ratio_and_explicit_comparison_percent_format_identically():
     metrics = format_metrics(IndustryAnalyzer().analyze(ctx).metrics)
     assert metrics["top_peers"][0]["roe"] == "20.00%"
     assert metrics["comparison"]["periods"]["latest"]["metrics"][0]["target"] == "20.00%"
+
+
+def test_numeric_strings_in_snapshot_are_normalized_before_comparison():
+    codes = ("AAA", "BBB", "CCC", "DDD", "EEE")
+    quotes = {code: {"symbol": code, "basis_verified": True, "market_cap": "100", "pe": "10", "pb": "2"} for code in codes}
+    ctx = AnalysisContext(symbol="TEST", name="测试", market="us", industry_data=IndustryData(
+        symbol="TEST", industry="系统软件", sector="", peers=list(codes), comparison_snapshot={
+            "target": {"basis_verified": True, "market_cap": "100", "pe": "10", "pb": "2"}, "quotes": quotes}))
+    UsIndustryEnricher().enrich(ctx)
+    assert ctx.enriched_industry is not None
+    assert ctx.enriched_industry.industry_median_pe == 10

@@ -466,7 +466,7 @@ function scoreSection(report, sectionIdPrefix) {
     const rowData = record(item);
     const row = el("div", "score-row");
     row.appendChild(el("span", "lb", readable(rowData.label)));
-    row.appendChild(el("span", "v", scoreText(rowData.score)));
+    row.appendChild(el("span", "v", scoreText(rowData.score, report.market === "us" ? "N/A" : "—")));
     const valid = scoreText(rowData.score, "") !== "";
     row.appendChild(priceBar(valid ? Number(rowData.score) * 10 : 0));
     if (fiveDimension(report) && !valid) row.classList.add("score-row-missing");
@@ -481,7 +481,9 @@ function scoreSection(report, sectionIdPrefix) {
   big.appendChild(rows);
   card.appendChild(big);
   if (fiveDimension(report)) {
-    card.appendChild(el("p", "report-score-detail", "五维计分 · 舆情列为综合参与分（10−原风险分）。风险标签仅作提示，不额外扣分。"));
+    card.appendChild(el("p", "report-score-detail", report.market === "us"
+      ? "五维计分 · 舆情本期未计分（N/A），权重由其余有效维度归一。风险标签仅作提示，不额外扣分。"
+      : "五维计分 · 舆情列为综合参与分（10−原风险分）。风险标签仅作提示，不额外扣分。"));
     const available = (report.score_rows || []).filter(row => scoreText(row.score, "") !== "");
     if (available.length < 5) card.appendChild(el("p", "report-score-detail",
       score.final == null ? "主要分析数据不足；仅有舆情数据时不输出综合分。缺失项目不记零分。" : "缺失项目不记零分，其余项目按原比例折算。"));
@@ -637,7 +639,9 @@ function industryComparisonSection(dimension, sectionIdPrefix, newScoring = fals
     panel.setAttribute("aria-labelledby", `${card.id}-tab-${key}`);
     panel.replaceChildren(comparisonBlock(block, true));
   }
-  for (const [key, label] of [["annual", "完整年度"], ["latest", "最新一期"]]) {
+  const usTtm = String(comparison.scope || "").startsWith("东财美股") && !record(comparison.periods).annual;
+  const periodChoices = usTtm ? [["latest", "TTM"]] : [["annual", "完整年度"], ["latest", "最新一期"]];
+  for (const [key, label] of periodChoices) {
     const button = el("button", "peer-period-button", label);
     button.type = "button";
     button.id = `${card.id}-tab-${key}`;
@@ -648,14 +652,14 @@ function industryComparisonSection(dimension, sectionIdPrefix, newScoring = fals
     button.addEventListener("keydown", event => {
       if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
       event.preventDefault();
-      const next = event.key === "Home" ? buttons[0] : event.key === "End" ? buttons[1] : buttons.find(item => item !== button);
+      const next = event.key === "Home" ? buttons[0] : event.key === "End" ? buttons[buttons.length - 1] : buttons.find(item => item !== button) || button;
       selectPeriod(next.dataset.period);
       next.focus();
     });
     tabs.appendChild(button);
     buttons.push(button);
   }
-  selectPeriod("annual");
+  selectPeriod(usTtm ? "latest" : "annual");
   return card;
 }
 
@@ -1182,6 +1186,12 @@ export function renderStockReport(report, options = {}) {
   for (const [name, label] of DIMENSIONS) {
     if (objective && name === "sentiment") {
       article.appendChild(newsFactsSection(dimensions[name], sectionIdPrefix));
+      continue;
+    }
+    if (!objective && data.market === "us" && name === "sentiment") {
+      const news = newsFactsSection(dimensions[name], sectionIdPrefix);
+      news.appendChild(el("p", "report-score-detail", "舆情本期未计分（N/A），权重由其余有效维度归一。"));
+      article.appendChild(news);
       continue;
     }
     if (!objective && fiveDimension(data) && name === "sentiment") {

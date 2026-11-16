@@ -75,6 +75,7 @@ def test_us_zero_industry_score_is_valid_and_news_unscored():
     report = build_report(ctx.symbol, ctx.name, values, {}, ctx, no_llm=True)
     assert "不是 GICS/申万" in report
     assert "未做美股历史回测校准" in report
+    assert "财报金额币种和会计准则以来源证据为准" in report
     assert "本期美股不提供综合评分" not in report
 
 
