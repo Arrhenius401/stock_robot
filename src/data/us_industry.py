@@ -19,8 +19,14 @@ logger = logging.getLogger(__name__)
 PROFILE_URL = "https://datacenter.eastmoney.com/securities/api/data/v1/get"
 SOURCE = "东财美股 F10 行业（BELONG_INDUSTRY）"
 # 仅代码审查可登记协议；条目须含端点、fltt、字段映射及真实双缩放样本的SHA256。
-# 当前探针均断连，无可登记证据；禁止运行时配置boolean绕过。
-_REVIEWED_PROTOCOLS: tuple[tuple[str, int, str, str], ...] = ()
+# 2026-11-16 官方vendor映射及AAPL/BRK_B双缩放探针已核实单标的协议。
+# 批量仍未证实；营收不在本次审核范围，禁止运行时配置boolean绕过。
+_REVIEWED_PROTOCOLS: tuple[tuple[str, int, str, str], ...] = (
+    ("stock/get", 2, "f116,f164,f167", "636412b0372ba9c2a773f5f44176f4373de52e71af895d1687e5e5e63c8cc14a"),
+)
+# 公开网页客户端标识，不是账户凭据。
+_QUOTE_CLIENT = {"ut": "fa5fd1943c7b386f172d6893dbfba10b", "invt": 2}
+_QUOTE_HEADERS = {"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com/"}
 
 
 def _basis_verified(endpoint: str, fields: str) -> bool:
@@ -96,16 +102,16 @@ def _positive(value: Any) -> float | None:
 
 def _single_quote(secid: str) -> dict[str, Any]:
     response = requests.get("https://push2.eastmoney.com/api/qt/stock/get", params={
-        "secid": secid, "fields": "f57,f58,f116,f115,f167,f127", "fltt": 2,
-    }, timeout=10)
+        "secid": secid, "fields": "f57,f58,f116,f164,f167,f127", "fltt": 2, **_QUOTE_CLIENT,
+    }, timeout=10, headers=_QUOTE_HEADERS)
     response.raise_for_status()
     data = _object(response.json()).get("data")
     if not isinstance(data, dict) or data.get("f57") != secid.split(".", 1)[1]:
         raise ValueError("同行单标的行情身份无效")
     return {"symbol": data["f57"], "name": data.get("f58"),
-            "market_cap": _positive(data.get("f116")), "pe": _positive(data.get("f115")),
+            "market_cap": _positive(data.get("f116")), "pe": _positive(data.get("f164")),
             "pb": _positive(data.get("f167")), "sector": data.get("f127") or "",
-            "basis_verified": _basis_verified("stock/get", "f116,f115,f167"), "revenue": None, "revenue_verified": False, "source": "东财美股单标的行情"}
+            "basis_verified": _basis_verified("stock/get", "f116,f164,f167"), "revenue": None, "revenue_verified": False, "source": "东财美股单标的行情"}
 
 
 def _quotes(secids: list[str]) -> tuple[dict[str, dict[str, Any]], list[dict[str, str]]]:
@@ -115,8 +121,8 @@ def _quotes(secids: list[str]) -> tuple[dict[str, dict[str, Any]], list[dict[str
         batch = secids[offset:offset + 50]
         try:
             response = requests.get("https://push2.eastmoney.com/api/qt/ulist.np/get", params={
-                "secids": ",".join(batch), "fields": "f12,f14,f20,f9,f23,f100", "fltt": 2,
-            }, timeout=10)
+                "secids": ",".join(batch), "fields": "f12,f14,f20,f9,f23,f100", "fltt": 2, **_QUOTE_CLIENT,
+            }, timeout=10, headers=_QUOTE_HEADERS)
             response.raise_for_status()
             data = _object(response.json()).get("data")
             rows = data.get("diff") if isinstance(data, dict) else None
@@ -134,7 +140,9 @@ def _quotes(secids: list[str]) -> tuple[dict[str, dict[str, Any]], list[dict[str
         except (requests.RequestException, ValueError, TypeError, KeyError) as exc:
             logger.warning("美股同行批量行情失败: %s", exc)
             attempts.append({"source": "东财美股批量行情", "status": "failed", "reason": str(exc)})
-        missing = [item for item in batch if item.split(".", 1)[1] not in quotes]
+        missing = [item for item in batch if not quotes.get(item.split(".", 1)[1], {}).get("basis_verified")
+                   or any(_positive(quotes.get(item.split(".", 1)[1], {}).get(key)) is None
+                          for key in ("market_cap", "pe", "pb"))]
 
         def fetch(secid: str) -> tuple[str, dict[str, Any] | None, str]:
             try:
@@ -152,7 +160,7 @@ def _quotes(secids: list[str]) -> tuple[dict[str, dict[str, Any]], list[dict[str
 
 
 def us_industry_result(symbol: str, *, cache: CacheManager | None = None, refresh: bool = False) -> ValueResult[IndustryData]:
-    """行业身份可展示；行情口径未核实期间比较始终关闭。"""
+    """已审核行情可用于比较；营收及经营评分保持独立门禁。"""
     stamp = datetime.now().astimezone()
     collected_at = stamp
     cache_status = "live"
@@ -190,12 +198,12 @@ def us_industry_result(symbol: str, *, cache: CacheManager | None = None, refres
         securities = {row["SECURITY_CODE"]: market[row["SECUCODE"].rsplit(".", 1)[1]] + "." + row["SECURITY_CODE"]
                       for row in [profile, *rows] if row.get("SECURITY_CODE") in {*members, ticker}
                       and isinstance(row.get("SECUCODE"), str) and row["SECUCODE"].rsplit(".", 1)[-1] in market}
-        quote_key = f"us_industry::v1::{symbol}::{industry}"
+        quote_key = f"us_industry::v2::{symbol}::{industry}"
         saved = cache.get("us_industry_quotes", quote_key, "snapshot") if cache and not refresh else None
         if saved:
             cached = _object(json.loads(saved))
             quotes, attempts = cached.get("quotes"), cached.get("attempts")
-            if (cached.get("version") != 1 or not isinstance(quotes, dict)
+            if (cached.get("version") != 2 or not isinstance(quotes, dict)
                     or not all(isinstance(value, dict) for value in quotes.values())
                     or not isinstance(attempts, list) or not all(isinstance(value, dict) for value in attempts)):
                 raise TypeError("行情缓存结构无效")
@@ -206,7 +214,7 @@ def us_industry_result(symbol: str, *, cache: CacheManager | None = None, refres
         else:
             quotes, attempts = _quotes(list(securities.values()))
             if cache and quotes:
-                cache.put("us_industry_quotes", quote_key, "snapshot", json.dumps({"version": 1, "quotes": quotes, "attempts": attempts, "collected_at": stamp.isoformat()}), ttl_seconds=600)
+                cache.put("us_industry_quotes", quote_key, "snapshot", json.dumps({"version": 2, "quotes": quotes, "attempts": attempts, "collected_at": stamp.isoformat()}), ttl_seconds=600)
         target = quotes.get(ticker, {})
         if not isinstance(target, dict) or target.get("basis_verified") is not True:
             target = {}
@@ -214,7 +222,9 @@ def us_industry_result(symbol: str, *, cache: CacheManager | None = None, refres
                  and isinstance(quote, dict) and quote.get("basis_verified") is True
                  and all(_positive(quote.get(key)) is not None for key in ("market_cap", "pe", "pb"))}
 
-        reason = "同行行情字段及 TTM 营收口径尚未核实，未进行经营指标派生"
+        reason = "TTM 营收字段未证实，不派生净利率，行业经营分不适用"
+        if not target or len(valid) < 5:
+            reason += "；已核实行情的目标或有效同行不足"
         value = IndustryData(
             symbol=symbol, industry=industry, sector=target.get("sector", ""), peers=list(valid),
             peer_names=members, peer_scope=SOURCE, peer_industry=industry,
@@ -224,7 +234,7 @@ def us_industry_result(symbol: str, *, cache: CacheManager | None = None, refres
                 "candidate_count": len(members), "revenue": None, "revenue_verified": False,
                 "target": target, "quotes": valid,
                 "errors": [reason], "attempts": [*attempts, {"source": SOURCE, "status": "ok"},
-                    {"source": "东财美股同行行情", "status": "unverified", "reason": reason}],
+                    {"source": "东财美股营收口径", "status": "unverified", "reason": reason}],
             },
         )
         value._target_mcap = target.get("market_cap")

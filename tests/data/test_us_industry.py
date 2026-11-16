@@ -118,3 +118,36 @@ def test_corrupt_valid_json_cache_fails_closed(mocker, tmp_path):
     expression = '(SECURITY_CODE="AAPL")'
     cache.put("us_industry_profile", f"us_industry::v1::AAPL::{expression}", datetime.now().astimezone().date().isoformat(), "null")
     assert us_industry_result("AAPL", cache=cache).value is None
+
+
+def test_single_uses_reviewed_us_ttm_field_and_client_params(mocker):
+    from data.us_industry import _single_quote
+
+    response = mocker.Mock()
+    # 2026-11-16 东财单标的真实响应裁切；完整双缩放响应保留 tmp/us-c-probe/field-verification/。
+    response.json.return_value = {"data": {"f57": "AAPL", "f58": "苹果", "f116": 5177380481140,
+        "f115": "-", "f164": 39.17, "f167": 46.19, "f127": "信息技术"}}
+    get = mocker.patch("data.us_industry.requests.get", return_value=response)
+    quote = _single_quote("105.AAPL")
+    assert quote["pe"] == 39.17
+    assert quote["pb"] == 46.19
+    assert quote["basis_verified"] is True
+    assert quote["revenue"] is None
+    assert get.call_args.kwargs["params"]["invt"] == 2
+    assert get.call_args.kwargs["params"]["fltt"] == 2
+    assert "ut" in get.call_args.kwargs["params"]
+    assert "f164" in get.call_args.kwargs["params"]["fields"]
+    assert "f115" not in get.call_args.kwargs["params"]["fields"]
+
+
+def test_unreviewed_batch_values_cannot_prevent_reviewed_single_fallback(mocker):
+    from data.us_industry import _quotes
+
+    response = mocker.Mock()
+    response.json.return_value = {"data": {"diff": [{"f12": "AAPL", "f9": 999, "f23": 888, "f20": 100}]}}
+    mocker.patch("data.us_industry.requests.get", return_value=response)
+    single = mocker.patch("data.us_industry._single_quote", return_value={
+        "symbol": "AAPL", "pe": 39.17, "pb": 46.19, "basis_verified": True})
+    quotes, _ = _quotes(["105.AAPL"])
+    single.assert_called_once()
+    assert quotes["AAPL"]["pe"] == 39.17
