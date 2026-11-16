@@ -66,6 +66,13 @@ def _block(block: dict[str, Any], *, operating: bool = False) -> list[str]:
         lines += ["", _table(headers, rows)]
     elif not block.get("reason"):
         lines += ["", "暂无可比较指标"]
+    if not operating and block.get("show_source_rows"):
+        # 美股允许行情与 F10 主指标混合，逐行展示来源，不能统称为行情。
+        target = block.get("target") or {}
+        peers = [target, *block.get("peers", [])]
+        rows = [[row.get("symbol", "目标"), row.get("source", "未记录")]
+                for row in peers if row]
+        lines += ["", _table(["代码", "来源"], rows)]
     for key in ("notes", "errors"):
         lines.extend(f"- {_text(item)}" for item in block.get(key, []) if item)
     return lines

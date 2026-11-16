@@ -69,3 +69,20 @@ if(!panel.textContent.includes('2026-06-30'))throw new Error('缺少实际已知
 if(!panel.textContent.includes('旧期参考·年报')||panel.textContent.includes('最新一期·年报'))throw new Error('旧年报被误标为最新期');
 '''
     _run_node(tmp_path, script)
+
+
+def test_us_mixed_sources_are_shown_per_row(tmp_path):
+    script = _DOM_STUB + "\nconst {renderStockReport}=await import(" + json.dumps(
+        _module_url("src/api/static/js/report-renderer.js")) + ");\n"
+    script += r'''
+const comparison={peer_count:1,valuation:{show_source_rows:true,source:'混合来源（逐行标注）',
+ target:{symbol:'AAPL',source:'东财美股 F10 主指标'},
+ peers:[{symbol:'MSFT',source:'东财美股行情'}],metrics:[]},periods:{}};
+const report=renderStockReport({market:'us',dimensions:{industry:{status:'partial',metrics:{comparison}}}});
+const table=byClass(report,'peer-sources')[0];
+if(!table)throw new Error('缺少逐行来源');
+for(const value of ['AAPL','MSFT','东财美股 F10 主指标','东财美股行情']){
+ if(!table.textContent.includes(value))throw new Error('来源证据丢失 '+value);
+}
+'''
+    _run_node(tmp_path, script)

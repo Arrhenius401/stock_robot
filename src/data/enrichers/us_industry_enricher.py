@@ -46,11 +46,15 @@ class UsIndustryEnricher(DataEnricher):
         candidates = [{**row, **{key: _positive(row[key]) for key in ("market_cap", "pe", "pb")}}
                       for row in candidates]
         selected = []
+        relaxed = False
         if cap is not None:
             for low, high in ((.1, 5), (.01, 20)):
                 selected = [row for row in candidates if low * cap <= row["market_cap"] <= high * cap]
                 if len(selected) >= 5:
                     break
+            if len(selected) < 5:
+                selected = candidates
+                relaxed = True
             selected = sorted(selected, key=lambda row: abs(row["market_cap"] / cap - 1))[:10]
         pe, pb = _positive(target.get("pe")), _positive(target.get("pb"))
         pe_metric = _metric("pe_ttm", "PE(TTM)", pe, [row["pe"] for row in selected])
@@ -62,11 +66,17 @@ class UsIndustryEnricher(DataEnricher):
         notes = ["东财美股 F10 行业（BELONG_INDUSTRY）；经营指标为 TTM 派生，不是年度+最新两期。",
                  "仅美股上市纯字母代码；优先目标市值0.1至5倍，不足五家放宽0.01至20倍，最多十家。",
                  "净利率口径不适用" if financial else "营收字段未证实，不派生净利率。"]
+        if relaxed:
+            notes.append("市值分层不足，已放宽到全部有效同行，按距目标市值最近选取，最多十家。")
+        sources = sorted({row.get("source") or "来源未记录" for row in [target, *selected]})
+        valuation_source = sources[0] if len(sources) == 1 else "混合来源（逐行标注）"
         comparison = {"version": 1, "scope": SOURCE + "·" + data.industry, "peer_count": len(selected),
-            "valuation": {"as_of": snapshot.get("as_of"), "source": "东财美股行情", "peers": [{**row, "pe_ttm": row["pe"], "roe": row["pb"] / row["pe"] * 100} for row in selected],
+            "valuation": {"as_of": snapshot.get("as_of"), "source": valuation_source,
+                          "show_source_rows": True, "target": {**target, "symbol": ctx.symbol},
+                          "peers": [{**row, "pe_ttm": row["pe"], "roe": row["pb"] / row["pe"] * 100} for row in selected],
                           "metrics": [pe_metric, pb_metric]},
             "periods": {"latest": {"start": None, "end": None, "basis": "TTM", "label": "TTM（期间未确认）",
-                         "source": "东财美股行情", "metrics": [roe_metric], "reason": reason}},
+                         "source": valuation_source + "，PB/PE 派生", "metrics": [roe_metric], "reason": reason}},
             "notes": notes, "errors": [reason]}
         enough = len(selected) >= 5
         data.comparison_ready = enough

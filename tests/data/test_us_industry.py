@@ -151,3 +151,95 @@ def test_unreviewed_batch_values_cannot_prevent_reviewed_single_fallback(mocker)
     quotes, _ = _quotes(["105.AAPL"])
     single.assert_called_once()
     assert quotes["AAPL"]["pe"] == 39.17
+
+
+def f10_row(code="AAPL", **overrides):
+    # 2026-11-16 F10 主指标实测裁切，完整响应留在 tmp/us-c-probe/。
+    return {"SECURITY_CODE": code, "SECURITY_NAME_ABBR": "苹果", "PE_TTM": 39.170648618423,
+            "PB": 46.188258688232, "TOTAL_MARKET_CAP": 5177380481140,
+            "TURNOVER": 478834000000, "SALE_NPR": 27.6035118642, **overrides}
+
+
+def test_f10_fallback_keeps_push2_failure_and_independent_source(mocker):
+    import requests
+
+    from data.us_industry import _quotes
+
+    response = mocker.Mock()
+    response.json.return_value = {"success": True, "result": {"pages": 1, "data": [f10_row("BRK_B")]}}
+    get = mocker.patch("data.us_industry.requests.get", side_effect=[requests.ConnectionError("push2断开"), response])
+    mocker.patch("data.us_industry._single_quote", side_effect=requests.ConnectionError("单标的断开"))
+    quotes, attempts = _quotes(["106.BRK_B"])
+    quote = quotes["BRK_B"]
+    assert quote["source"] == "东财美股 F10 主指标"
+    assert quote["basis_verified"] is True
+    assert quote["basis"]["endpoint"] == "RPT_USF10_DATA_MAININDICATOR"
+    assert quote["pe"] == pytest.approx(39.170648618423)
+    assert quote["revenue"] is None and quote["net_margin"] is None
+    assert quote["revenue_verified"] is False
+    assert any(x["status"] == "failed" and "push2断开" in x["reason"] for x in attempts)
+    assert any(x["status"] == "failed" and "单标的断开" in x["reason"] for x in attempts)
+    params = get.call_args.kwargs["params"]
+    assert params["filter"] == '(SECURITY_CODE in ("BRK_B"))'
+    assert "TURNOVER" not in params["columns"] and "SALE_NPR" not in params["columns"]
+
+
+@pytest.mark.parametrize("row_data", [f10_row("WRONG"), f10_row(PB=None), f10_row(PE_TTM="-"),
+                                      f10_row(TOTAL_MARKET_CAP=0), f10_row(PB=True)])
+def test_f10_rejects_mismatched_identity_or_missing_positive_fields(mocker, row_data):
+    from data.us_industry import _f10_metrics
+
+    response = mocker.Mock()
+    response.json.return_value = {"success": True, "result": {"pages": 1, "data": [row_data]}}
+    mocker.patch("data.us_industry.requests.get", return_value=response)
+    quotes, attempts = _f10_metrics(["AAPL"])
+    assert quotes == {}
+    assert any(x["status"] == "failed" for x in attempts)
+
+
+def test_f10_only_fills_missing_reviewed_rows_and_records_unreviewed_push2(mocker):
+    from data.us_industry import _quotes
+
+    response = mocker.Mock()
+    response.json.return_value = {"data": {"diff": [
+        {"f12": code, "f20": 100, "f9": 10, "f23": 2} for code in ("AAPL", "MSFT")]}}
+    mocker.patch("data.us_industry.requests.get", return_value=response)
+    mocker.patch("data.us_industry._single_quote", side_effect=lambda secid: {
+        "symbol": secid.split(".")[1], "basis_verified": secid.endswith("AAPL"),
+        "market_cap": 100, "pe": 10, "pb": 2, "source": "东财美股行情"})
+    fallback = mocker.patch("data.us_industry._f10_metrics", return_value=({"MSFT": {
+        "symbol": "MSFT", "basis_verified": True, "market_cap": 200, "pe": 20, "pb": 3,
+        "source": "东财美股 F10 主指标", "revenue": None}}, []))
+    quotes, attempts = _quotes(["105.AAPL", "105.MSFT"])
+    fallback.assert_called_once_with(["MSFT"])
+    assert quotes["AAPL"]["source"] == "东财美股行情"
+    assert quotes["MSFT"]["source"] == "东财美股 F10 主指标"
+    assert any(x["status"] == "unverified" for x in attempts)
+
+
+def test_new_cache_version_does_not_reuse_old_snapshot(mocker, tmp_path):
+    import json
+
+    from data.cache import CacheManager
+
+    cache = CacheManager(tmp_path / "cache.db")
+    cache.put("us_industry_quotes", "us_industry::v2::AAPL::系统软件", "snapshot",
+              json.dumps({"version": 2, "quotes": {"AAPL": {"pe": 9999}}}))
+    mocker.patch("data.us_industry._profiles", side_effect=[[row("AAPL")], []])
+    quotes = mocker.patch("data.us_industry._quotes", return_value=({}, []))
+    us_industry_result("AAPL", cache=cache)
+    quotes.assert_called_once()
+
+
+def test_reviewed_push2_success_does_not_call_f10(mocker):
+    from data.us_industry import _quotes
+
+    response = mocker.Mock()
+    response.json.return_value = {"data": {"diff": []}}
+    mocker.patch("data.us_industry.requests.get", return_value=response)
+    mocker.patch("data.us_industry._single_quote", return_value={"symbol": "AAPL", "basis_verified": True,
+        "market_cap": 5177380481140, "pe": 39.17, "pb": 46.19, "source": "东财美股行情"})
+    fallback = mocker.patch("data.us_industry._f10_metrics")
+    quotes, _ = _quotes(["105.AAPL"])
+    assert quotes["AAPL"]["pe"] == 39.17
+    fallback.assert_not_called()

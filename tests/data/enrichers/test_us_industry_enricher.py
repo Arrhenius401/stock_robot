@@ -78,3 +78,34 @@ def test_numeric_strings_in_snapshot_are_normalized_before_comparison():
     UsIndustryEnricher().enrich(ctx)
     assert ctx.enriched_industry is not None
     assert ctx.enriched_industry.industry_median_pe == 10
+
+
+@pytest.mark.parametrize("count,expected", [(12, 10), (2, 2)])
+def test_all_valid_peers_relaxation_preserves_sources_and_closed_score(count, expected):
+    from report.peer_comparison import format_peer_comparison_markdown
+
+    quotes = {f"P{i}": {"symbol": f"P{i}", "basis_verified": True, "market_cap": i + 1,
+        "pe": 10, "pb": 2, "revenue": None,
+        "source": "东财美股行情" if i % 2 else "东财美股 F10 主指标"} for i in range(count)}
+    ctx = AnalysisContext(symbol="COST" if count == 2 else "AAPL", name="目标", market="us",
+        industry_data=IndustryData(symbol="TEST", industry="测试行业", sector="", peers=list(quotes),
+            comparison_snapshot={"target": {"basis_verified": True, "market_cap": 100000,
+                "pe": 10, "pb": 2, "source": "东财美股 F10 主指标"}, "quotes": quotes}))
+    UsIndustryEnricher().enrich(ctx)
+    assert ctx.enriched_industry is not None
+    enriched = ctx.enriched_industry
+    assert enriched.peer_count == expected
+    assert enriched.top_peers[0].symbol == f"P{count - 1}"
+    comparison = enriched.comparison
+    assert "市值分层不足，已放宽" in "；".join(comparison["notes"])
+    assert comparison["valuation"]["source"] == "混合来源（逐行标注）"
+    for peer in comparison["valuation"]["peers"]:
+        assert peer["source"] == quotes[peer["symbol"]]["source"]
+    markdown = format_peer_comparison_markdown(comparison)
+    assert "| 代码 |" in markdown
+    assert "东财美股 F10 主指标" in markdown and "东财美股行情" in markdown
+    assert score_industry_comparison(comparison)[0] is None
+    assert all(peer.net_margin is None for peer in enriched.top_peers)
+    if count == 2:
+        assert ctx.sufficiency.industry.level == "insufficient"
+        assert enriched.industry_median_pe is None

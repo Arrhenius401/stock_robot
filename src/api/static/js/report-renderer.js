@@ -571,6 +571,12 @@ function comparisonBlock(block, operating = false) {
   } else if (!block.reason) {
     result.appendChild(el("p", "peer-caption", "暂无可比较指标"));
   }
+  if (!operating && block.show_source_rows) {
+    const peers = [record(block.target), ...(Array.isArray(block.peers) ? block.peers : [])];
+    const rows = peers.filter(row => row.symbol).map(row => [row.symbol, readable(row.source, "未记录")]);
+    result.appendChild(comparisonTable(["代码", "来源"], rows,
+      "peer-sources", "目标与选中同行的数据来源"));
+  }
   for (const key of ["notes", "errors"]) {
     for (const value of Array.isArray(block[key]) ? block[key] : []) note(value);
   }

@@ -18,6 +18,12 @@ from data.schemas import IndustryData
 logger = logging.getLogger(__name__)
 PROFILE_URL = "https://datacenter.eastmoney.com/securities/api/data/v1/get"
 SOURCE = "东财美股 F10 行业（BELONG_INDUSTRY）"
+QUOTE_SOURCE = "东财美股行情"
+F10_SOURCE = "东财美股 F10 主指标"
+# 2026-11-16 六标的实测及 AAPL/BRK_B 与已审核单标的字段对照。
+# 独立于 push2 协议：只准入三项指标，不使用 TURNOVER/SALE_NPR。
+_F10_BASIS = {"endpoint": "RPT_USF10_DATA_MAININDICATOR",
+              "fields": "PE_TTM,PB,TOTAL_MARKET_CAP", "pe": "TTM", "pb": "期间未确认"}
 # 仅代码审查可登记协议；条目须含端点、fltt、字段映射及真实双缩放样本的SHA256。
 # 2026-11-16 官方vendor映射及AAPL/BRK_B双缩放探针已核实单标的协议。
 # 批量仍未证实；营收不在本次审核范围，禁止运行时配置boolean绕过。
@@ -37,7 +43,7 @@ def _basis_verified(endpoint: str, fields: str) -> bool:
 
 def _object(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
-        raise TypeError("行情响应根必须为对象")
+        raise TypeError("估值响应根必须为对象")
     return payload
 
 
@@ -111,7 +117,58 @@ def _single_quote(secid: str) -> dict[str, Any]:
     return {"symbol": data["f57"], "name": data.get("f58"),
             "market_cap": _positive(data.get("f116")), "pe": _positive(data.get("f164")),
             "pb": _positive(data.get("f167")), "sector": data.get("f127") or "",
-            "basis_verified": _basis_verified("stock/get", "f116,f164,f167"), "revenue": None, "revenue_verified": False, "source": "东财美股单标的行情"}
+            "basis_verified": _basis_verified("stock/get", "f116,f164,f167"), "revenue": None, "revenue_verified": False, "source": QUOTE_SOURCE}
+
+
+def _usable(row: dict[str, Any]) -> bool:
+    return row.get("basis_verified") is True and all(
+        _positive(row.get(key)) is not None for key in ("market_cap", "pe", "pb"))
+
+
+def _f10_metrics(codes: list[str]) -> tuple[dict[str, dict[str, Any]], list[dict[str, str]]]:
+    """主指标批量回退；身份和正有限值通过后才纳入，禁止映射经营字段。"""
+    quotes: dict[str, dict[str, Any]] = {}
+    attempts: list[dict[str, str]] = []
+    for offset in range(0, len(codes), 50):
+        batch = codes[offset:offset + 50]
+        try:
+            expression = '(SECURITY_CODE in (' + ','.join(f'"{code}"' for code in batch) + '))'
+            response = requests.get(PROFILE_URL, params={
+                "reportName": _F10_BASIS["endpoint"],
+                "columns": "SECURITY_CODE,SECURITY_NAME_ABBR,REPORT_DATE,PE_TTM,PB,TOTAL_MARKET_CAP",
+                "filter": expression, "source": "SECURITIES", "client": "PC",
+                "pageSize": 500, "pageNumber": 1,
+            }, timeout=10, headers=_QUOTE_HEADERS)
+            response.raise_for_status()
+            payload = _object(response.json())
+            result = payload.get("result")
+            if payload.get("success") is not True or not isinstance(result, dict):
+                raise ValueError("F10 主指标响应失败")
+            rows = result.get("data")
+            if not isinstance(rows, list) or type(result.get("pages")) is not int or result["pages"] != 1:
+                raise ValueError("F10 主指标列表或分页无效")
+            identities = [row.get("SECURITY_CODE") for row in rows if isinstance(row, dict)]
+            if (len(identities) != len(rows) or any(code not in batch for code in identities)
+                    or len(set(identities)) != len(identities)):
+                raise ValueError("F10 主指标身份不匹配或重复")
+            by_code = {row["SECURITY_CODE"]: row for row in rows}
+            for code in batch:
+                row = by_code.get(code, {})
+                metrics = {key: _positive(row.get(field)) for key, field in
+                           (("pe", "PE_TTM"), ("pb", "PB"), ("market_cap", "TOTAL_MARKET_CAP"))}
+                if any(value is None for value in metrics.values()):
+                    attempts.append({"source": F10_SOURCE, "symbol": code, "status": "failed",
+                                     "reason": "身份记录缺失或 PE/PB/市值非正、缺失或无效"})
+                    continue
+                quotes[code] = {"symbol": code, "name": row.get("SECURITY_NAME_ABBR"), **metrics,
+                    "source": F10_SOURCE, "basis": dict(_F10_BASIS), "basis_verified": True,
+                    "report_date": row.get("REPORT_DATE"), "revenue": None, "net_margin": None,
+                    "revenue_verified": False}
+                attempts.append({"source": F10_SOURCE, "symbol": code, "status": "ok"})
+        except (requests.RequestException, ValueError, TypeError, KeyError) as exc:
+            logger.warning("美股 F10 主指标回退失败: %s", exc)
+            attempts.append({"source": F10_SOURCE, "status": "failed", "reason": str(exc)})
+    return quotes, attempts
 
 
 def _quotes(secids: list[str]) -> tuple[dict[str, dict[str, Any]], list[dict[str, str]]]:
@@ -135,14 +192,14 @@ def _quotes(secids: list[str]) -> tuple[dict[str, dict[str, Any]], list[dict[str
                 quotes[row["f12"]] = {"symbol": row["f12"], "name": row.get("f14"),
                     "market_cap": _positive(row.get("f20")), "pe": _positive(row.get("f9")),
                     "pb": _positive(row.get("f23")), "sector": row.get("f100") or "",
-                    "basis_verified": _basis_verified("ulist.np/get", "f20,f9,f23"), "revenue": None, "revenue_verified": False, "source": "东财美股批量行情"}
-            attempts.append({"source": "东财美股批量行情", "status": "ok"})
+                    "basis_verified": _basis_verified("ulist.np/get", "f20,f9,f23"), "revenue": None, "revenue_verified": False, "source": QUOTE_SOURCE}
+            reviewed = _basis_verified("ulist.np/get", "f20,f9,f23")
+            attempts.append({"source": "东财美股批量行情", "status": "ok" if reviewed else "unverified",
+                             "reason": "" if reviewed else "批量字段协议未审核，继续回退"})
         except (requests.RequestException, ValueError, TypeError, KeyError) as exc:
             logger.warning("美股同行批量行情失败: %s", exc)
             attempts.append({"source": "东财美股批量行情", "status": "failed", "reason": str(exc)})
-        missing = [item for item in batch if not quotes.get(item.split(".", 1)[1], {}).get("basis_verified")
-                   or any(_positive(quotes.get(item.split(".", 1)[1], {}).get(key)) is None
-                          for key in ("market_cap", "pe", "pb"))]
+        missing = [item for item in batch if not _usable(quotes.get(item.split(".", 1)[1], {}))]
 
         def fetch(secid: str) -> tuple[str, dict[str, Any] | None, str]:
             try:
@@ -153,14 +210,22 @@ def _quotes(secids: list[str]) -> tuple[dict[str, dict[str, Any]], list[dict[str
 
         with ThreadPoolExecutor(max_workers=5) as executor:
             for secid, quote, error in executor.map(fetch, missing):
-                attempts.append({"source": secid, "status": "ok" if quote else "failed", "reason": error})
+                status = "ok" if quote and _usable(quote) else "unverified" if quote else "failed"
+                attempts.append({"source": "东财美股单标的行情", "symbol": secid, "status": status,
+                                 "reason": error or ("字段未审核或 PE/PB/市值无效" if status == "unverified" else "")})
                 if quote:
                     quotes[quote["symbol"]] = quote
+    missing_codes = [item.split(".", 1)[1] for item in secids
+                     if not _usable(quotes.get(item.split(".", 1)[1], {}))]
+    if missing_codes:
+        fallback, fallback_attempts = _f10_metrics(missing_codes)
+        quotes.update(fallback)
+        attempts.extend(fallback_attempts)
     return quotes, attempts
 
 
 def us_industry_result(symbol: str, *, cache: CacheManager | None = None, refresh: bool = False) -> ValueResult[IndustryData]:
-    """已审核行情可用于比较；营收及经营评分保持独立门禁。"""
+    """已审核估值可用于比较；营收及经营评分保持独立门禁。"""
     stamp = datetime.now().astimezone()
     collected_at = stamp
     cache_status = "live"
@@ -198,23 +263,23 @@ def us_industry_result(symbol: str, *, cache: CacheManager | None = None, refres
         securities = {row["SECURITY_CODE"]: market[row["SECUCODE"].rsplit(".", 1)[1]] + "." + row["SECURITY_CODE"]
                       for row in [profile, *rows] if row.get("SECURITY_CODE") in {*members, ticker}
                       and isinstance(row.get("SECUCODE"), str) and row["SECUCODE"].rsplit(".", 1)[-1] in market}
-        quote_key = f"us_industry::v2::{symbol}::{industry}"
+        quote_key = f"us_industry::v3::{symbol}::{industry}"
         saved = cache.get("us_industry_quotes", quote_key, "snapshot") if cache and not refresh else None
         if saved:
             cached = _object(json.loads(saved))
             quotes, attempts = cached.get("quotes"), cached.get("attempts")
-            if (cached.get("version") != 2 or not isinstance(quotes, dict)
+            if (cached.get("version") != 3 or not isinstance(quotes, dict)
                     or not all(isinstance(value, dict) for value in quotes.values())
                     or not isinstance(attempts, list) or not all(isinstance(value, dict) for value in attempts)):
-                raise TypeError("行情缓存结构无效")
+                raise TypeError("同行估值缓存结构无效")
             collected_at = datetime.fromisoformat(cached["collected_at"])
             if collected_at.tzinfo is None or collected_at > stamp:
-                raise ValueError("行情缓存采集时间无效")
+                raise ValueError("同行估值缓存采集时间无效")
             cache_status = "cache"
         else:
             quotes, attempts = _quotes(list(securities.values()))
             if cache and quotes:
-                cache.put("us_industry_quotes", quote_key, "snapshot", json.dumps({"version": 2, "quotes": quotes, "attempts": attempts, "collected_at": stamp.isoformat()}), ttl_seconds=600)
+                cache.put("us_industry_quotes", quote_key, "snapshot", json.dumps({"version": 3, "quotes": quotes, "attempts": attempts, "collected_at": stamp.isoformat()}), ttl_seconds=600)
         target = quotes.get(ticker, {})
         if not isinstance(target, dict) or target.get("basis_verified") is not True:
             target = {}
@@ -224,7 +289,9 @@ def us_industry_result(symbol: str, *, cache: CacheManager | None = None, refres
 
         reason = "TTM 营收字段未证实，不派生净利率，行业经营分不适用"
         if not target or len(valid) < 5:
-            reason += "；已核实行情的目标或有效同行不足"
+            reason += "；已核实估值的目标或有效同行不足"
+        errors = [reason, *(f"{item['source']}: {item.get('reason', '')}" for item in attempts
+                           if item.get("status") in {"failed", "unverified"})]
         value = IndustryData(
             symbol=symbol, industry=industry, sector=target.get("sector", ""), peers=list(valid),
             peer_names=members, peer_scope=SOURCE, peer_industry=industry,
@@ -233,7 +300,7 @@ def us_industry_result(symbol: str, *, cache: CacheManager | None = None, refres
                 "source": SOURCE, "as_of": collected_at.isoformat(), "basis": "TTM",
                 "candidate_count": len(members), "revenue": None, "revenue_verified": False,
                 "target": target, "quotes": valid,
-                "errors": [reason], "attempts": [*attempts, {"source": SOURCE, "status": "ok"},
+                "errors": errors, "attempts": [*attempts, {"source": SOURCE, "status": "ok"},
                     {"source": "东财美股营收口径", "status": "unverified", "reason": reason}],
             },
         )
@@ -243,7 +310,7 @@ def us_industry_result(symbol: str, *, cache: CacheManager | None = None, refres
         value._data_source = SOURCE
         return ValueResult(value, make_record(
             SOURCE, "partial", collected_at=collected_at, cache_status=cache_status, error_kind="unverified_basis", error_message=reason,
-        ), [reason])
+        ), errors)
     except (requests.RequestException, ValueError, TypeError, KeyError) as exc:
         logger.warning("美股行业采集失败 %s: %s", symbol, exc)
         return ValueResult(None, make_record(
