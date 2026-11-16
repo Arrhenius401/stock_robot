@@ -79,6 +79,20 @@ def test_us_zero_industry_score_is_valid_and_news_unscored():
     assert "本期美股不提供综合评分" not in report
 
 
+def test_complete_us_core_generates_only_rule_label_and_partial_closes_it():
+    from report.signal import SignalConfig
+
+    ctx = context()
+    values = results()
+    payload = build_stock_payload(ctx.symbol, ctx.name, values, {}, ctx, no_llm=True, signal_cfg=SignalConfig())
+    assert payload['signal'] is not None
+    assert set(payload['signal']) == {'level', 'label', 'basis'}
+    assert '胜率' not in payload['signal']['basis']
+    values[0].status = 'partial'
+    payload = build_stock_payload(ctx.symbol, ctx.name, values, {}, ctx, no_llm=True, signal_cfg=SignalConfig())
+    assert payload['signal'] is None
+
+
 @pytest.mark.parametrize(("industry", "strategy"), [("综合性银行", "BankScorer"),
     ("财产与意外伤害保险", "NonBankFinancialScorer"), ("系统软件", "TechGrowthScorer")])
 def test_us_template_uses_real_industry_and_preserves_mapping(industry, strategy):
