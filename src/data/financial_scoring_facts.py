@@ -1,7 +1,7 @@
 """独立的完整年度 ROE 依据；不覆盖最新财报，不重复采集三表。"""
 import logging
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from data.cache import CacheManager
@@ -25,12 +25,48 @@ def annual_roe_fact(ctx: AnalysisContext) -> dict[str, Any]:
     """消费独立事实时再次校验单位、期间与来源；旧快照 ROE 不作替代。"""
     fact = ctx.financial_scoring_facts.get("annual_roe", {})
     if (isinstance(fact, dict) and is_finite_number(fact.get("value"))
-            and complete_year(fact.get("period_start"), fact.get("period_end"))
+            and (us_ttm_year(fact.get("period_start"), fact.get("period_end")) if ctx.market == "us" else complete_year(fact.get("period_start"), fact.get("period_end")))
             and fact.get("source") and fact.get("basis") and not fact.get("reason")):
         return fact
     return {"value": None, "period_start": "", "period_end": "", "source": "", "basis": "",
             "reason": fact.get("reason", "未取得明确完整年度 ROE") if isinstance(fact, dict)
             else "年度 ROE 依据格式无效"}
+
+
+def us_ttm_year(start: Any, end: Any) -> bool:
+    """52/53周财政年或自然年；仅用于已经核实四季连续的美股TTM。"""
+    left, right = iso_date(start), iso_date(end)
+    return bool(left and right and right <= datetime.now().astimezone().date().isoformat()
+                and (date.fromisoformat(right) - date.fromisoformat(left)).days in (363, 364, 365, 370))
+
+
+def us_ttm_roe_fact(ctx: AnalysisContext) -> dict[str, Any]:
+    """四个连续单季归母利润/最新可得同币种期末权益，不消费快照ROE。"""
+    missing = {"value": None, "reason": "四季连续期间、同币种利润或权益证据不足"}
+    rows = sorted([r for r in ctx.financial_data or [] if r.symbol == ctx.symbol], key=lambda r: r.fiscal_quarter)[-4:]
+    if len(rows) != 4:
+        return missing
+    positions = [r.field_positions.get("net_profit", {}) for r in rows]
+    starts = [iso_date(p.get("start")) for p in positions]
+    ends = [iso_date(p.get("end")) for p in positions]
+    if not all(starts) or not all(ends) or len(set(ends)) != 4:
+        return missing
+    if any(date.fromisoformat(str(starts[i])) != date.fromisoformat(str(ends[i-1])) + timedelta(days=1) for i in range(1, 4)):
+        return missing
+    latest = rows[-1]
+    equity_key = "common_equity" if latest.common_equity is not None else "total_equity"
+    equity = getattr(latest, equity_key)
+    denominator = latest.field_positions.get(equity_key, {})
+    currencies = {p.get("currency") for p in [*positions, denominator]}
+    if (len(currencies) != 1 or not next(iter(currencies)) or not is_finite_number(equity) or equity <= 0
+            or not all(is_finite_number(r.net_profit) for r in rows)
+            or not denominator.get("end") or str(denominator["end"]) > str(ends[-1])
+            or not us_ttm_year(starts[0], ends[-1])):
+        return missing
+    return {"value": sum(r.net_profit for r in rows if r.net_profit is not None) / equity,
+            "period_start": starts[0], "period_end": ends[-1], "source": "东方财富美股F10",
+            "basis": "TTM四个连续单季归母利润/最近可得期末权益；分母日期 " + denominator["end"],
+            "denominator_date": denominator["end"], "currency": next(iter(currencies)), "reason": ""}
 
 
 def _reported(ctx: AnalysisContext) -> list[dict[str, Any]]:
@@ -103,6 +139,9 @@ class FinancialScoringFactsService:
         self.cache = cache
 
     def enrich(self, ctx: AnalysisContext, *, refresh: bool = False) -> AnalysisContext:
+        if ctx.market == "us":
+            ctx.financial_scoring_facts["annual_roe"] = us_ttm_roe_fact(ctx)
+            return ctx
         facts = _reported(ctx)
         comparison_fact = _comparison(ctx)
         if comparison_fact is not None:

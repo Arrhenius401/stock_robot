@@ -201,6 +201,7 @@ def test_class_share_rejects_conflicting_identity(mocker, code, secucode):
 
 
 def test_class_share_uses_verified_f10_variant(mocker):
+    mocker.patch("data.us_stock._statement_metadata", return_value={})
     from data.us_stock import _statement
 
     # 2026-11-15 实测身份为 BRK_B / BRK_B.N，原始响应保留在 tmp。

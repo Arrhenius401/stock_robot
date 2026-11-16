@@ -338,7 +338,7 @@ def us_history(ticker: str, start: date | None = None, end: date | None = None) 
     return best
 
 
-def _statement(ticker: str, statement: str) -> dict[str, dict[str, float]]:
+def _statement(ticker: str, statement: str) -> dict[str, dict[str, Any]]:
     import akshare as ak
 
     frame: Any = ak.stock_financial_us_report_em(
@@ -346,7 +346,7 @@ def _statement(ticker: str, statement: str) -> dict[str, dict[str, float]]:
     )
     if frame is None or frame.empty:
         raise ValueError(f"美股{statement}为空")
-    periods: dict[str, dict[str, float]] = {}
+    periods: dict[str, dict[str, Any]] = {}
     for _, row in frame.iterrows():
         code = str(row.get("SECURITY_CODE") or "").strip().upper()
         secucode = str(row.get("SECUCODE") or "").strip().upper()
@@ -358,10 +358,63 @@ def _statement(ticker: str, statement: str) -> dict[str, dict[str, float]]:
         amount = _number(row.get("AMOUNT"))
         if period is None or not item or amount is None:
             continue
-        periods.setdefault(period.isoformat(), {})[item] = amount
+        entry = periods.setdefault(period.isoformat(), {})
+        metadata = {"start": str(row.get("START_DATE") or "")[:10],
+                    "currency": str(row.get("CURRENCY_ABBR") or ""),
+                    "notice": str(row.get("NOTICE_DATE") or ""),
+                    "accounting": str(row.get("ACCOUNT_STANDARD") or "")}
+        if "_meta" in entry and entry["_meta"] != metadata:
+            raise ValueError(f"美股{statement}同一期期间/币种冲突")
+        if item in entry and entry[item] != amount:
+            raise ValueError(f"美股{statement}同一期科目冲突")
+        if any(metadata.values()):
+            entry["_meta"] = metadata
+        entry[item] = amount
     if not periods:
         raise ValueError(f"美股{statement}没有可解析的报告期")
+    metadata = _statement_metadata(ticker, statement, min(periods))
+    for period, entry in periods.items():
+        if period in metadata:
+            entry["_meta"] = metadata[period]
     return periods
+
+
+def _statement_metadata(ticker: str, statement: str, start: str) -> dict[str, dict[str, str]]:
+    """包装器未请求期间和币种，向同一F10端点补取原字段，不按季度猜测。"""
+    report = {"综合损益表": "RPT_USF10_FN_INCOME", "资产负债表": "RPT_USF10_FN_BALANCE",
+              "现金流量表": "RPT_USSK_FN_CASHFLOW"}[statement]
+    code = "BRK_B" if ticker == "BRK.B" else ticker
+    try:
+        response = requests.get("https://datacenter.eastmoney.com/securities/api/data/v1/get", params={
+            "reportName": report, "columns": "ALL", "source": "SECURITIES", "client": "PC",
+            "filter": f"(SECURITY_CODE=\"{code}\")(REPORT_DATE>='{start}')",
+            "pageSize": 500, "pageNumber": 1, "sortColumns": "REPORT_DATE", "sortTypes": "-1",
+        }, timeout=10)
+        response.raise_for_status()
+        payload = response.json()
+        if payload.get("success") is not True:
+            raise ValueError(str(payload.get("message") or "三表元信息响应失败"))
+        result = payload.get("result") or {}
+        rows = result.get("data") or []
+        metadata: dict[str, dict[str, str]] = {}
+        conflicts: set[str] = set()
+        for row in rows:
+            if row.get("SECURITY_CODE") != code:
+                raise ValueError("三表元信息身份不匹配")
+            if statement != "资产负债表" and row.get("REPORT_TYPE") != "单季报":
+                continue
+            period = str(row.get("REPORT_DATE") or "")[:10]
+            item = {"start": str(row.get("START_DATE") or "")[:10],
+                    "currency": str(row.get("CURRENCY_ABBR") or ""),
+                    "accounting": str(row.get("ACCOUNT_STANDARD") or ""),
+                    "notice": str(row.get("NOTICE_DATE") or "")}
+            if period in metadata and metadata[period] != item:
+                conflicts.add(period)
+            metadata[period] = item
+        return {key: value for key, value in metadata.items() if key not in conflicts}
+    except (requests.RequestException, ValueError, TypeError, KeyError) as error:
+        logger.warning("美股三表期间币种补取失败 %s/%s: %s", ticker, statement, error)
+        return {}
 
 
 def _row_value(period: dict[str, float], *codes: str) -> float | None:
@@ -405,7 +458,7 @@ def us_financials(ticker: str, max_periods: int = 8) -> list[FinancialData]:
     rows: list[FinancialData] = []
     balance_keys = sorted(balance)
 
-    def balance_for(period_key: str) -> tuple[dict[str, float], str]:
+    def balance_for(period_key: str) -> tuple[dict[str, Any], str]:
         exact = balance.get(period_key)
         if exact is not None:
             return exact, period_key
@@ -421,13 +474,18 @@ def us_financials(ticker: str, max_periods: int = 8) -> list[FinancialData]:
         income_row = income.get(period_key, {})
         balance_row, balance_key = balance_for(period_key)
         cash_row = cash.get(period_key, {})
-        financial_company = any(code.startswith(("001", "002")) for code in income_row)
+        financial_company = any(code.startswith(("001", "002")) for code in income_row if not code.startswith("_"))
         revenue = _row_value(income_row, "004001999", "004001001", "001008999", "002001999")
         net_profit = _row_value(income_row, "004015999", "004013999", "001015999", "002011999")
         gross_profit = _row_value(income_row, "004005999")
         gross_margin = (gross_profit / revenue
                         if not financial_company and revenue and revenue > 0 and gross_profit is not None else None)
-        start = None  # 源接口没有期间起点，不能按自然季度推造。
+        income_meta = income_row.get("_meta", {})
+        cash_meta = cash_row.get("_meta", {})
+        balance_meta = balance_row.get("_meta", {})
+        start = _parse_date(income_meta.get("start"))
+        currency = income_meta.get("currency", "")
+        cash_start = _parse_date(cash_meta.get("start"))
         field_sources: dict[str, str] = {}
         if balance_key and balance_key != period_key:
             balance_note = f"资产负债表最近可得 {balance_key}"
@@ -454,11 +512,11 @@ def us_financials(ticker: str, max_periods: int = 8) -> list[FinancialData]:
             period_start=start,
             period_basis="single",
             reporting_basis="东方财富美股F10-单季报（会计准则未核实）",
-            amount_currency_verified=False,
-            report_currency="",
+            amount_currency_verified=bool(currency),
+            report_currency=currency,
             revenue_basis="单季营业收入",
             cash_flow_basis="reported" if _row_value(cash_row, "003999") is not None else "unknown",
-            cash_flow_period_start=start,
+            cash_flow_period_start=cash_start,
             financial_source="东方财富美股F10",
             financial_selection_status="complete",
             financial_selection_note="",
@@ -467,6 +525,11 @@ def us_financials(ticker: str, max_periods: int = 8) -> list[FinancialData]:
         for field in ("revenue", "net_profit", "total_assets", "total_equity", "common_equity", "operating_cash_flow", "capital_expenditure", "free_cash_flow"):
             source_period = balance_key if field in {"total_assets", "total_equity", "common_equity"} else period_key
             row.field_sources.setdefault(field, f"东方财富美股F10，源报告日 {source_period or '未知'}；" + ("未披露/不适用" if getattr(row, field) is None else "源科目映射/已披露现金支出派生"))
+        for field in ("net_profit", "revenue", "operating_cash_flow", "total_assets", "common_equity", "total_equity"):
+            meta = cash_meta if field == "operating_cash_flow" else balance_meta if field in {"total_assets", "common_equity", "total_equity"} else income_meta
+            row.field_positions[field] = {"start": meta.get("start", ""), "end": balance_key if field in {"total_assets", "common_equity", "total_equity"} else period_key,
+                "currency": meta.get("currency", ""), "unit": "元", "basis": "single", "scope": "公司整体",
+                "accounting": meta.get("accounting", ""), "revision": "当前源快照", "notice": meta.get("notice", "")}
         rows.append(row)
 
     # ROE 按最近四个财季净利润 / 期末归母权益派生；资产负债表期不一致时不混算。
@@ -487,7 +550,7 @@ def us_financials(ticker: str, max_periods: int = 8) -> list[FinancialData]:
         is_finite_number(value) for value in required) else "partial"
     latest.financial_selection_note = (
         f"报告期按财季月末展示（源报告日 {date.fromisoformat(periods[-1]).isoformat()}）；"
-        "最近四个财季合计为 TTM；源接口未提供金额币种证据，不推断换汇或 ADR 每股比例"
+        "最近四个财季合计为 TTM；期间/币种按源三表逐行保留，缺失不推断；不推断换汇或 ADR 每股比例"
     )
     if ticker == "BRK.B":
         latest.financial_selection_note += "；F10 代码变体 BRK_B，伯克希尔哈撒韦-B 公司整体报表"
