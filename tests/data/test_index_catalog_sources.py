@@ -61,6 +61,33 @@ def test_sw_requires_complete_pages():
     assert parse_sw_catalog(rows, 1, '一级行业')[0].identity == 'sw:801010'
 
 
+@pytest.mark.parametrize('age_ns,expected', [(0, 'cache'), (1, 'cache'), (-1, 'live'), (10_000_000_000, 'live')])
+def test_sync_cache_nanosecond_boundaries(tmp_path, monkeypatch, age_ns, expected):
+    import os
+    import time
+
+    from data.index_catalog_sources import save_catalog_snapshot, sync_catalog
+
+    entries = parse_cni_catalog({'code': 200, 'data': {'total': 1, 'rows': [
+        {'indexcode': '399001', 'indexname': '深证成指'}]}})
+    path = tmp_path / 'cni.json'
+    save_catalog_snapshot(path, entries)
+    stamp = 1_700_000_000_000_000_123
+    os.utime(path, ns=(stamp, stamp))
+    stamp = path.stat().st_mtime_ns
+    # 秒级浮点取样略早，不能覆盖精确纳秒时钟；未来/TTL边界仍严格处理。
+    monkeypatch.setattr(time, 'time', lambda: (stamp - 1000) / 1_000_000_000)
+    monkeypatch.setattr(time, 'time_ns', lambda: stamp + age_ns)
+    calls = []
+
+    def fetch():
+        calls.append(1)
+        return entries
+
+    assert sync_catalog(path, fetch, ttl_seconds=10)[1] == expected
+    assert len(calls) == (0 if expected == 'cache' else 1)
+
+
 def test_sync_uses_fresh_cache_and_preserves_old_on_failure(tmp_path):
     from data.index_catalog_sources import sync_catalog
 
