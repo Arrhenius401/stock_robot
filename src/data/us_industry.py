@@ -23,7 +23,7 @@ F10_SOURCE = "东财美股 F10 主指标"
 # 2026-11-16 六标的实测及 AAPL/BRK_B 与已审核单标的字段对照。
 # 独立于 push2 协议：只准入三项指标，不使用 TURNOVER/SALE_NPR。
 _F10_BASIS = {"endpoint": "RPT_USF10_DATA_MAININDICATOR",
-              "fields": "PE_TTM,PB,TOTAL_MARKET_CAP", "pe": "TTM", "pb": "期间未确认"}
+              "fields": "PE_TTM,PB,TOTAL_MARKET_CAP", "pe": "TTM", "pb": "PB_SOURCE逐行财政期间"}
 # 仅代码审查可登记协议；条目须含端点、fltt、字段映射及真实双缩放样本的SHA256。
 # 2026-11-16 官方vendor映射及AAPL/BRK_B双缩放探针已核实单标的协议。
 # 批量仍未证实；营收不在本次审核范围，禁止运行时配置boolean绕过。
@@ -135,7 +135,7 @@ def _f10_metrics(codes: list[str]) -> tuple[dict[str, dict[str, Any]], list[dict
             expression = '(SECURITY_CODE in (' + ','.join(f'"{code}"' for code in batch) + '))'
             response = requests.get(PROFILE_URL, params={
                 "reportName": _F10_BASIS["endpoint"],
-                "columns": "SECURITY_CODE,SECURITY_NAME_ABBR,REPORT_DATE,PE_TTM,PB,TOTAL_MARKET_CAP",
+                "columns": "SECURITY_CODE,SECURITY_NAME_ABBR,REPORT_DATE,PE_TTM,PB,TOTAL_MARKET_CAP,PB_SOURCE",
                 "filter": expression, "source": "SECURITIES", "client": "PC",
                 "pageSize": 500, "pageNumber": 1,
             }, timeout=10, headers=_QUOTE_HEADERS)
@@ -162,7 +162,7 @@ def _f10_metrics(codes: list[str]) -> tuple[dict[str, dict[str, Any]], list[dict
                     continue
                 quotes[code] = {"symbol": code, "name": row.get("SECURITY_NAME_ABBR"), **metrics,
                     "source": F10_SOURCE, "basis": dict(_F10_BASIS), "basis_verified": True,
-                    "report_date": row.get("REPORT_DATE"), "revenue": None, "net_margin": None,
+                    "pb_source": row.get("PB_SOURCE"), "report_date": row.get("REPORT_DATE"), "revenue": None, "net_margin": None,
                     "revenue_verified": False}
                 attempts.append({"source": F10_SOURCE, "symbol": code, "status": "ok"})
         except (requests.RequestException, ValueError, TypeError, KeyError) as exc:
@@ -263,12 +263,12 @@ def us_industry_result(symbol: str, *, cache: CacheManager | None = None, refres
         securities = {row["SECURITY_CODE"]: market[row["SECUCODE"].rsplit(".", 1)[1]] + "." + row["SECURITY_CODE"]
                       for row in [profile, *rows] if row.get("SECURITY_CODE") in {*members, ticker}
                       and isinstance(row.get("SECUCODE"), str) and row["SECUCODE"].rsplit(".", 1)[-1] in market}
-        quote_key = f"us_industry::v3::{symbol}::{industry}"
+        quote_key = f"us_industry::v4::{symbol}::{industry}"
         saved = cache.get("us_industry_quotes", quote_key, "snapshot") if cache and not refresh else None
         if saved:
             cached = _object(json.loads(saved))
             quotes, attempts = cached.get("quotes"), cached.get("attempts")
-            if (cached.get("version") != 3 or not isinstance(quotes, dict)
+            if (cached.get("version") != 4 or not isinstance(quotes, dict)
                     or not all(isinstance(value, dict) for value in quotes.values())
                     or not isinstance(attempts, list) or not all(isinstance(value, dict) for value in attempts)):
                 raise TypeError("同行估值缓存结构无效")
@@ -279,7 +279,7 @@ def us_industry_result(symbol: str, *, cache: CacheManager | None = None, refres
         else:
             quotes, attempts = _quotes(list(securities.values()))
             if cache and quotes:
-                cache.put("us_industry_quotes", quote_key, "snapshot", json.dumps({"version": 3, "quotes": quotes, "attempts": attempts, "collected_at": stamp.isoformat()}), ttl_seconds=600)
+                cache.put("us_industry_quotes", quote_key, "snapshot", json.dumps({"version": 4, "quotes": quotes, "attempts": attempts, "collected_at": stamp.isoformat()}), ttl_seconds=600)
         target = quotes.get(ticker, {})
         if not isinstance(target, dict) or target.get("basis_verified") is not True:
             target = {}
@@ -287,7 +287,20 @@ def us_industry_result(symbol: str, *, cache: CacheManager | None = None, refres
                  and isinstance(quote, dict) and quote.get("basis_verified") is True
                  and all(_positive(quote.get(key)) is not None for key in ("market_cap", "pe", "pb"))}
 
-        reason = "TTM 营收字段未证实，不派生净利率，行业经营分不适用"
+        from data.us_operating import load_operating
+
+        cap = _positive(target.get("market_cap"))
+        selected = []
+        if cap is not None:
+            for low, high in ((.1, 5), (.01, 20)):
+                selected = [row for row in valid.values() if low * cap <= row["market_cap"] <= high * cap]
+                if len(selected) >= 5:
+                    break
+            if len(selected) < 5:
+                selected = list(valid.values())
+            selected = sorted(selected, key=lambda row: abs(row["market_cap"] / cap - 1))[:10]
+        operating = load_operating([symbol, *[row["symbol"] for row in selected]], cache=cache, refresh=refresh)
+        reason = "经营指标独立使用F10连续单季TTM；缺失或样本不足不计分"
         if not target or len(valid) < 5:
             reason += "；已核实估值的目标或有效同行不足"
         errors = [reason, *(f"{item['source']}: {item.get('reason', '')}" for item in attempts
@@ -299,7 +312,7 @@ def us_industry_result(symbol: str, *, cache: CacheManager | None = None, refres
             comparison_snapshot={
                 "source": SOURCE, "as_of": collected_at.isoformat(), "basis": "TTM",
                 "candidate_count": len(members), "revenue": None, "revenue_verified": False,
-                "target": target, "quotes": valid,
+                "target": target, "quotes": valid, "operating": operating,
                 "errors": errors, "attempts": [*attempts, {"source": SOURCE, "status": "ok"},
                     {"source": "东财美股营收口径", "status": "unverified", "reason": reason}],
             },

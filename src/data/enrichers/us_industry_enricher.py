@@ -1,5 +1,6 @@
 """美股同分类、市值分层的 TTM 比较；未证实营收不派生净利率。"""
 import statistics
+from datetime import date
 from typing import Any
 
 from data.enricher import DataEnricher
@@ -59,13 +60,29 @@ class UsIndustryEnricher(DataEnricher):
         pe, pb = _positive(target.get("pe")), _positive(target.get("pb"))
         pe_metric = _metric("pe_ttm", "PE(TTM)", pe, [row["pe"] for row in selected])
         pb_metric = _metric("pb", "PB", pb, [row["pb"] for row in selected])
-        roe_metric = _metric("roe", "ROE(TTM，PB/PE 派生)", pb / pe * 100 if pb and pe else None,
-                             [row["pb"] / row["pe"] * 100 for row in selected], "percent")
-        reason = "营收字段未证实，行业经营分不适用；报告期间未确认"
-        financial = any(word in data.industry + data.sector for word in ("银行", "保险", "金融"))
+        operating = snapshot.get("operating", {})
+        operating = operating if isinstance(operating, dict) else {}
+        target_op = operating.get(ctx.symbol) or {}
+        metrics = []
+        for key, label in (("revenue_growth_yoy", "TTM营收同比"), ("net_margin", "TTM净利率")):
+            values = []
+            for peer in selected:
+                row = operating.get(peer["symbol"]) or {}
+                try:
+                    comparable = (row.get("basis") == "TTM" and row.get("source") and row.get("start")
+                                  and abs((date.fromisoformat(row["end"]) - date.fromisoformat(target_op["end"])).days) <= 100)
+                except (ValueError, TypeError, KeyError):
+                    comparable = False
+                value = row.get(key)
+                if comparable and isinstance(value, (int, float)) and not isinstance(value, bool):
+                    values.append(value)
+            metrics.append(_metric(key, label, target_op.get(key), values, "percent"))
+        ready = (target_op.get("basis") == "TTM" and all(target_op.get(k) for k in ("start", "end", "source"))
+                 and all(m["status"] == "ok" for m in metrics))
+        reason = "" if ready else "TTM经营期间未核实或至少两项各五家有效同行不足"
         notes = ["东财美股 F10 行业（BELONG_INDUSTRY）；经营指标为 TTM 派生，不是年度+最新两期。",
                  "仅美股上市纯字母代码；优先目标市值0.1至5倍，不足五家放宽0.01至20倍，最多十家。",
-                 "净利率口径不适用" if financial else "营收字段未证实，不派生净利率。"]
+                 "经营指标采用F10连续单季TTM；PB仅作估值比较，不派生ROE。"]
         if relaxed:
             notes.append("市值分层不足，已放宽到全部有效同行，按距目标市值最近选取，最多十家。")
         sources = sorted({row.get("source") or "来源未记录" for row in [target, *selected]})
@@ -73,22 +90,23 @@ class UsIndustryEnricher(DataEnricher):
         comparison = {"version": 1, "scope": SOURCE + "·" + data.industry, "peer_count": len(selected),
             "valuation": {"as_of": snapshot.get("as_of"), "source": valuation_source,
                           "show_source_rows": True, "target": {**target, "symbol": ctx.symbol},
-                          "peers": [{**row, "pe_ttm": row["pe"], "roe": row["pb"] / row["pe"] * 100} for row in selected],
+                          "peers": [{**row, "pe_ttm": row["pe"]} for row in selected],
                           "metrics": [pe_metric, pb_metric]},
-            "periods": {"latest": {"start": None, "end": None, "basis": "TTM", "label": "TTM（期间未确认）",
-                         "source": valuation_source + "，PB/PE 派生", "metrics": [roe_metric], "reason": reason}},
-            "notes": notes, "errors": [reason]}
+            "periods": {"latest": {**target_op, "start": target_op.get("start"), "end": target_op.get("end"),
+                         "basis": "TTM", "label": "TTM最新期", "source": target_op.get("source"),
+                         "metrics": metrics, "reason": reason}},
+            "notes": notes, "errors": [reason] if reason else []}
         enough = len(selected) >= 5
         data.comparison_ready = enough
         ctx.enriched_industry = EnrichedIndustry(peer_count=len(selected),
             top_peers=[PeerComparison(symbol=row["symbol"], name=row.get("name") or "", market_cap=row["market_cap"],
-                pe_ttm=row["pe"], pb=row["pb"], roe=row["pb"] / row["pe"], net_margin=None) for row in selected],
+                pe_ttm=row["pe"], pb=row["pb"], roe=None, net_margin=(operating.get(row["symbol"]) or {}).get("net_margin")) for row in selected],
             industry_median_pe=pe_metric["median"], industry_median_pb=pb_metric["median"],
             target_pe_premium=(pe / pe_metric["median"] - 1) * 100 if pe and pe_metric["median"] else None,
             target_pe_percentile=pe_metric["percentile"], target_pb_percentile=pb_metric["percentile"],
             peer_pe_sample=len(selected), peer_pb_sample=len(selected), comparison=comparison)
         ctx.sufficiency.industry = DimensionSufficiency(
-            level=SufficiencyLevel.PARTIAL if len(selected) >= 3 else SufficiencyLevel.INSUFFICIENT,
+            level=SufficiencyLevel.SUFFICIENT if ready else SufficiencyLevel.PARTIAL if len(selected) >= 3 else SufficiencyLevel.INSUFFICIENT,
             reason=reason if enough else "行业对比样本不足；" + reason,
-            sample_count=len(selected), score_weight=.5 if len(selected) >= 3 else 0)
+            sample_count=len(selected), score_weight=1 if ready else .5 if len(selected) >= 3 else 0)
         return ctx

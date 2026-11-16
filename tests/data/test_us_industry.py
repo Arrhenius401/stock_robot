@@ -4,6 +4,11 @@ import pytest
 from data.us_industry import filter_members, us_industry_result
 
 
+@pytest.fixture(autouse=True)
+def no_live_operating(mocker):
+    mocker.patch("data.us_operating.load_operating", return_value={})
+
+
 def row(code="MSFT", suffix="O", industry="系统软件", name="微软"):
     return {"SECURITY_CODE": code, "SECUCODE": f"{code}.{suffix}",
             "BELONG_INDUSTRY": industry, "ORG_NAME": name}

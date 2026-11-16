@@ -25,7 +25,7 @@ def test_target_market_cap_missing_cannot_select_comparable_peers():
     UsIndustryEnricher().enrich(ctx)
     assert ctx.sufficiency.industry.level == "insufficient"
     assert ctx.enriched_industry is not None
-    assert "净利率口径不适用" in ctx.enriched_industry.comparison["notes"]
+    assert "PB仅作估值比较" in "；".join(ctx.enriched_industry.comparison["notes"])
 
 
 
@@ -54,7 +54,7 @@ def test_market_cap_relaxation_and_small_sample_medians():
     assert not ctx.industry_data.comparison_ready
 
 
-def test_roe_ratio_and_explicit_comparison_percent_format_identically():
+def test_valuation_ratio_is_not_operating_roe():
     from analysis.industry import IndustryAnalyzer
     from report.formatter import format_metrics
 
@@ -65,8 +65,8 @@ def test_roe_ratio_and_explicit_comparison_percent_format_identically():
             "target": {"basis_verified": True, "market_cap": 100, "pe": 10, "pb": 2}, "quotes": quotes}))
     UsIndustryEnricher().enrich(ctx)
     metrics = format_metrics(IndustryAnalyzer().analyze(ctx).metrics)
-    assert metrics["top_peers"][0]["roe"] == "20.00%"
-    assert metrics["comparison"]["periods"]["latest"]["metrics"][0]["target"] == "20.00%"
+    assert metrics["top_peers"][0]["roe"] in (None, "N/A", "--", "—", "暂无数据")
+    assert metrics["comparison"]["periods"]["latest"]["metrics"][0]["target"] != "20.00%"
 
 
 def test_numeric_strings_in_snapshot_are_normalized_before_comparison():

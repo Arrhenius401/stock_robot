@@ -534,7 +534,7 @@ class Pipeline:
                     level=SufficiencyLevel.INSUFFICIENT, reason="同行比较数据获取失败",
                     sample_count=0, score_weight=0.0,
                 )
-        if self._extra_analysis_enabled and market != "us" and dimension in (None, "financial"):
+        if self._extra_analysis_enabled and dimension in (None, "financial"):
             from data.financial_scoring_facts import FinancialScoringFactsService
 
             try:

@@ -34,3 +34,14 @@ def test_us_enrichment_precedes_industry_analysis_and_never_calls_a_service(mock
     assert values[0].score is None
     assert values[0].metrics["comparison"]["version"] == 1
     assert "不是 GICS/申万" in values[0].industry_note
+
+
+def test_us_financial_path_builds_ttm_scoring_facts(mocker, tmp_path):
+    config = Config(tmp_path)
+    config.data['analysis']['extra_enabled'] = True
+    pipeline = Pipeline(Registry(), config, llm_enabled=False)
+    ctx = AnalysisContext(symbol='AAPL', name='苹果', market='us')
+    mocker.patch.object(pipeline, 'collect', return_value=ctx)
+    facts = mocker.patch('data.financial_scoring_facts.FinancialScoringFactsService.enrich', return_value=ctx)
+    pipeline.run('AAPL', '苹果', market='us', dimension='financial')
+    facts.assert_called_once()
