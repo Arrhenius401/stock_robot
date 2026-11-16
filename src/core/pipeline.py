@@ -168,11 +168,10 @@ class Pipeline:
             from core.resilient_collection import Kind, supports
 
             if market == "us" and data_type == "industry":
-                return data_type, [], make_record(
-                    "本期美股不提供行业同行对比", "not_applicable",
-                    error_kind="not_applicable",
-                    error_message="本期美股不提供行业同行对比，不计入覆盖率",
-                )
+                from data.us_industry import us_industry_result
+
+                outcome = us_industry_result(symbol, cache=self._cache, refresh=refresh_cache)
+                return data_type, [outcome.value] if outcome.value is not None else [], outcome.record
             if supports(market, data_type):
                 from typing import cast
 
@@ -520,14 +519,9 @@ class Pipeline:
         if on_progress and ctx.industry_data is not None and getattr(ctx.industry_data, "comparison_ready", False):
             on_progress("collect", 1, 1, "采集同行估值与同期经营指标")
         if market == "us":
-            from data.schemas import DimensionSufficiency
+            from data.enrichers.us_industry_enricher import UsIndustryEnricher
 
-            ctx.enriched_industry = None
-            ctx.sufficiency.industry = DimensionSufficiency(
-                level=SufficiencyLevel.INSUFFICIENT,
-                reason="本期美股不提供行业同行对比，不计入覆盖率",
-                sample_count=0, score_weight=0.0,
-            )
+            ctx = UsIndustryEnricher().enrich(ctx)
         else:
             try:
                 ctx = PeerComparisonService(self._cache).enrich(ctx, refresh=refresh_cache)

@@ -357,7 +357,7 @@ class AkShareAdapter(DataSource):
             return True
         if market == "hk" and data_type in ("price", "financial", "valuation", "news"):
             return True
-        if market == "us" and data_type in ("price", "financial", "valuation", "news"):
+        if market == "us" and data_type in ("price", "financial", "valuation", "industry", "news"):
             return True
         elif data_type in ("index_price", "index_valuation", "index_capital_flow",
                            "index_macro", "index_sentiment"):
@@ -1152,6 +1152,13 @@ class AkShareAdapter(DataSource):
         return [item]
 
     def _fetch_industry(self, symbol: str, **kwargs) -> list[IndustryData]:
+        if kwargs.get("market") == "us":
+            from data.us_industry import us_industry_result
+
+            result = us_industry_result(symbol, cache=kwargs.get("comparison_cache"),
+                                        refresh=bool(kwargs.get("refresh_cache", False)))
+            self._collection_diagnostics.record = result.record
+            return [result.value] if result.value is not None else []
         from data.peer_comparison import fetch_a_industry
 
         return fetch_a_industry(

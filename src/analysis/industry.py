@@ -114,12 +114,6 @@ class IndustryAnalyzer(AnalysisModule):
 
     def analyze(self, context: AnalysisContext,
                 config: dict[str, Any] | None = None) -> AnalysisResult:
-        if context.market == "us":
-            return AnalysisResult(
-                dimension=self.dimension, status="unavailable",
-                summary="本期美股不提供行业同行对比，不计入覆盖率", metrics={},
-                score=None, score_detail="行业对比不适用",
-            )
         if context.market == "hk":
             return self._analyze_hk(context)
         ind_data = context.industry_data
@@ -139,6 +133,11 @@ class IndustryAnalyzer(AnalysisModule):
         }
         status = "ok" if ind_data.industry and ind_data.industry != "未知" else "partial"
         summary = f"所属行业: {ind_data.industry}" if status == "ok" else "行业分类数据有限"
+        industry_note = ""
+        if context.market == "us":
+            summary = f"东财美股行业：{ind_data.industry}"
+            industry_note = "分类口径：东财美股 F10 行业（BELONG_INDUSTRY），不是 GICS/申万分类；经营指标为 TTM 派生"
+            metrics["industry_basis"] = industry_note
 
         enriched = context.enriched_industry
         comparison = getattr(enriched, "comparison", {}) if enriched is not None else {}
@@ -162,13 +161,13 @@ class IndustryAnalyzer(AnalysisModule):
             metrics["industry_scoring"] = score_basis
             return AnalysisResult(
                 dimension=self.dimension, status=self._comparison_status(comparison),
-                summary=summary, metrics=metrics, score=score, score_detail=score_detail,
+                summary=summary, metrics=metrics, score=score, score_detail=score_detail, industry_note=industry_note,
             )
 
         if context.sufficiency and context.sufficiency.industry.level == SufficiencyLevel.INSUFFICIENT:
             return AnalysisResult(dimension=self.dimension, status="unavailable",
-                                  summary="行业数据不足", metrics=metrics,
+                                  summary="行业数据不足", metrics=metrics, industry_note=industry_note,
                                   score=None, score_detail="行业对比不计分")
 
         return AnalysisResult(dimension=self.dimension, status=status, summary=summary,
-                              metrics=metrics, score=None, score_detail="行业对比不计分")
+                              metrics=metrics, score=None, score_detail="行业对比不计分", industry_note=industry_note)

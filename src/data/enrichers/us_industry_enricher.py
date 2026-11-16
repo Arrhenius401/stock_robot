@@ -1,0 +1,81 @@
+"""美股同分类、市值分层的 TTM 比较；未证实营收不派生净利率。"""
+import statistics
+from typing import Any
+
+from data.enricher import DataEnricher
+from data.schemas import (
+    AnalysisContext,
+    DimensionSufficiency,
+    EnrichedIndustry,
+    PeerComparison,
+    SufficiencyLevel,
+)
+from data.us_industry import SOURCE, _positive
+
+
+def _metric(key: str, label: str, target: float | None, values: list[float], unit: str = "") -> dict[str, Any]:
+    enough = len(values) >= 5
+    return {"key": key, "label": label, "target": target, "unit": unit,
+            "sample_count": len(values), "median": statistics.median(values) if enough else None,
+            "percentile": (sum(value < target for value in values) + sum(value == target for value in values) / 2) / len(values) * 100
+            if enough and target is not None else None,
+            "status": "ok" if enough and target is not None else "insufficient",
+            "reason": "" if enough and target is not None else "有效同行不足五家或目标缺失"}
+
+
+class UsIndustryEnricher(DataEnricher):
+    def enrich(self, ctx: AnalysisContext) -> AnalysisContext:
+        if ctx.market != "us":
+            return ctx
+        ctx.enriched_industry = None
+        data = ctx.industry_data
+        if data is None:
+            ctx.sufficiency.industry = DimensionSufficiency(level=SufficiencyLevel.INSUFFICIENT,
+                reason="行业数据缺失", score_weight=0)
+            return ctx
+        snapshot = data.comparison_snapshot
+        target = snapshot.get("target", {})
+        if not isinstance(target, dict) or target.get("basis_verified") is not True:
+            target = {}
+        cap = _positive(target.get("market_cap"))
+        raw_quotes = snapshot.get("quotes", {})
+        candidates = list(raw_quotes.values()) if isinstance(raw_quotes, dict) else []
+        candidates = [row for row in candidates if isinstance(row, dict) and row.get("symbol") in data.peers and row.get("symbol") != ctx.symbol
+                      and row.get("basis_verified") is True and all(_positive(row.get(key)) is not None for key in ("market_cap", "pe", "pb"))]
+        selected = []
+        if cap is not None:
+            for low, high in ((.1, 5), (.01, 20)):
+                selected = [row for row in candidates if low * cap <= row["market_cap"] <= high * cap]
+                if len(selected) >= 5:
+                    break
+            selected = sorted(selected, key=lambda row: abs(row["market_cap"] / cap - 1))[:10]
+        pe, pb = _positive(target.get("pe")), _positive(target.get("pb"))
+        pe_metric = _metric("pe_ttm", "PE(TTM)", pe, [row["pe"] for row in selected])
+        pb_metric = _metric("pb", "PB", pb, [row["pb"] for row in selected])
+        roe_metric = _metric("roe", "ROE(TTM，PB/PE 派生)", pb / pe * 100 if pb and pe else None,
+                             [row["pb"] / row["pe"] * 100 for row in selected], "percent")
+        reason = "营收字段未证实，行业经营分不适用；报告期间未确认"
+        financial = any(word in data.industry + data.sector for word in ("银行", "保险", "金融"))
+        notes = ["东财美股 F10 行业（BELONG_INDUSTRY）；经营指标为 TTM 派生，不是年度+最新两期。",
+                 "仅美股上市纯字母代码；优先目标市值0.1至5倍，不足五家放宽0.01至20倍，最多十家。",
+                 "净利率口径不适用" if financial else "营收字段未证实，不派生净利率。"]
+        comparison = {"version": 1, "scope": SOURCE + "·" + data.industry, "peer_count": len(selected),
+            "valuation": {"as_of": snapshot.get("as_of"), "source": "东财美股行情", "peers": [{**row, "pe_ttm": row["pe"], "roe": row["pb"] / row["pe"] * 100} for row in selected],
+                          "metrics": [pe_metric, pb_metric]},
+            "periods": {"latest": {"start": None, "end": None, "basis": "TTM", "label": "TTM（期间未确认）",
+                         "source": "东财美股行情", "metrics": [roe_metric], "reason": reason}},
+            "notes": notes, "errors": [reason]}
+        enough = len(selected) >= 5
+        data.comparison_ready = enough
+        ctx.enriched_industry = EnrichedIndustry(peer_count=len(selected),
+            top_peers=[PeerComparison(symbol=row["symbol"], name=row.get("name") or "", market_cap=row["market_cap"],
+                pe_ttm=row["pe"], pb=row["pb"], roe=row["pb"] / row["pe"], net_margin=None) for row in selected],
+            industry_median_pe=pe_metric["median"], industry_median_pb=pb_metric["median"],
+            target_pe_premium=(pe / pe_metric["median"] - 1) * 100 if pe and pe_metric["median"] else None,
+            target_pe_percentile=pe_metric["percentile"], target_pb_percentile=pb_metric["percentile"],
+            peer_pe_sample=len(selected), peer_pb_sample=len(selected), comparison=comparison)
+        ctx.sufficiency.industry = DimensionSufficiency(
+            level=SufficiencyLevel.PARTIAL if len(selected) >= 3 else SufficiencyLevel.INSUFFICIENT,
+            reason=reason if enough else "行业对比样本不足；" + reason,
+            sample_count=len(selected), score_weight=.5 if len(selected) >= 3 else 0)
+        return ctx
