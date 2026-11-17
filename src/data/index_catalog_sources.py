@@ -16,6 +16,7 @@ class CatalogEntry:
     series_code: str = ''
     pe: float | None = None
     pb: float | None = None
+    aliases: tuple[str, ...] = ()
 
 
 def _number(value: Any) -> float | None:
@@ -46,9 +47,11 @@ def parse_hsi_catalog(payload: dict[str, Any]) -> list[CatalogEntry]:
         code, name = str(row.get('indexCode') or '').strip(), str(row.get('indexName') or '').strip()
         if not code or not name or not version:
             raise ValueError('恒生目录身份或收益版本缺失')
+        short = row.get('indexShortName')
+        aliases = (short.strip(),) if isinstance(short, str) and short.strip() else ()
         result.append(CatalogEntry(identity=f'hsi:{code}', code=code, name=name, provider='hsi', market='hk',
             return_type=version, category=str(row.get('categoryFragment') or ''),
-            series_code=str(row.get('indexSeriesCode') or '')))
+            series_code=str(row.get('indexSeriesCode') or ''), aliases=aliases))
     return _unique(result)
 
 
@@ -113,7 +116,8 @@ def save_catalog_snapshot(path, items: list[CatalogEntry]) -> None:
     try:
         with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent, delete=False) as file:
             temp_path = file.name
-            json.dump([asdict(item) for item in items], file, ensure_ascii=False)
+            json.dump([{key: value for key, value in asdict(item).items() if key != 'aliases'}
+                       for item in items], file, ensure_ascii=False)
         os.replace(temp_path, path)
     finally:
         if temp_path is not None and os.path.exists(temp_path):
@@ -127,6 +131,48 @@ def load_catalog_snapshot(path) -> list[CatalogEntry]:
     if not isinstance(data, list) or not data:
         raise ValueError('目录快照为空或无效')
     return _unique([CatalogEntry(**row) for row in data])
+
+
+def save_catalog_aliases(path, items: list[CatalogEntry]) -> None:
+    """官方别名单独原子落盘，保持旧版主快照结构。"""
+    import json
+    import os
+    import tempfile
+
+    if not items:
+        raise ValueError('拒绝保存空别名目录')
+    _unique(items)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent, delete=False) as file:
+            temporary = file.name
+            json.dump({item.identity: list(item.aliases) for item in items}, file, ensure_ascii=False)
+        os.replace(temporary, path.with_suffix('.aliases.json'))
+    finally:
+        if temporary is not None and os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def load_catalog_aliases(path, items: list[CatalogEntry]) -> dict[str, tuple[str, ...]] | None:
+    """缺失、损坏或身份集合不一致时整份别名降级为未加载。"""
+    import json
+    import logging
+
+    try:
+        if path.with_suffix('.aliases.pending').exists():
+            raise ValueError('别名侧车尚未完整提交')
+        data = json.loads(path.with_suffix('.aliases.json').read_text(encoding='utf-8'))
+        if not isinstance(data, dict) or set(data) != {item.identity for item in items}:
+            raise ValueError('别名侧车身份集合不一致')
+        if any(not isinstance(values, list) or any(
+            not isinstance(value, str) or not value.strip() for value in values
+        ) for values in data.values()):
+            raise ValueError('别名侧车字段无效')
+        return {identity: tuple(values) for identity, values in data.items()}
+    except (OSError, ValueError, TypeError) as error:
+        logging.getLogger(__name__).debug('指数别名侧车不可用：%s', error)
+        return None
 
 
 def parse_sw_catalog(rows: list[dict[str, Any]], expected_total: int, category: str) -> list[CatalogEntry]:
@@ -194,6 +240,27 @@ def fetch_csi_catalog(series: str) -> list[CatalogEntry]:
     return parse_csi_catalog(frame.fillna('').to_dict('records'), series)
 
 
+def _restore_catalog_file(path, content: bytes | None, timestamp_ns: int | None) -> None:
+    """双文件提交失败时原子恢复原文件与更新时间。"""
+    import os
+    import tempfile
+
+    if content is None:
+        path.unlink(missing_ok=True)
+        return
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='wb', dir=path.parent, delete=False) as file:
+            temporary = file.name
+            file.write(content)
+        os.replace(temporary, path)
+        if timestamp_ns is not None:
+            os.utime(path, ns=(timestamp_ns, timestamp_ns))
+    finally:
+        if temporary is not None and os.path.exists(temporary):
+            os.unlink(temporary)
+
+
 def sync_catalog(path, fetch, *, refresh: bool = False, ttl_seconds: int = 7 * 86400):
     """目录失败时保留旧快照，返回来源状态供调用方解释。"""
     import logging
@@ -210,12 +277,33 @@ def sync_catalog(path, fetch, *, refresh: bool = False, ttl_seconds: int = 7 * 8
             return old, 'cache'
     except (OSError, ValueError, TypeError, KeyError) as error:
         logging.getLogger(__name__).debug('指数目录快照不可用：%s', error)
+    previous_files = []
+    writing = False
     try:
         result = fetch()
+        hsi = bool(result) and all(item.provider == 'hsi' for item in result)
+        pending = path.with_suffix('.aliases.pending')
+        if hsi:
+            for candidate in (path, path.with_suffix('.aliases.json')):
+                exists = candidate.exists()
+                previous_files.append((candidate, candidate.read_bytes() if exists else None,
+                                       candidate.stat().st_mtime_ns if exists else None))
+            writing = True
+            path.parent.mkdir(parents=True, exist_ok=True)
+            pending.touch()
         save_catalog_snapshot(path, result)
+        if hsi:
+            save_catalog_aliases(path, result)
+            pending.unlink(missing_ok=True)
         return result, 'live'
     except (requests.RequestException, OSError, ValueError, TypeError, KeyError) as error:
         logging.getLogger(__name__).warning('指数目录同步失败：%s', error)
+        if writing:
+            for candidate, content, timestamp_ns in previous_files:
+                try:
+                    _restore_catalog_file(candidate, content, timestamp_ns)
+                except OSError as restore_error:
+                    logging.getLogger(__name__).error('指数目录回滚失败 %s：%s', candidate, restore_error)
         if old is not None:
             return old, 'stale'
         raise

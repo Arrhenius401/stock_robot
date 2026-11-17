@@ -864,6 +864,26 @@ def create_app(
                 "total": len(entries), "indices_total": len(entries), "offset": offset, "limit": limit,
                 "etfs": [asdict(item) for item in etfs]}
 
+    @app.get("/api/v1/indices/resolve")
+    async def resolve_index_catalog(q: str = Query(min_length=1)):
+        """只读解析官方身份，不触发刷新。"""
+        from dataclasses import asdict
+
+        from data.index_mapping import IndexMapping
+        from utils.symbols import normalize_index_query
+
+        if not q.strip():
+            raise HTTPException(status_code=422, detail="q 不能为空")
+        mapping = IndexMapping()
+        matches = mapping.resolve_candidates(q)
+        result = {"query": q, "normalized": normalize_index_query(q),
+                  "catalog": mapping.catalog_status}
+        if len(matches) == 1:
+            return {**result, "status": "ok", "entry": asdict(matches[0])}
+        if matches:
+            return {**result, "status": "ambiguous", "candidates": [asdict(item) for item in matches]}
+        return {**result, "status": "not_found"}
+
     @app.post("/api/v1/indices/refresh")
     async def refresh_index_catalog(source: str = "hsi"):
         """按来源刷新官方目录；源失败时保留上次成功快照。"""

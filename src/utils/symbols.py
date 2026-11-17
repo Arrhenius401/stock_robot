@@ -205,3 +205,26 @@ def normalize_index_symbol(symbol: str) -> str:
     # A 股指数去前缀、补零
     cleaned_lower = re.sub(r"^(sh|sz|SH|SZ)", "", symbol.strip())
     return cleaned_lower.zfill(6)
+
+
+def normalize_index_query(raw: str) -> str:
+    """指数匹配格式归一；不创建任何标的别名。"""
+    import unicodedata
+
+    value = unicodedata.normalize("NFKC", raw).strip().upper().replace("—", "-")
+    value = re.sub(r"\s+", " ", value)
+    value = re.sub(r"\.(?:HK|SH|SZ|US|INDEX)$", "", value)
+    match = re.fullmatch(r"HSI:(\d{1,5})(\.\d{2})?", value)
+    if match:
+        return "HSI:" + match[1].zfill(5) + (match[2] or ".00")
+    match = re.fullmatch(r"(?:SH|SZ)(\d{1,6})", value)
+    if match:
+        return match[1].zfill(6)
+    if value.isdigit() and len(value) < 5:
+        return value.zfill(6)
+    return value
+
+
+def index_match_key(raw: str) -> str:
+    """匹配时忽略空白、连字符和下划线。"""
+    return re.sub(r"[\s_-]+", "", normalize_index_query(raw))

@@ -124,7 +124,7 @@ def test_mapping_preserves_hsi_versions_and_legacy_alias(tmp_path):
     save_catalog_snapshot(path, entries)
     mapping = IndexMapping(snapshot_path=path)
     entry = mapping.resolve('HSI')
-    assert entry is not None and entry.symbol == 'HSI'
+    assert entry is not None and entry.symbol == 'HSI:00001.00'
     entry = mapping.resolve('hsi:00001.00')
     assert entry is not None and entry.price_symbol == '00001.00'
     entry = mapping.resolve('HSI:10068.00')
@@ -189,7 +189,7 @@ def test_hsi_price_alias_is_not_duplicate_but_total_return_is_distinct(tmp_path)
     path = tmp_path / 'hsi.json'
     save_catalog_snapshot(path, parse_hsi_catalog({'code': '0', 'data': [price]}))
     entry = IndexMapping(snapshot_path=path).resolve('恒生指数')
-    assert entry is not None and entry.symbol == 'HSI'
+    assert entry is not None and entry.symbol == 'HSI:00001.00'
     save_catalog_snapshot(path, parse_hsi_catalog({'code': '0', 'data': [price, total]}))
     with pytest.raises(ValueError, match='多个指数'):
         IndexMapping(snapshot_path=path).resolve('恒生指数')
