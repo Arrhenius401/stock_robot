@@ -21,4 +21,5 @@ def test_pipeline_uses_shared_quote_without_overwriting_daily(mocker, tmp_path, 
     _, _, output = pipeline.run(symbol, symbol, market=market)
     fetch.assert_called_once_with(market, symbol, daily_end="2026-11-16")
     assert output.current_quote["price"] == 45.82
+    assert output.price_data is not None
     assert output.price_data == [row] and output.price_data[0].close == 46.3
