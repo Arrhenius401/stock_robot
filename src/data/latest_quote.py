@@ -125,8 +125,8 @@ def quote_is_today(quote: dict, zone: ZoneInfo = SHANGHAI) -> bool:
     return parsed.astimezone(zone).date() == datetime.now(zone).date()
 
 
-def load_hk_quote(symbol: str, *, now: datetime | None = None) -> dict[str, Any]:
-    """港股盘中报价：腾讯单标的快照，失败或时点过期时回退收盘价。"""
+def load_hk_quote(symbol: str, *, now: datetime | None = None, daily_end: str | None = None) -> dict[str, Any]:
+    """港股快照：允许最近交易日报价，由共用入口判断市场状态。"""
     from data.hk_alternatives import tencent_snapshot
 
     code = symbol.removesuffix(".HK")
@@ -143,15 +143,15 @@ def load_hk_quote(symbol: str, *, now: datetime | None = None) -> dict[str, Any]
             raise ValueError("腾讯港股报价缺少有效价格或时点")
         current = now or datetime.now(HONG_KONG)
         current = current.replace(tzinfo=HONG_KONG) if current.tzinfo is None else current.astimezone(HONG_KONG)
-        if quoted.astimezone(HONG_KONG).date() != current.date():
-            return {"status": "market_closed", "symbol": symbol,
-                    "note": "港股报价时点不是今日（休市或数据延迟），回退最近收盘价"}
+        if (quoted > current + timedelta(minutes=2) or quoted < current - timedelta(days=14)
+                or (daily_end and quoted.astimezone(HONG_KONG).date().isoformat() < daily_end)):
+            raise ValueError("港股行情时点过旧、早于日线或位于未来")
         change_value = snapshot.get("change_pct")
         change = float(cast(float, change_value)) if is_finite_number(change_value) else None
         return {"status": "ok", "symbol": symbol, "name": snapshot.get("name", ""),
                 "price": float(cast(float, price)), "quoted_at": quoted.astimezone(HONG_KONG).isoformat(),
                 "source": "腾讯港股快照（延迟）", "change_pct": change,
-                "note": f"盘中报价（延迟约15分钟）；行情时间：{quoted.astimezone(HONG_KONG):%Y-%m-%d %H:%M:%S}"}
+                "note": f"行情时间：{quoted.astimezone(HONG_KONG):%Y-%m-%d %H:%M:%S}"}
     except Exception as exc:  # noqa: BLE001 — 第三方快照边界，失败回退收盘价
         logger.warning("港股最新报价失败 %s: %s", symbol, type(exc).__name__)
         return {"status": "unavailable", "symbol": symbol,
@@ -164,17 +164,27 @@ def price_presentation(quote: dict, latest_close: float | None, daily_end: str |
     status = str(quote.get("status") or "unavailable")
     if status == "ok" and is_positive_finite(quote.get("price")):
         stamp = str(quote.get("quoted_at", ""))
+        try:
+            parsed = datetime.fromisoformat(stamp)
+            if parsed.tzinfo is None:
+                raise ValueError("行情时间缺少时区")
+        except ValueError:
+            return price_presentation({"status": "unavailable", "note": "行情时间无效，回退日线收盘价"},
+                                      latest_close, daily_end)
         source = str(quote.get("source", "来源未记录"))
-        note = str(quote.get("note") or f"行情时间：{stamp.replace('T', ' ')}；来源：{source}")
+        offset = parsed.strftime("%z")
+        zone_label = f"UTC{int(offset[:3]):+d}" + (f":{offset[3:]}" if offset[3:] != "00" else "") if offset else "时区未记录"
+        state = str(quote.get("market_state") or "交易中")
+        note = f"{state}；{parsed:%Y-%m-%d %H:%M:%S} {zone_label}"
         return {"value": quote["price"], "kind": "quote", "as_of": stamp, "source": source,
                 "note": note, "change_pct": quote.get("change_pct")}
     if status in {"market_closed", "market_pre"} and latest_close is not None:
         prefix = "已收盘" if status == "market_closed" else "尚未开盘"
         return {"value": latest_close, "kind": "close_fallback", "as_of": daily_end,
                 "source": "日线收盘价",
-                "note": f"{prefix}，采用最近收盘价；截至 {daily_end or '未记录'}",
+                "note": f"{prefix}，日线收盘价；截至 {daily_end or '未记录'}",
                 "change_pct": None}
-    fallback = str(quote.get("note") or "未取得独立报价，回退日线收盘价")
+    fallback = str(quote.get("note") or "报价暂不可用，回退日线收盘价")
     return {"value": latest_close, "kind": "close_fallback", "as_of": daily_end, "source": "日线收盘价",
             "note": f"{fallback}；截至 {daily_end or '未记录'}" if latest_close is not None
                     else "最新报价与收盘价均不可用", "change_pct": None}

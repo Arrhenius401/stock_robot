@@ -3,6 +3,7 @@ import html
 import re
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from jinja2 import Environment, FileSystemLoader
 
@@ -212,7 +213,7 @@ class ReportBuilder:
             name=name,
             market=market,
             scoring_method=scoring_method,
-            generated_at=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
+            generated_at=datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S UTC+8"),
             no_llm=no_llm,
             industry=industry,
             latest_close=latest_close,

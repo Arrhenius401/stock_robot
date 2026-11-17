@@ -18,6 +18,20 @@ if(descendants(card).filter(x=>x.classList.contains('stock-price')).length)throw
     _run_node(tmp_path, script)
 
 
+def test_current_price_and_generation_time_use_shared_timezone_contract(tmp_path):
+    script = _DOM_STUB + r'''
+const {renderStockReport}=await import(__RENDERER__);
+const article=renderStockReport({market:'a-shares',generated_at:'2026-11-17T07:47:55+00:00',overview:{
+  current_price:{value:45.82,note:'已收盘；2026-11-17 16:14:24 UTC+8',source:'腾讯行情'}}});
+const all=descendants(article);
+if(!article.textContent.includes('生成时间：2026-11-17 15:47:55 UTC+8'))throw Error('生成时间未转换到UTC+8');
+const price=all.find(x=>x.classList.contains('report-latest-close'));
+if(price.textContent!=='当前价格：45.82（已收盘；2026-11-17 16:14:24 UTC+8）')throw Error('价格格式不一致');
+if(price.title!=='当前价格来源：腾讯行情')throw Error('来源丢失');
+'''.replace('__RENDERER__', json.dumps(_module_url('src/api/static/js/report-renderer.js')))
+    _run_node(tmp_path, script)
+
+
 def test_index_news_uses_stock_sample_list_and_safe_sources(tmp_path):
     script = _DOM_STUB + r'''
 const {renderStockReport}=await import(__RENDERER__);

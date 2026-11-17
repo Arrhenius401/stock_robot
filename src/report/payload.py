@@ -1,6 +1,7 @@
 """个股网页与会话工具共用的结构化报告。"""
 from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from data.schemas import AnalysisContext, AnalysisResult
 from report.builder import build_disclaimer
@@ -90,5 +91,5 @@ def build_stock_payload(
         "commentary_status": status, "signal": signal, "data_quality": quality,
         "pending_verifications": quality["pending_verifications"],
         "disclaimer": build_disclaimer(hk=ctx.market == "hk", us=ctx.market == "us"),
-        "generated_at": datetime.now().astimezone().isoformat(),
+        "generated_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
     }
