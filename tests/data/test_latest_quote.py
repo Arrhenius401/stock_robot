@@ -138,7 +138,7 @@ def test_us_premarket_prefers_latest_close():
     assert "尚未开盘" in display["note"]
 
 
-def test_us_intraday_quote_uses_capture_note():
+def test_us_intraday_quote_displays_quote_time_instead_of_capture_note():
     display = price_presentation({
         "status": "ok", "symbol": "MSFT", "price": 524.1, "change_pct": 0.2,
         "quoted_at": "2026-11-13T10:01:00-05:00", "source": "新浪美股快照（延迟约15分钟）",
@@ -146,7 +146,7 @@ def test_us_intraday_quote_uses_capture_note():
     }, 523.88, "2026-11-13")
     assert display["value"] == 524.1
     assert display["kind"] == "quote"
-    assert "盘中报价" in display["note"]
+    assert display["note"] == "交易中；2026-11-13 10:01:00 UTC-5"
 
 
 def test_us_intraday_quote_failure_falls_back_with_reason():

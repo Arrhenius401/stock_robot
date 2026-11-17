@@ -47,16 +47,16 @@ def test_hk_quote_returns_intraday_price_and_change(mocker):
     assert quote["name"] == "腾讯控股"
     assert quote["price"] == pytest.approx(417.8)
     assert quote["change_pct"] == pytest.approx(0.67)
-    assert "盘中报价" in quote["note"]
+    assert "行情时间" in quote["note"]
 
 
-def test_hk_quote_stale_timestamp_falls_back_to_close(mocker):
+def test_hk_adapter_preserves_previous_date_for_shared_session_validation(mocker):
     mocker.patch("data.hk_alternatives.tencent_snapshot", return_value=snapshot(
         quoted_at=NOW - timedelta(days=1),
     ))
     quote = load_hk_quote("00700.HK", now=NOW)
-    assert quote["status"] == "market_closed"
-    assert "休市" in quote["note"]
+    assert quote["status"] == "ok"
+    assert quote["quoted_at"].startswith("2026-11-12")
 
 
 def test_hk_quote_rejects_invalid_price(mocker):

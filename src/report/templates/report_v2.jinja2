@@ -25,6 +25,10 @@
 | 采集区间最低价 | {{ year_low }} |
 | 采集区间价格位置 | {{ price_position }} |
 | 行情区间 | {{ price_start or "未记录" }} 至 {{ price_end or "未记录" }} |
+{% if current_price %}
+
+当前价格来源：{{ current_price.source }}
+{% endif %}
 
 ---
 

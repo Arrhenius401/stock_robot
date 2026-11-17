@@ -323,8 +323,14 @@ function naturalText(value) {
 
 function reportTime(value) {
   const text = naturalText(value);
+  if (/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(text)) {
+    const instant = new Date(text);
+    if (!Number.isNaN(instant.getTime())) {
+      return `${new Date(instant.getTime() + 8 * 3600000).toISOString().slice(0, 19).replace("T", " ")} UTC+8`;
+    }
+  }
   const match = text.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})/);
-  return match ? `${match[1]} ${match[2]}` : text;
+  return match ? `${match[1]} ${match[2]}${text.includes("UTC+8") ? " UTC+8" : ""}` : text;
 }
 
 function compactScoreDetail(value) {
@@ -370,7 +376,9 @@ function reportHeader(report) {
     const current = record(overview.current_price);
     const value = current.value ?? overview.latest_close;
     const note = naturalText(current.note) || (value != null ? `最新收盘价回退；截至 ${readable(overview.price_end, "未记录")}` : "暂无数据");
-    industryQuote.appendChild(el("span", "report-latest-close", `当前价格：${formatMetricValue('latest_close', value)}（${note}）`));
+    const price = el("span", "report-latest-close", `当前价格：${formatMetricValue('latest_close', value)}（${note}）`);
+    if (current.source) price.title = `当前价格来源：${naturalText(current.source)}`;
+    industryQuote.appendChild(price);
     left.appendChild(industryQuote);
   }
   header.appendChild(left);
@@ -959,6 +967,8 @@ function commentarySection(report, sectionIdPrefix, options) {
 function qualitySection(report, sectionIdPrefix) {
   const card = section("report-quality", "数据覆盖与时效", "panel", sectionIdPrefix);
   const quality = record(report.data_quality);
+  const currentPriceSource = record(record(report.overview).current_price).source;
+  if (currentPriceSource) card.appendChild(el("p", "dim-sum", `当前价格来源：${naturalText(currentPriceSource)}`));
   if (Number.isFinite(quality.coverage)) {
     const label = report.analysis_mode === "objective" || legacyHk(report) ? "分析数据覆盖" : "计分维度覆盖";
     card.appendChild(el("p", "dim-sum", `${label}：${quality.coverage}%。${naturalText(quality.coverage_basis) || "不表示评分置信度。"}`));
