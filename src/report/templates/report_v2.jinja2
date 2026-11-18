@@ -80,6 +80,12 @@
 > {{ valuation_display.cutoff }}
 
 {{ valuation_display.metrics | md_table }}
+{% if valuation_display.details %}
+
+{% for item in valuation_display.details %}
+- {{ item | plain_text }}
+{% endfor %}
+{% endif %}
 {% else %}
 {{ r.metrics | md_table }}
 {% endif %}

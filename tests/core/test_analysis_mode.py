@@ -171,13 +171,14 @@ def test_objective_news_preserves_collection_limit_and_disclaimer():
     ctx = stock_context(False, "hk")
     result = AnalysisResult(dimension="sentiment", status="ok", summary="已取得新闻", metrics={
         "news_items": [{"title": "实际候选", "published_at": "2026-10-30"}],
-        "news_disclaimer": "关键词检索结果，不保证完整覆盖近30天新闻。",
+        "news_disclaimer": "关键词检索结果，按标题公司简称过滤；可能遗漏间接报道，不作AI筛选或情绪评分，不保证完整覆盖近30天新闻。",
         "news_notes": ["已达到单关键词100条候选上限，不保证覆盖窗口内全部新闻。"],
     })
     payload = build_stock_payload(ctx.symbol, ctx.name, objective_results([result]), {}, ctx)
     assert payload["dimensions"]["sentiment"]["metrics"]["news_notes"] == result.metrics["news_notes"]
     text = build_report(ctx.symbol, ctx.name, [result], {}, ctx)
-    assert "单关键词100条候选上限" in text and "不保证完整覆盖近30天新闻" in text
+    assert payload["dimensions"]["sentiment"]["metrics"]["news_disclaimer"] == result.metrics["news_disclaimer"]
+    assert "单关键词100条候选上限" not in text and "按标题公司简称过滤" not in text
 
 
 @pytest.mark.parametrize("original,current,model", [(False, True, True), (True, False, True), (True, True, False)])

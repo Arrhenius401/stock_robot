@@ -751,6 +751,9 @@ function dimensionSection(name, label, data, sectionIdPrefix, unscored = false, 
       }
     }
   }
+  if (name === "valuation" && Array.isArray(display.details)) {
+    for (const text of display.details.filter(Boolean)) card.appendChild(el("p", "dim-sum", String(text)));
+  }
   appendRiskFlags(card, dimension);
   return card;
 }
