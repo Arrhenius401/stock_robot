@@ -1140,6 +1140,32 @@ class AkShareAdapter(DataSource):
         item.ps_source = "东方财富港股估值对比" if ps is not None else ""
         item.pe_history, item.pb_history = pe_curve, pb_curve
         item.history_source = "百度港股估值（近一年）" if curves else ""
+        if code == "00700" and pe is not None and pb is not None and len(curves) == 2:
+            try:
+                start = today - timedelta(days=1096)
+                last_closed = today if datetime.now(timezone(timedelta(hours=8))).hour >= 17 else today - timedelta(days=1)
+                trading_days = {
+                    _parse_date(quote[0])
+                    for year in range(start.year, last_closed.year + 1)
+                    for quote in tencent_history(code, str(max(start, date(year, 1, 1))),
+                                                 str(min(last_closed, date(year, 12, 31))), 400)
+                }
+                for metric, attribute in (("市盈率(TTM)", "extended_pe_history"), ("市净率", "extended_pb_history")):
+                    points = baidu_metric(code, metric, chart_select="近三年")
+                    baseline = curves.get(metric, {})
+                    if any(points[day] != baseline[day] for day in points.keys() & baseline.keys()
+                           if day < today and day in trading_days):
+                        raise ValueError("百度长窗与短窗共同历史日估值不同")
+                    setattr(item, attribute, {day: value for day, value in points.items()
+                                              if start <= day <= last_closed and day in trading_days})
+                if item.extended_pe_history or item.extended_pb_history:
+                    item.history_window_days = 1096
+                    item.history_window_label = "近三年"
+            except Exception as error:
+                logger.warning("百度港股长窗估值未验证，保留近一年数据: %s", error)
+                notes.append("百度三年估值暂不可用，保留原近一年数据")
+                item.extended_pe_history = {}
+                item.extended_pb_history = {}
         item.valuation_notes = notes
         item.cache_degraded = (
             primary_failed or comparison_failed or history_failed or curve_fallback

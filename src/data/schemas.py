@@ -246,6 +246,10 @@ class ValuationData(BaseModel):
     pe_history: dict[DateType, float] = Field(default_factory=dict)
     pb_history: dict[DateType, float] = Field(default_factory=dict)
     history_source: str = ""
+    history_window_days: int = 365
+    history_window_label: str = "近一年"
+    extended_pe_history: dict[DateType, float] = Field(default_factory=dict)
+    extended_pb_history: dict[DateType, float] = Field(default_factory=dict)
     valuation_notes: list[str] = Field(default_factory=list)
     cache_degraded: bool = False  # 请求失败导致的残缺结果，仅短 TTL 缓存
     failed_components: list[Literal["snapshot", "comparison", "pe_history", "pb_history"]] = Field(

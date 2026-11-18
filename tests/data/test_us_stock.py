@@ -260,3 +260,19 @@ def test_us_balance_rejects_empty_or_wrong_identity(mocker, rows):
     request.return_value.json.return_value = {"success": True, "result": {"data": rows}}
     with pytest.raises(ValueError):
         _statement("AAPL", "资产负债表")
+
+
+def test_aapl_five_year_window_is_separate_from_legacy_scoring_input(mocker):
+    from datetime import timedelta
+
+    def curve(_ticker, _metric, chart_select="近一年"):
+        if chart_select == "近一年":
+            return {date(2026, 11, 13): 30}
+        return {date(2026, 11, 13) - timedelta(days=offset): 30 for offset in range(1000)}
+
+    mocker.patch("data.us_stock._baidu_metric", side_effect=curve)
+    mocker.patch("data.us_stock.us_quote", return_value={})
+    item = us_valuation("AAPL")[0]
+    assert item.history_window_label == "近五年"
+    assert len(item.extended_pe_history) > 252
+    assert len(item.pe_history) == 1

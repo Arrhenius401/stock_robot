@@ -48,14 +48,14 @@ def tencent_history(code: str, start: str, end: str, limit: int) -> list[list[An
     return target["day"]
 
 
-def baidu_metric(code: str, metric: str, market: str = "hk") -> dict[date, float]:
+def baidu_metric(code: str, metric: str, market: str = "hk", *, chart_select: str = "近一年") -> dict[date, float]:
     """从指标自身曲线取日期，上市日期和采集日期不能代替指标日期。"""
     if metric not in ("市盈率(TTM)", "市净率"):
         raise ValueError("不支持的港股估值口径")
     response = requests.get("https://finance.baidu.com/opendata", params={
         "openapi": "1", "dspName": "iphone", "tn": "tangram", "client": "app", "query": metric,
         "code": code, "word": "", "resource_id": "51171", "market": market, "tag": metric,
-        "chart_select": "近一年", "industry_select": "", "skip_industry": "1", "finClientType": "pc",
+        "chart_select": chart_select, "industry_select": "", "skip_industry": "1", "finClientType": "pc",
     }, timeout=10)
     response.raise_for_status()
     try:
@@ -81,10 +81,12 @@ def baidu_metric(code: str, metric: str, market: str = "hk") -> dict[date, float
                         continue
                     period = date.fromisoformat(str(row[0]))
                     value = finite_number(row[1])
-                    if period <= today and value is not None and value > 0:
-                        points[period] = value
                 except (ValueError, TypeError):
                     continue
+                if period <= today and value is not None and value > 0:
+                    if chart_select != "近一年" and period in points:
+                        raise ValueError("百度长窗估值日期重复")
+                    points[period] = value
         if not points:
             raise ValueError("百度估值缺少目标口径的合法日期指标")
         return points

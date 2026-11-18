@@ -98,6 +98,17 @@ class ValuationAnalyzer(AnalysisModule):
                             f"中位数 {summary.median:.2f} 倍，最低 {summary.low:.2f} 倍，最高 {summary.high:.2f} 倍")
                     if summary.reason:
                         notes.append(f"{metric.upper()} 历史分位：{summary.reason}")
+            from data.enrichers.valuation_enricher import ValuationEnricher
+
+            long_history = ValuationEnricher.extended_history(context)
+            if long_history:
+                metrics["extended_valuation_history"] = long_history
+            for metric, window in long_history.items():
+                rank = window["percentile"]
+                observation = f"分位 {rank:.1f}%" if rank is not None else "不足 252 个交易日，不计算分位"
+                details.append(f"{metric.upper()} {window['window']}历史：{window['source']}，"
+                               f"{window['start']} 至 {window['end']}，有效样本 {window['sample_count']}，"
+                               f"{observation}；仅作展示，不参与评分")
             notes.append("历史低分位不等于低风险或值得买；PS 不代表各行业均适用，银行等需另行判断")
         if not any(info["applicable"] for info in applicability.values()) and not scoring_evidence:
             return AnalysisResult(dimension=self.dimension, status="unavailable",

@@ -87,6 +87,27 @@ def _compute_ttm(financials: list) -> tuple[float | None, float | None]:
 
 
 class ValuationEnricher(DataEnricher):
+    @staticmethod
+    def extended_history(ctx: AnalysisContext) -> dict[str, dict]:
+        snapshot = ctx.valuation_data
+        if snapshot is None or snapshot.history_window_days <= 365 or not snapshot.history_source.startswith("百度"):
+            return {}
+        cutoff = ctx.collected_at.date()
+        start = cutoff - timedelta(days=snapshot.history_window_days)
+        result = {}
+        for metric, curve in (("pe", snapshot.extended_pe_history), ("pb", snapshot.extended_pb_history)):
+            samples = sorted((day, value) for day, value in curve.items()
+                             if start <= day <= cutoff and is_positive_finite(value))
+            if not samples:
+                continue
+            values = [value for _, value in samples]
+            result[metric] = {"window": snapshot.history_window_label, "source": "百度同源实测估值",
+                              "start": str(samples[0][0]), "end": str(samples[-1][0]),
+                              "sample_count": len(values), "reference": values[-1],
+                              "percentile": round(sum(value < values[-1] for value in values) / len(values) * 100, 1)
+                              if len(values) >= 252 else None}
+        return result
+
     def enrich(self, ctx: AnalysisContext) -> AnalysisContext:
         if ctx.market in {"hk", "us"} or (ctx.valuation_data is not None and ctx.valuation_data.history_source.startswith("百度")):
             return self._enrich_measured(ctx, ctx.market)

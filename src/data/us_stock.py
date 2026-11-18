@@ -613,11 +613,11 @@ def us_financials(ticker: str, max_periods: int = 8) -> list[FinancialData]:
     return rows
 
 
-def _baidu_metric(ticker: str, metric: str) -> dict[date, float]:
+def _baidu_metric(ticker: str, metric: str, chart_select: str = "近一年") -> dict[date, float]:
     response = requests.get(BAIDU_URL, params={
         "openapi": "1", "dspName": "iphone", "tn": "tangram", "client": "app",
         "query": metric, "code": ticker, "word": "", "resource_id": "51171",
-        "market": "us", "tag": metric, "chart_select": "近一年",
+        "market": "us", "tag": metric, "chart_select": chart_select,
         "industry_select": "", "skip_industry": "1", "finClientType": "pc",
     }, timeout=10)
     response.raise_for_status()
@@ -644,10 +644,12 @@ def _baidu_metric(ticker: str, metric: str) -> dict[date, float]:
                         continue
                     period = date.fromisoformat(str(item[0]))
                     value = _number(item[1])
-                    if period <= today and value is not None and value > 0:
-                        points[period] = value
                 except (ValueError, TypeError):
                     continue
+                if period <= today and value is not None and value > 0:
+                    if chart_select != "近一年" and period in points:
+                        raise ValueError("百度长窗估值日期重复")
+                    points[period] = value
         if not points:
             raise ValueError("百度美股估值缺少目标口径的合法日期指标")
         return points
@@ -717,6 +719,28 @@ def us_valuation(ticker: str) -> list[ValuationData]:
         cache_degraded=bool(failed),
         failed_components=list(failed),  # type: ignore[arg-type]
     )
+    if ticker == "AAPL":
+        now = datetime.now(US_TZ)
+        cutoff = now.date()
+        if now.time() < (_EARLY_CLOSE if cutoff in us_market_early_closes(cutoff.year) else _REGULAR_CLOSE):
+            cutoff -= timedelta(days=1)
+        for metric, key in BAIDU_METRICS.items():
+            try:
+                points = _baidu_metric(ticker, metric, "近五年")
+                eligible = {day: value for day, value in points.items() if day <= cutoff
+                            and day.weekday() < 5 and day not in us_market_holidays(day.year)}
+                baseline = curves.get(key, {})
+                if any(eligible[day] != baseline[day] for day in eligible.keys() & baseline.keys() if day < now.date()):
+                    raise ValueError("百度长窗与短窗共同历史日估值不同")
+                if eligible:
+                    setattr(item, f"extended_{key}_history", eligible)
+            except (requests.RequestException, TypeError, ValueError) as error:
+                logger.warning("百度美股长窗估值失败 %s/%s: %s", ticker, metric, error)
+        if item.extended_pe_history or item.extended_pb_history:
+            item.history_window_days = 1827
+            item.history_window_label = "近五年"
+        else:
+            item.valuation_notes.append("百度五年估值暂不可用，保留原近一年数据")
     item._data_source = "百度美股估值"
     return [item]
 

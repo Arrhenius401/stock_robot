@@ -122,7 +122,8 @@ class IndexDataCollector:
             # 仅已核验的港股指数简称可使用海外行情映射；其余走显式官方身份。
             hk_codes = {"HSI": "00001.00", "HSCEI": "00014.00", "HSTECH": "02083.00"}
             known = hk_codes.get(target.symbol)
-            if target.market == "hk" and (known is None or target.official_index_code not in (None, known)):
+            hstech = target.market == "hk" and (target.official_index_code or known) == "02083.00"
+            if target.market == "hk" and (hstech or known is None or target.official_index_code not in (None, known)):
                 result = CollectionResult([])
             else:
                 style = "overseas" if target.market == "hk" else target.index_style
@@ -136,7 +137,12 @@ class IndexDataCollector:
                     item = IndexClosePriceData(symbol=target.symbol, trade_date=day, close=close)
                     item._data_source = "恒生官方历史"
                     rows.append(item)
-                result = CollectionResult(rows, official.record, official.errors)
+                if hstech and rows:
+                    from index.hk_ohlc import fetch_hstech_ohlc
+
+                    result = CollectionResult(fetch_hstech_ohlc(rows) or rows, official.record, official.errors)
+                else:
+                    result = CollectionResult(rows, official.record, official.errors)
             price_result = record("index_price", result)
             if price_result:
                 ctx.price_data = price_result
