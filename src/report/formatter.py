@@ -30,7 +30,7 @@ def format_hk_news_markdown(metrics: dict[str, Any]) -> str:
         except ValueError:
             return str(value)
 
-    lines = [f"> {_news_text(metrics.get('news_disclaimer', ''))}"]
+    lines = []
     for item in metrics.get("news_items", [])[:STOCK_NEWS_DISPLAY_LIMIT]:
         media = "、".join(dict.fromkeys(str(link.get("media") or "来源未标注") for link in item.get("links", []))) or "来源未标注"
         lines.append(f"\n- {_news_text(item.get('title', ''))}（{_news_text(stamp(item.get('published_at', '')))} · {_news_text(media)}）")
@@ -77,7 +77,9 @@ def sentiment_display_items(metrics: dict[str, Any]) -> list[dict[str, Any]]:
 
 def format_news_facts_markdown(metrics: dict[str, Any]) -> str:
     """客观新闻只披露标题、日期及原文来源，不输出情绪或评分。"""
-    lines = [_news_text(note) for note in [metrics.get("news_disclaimer"), *(metrics.get("news_notes") or [])] if note]
+    notes = [metrics.get("news_disclaimer"), *(metrics.get("news_notes") or [])]
+    hidden_prefixes = ("关键词检索结果，按标题公司简称过滤", "已达到单关键词100条候选上限")
+    lines = [_news_text(note) for note in notes if note and not note.startswith(hidden_prefixes)]
     for item in (metrics.get("news_items") or [])[:STOCK_NEWS_DISPLAY_LIMIT]:
         sources = []
         links = item.get("links") or [{"url": item.get("url"), "media": item.get("media") or item.get("source")}]

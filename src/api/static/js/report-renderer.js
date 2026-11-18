@@ -759,8 +759,6 @@ function hkNewsSection(data, sectionIdPrefix) {
   const card = section("report-sentiment", "相关新闻检索", "panel", sectionIdPrefix);
   const dimension = record(data);
   const metrics = record(dimension.metrics);
-  card.appendChild(el("p", "dim-sum", metrics.news_disclaimer ||
-    "关键词检索结果，可能包含间接相关报道；不作AI筛选或情绪评分，不保证完整覆盖。"));
   const items = Array.isArray(metrics.news_items) ? metrics.news_items.slice(0, STOCK_NEWS_DISPLAY_LIMIT) : [];
   if (!items.length) {
     card.appendChild(el("p", "report-empty", dimension.summary || "新闻暂时获取失败"));
@@ -791,6 +789,7 @@ function newsFactsSection(data, sectionIdPrefix) {
   const card = section("report-sentiment", "相关新闻", "panel", sectionIdPrefix);
   const dimension = record(data), metrics = record(dimension.metrics);
   for (const note of [metrics.news_disclaimer, ...(metrics.news_notes || [])].filter(Boolean)) {
+    if (/^(关键词检索结果，按标题公司简称过滤|已达到单关键词100条候选上限)/.test(String(note))) continue;
     card.appendChild(el("p", "dim-sum", String(note)));
   }
   const list = el("ul", "report-metric-list sentiment-source-list");
