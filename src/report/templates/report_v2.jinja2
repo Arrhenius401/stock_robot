@@ -102,7 +102,7 @@
 {% endif %}
 {% endfor %}
 {% if r.metrics.get("headlines") %}
-{% for headline in r.metrics["headlines"] %}
+{% for headline in r.metrics["headlines"][:stock_news_display_limit] %}
 - {{ headline }}
 {% endfor %}
 {% endif %}

@@ -3,7 +3,7 @@ import { store, switchView, bus } from "./state.js";
 import { api } from "./api.js?v=20261029-index-news-quality";
 import { el, errorCard, skeleton,
          showEntryError, clearEntryError } from "./components.js";
-import { renderStockReport } from "./report-renderer.js?v=20261118-market-unify";
+import { STOCK_NEWS_DISPLAY_LIMIT, renderStockReport } from "./report-renderer.js?v=20261118-stock-news-limit";
 
 const content = () => document.getElementById("reportContent");
 
@@ -35,7 +35,7 @@ function currentHkReport(report, now = Date.now()) {
   const items = metrics.news_items.filter(item => {
     const stamp = Date.parse(item.published_at);
     return Number.isFinite(stamp) && stamp <= now && hkDate(stamp) >= cutoff;
-  }).slice(0, 20);
+  }).slice(0, STOCK_NEWS_DISPLAY_LIMIT);
   const summary = (items.length ? `近30天关键词检索结果，展示最新${items.length}条`
     : news.status === "unavailable" || news.summary?.includes("获取失败")
       ? news.summary : "本次检索未获得近30天有效记录");

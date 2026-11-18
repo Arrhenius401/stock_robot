@@ -9,6 +9,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from data.schemas import AnalysisResult
 from report.formatter import (
+    STOCK_NEWS_DISPLAY_LIMIT,
     _news_text,
     format_hk_news_markdown,
     format_metric_value,
@@ -170,6 +171,7 @@ class ReportBuilder:
         self._env.filters["sentiment_risk_markdown"] = format_sentiment_risk_markdown
         from report.formatter import format_news_facts_markdown
 
+        self._env.globals["stock_news_display_limit"] = STOCK_NEWS_DISPLAY_LIMIT
         self._env.filters["news_facts_markdown"] = format_news_facts_markdown
         self._env.filters["peer_comparison_markdown"] = format_peer_comparison_markdown
         self._env.filters["metric_value"] = lambda value, key: format_metric_value(key, value)

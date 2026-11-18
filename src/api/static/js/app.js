@@ -1,12 +1,12 @@
 // 应用主入口：导航接线、工作台覆盖层与各视图初始化。
 import { bus, store, switchView } from "./state.js";
-import { initChat } from "./chat.js?v=20261118-market-unify";
-import { initReportView, openReport } from "./report.js?v=20261118-market-unify";
-import { initReportDrawer } from "./report-drawer.js?v=20261118-market-unify";
-import { closeReportDrawer } from "./report-drawer.js?v=20261118-market-unify";
+import { initChat } from "./chat.js?v=20261118-stock-news-limit";
+import { initReportView, openReport } from "./report.js?v=20261118-stock-news-limit";
+import { initReportDrawer } from "./report-drawer.js?v=20261118-stock-news-limit";
+import { closeReportDrawer } from "./report-drawer.js?v=20261118-stock-news-limit";
 import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js";
-import { initIndexView } from "./indexview.js?v=20261118-market-unify";
-import { initReportLibrary } from "./report-library.js?v=20261118-market-unify";
+import { initIndexView } from "./indexview.js?v=20261118-stock-news-limit";
+import { initReportLibrary } from "./report-library.js?v=20261118-stock-news-limit";
 import { initSessions, initSessionStartup } from "./sessions.js?v=20261116-us-c5-1";
 import { initSubscriptions } from "./subscriptions.js?v=20260928-run-notice-2";
 import { initSettings } from "./settings.js?v=20261031-analysis-mode-1";

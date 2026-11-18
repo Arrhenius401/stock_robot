@@ -205,3 +205,45 @@ if(!panel.textContent.includes('仅参考，不计分'))throw Error('年度面�
 if(!article.textContent.includes('东财 F10 公司资料')||!article.textContent.includes('58.35%'))throw Error('主营来源或银行事实缺失');
 '''
     _run_node(tmp_path, script)
+
+
+def test_stock_report_news_lists_show_at_most_ten():
+    from report.formatter import (
+        format_hk_news_markdown,
+        format_news_facts_markdown,
+        format_sentiment_risk_markdown,
+    )
+
+    titles = [f"相关新闻第{i:02d}条" for i in range(1, 13)]
+    items = [{"title": title, "published_at": "2026-11-18 10:00:00", "links": []} for title in titles]
+    for markdown in (
+        format_news_facts_markdown({"headlines": titles}),
+        format_news_facts_markdown({"news_items": items}),
+        format_hk_news_markdown({"news_items": items}),
+        format_sentiment_risk_markdown({"news_items": items, "evaluated_count": 12}),
+    ):
+        assert all(title in markdown for title in titles[:10])
+        assert all(title not in markdown for title in titles[10:])
+    assert "已评估12条" in format_sentiment_risk_markdown({"all_items": items, "evaluated_count": 12})
+
+
+def test_stock_web_news_lists_show_at_most_ten(tmp_path):
+    script = _DOM_STUB + "\nconst {renderStockReport}=await import(" + json.dumps(
+        _module_url("src/api/static/js/report-renderer.js")) + ");\n"
+    script += r'''
+const titles=Array.from({length:12},(_,i)=>'相关新闻第'+String(i+1).padStart(2,'0')+'条');
+const items=titles.map(title=>({title, published_at:'2026-11-18 10:00:00', links:[]}));
+for (const [report,metrics] of [
+  [{market:'hk'}, {news_items:items}],
+  [{market:'a-shares'}, {headlines:titles}],
+  [{market:'a-shares',analysis_mode:'objective'}, {headlines:titles}],
+  [{market:'us',analysis_mode:'extra'}, {news_items:items}],
+  [{market:'hk',analysis_mode:'extra',scoring_method:'five-dimension-v1'}, {all_items:items,evaluated_count:12}],
+]) {
+  const html=renderStockReport({...report,dimensions:{sentiment:{metrics}}}).textContent;
+  if(!titles.slice(0,10).every(title=>html.includes(title)) || titles.slice(10).some(title=>html.includes(title)))
+    throw Error('新闻列表超出展示上限或遗漏顺序内新闻');
+  if(metrics.evaluated_count && !html.includes('已评估12条')) throw Error('展示上限影响评估数');
+}
+'''
+    _run_node(tmp_path, script)

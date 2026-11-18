@@ -2,6 +2,8 @@
 import { renderMarkdown } from "./markdown.js?v=20261029-index-news-quality";
 import { el, kv, priceBar, statusBadge } from "./components.js";
 
+export const STOCK_NEWS_DISPLAY_LIMIT = 10;
+
 const DIMENSIONS = [
   ["financial", "财务健康"],
   ["technical", "技术趋势"],
@@ -725,7 +727,9 @@ function dimensionSection(name, label, data, sectionIdPrefix, unscored = false, 
   const metrics = Object.keys(record(display.metrics)).length ? record(display.metrics) : record(dimension.metrics);
   if (Object.keys(metrics).length) {
     const grid = el("div", "mtr");
-    for (const [metric, value] of Object.entries(metrics)) {
+    for (const [metric, rawValue] of Object.entries(metrics)) {
+      const value = name === "sentiment" && ["headlines", "news_items", "all_items"].includes(metric) && Array.isArray(rawValue)
+        ? rawValue.slice(0, STOCK_NEWS_DISPLAY_LIMIT) : rawValue;
       if (metric === "peer_names" || metric === "roe_trend") continue;
       if (metric === "trend_note" && !naturalText(value)) continue;
       if (name === "financial" && ["annual_roe", "scoring_basis", "amount_basis", "gross_margin_basis"].includes(metric)) continue;
@@ -757,7 +761,7 @@ function hkNewsSection(data, sectionIdPrefix) {
   const metrics = record(dimension.metrics);
   card.appendChild(el("p", "dim-sum", metrics.news_disclaimer ||
     "关键词检索结果，可能包含间接相关报道；不作AI筛选或情绪评分，不保证完整覆盖。"));
-  const items = Array.isArray(metrics.news_items) ? metrics.news_items.slice(0, 20) : [];
+  const items = Array.isArray(metrics.news_items) ? metrics.news_items.slice(0, STOCK_NEWS_DISPLAY_LIMIT) : [];
   if (!items.length) {
     card.appendChild(el("p", "report-empty", dimension.summary || "新闻暂时获取失败"));
     return card;
@@ -792,7 +796,7 @@ function newsFactsSection(data, sectionIdPrefix) {
   const list = el("ul", "report-metric-list sentiment-source-list");
   const items = Array.isArray(metrics.news_items) && metrics.news_items.length ? metrics.news_items
     : (metrics.headlines || []).map(title => ({title}));
-  for (const item of items) {
+  for (const item of items.slice(0, STOCK_NEWS_DISPLAY_LIMIT)) {
     const row = el("li");
     row.appendChild(el("span", "", `${readable(item.title, "未记录标题")}（${readable(item.publish_date || item.published_at, "日期未记录")}）`));
     const links = Array.isArray(item.links) && item.links.length ? item.links : [{url: item.url, media: item.media || item.source}];
@@ -839,7 +843,7 @@ function sentimentRiskSection(data, sectionIdPrefix) {
   const items = news.length ? [...news.map(item => ({...(byId.get(item.item_id) || byDateTitle.get(identity(item))), ...item})),
     ...assessed.filter(item => !identities.has(identity(item)))] : assessed;
   const list = el("ul", "report-metric-list sentiment-source-list");
-  for (const item of items.slice(0, 30)) {
+  for (const item of items.slice(0, STOCK_NEWS_DISPLAY_LIMIT)) {
     const row = el("li");
     const state = item.related === false ? "与目标无直接关联" : item.assessable === false ? "不可评估"
       : item.related === true && item.assessable === true ? "有效相关样本" : "标注状态未记录";
@@ -1174,7 +1178,7 @@ export function renderIndexReport(report, options = {}) {
     const items = part.display?.items || part.metrics?.items || [];
     if (Array.isArray(items) && items.length) {
       const list = el("ul", "report-metric-list sentiment-source-list");
-      for (const item of items.slice(0, 30)) {
+      for (const item of items) {
         const li = el("li");
         li.appendChild(el("span", "", `${readable(item.title, "未记录标题")}（${readable(item.published_at, "日期未记录")}）`));
         const url = safeNewsUrl(item.url);

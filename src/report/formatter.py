@@ -19,6 +19,8 @@ from utils.numbers import is_finite_number
 
 logger = logging.getLogger(__name__)
 
+STOCK_NEWS_DISPLAY_LIMIT = 10
+
 
 def format_hk_news_markdown(metrics: dict[str, Any]) -> str:
     """沿用普通新闻项目列表，只展示标题、时间和媒体，不输出链接。"""
@@ -29,7 +31,7 @@ def format_hk_news_markdown(metrics: dict[str, Any]) -> str:
             return str(value)
 
     lines = [f"> {_news_text(metrics.get('news_disclaimer', ''))}"]
-    for item in metrics.get("news_items", [])[:20]:
+    for item in metrics.get("news_items", [])[:STOCK_NEWS_DISPLAY_LIMIT]:
         media = "、".join(dict.fromkeys(str(link.get("media") or "来源未标注") for link in item.get("links", []))) or "来源未标注"
         lines.append(f"\n- {_news_text(item.get('title', ''))}（{_news_text(stamp(item.get('published_at', '')))} · {_news_text(media)}）")
     return "\n".join(lines)
@@ -76,7 +78,7 @@ def sentiment_display_items(metrics: dict[str, Any]) -> list[dict[str, Any]]:
 def format_news_facts_markdown(metrics: dict[str, Any]) -> str:
     """客观新闻只披露标题、日期及原文来源，不输出情绪或评分。"""
     lines = [_news_text(note) for note in [metrics.get("news_disclaimer"), *(metrics.get("news_notes") or [])] if note]
-    for item in metrics.get("news_items") or []:
+    for item in (metrics.get("news_items") or [])[:STOCK_NEWS_DISPLAY_LIMIT]:
         sources = []
         links = item.get("links") or [{"url": item.get("url"), "media": item.get("media") or item.get("source")}]
         for link in links:
@@ -86,7 +88,7 @@ def format_news_facts_markdown(metrics: dict[str, Any]) -> str:
         stamp = item.get("publish_date") or item.get("published_at") or "日期未记录"
         lines.append(f"- {_news_text(item.get('title', ''))}（{_news_text(stamp)} · {'、'.join(sources)}）")
     if not metrics.get("news_items"):
-        lines.extend(f"- {_news_text(title)}（日期与来源未记录）" for title in metrics.get("headlines") or [])
+        lines.extend(f"- {_news_text(title)}（日期与来源未记录）" for title in (metrics.get("headlines") or [])[:STOCK_NEWS_DISPLAY_LIMIT])
     return "\n".join(lines) or "本次暂无可展示新闻。"
 
 
@@ -108,7 +110,7 @@ def format_sentiment_risk_markdown(metrics: dict[str, Any]) -> str:
     items = sentiment_display_items(metrics)
     if items:
         lines += ["", "#### 采集样本与来源"]
-    for item in items[:30]:
+    for item in items[:STOCK_NEWS_DISPLAY_LIMIT]:
         if not isinstance(item, dict):
             continue
         state = ("与目标无直接关联" if item.get("related") is False else "不可评估" if item.get("assessable") is False
