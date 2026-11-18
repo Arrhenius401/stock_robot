@@ -2,6 +2,7 @@
 from typing import Any
 
 from data.schemas import IndexAnalysisContext
+from index.profile import IndexProfile, profile_for
 from report.formatter import format_metric_value
 from report.presentation import compact_quality
 from utils.numbers import is_finite_number, is_positive_finite, is_valid_percentile
@@ -11,31 +12,42 @@ LABELS = {
     "adx_14": "ADX(14)", "atr_20": "ATR(20)（点）", "atr_pct": "ATR占收盘价", "price_position_pct": "近12个月价格位置",
     "year_high": "近12个月最高价", "year_low": "近12个月最低价", "pmi": "PMI", "shibor_3m": "Shibor3M",
     "cpi_yoy": "CPI同比", "usd_cny": "USD/CNY", "north_bound": "北向资金（亿元）", "main_net_inflow": "主力资金（亿元）", "margin_balance": "融资余额",
+    "us_cpi_yoy": "美国CPI年率", "us_10y_yield": "美国10年期国债收益率",
     "hibor_1m": "HIBOR 1个月（%）", "hk_base_rate": "香港基本利率（%）", "hk_closing_balance_million": "香港总结余（百万港元）",
     "southbound_sh_yi": "港股通（沪）成交净买额（亿元）", "southbound_sz_yi": "港股通（深）成交净买额（亿元）",
 }
 
 
 def display_rows(metrics: dict[str, Any], keys: tuple[str, ...]) -> list[dict[str, str]]:
-    return [{"label": LABELS.get(key, key), "value": f"{metrics[key]:.2f}%" if key in {"atr_pct", "price_position_pct"} else f"{metrics[key]:.2f}" if key in {"adx_14", "atr_20"} else format_metric_value(key, metrics[key]), "note": ""}
+    return [{"label": LABELS.get(key, key), "value": f"{metrics[key]:.2f}%" if key in {"atr_pct", "price_position_pct", "us_cpi_yoy", "us_10y_yield"} else f"{metrics[key]:.2f}" if key in {"adx_14", "atr_20"} else format_metric_value(key, metrics[key]), "note": _indicator_note(metrics, key)}
             for key in keys if metrics.get(key) is not None]
 
 
-def build_quality(ctx: IndexAnalysisContext, sections: dict[str, dict]) -> dict:
+def _indicator_note(metrics: dict[str, Any], key: str) -> str:
+    if key not in {"us_cpi_yoy", "us_10y_yield"}:
+        return ""
+    dates = metrics.get("indicator_dates", {})
+    release = dates.get(f"{key}_release")
+    return f"{dates[key][:7]}；发布日期 {release}" if release else dates.get(key, "")
+
+
+def build_quality(
+    ctx: IndexAnalysisContext, sections: dict[str, dict], profile: IndexProfile | None = None,
+) -> dict:
+    profile = profile or profile_for(ctx.target.market, ctx.target.index_style)
+    applicable_sections = profile.quality_sections
     dimensions = []
     definitions = [("technical", "行情与技术", "index_price"), ("valuation", "估值", "index_valuation"),
                    ("capital", "资金", "index_capital_flow"), ("macro", "宏观", "index_macro"),
                    ("sentiment", "新闻", "index_sentiment")]
-    if ctx.target.index_style == "strategy":
+    if "strategy" in profile.sections:
         definitions.append(("strategy", "策略专项", "strategy_data"))
     prices = sorted({p.trade_date: p for p in ctx.price_data if p.symbol == ctx.target.symbol and is_positive_finite(p.close)}.values(), key=lambda p: p.trade_date)
     for key, title, record_key in definitions:
         section = sections.get(key) or {}
         metrics = section.get("metrics") or {}
         record = ctx.collection_records.get(record_key)
-        applicable = ctx.target.market == "hk" or not (key == "capital" and ctx.target.index_style not in ("broad", "sector")
-                          or key == "macro" and ctx.target.index_style != "broad"
-                          or key == "sentiment" and ctx.target.index_style in ("strategy", "overseas"))
+        applicable = key in applicable_sections
         status = {"ok": "ok", "partial": "partial"}.get(str(section.get("status")), "unavailable") if applicable else "not_applicable"
         # 采集状态和分析状态共同决定覆盖，旧值可分析不等于本次采集完整。
         if applicable and record:
@@ -86,7 +98,11 @@ def build_quality(ctx: IndexAnalysisContext, sections: dict[str, dict]) -> dict:
         if applicable and status != "ok" and not notes:
             notes.append(section.get("summary") or "原因未记录")
         if status == "not_applicable":
-            notes = ["当前指数不适用或未接入该项数据。"]
+            overseas_gap = {
+                "macro": "尚未适配当地宏观来源。",
+                "sentiment": "本次未采集可核查的市场新闻。",
+            }.get(key) if profile.key == "overseas" else None
+            notes = [overseas_gap or "当前指数不适用或未接入该项数据。"]
         for note in notes:
             if note and status != "ok":
                 fields.append({"label": "分析限制", "value": str(note)})

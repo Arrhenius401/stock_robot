@@ -1054,6 +1054,7 @@ def create_app(
         from index.archives import update_index_report
         from index.commentary import commentary_store as index_store
         from index.commentary import generate
+        from index.research import render_index_research
 
         body = await request.json()
         token = str(body.get("report_token", ""))
@@ -1083,9 +1084,10 @@ def create_app(
             if record.report.commentary_status == "ready":
                 return JSONResponse(_json_safe(record.report.model_dump(mode="json")))
             if record.pending_report is None:
-                text = await asyncio.to_thread(generate, record, current.llm)
+                research = await asyncio.to_thread(generate, record, current.llm)
                 report = record.report.model_copy(deep=True)
-                report.commentary = text
+                report.index_research = research
+                report.commentary = render_index_research(research)
                 report.commentary_status = "ready"
                 report.commentary_retry_id = None
                 record.pending_report = report

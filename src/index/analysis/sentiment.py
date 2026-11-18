@@ -3,6 +3,7 @@ from typing import Any, Literal
 
 from analysis.base import AnalysisModule
 from data.schemas import AnalysisResult, IndexAnalysisContext
+from index.index_news import NEWS_DISCLAIMER
 from index.news import normalize_news_item
 
 
@@ -18,6 +19,14 @@ class IndexSentimentAnalyzer(AnalysisModule):
         if not items and context.raw_sentiment:
             # 旧快照无真实发布时间，不借采集日伪造新闻日。
             items = [{"title": item.title, "source": item.source, "published_at": None, "url": item.url} for item in context.raw_sentiment.items[:10]]
+        if context.target.market in {"hk", "us"}:
+            summary = f"本次取得市场新闻 {len(items)} 条" if items else "未取得可核查的市场新闻"
+            return AnalysisResult(
+                dimension=self.dimension,
+                status=("partial" if any(not i["published_at"] or i["source"] == "未记录" for i in items) else "ok") if items else "unavailable",
+                summary=f"{summary}；{NEWS_DISCLAIMER}；未作情绪评分",
+                metrics={"headline_count": len(items), "items": items, "news_disclaimer": NEWS_DISCLAIMER},
+            )
         if not items:
             return AnalysisResult(dimension=self.dimension, status="unavailable", summary="未取得可核查的市场新闻", metrics={})
         return AnalysisResult(dimension=self.dimension, status="partial" if any(not i.get("published_at") or i.get("source") == "未记录" for i in items) else "ok",

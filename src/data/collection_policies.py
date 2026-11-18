@@ -80,6 +80,10 @@ class IndexPolicy(_Policy):
             "index_capital_flow": ("north_bound", "main_net_inflow", "margin_balance"),
             "index_macro": ("shibor_3m", "cpi_yoy", "pmi", "usd_cny"),
         }[self.kind]
+        if self.kind == "index_macro" and any(
+            key in getattr(rows[0], "indicator_dates", {}) for key in ("us_cpi_yoy", "us_10y_yield")
+        ):
+            fields = ("us_cpi_yoy", "us_10y_yield")
         values = [getattr(rows[0], name, None) for name in fields]
         if self.kind == "index_valuation" and values[0] is None:
             values[0] = getattr(rows[0], "pe_snapshot", None)

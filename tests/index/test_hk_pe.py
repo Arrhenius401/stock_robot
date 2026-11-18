@@ -112,3 +112,23 @@ def test_cache_fallback_keeps_original_collection_time(monkeypatch):
     result = fetch_hsi_pe("HSI", "00001.00", cache)
     assert result.record.cache_status == "stale"
     assert result.record.collected_at == datetime.fromtimestamp(created).astimezone()
+
+
+def test_hstech_invalid_workbook_reason_reaches_report(tmp_path, mocker):
+    from data.cache import CacheManager
+    from data.schemas import AnalysisTarget, IndexAnalysisContext
+    from index.analysis.valuation import IndexValuationAnalyzer
+    from index.build_single import IndexReportBuilder
+    from index.hk_pe import fetch_hsi_pe
+
+    response = mocker.patch("index.hk_pe.requests.get").return_value
+    response.content = b"<html>"
+    value = fetch_hsi_pe("HSTECH", "02083.00", CacheManager(tmp_path / "pe.db"))
+    assert value.value is None
+    assert "恒生估值响应不是 XLSX" in value.record.error_message
+    target = AnalysisTarget(target_type="index", symbol="HSTECH", name="恒生科技指数", market="hk", index_style="overseas")
+    context = IndexAnalysisContext(target=target, collection_records={"index_valuation": value.record})
+    result = IndexValuationAnalyzer().analyze(context)
+    report = IndexReportBuilder().build(context, [result])
+    assert value.record.error_message in report.section_valuation["summary"]
+    assert any(row["value"] == value.record.error_message for row in report.data_quality["limitations"])

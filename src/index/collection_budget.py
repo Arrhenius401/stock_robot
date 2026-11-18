@@ -62,7 +62,11 @@ def collect_bounded(target: AnalysisTarget, budget: float = 60, on_progress: Cal
             logger.warning("%s: %s", target.symbol, message)
             context.risk_flags.append(message)
             expected = ["index_price", "index_valuation"]
-            if target.index_style == "strategy":
+            if target.market == "hk":
+                expected += ["index_capital_flow", "index_macro", "index_sentiment"]
+            elif target.market == "us":
+                expected += ["index_macro", "index_sentiment"]
+            elif target.index_style == "strategy":
                 expected += ["strategy_data", "benchmark"]
             elif target.index_style != "overseas":
                 expected += ["index_capital_flow", "index_sentiment"]

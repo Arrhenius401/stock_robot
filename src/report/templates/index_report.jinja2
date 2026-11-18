@@ -65,32 +65,33 @@
 {% endfor %}
 
 ## 四、资金、宏观与新闻
+{% set placeholders = (report.index_profile or {}).get("placeholders", {}) %}
 
 ### 资金流向
 {% if "capital" in visible_sections %}
-{{ section_capital.summary or "资金数据不可用。" }}
+{{ section_capital.summary or placeholders.get("capital", {}).get("unavailable", "资金数据不可用。") }}
 {{ rows(section_capital) }}
 {% else %}
-当前指数不适用已接入的资金流向指标。
+{{ placeholders.get("capital", {}).get("markdown", "当前指数不适用已接入的资金流向指标。") }}
 {% endif %}
 
 ### 宏观环境
 {% if section_macro and "macro" in visible_sections %}
-{{ section_macro.summary or "宏观数据不可用。" }}
+{{ section_macro.summary or placeholders.get("macro", {}).get("unavailable", "宏观数据不可用。") }}
 {{ rows(section_macro) }}
 {% else %}
-当前指数没有已适配的宏观指标，不以国内环境代替海外环境。
+{{ placeholders.get("macro", {}).get("markdown", "当前指数没有已适配的宏观指标，不以国内环境代替海外环境。") }}
 {% endif %}
 
 ### 相关新闻
 {% if "sentiment" in visible_sections %}
-{{ section_sentiment.summary or "暂无可核实的新闻。" }}
+{{ section_sentiment.summary or placeholders.get("sentiment", {}).get("unavailable", "暂无可核实的新闻。") }}
 {% for item in section_sentiment.display["items"] or [] %}
 {% set link = item.url | default("") | news_url %}
 - {{ item.title | news_text }}（{{ item.source | default("来源未记录", true) | news_text }}；{{ item.published_at | default("发布时间未记录", true) | news_text }}）{% if link %} [来源](<{{ link }}>){% endif %}{{ '\n' }}
 {% endfor %}
 {% else %}
-未接入适用新闻源。
+{{ placeholders.get("sentiment", {}).get("markdown", "未接入适用新闻源。") }}
 {% endif %}
 
 {% if report.analysis_mode != "objective" %}

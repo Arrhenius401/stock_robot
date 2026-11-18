@@ -96,8 +96,16 @@ def fetch_hsi_pe(symbol: str, code: str, cache: CacheManager, *, refresh: bool =
         return ValueResult(value, make_record("恒生官方月末估值", "complete", collected_at=datetime.now().astimezone()))
     except Exception as exc:  # noqa: BLE001 — 官方网络及工作簿解析边界，失败保留旧快照
         logger.warning("恒生估值采集失败 %s: %s", code, exc)
+        parse_reasons = {
+            "恒生估值响应不是 XLSX", "恒生估值工作表不匹配", "恒生估值口径不匹配",
+            "恒生估值指数身份不匹配", "恒生估值无有效月末数据", "恒生估值文件无效",
+        }
+        if isinstance(exc, ValueError) and str(exc) in parse_reasons:
+            reason = str(exc)
+        else:
+            reason = "官方估值请求超时" if isinstance(exc, requests.exceptions.Timeout) else "官方估值请求失败"
         if old is not None and entry is not None:
             return ValueResult(old, make_record("恒生官方月末估值", "partial", cache_status="stale",
                 collected_at=datetime.fromtimestamp(entry.created_at).astimezone(),
-                error_kind="fetch_failed", error_message="刷新失败，保留原日期估值"))
-        return ValueResult(None, make_record("恒生官方月末估值", "failed", error_kind="fetch_failed", error_message="未取得有效官方估值"))
+                error_kind="fetch_failed", error_message=f"刷新失败，保留原日期估值：{reason}"))
+        return ValueResult(None, make_record("恒生官方月末估值", "failed", error_kind="fetch_failed", error_message=f"未取得有效官方估值：{reason}"))

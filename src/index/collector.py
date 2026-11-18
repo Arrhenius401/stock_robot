@@ -17,6 +17,7 @@ from data.schemas import (
     IndexClosePriceData,
     MacroContext,
 )
+from index.profile import profile_for
 from utils.numbers import is_positive_finite
 
 logger = logging.getLogger(__name__)
@@ -84,6 +85,7 @@ class IndexDataCollector:
             if on_progress:
                 on_progress("collect", 1, 1, "指数数据采集完成")
             return ctx
+        profile = profile_for(target.market, target.index_style)
         ctx = IndexAnalysisContext(target=target, requested_instrument=target.requested_instrument)
         if target.index_style == "strategy" and target.market != "hk":
             return self._collect_strategy(ctx, on_progress, refresh_cache=refresh_cache)
@@ -163,14 +165,15 @@ class IndexDataCollector:
         def _fetch_macro():
             macro_result = record("index_macro", _fetch(
                 target.symbol, data_type="index_macro",
-                index_style=target.index_style
+                index_style=target.index_style, market=target.market,
             ))
             if macro_result:
                 ctx.macro = macro_result[0]
 
         def _fetch_sentiment():
+            scope = {"market": target.market, "name": target.name} if profile.news_kind == "market_search" else {}
             sentiment_result = record("index_sentiment", _fetch(
-                target.symbol, data_type="index_sentiment"
+                target.symbol, data_type="index_sentiment", **scope,
             ))
             if sentiment_result and len(sentiment_result) > 0:
                 news = sentiment_result[0]
@@ -197,8 +200,6 @@ class IndexDataCollector:
                         southbound_sh_yi=result.value["sh"], southbound_sz_yi=result.value["sz"],
                         notes=["港股通市场背景，单位亿元，不代表指数资金流"])
             steps.append(("index_capital_flow", INDEX_COLLECT_LABELS["index_capital_flow"], _fetch_hk_capital))
-            ctx.collection_records["index_sentiment"] = make_record("未取得", "failed",
-                error_kind="unavailable", error_message="未取得可靠的港股市场新闻来源")
 
         if target.market == "hk":
             def _fetch_hk_context():
@@ -216,7 +217,7 @@ class IndexDataCollector:
             steps.append(("index_macro", INDEX_COLLECT_LABELS["index_macro"], _fetch_hk_context))
 
         # 按类别采集宏观数据
-        if target.market != "hk" and target.index_style == "broad":
+        if profile.macro_kind in {"cn", "us"}:
             steps.append(("index_macro", INDEX_COLLECT_LABELS["index_macro"], _fetch_macro))
         elif target.market != "hk" and target.index_style == "sector":
             ctx.macro = MacroContext(symbol=target.symbol, fetch_date=datetime.now().astimezone().date())
@@ -227,7 +228,7 @@ class IndexDataCollector:
             steps.append(("benchmark", "采集同日比较基准", _fetch_benchmark))
 
         # 舆情（国内市场背景，不冒充海外指数专属新闻）
-        if target.market != "hk" and target.index_style != "overseas":
+        if profile.news_kind != "none":
             steps.append(("index_sentiment", INDEX_COLLECT_LABELS["index_sentiment"], _fetch_sentiment))
 
         total = len(steps)

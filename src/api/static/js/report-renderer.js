@@ -894,6 +894,17 @@ function appendRiskFlags(card, dimension) {
   }
 }
 
+function researchRows(labels, values) {
+  const list = el("dl", "report-research-rows");
+  labels.forEach((label, index) => {
+    const row = el("div", "report-research-row");
+    row.appendChild(el("dt", "", label));
+    row.appendChild(el("dd", "", naturalText(values[index]) || "证据不足，暂不能判断。"));
+    list.appendChild(row);
+  });
+  return list;
+}
+
 function researchBody(research, state) {
   const box = el("div", "report-research");
   const add = (parent, ...children) => children.forEach(child => parent.appendChild(child));
@@ -907,22 +918,13 @@ function researchBody(research, state) {
   if (profile.source && sourceLabel) {
     add(box, el("p", "dim-sum", `来源：${sourceLabel}；采集日期：${naturalText(profile.fetched_at) || "未记录"}。`));
   }
-  const rows = (labels, values) => {
-    const list = el("dl", "report-research-rows");
-    labels.forEach((label, index) => {
-      const row = el("div", "report-research-row");
-      add(row, el("dt", "", label), el("dd", "", naturalText(values[index]) || "证据不足，暂不能判断。"));
-      add(list, row);
-    });
-    return list;
-  };
   const conclusion = record(model.conclusion);
   if (conclusion.overall) {
-    add(box, el("h3", "", "核心结论"), rows(["整体判断", "主要支撑", "主要疑问"],
+    add(box, el("h3", "", "核心结论"), researchRows(["整体判断", "主要支撑", "主要疑问"],
       [conclusion.overall, conclusion.support, conclusion.question]));
   }
   const dims = Array.isArray(research.dimensions) ? research.dimensions.map(record) : [];
-  add(box, el("h3", "", "五维解读"), rows(dims.map(row => row.label), dims.map(row => row.text)));
+  add(box, el("h3", "", "五维解读"), researchRows(dims.map(row => row.label), dims.map(row => row.text)));
   if (conclusion.overall) {
     add(box, el("h3", "", "风险提示"));
     const risks = Array.isArray(model.risks) ? model.risks.map(record) : [];
@@ -1125,9 +1127,38 @@ function renderGoldReport(report, options) {
   return article;
 }
 
+function indexResearchBody(research, state) {
+  const box = el("div", "report-research");
+  const add = (title, body) => {
+    box.appendChild(el("h3", "", title));
+    box.appendChild(body);
+  };
+  const positioning = research.positioning || [];
+  add("指数定位", researchRows(positioning.map(row => row.label),
+    positioning.map(row => [row.value, row.note].filter(Boolean).join(" "))));
+  const model = ["ready", "ok"].includes(state) ? record(research.model) : {};
+  const conclusion = record(model.conclusion);
+  if (conclusion.overall) {
+    add("核心结论", researchRows(["整体判断", "主要支撑", "主要疑问"],
+      [conclusion.overall, conclusion.support, conclusion.question]));
+  }
+  const dimensions = research.dimensions || [];
+  add("维度解读", researchRows(dimensions.map(row => row.label), dimensions.map(row => row.text)));
+  if (conclusion.overall) {
+    const risks = model.risks || [];
+    const list = el("ul", "report-research-risks");
+    risks.forEach(risk => list.appendChild(el("li", "", naturalText(risk.text))));
+    add("风险提示", risks.length ? list : el("p", "", "本次未形成有充分依据的独立风险提示。"));
+  }
+  add("解读限制", el("p", "dim-sum", naturalText(research.limitation)));
+  return box;
+}
+
 export function renderIndexReport(report, options = {}) {
   const prefix = options.sectionIdPrefix || "";
   const article = el("article", "stock-report index-report");
+  const profile = report.index_profile;
+  const visibleSections = profile?.sections ?? report.visible_sections;
   const make = (id, title) => section(id, title, "panel", prefix);
   const addRows = (card, rows) => {
     if (!Array.isArray(rows) || !rows.length) return;
@@ -1166,8 +1197,8 @@ export function renderIndexReport(report, options = {}) {
   const background = make("index-background", "资金、宏观与新闻");
   for (const [key, title, part] of [["capital", "资金流向", report.section_capital], ["macro", "宏观环境", report.section_macro], ["sentiment", "相关新闻", report.section_sentiment]]) {
     background.appendChild(el("h3", "", title));
-    if ((Array.isArray(report.visible_sections) && !report.visible_sections.includes(key)) || !part) {
-      background.appendChild(el("p", "dim-sum", "当前指数不适用或未接入该项数据。"));
+    if ((Array.isArray(visibleSections) && !visibleSections.includes(key)) || !part) {
+      background.appendChild(el("p", "dim-sum", profile?.placeholders?.[key]?.web ?? "当前指数不适用或未接入该项数据。"));
       continue;
     }
     if (part.summary) background.appendChild(el("p", "dim-sum", part.summary));
@@ -1200,7 +1231,9 @@ export function renderIndexReport(report, options = {}) {
     configure.addEventListener("click", options.onConfigure); commentary.appendChild(configure);
   }
   if (options.commentaryError) commentary.appendChild(el("p", "report-commentary-error", options.commentaryError));
-  if (report.commentary) commentary.appendChild(markdownBlock(report.commentary, "md dim-sum"));
+  if (report.index_research?.version === 2) {
+    commentary.appendChild(indexResearchBody(report.index_research, report.commentary_status));
+  } else if (report.commentary) commentary.appendChild(markdownBlock(report.commentary, "md dim-sum"));
   if (report.analysis_mode !== "objective") article.appendChild(commentary);
   article.appendChild(qualitySection(report, prefix));
   const disclaimer = make("report-disclaimer", "免责声明");

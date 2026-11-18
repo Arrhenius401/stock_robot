@@ -484,12 +484,15 @@ class CapitalFlowData(BaseModel):
 
 class MacroContext(BaseModel):
     """宏观经济指标上下文"""
+    _data_source: str = PrivateAttr(default="")
     symbol: str
     fetch_date: date
     shibor_3m: float | None = None
     hibor_1m: float | None = None
     hk_base_rate: float | None = None
     hk_closing_balance_million: float | None = None
+    us_cpi_yoy: float | None = None
+    us_10y_yield: float | None = None
     cpi_yoy: float | None = None
     pmi: float | None = None
     usd_cny: float | None = None
@@ -581,6 +584,10 @@ class IndexReport(BaseModel):
 
     risk_list: list[str]
     visible_sections: set[str]
+    market: str | None = None
+    index_style: str | None = None
+    index_profile: dict[str, Any] | None = None
+    index_research: dict[str, Any] | None = None
     report_version: int = 1  # 新报告使用版本2，历史结构继续兼容
     generated_at: str = ""
     data_quality: dict[str, Any] = Field(default_factory=dict)

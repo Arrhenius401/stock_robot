@@ -17,8 +17,12 @@ class IndexValuationAnalyzer(AnalysisModule):
                 config: dict[str, Any] | None = None) -> AnalysisResult:
         val = context.valuation_data
         if val is None:
+            record = context.collection_records.get("index_valuation")
+            reason = record.error_message if record and (
+                context.target.market == "hk" or record.error_kind == "not_supported"
+            ) else ""
             return AnalysisResult(dimension=self.dimension, status="unavailable",
-                                  summary="估值数据不可用", metrics={})
+                                  summary=reason or "估值数据不可用", metrics={})
 
         if context.target.index_style == "strategy" or val.pe_snapshot is not None or val.valuation_notes:
             return self._analyze_strategy(val, extra=context.extra_analysis_enabled)
