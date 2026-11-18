@@ -119,3 +119,20 @@ def test_annual_reference_does_not_affect_scoring():
     assert IndustryAnalyzer._comparison_status(updated) == IndustryAnalyzer._comparison_status(baseline)
     updated["score_periods"] = ["annual"]
     assert score_industry_comparison(updated)[0] is None
+
+
+def test_jpm_latest_special_keeps_cumulative_period_and_units():
+    from data.us_operating import build_jpm_special
+
+    row = {"SECURITY_CODE": "JPM", "SECUCODE": "JPM.N", "DATE_TYPE": "累计季报",
+           "REPORT_TYPE": "2026/Q9", "START_DATE": "2026-01-01", "REPORT_DATE": "2026-09-30",
+           "CURRENCY": "USD", "TOTAL_INCOME": 157355000000, "NET_INTEREST_INCOME": 77913000000,
+           "LOAN_LOSS_PROVISION": 7765000000, "LOAN_DEPOSIT": .569852196837, "ROE": 14.220878270958,
+           "ROA": 1.04003794526}
+    facts = build_jpm_special([{**row, "DATE_TYPE": "单季报", "REPORT_TYPE": "2026/Q3", "TOTAL_INCOME": 1}, row])
+    assert facts["basis"] == "Q9"
+    assert facts["net_interest_income_ratio_pct"] == pytest.approx(77913 / 157355 * 100)
+    assert facts["provision_to_revenue_pct"] == pytest.approx(7765 / 157355 * 100)
+    assert facts["loan_to_deposit_pct"] == pytest.approx(56.9852196837)
+    assert facts["roe_pct"] == pytest.approx(14.220878270958)
+    assert facts["roa_pct"] == pytest.approx(1.04003794526)

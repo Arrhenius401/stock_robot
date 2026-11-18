@@ -77,14 +77,41 @@ def build_special(rows: list[dict[str, Any]], code: str, source: str) -> dict[st
     annual = _annual_facts(row, source) if row is not None else None
     if row is None or annual is None:
         return None
+    return _bank_metrics(row, annual["revenue"])
+
+
+def _bank_metrics(row: dict[str, Any], revenue: float | None) -> dict[str, Any]:
     return {
-        "net_interest_income_ratio_pct": _percent(_finite(row.get("NET_INTEREST_INCOME")), annual["revenue"]),
-        "provision_to_revenue_pct": _percent(_finite(row.get("LOAN_LOSS_PROVISION")), annual["revenue"]),
+        "net_interest_income_ratio_pct": _percent(_finite(row.get("NET_INTEREST_INCOME")), revenue),
+        "provision_to_revenue_pct": _percent(_finite(row.get("LOAN_LOSS_PROVISION")), revenue),
         "loan_to_deposit_pct": _ratio_pct(row.get("LOAN_DEPOSIT")),
         "loan_to_assets_pct": _ratio_pct(row.get("LOAN_ASSETS")),
         "roe_pct": _finite(row.get("ROE")),
         "roa_pct": _finite(row.get("ROA")),
     }
+
+
+def build_jpm_special(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    candidates: dict[tuple[date, str], list[dict[str, Any]]] = {}
+    for row in rows:
+        if row.get("SECURITY_CODE") != "JPM" or row.get("SECUCODE") != "JPM.N" or row.get("CURRENCY") != "USD":
+            continue
+        basis = str(row.get("REPORT_TYPE")).rsplit("/", 1)[-1]
+        if basis not in {"Q6", "Q9", "FY"} or row.get("DATE_TYPE") not in {"累计季报", "年报"}:
+            continue
+        start, end = _date(row.get("START_DATE")), _date(row.get("REPORT_DATE"))
+        if start != date(end.year, 1, 1) or end > datetime.now().astimezone().date():
+            continue
+        candidates.setdefault((end, basis), []).append(row)
+    if not candidates:
+        return {}
+    end, basis = max(candidates)
+    rows_at_end = candidates[end, basis]
+    if len(rows_at_end) != 1:
+        return {}
+    row = rows_at_end[0]
+    return {**_bank_metrics(row, _finite(row.get("TOTAL_INCOME"))), "basis": basis,
+            "start": _date(row["START_DATE"]).isoformat(), "end": end.isoformat(), "source": BANK, "currency": "USD"}
 
 
 def build_operating(rows: list[dict[str, Any]], code: str, source: str) -> dict[str, Any] | None:
@@ -147,7 +174,12 @@ def fetch_operating(code: str) -> dict[str, Any] | None:
             continue
         if payload.get("success") is not True or not isinstance(rows, list):
             raise ValueError("F10经营数据响应失败")
-        return build_operating(rows, code, source)
+        operating = build_operating(rows, code, source)
+        if code == "JPM" and source == BANK:
+            special = build_jpm_special(rows)
+            if special:
+                return {**(operating or {}), "latest_bank_special": special}
+        return operating
     return None
 
 
@@ -156,7 +188,7 @@ def load_operating(codes: list[str], *, cache: CacheManager | None = None, refre
     day = datetime.now().astimezone().date().isoformat()
 
     def load(code: str) -> tuple[str, Any]:
-        key = f"us_operating::v2::{code}"
+        key = f"us_operating::v{3 if code == 'JPM' else 2}::{code}"
         try:
             saved = cache.get("us_operating", key, day) if cache and not refresh else None
             if saved is not None:

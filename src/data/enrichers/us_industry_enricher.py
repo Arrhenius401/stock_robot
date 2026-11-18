@@ -144,6 +144,12 @@ class UsIndustryEnricher(DataEnricher):
             "notes": notes, "errors": [reason] if reason else []}
         annual, special, special_comparison = _reference_periods(
             target_op, [operating.get(peer["symbol"]) or {} for peer in selected])
+        latest_bank = target_op.get("latest_bank_special")
+        if ctx.symbol == "JPM" and isinstance(latest_bank, dict) and latest_bank.get("source") == BANK:
+            special = {key: latest_bank.get(key) for key in _BANK_METRICS}
+            special_comparison = {**{key: latest_bank.get(key) for key in ("start", "end", "basis", "source", "currency")},
+                "label": "银行专项指标（累计报告期）", "reference_only": True,
+                "metrics": [_metric(key, label, special[key], [], "percent") for key, label in _BANK_METRICS.items()]}
         ctx.financial_special = special
         comparison["score_periods"] = ["latest"]
         # TTM 节点仅保留原有事实，年度与专项各有独立口径。
@@ -156,7 +162,7 @@ class UsIndustryEnricher(DataEnricher):
         if special_comparison:
             comparison["financial_special"] = special_comparison
         if special:
-            notes.append("银行专项为年度披露事实，不参与评分。")
+            notes.append("银行专项按披露期间展示，不参与评分。")
         enough = len(selected) >= 5
         data.comparison_ready = enough
         ctx.enriched_industry = EnrichedIndustry(peer_count=len(selected),
