@@ -114,7 +114,7 @@ def test_strategy_collector_isolates_valuation_and_counts_progress(monkeypatch, 
     class FakeValuationProvider(StrategyDataProvider):
         def fetch(self, symbol, *, provider):
             return fetch(symbol, provider=provider)
-    monkeypatch.setitem(sys.modules, "index.valuation_data", SimpleNamespace(StrategyValuationProvider=FakeValuationProvider))
+    monkeypatch.setitem(sys.modules, "index.valuation_data", SimpleNamespace(CURRENT_NAMES={}, StrategyValuationProvider=FakeValuationProvider))
     monkeypatch.setattr(StrategyDataProvider,"fetch_etf_prices", lambda *_a, **_k: [price])
     selected=target()
     if etf:

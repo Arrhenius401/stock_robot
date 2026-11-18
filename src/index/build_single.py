@@ -49,7 +49,12 @@ class IndexReportBuilder:
         valuation["display"] = index_date_presentation(val, valuation["metrics"], strategy=ctx.target.index_style == "strategy", summary=valuation["summary"])
         overview["valuation_display"] = index_date_presentation(val, overview, strategy=ctx.target.index_style == "strategy")
         capital = self._build_section(results_map, "index_capital_flow")
-        capital["display"] = capital_presentation(capital)
+        legacy_capital = any(key in capital["metrics"] for key in ("north_bound", "main_net_inflow"))
+        margin_background = profile.capital_kind == "margin_background" and not legacy_capital
+        if margin_background:
+            capital["display"] = {"label": "融资余额背景", "tone": "gray", "summary": capital["summary"]}
+        else:
+            capital["display"] = capital_presentation(capital)
         macro = self._build_section(results_map, "index_macro")
         sentiment = self._build_section(results_map, "index_sentiment")
 
@@ -57,7 +62,12 @@ class IndexReportBuilder:
         strategy = self._build_section(results_map, "index_strategy")
         technical["display"] = {"rows": display_rows(technical["metrics"], ("ma_5", "ma_20", "ma_60", "adx_14", "atr_20", "atr_pct", "year_high", "year_low", "price_position_pct"))}
         valuation["display"]["rows"] = valuation_rows(ctx)
-        capital_keys = ("southbound_sh_yi", "southbound_sz_yi") if profile.capital_kind == "southbound_background" else ("north_bound", "main_net_inflow", "margin_balance")
+        if margin_background:
+            capital_keys = ("margin_balance", "margin_change")
+        elif profile.capital_kind == "southbound_background":
+            capital_keys = ("southbound_sh_yi", "southbound_sz_yi")
+        else:
+            capital_keys = ("north_bound", "main_net_inflow", "margin_balance")
         capital["display"] = {**capital["display"], "rows": display_rows(capital["metrics"], capital_keys) if capital["status"] != "unavailable" else []}
         # 资金文字统一使用独立值的展示，避免旧分析摘要把零流量写成净流出。
         if profile.capital_kind == "southbound_background":

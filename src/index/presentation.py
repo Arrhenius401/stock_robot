@@ -15,6 +15,7 @@ LABELS = {
     "us_cpi_yoy": "美国CPI年率", "us_10y_yield": "美国10年期国债收益率",
     "hibor_1m": "HIBOR 1个月（%）", "hk_base_rate": "香港基本利率（%）", "hk_closing_balance_million": "香港总结余（百万港元）",
     "southbound_sh_yi": "港股通（沪）成交净买额（亿元）", "southbound_sz_yi": "港股通（深）成交净买额（亿元）",
+    "margin_change": "融资余额较前一交易日变化",
 }
 
 

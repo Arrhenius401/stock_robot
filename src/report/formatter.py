@@ -240,6 +240,7 @@ METRIC_DISPLAY_NAMES = {
     "north_bound": "北向资金净流入",
     "main_net_inflow": "主力资金净流入",
     "margin_balance": "融资余额",
+    "margin_change": "融资余额较前一交易日变化",
     "pmi": "PMI",
     "shibor_3m": "3 月期 Shibor",
     "cpi_yoy": "CPI 同比",
@@ -298,9 +299,9 @@ def format_metric_value(key: object, value: Any) -> Any:
         return "数据异常"
     if not isinstance(value, (int, float)) or isinstance(value, bool) or not is_finite_number(value):
         return value
-    if key == "north_bound":
+    if key in {"north_bound", "margin_balance", "margin_change"}:
         return (f"{value:.8g}" if value != 0 and round(value, 2) == 0 else _fixed_number(value, 2)) + " 亿"
-    if key in {"main_net_inflow", "margin_balance"}:
+    if key == "main_net_inflow":
         return (f"{value:.8g}" if value != 0 and round(value, 2) == 0 else _fixed_number(value, 2)) + "（原始单位未记录）"
     if key in _AMOUNT_KEYS:
         unit, divisor = (" 亿", 1e8) if abs(value) >= 1e8 else (" 万", 1e4) if abs(value) >= 1e4 else ("", 1)

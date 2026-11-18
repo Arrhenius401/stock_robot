@@ -477,6 +477,8 @@ class CapitalFlowData(BaseModel):
     north_bound: float | None = None
     main_net_inflow: float | None = None
     margin_balance: float | None = None
+    margin_date: str = ""
+    margin_change: float | None = None
     southbound_sh_yi: float | None = None
     southbound_sz_yi: float | None = None
     notes: list[str] = Field(default_factory=list)

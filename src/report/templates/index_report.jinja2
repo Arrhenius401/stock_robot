@@ -72,7 +72,7 @@
 {{ section_capital.summary or placeholders.get("capital", {}).get("unavailable", "资金数据不可用。") }}
 {{ rows(section_capital) }}
 {% else %}
-{{ placeholders.get("capital", {}).get("markdown", "当前指数不适用已接入的资金流向指标。") }}
+{{ placeholders.get("capital", {}).get("markdown", "当前指数不适用已接入的资金背景指标。") }}
 {% endif %}
 
 ### 宏观环境

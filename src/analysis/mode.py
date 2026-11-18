@@ -45,6 +45,11 @@ def objective_results(results: list[AnalysisResult]) -> list[AnalysisResult]:
             count = len(metrics.get("news_items") or metrics.get("headlines") or metrics.get("items") or [])
             if result.status == "ok" or count:
                 summary = f"本次取得新闻 {count} 条" if count else "本次暂无可展示新闻"
+        if (result.dimension == "index_capital_flow" and metrics.get("margin_date")) or (
+            result.dimension == "index_valuation"
+            and str(metrics.get("pe_snapshot_basis") or "").startswith("官方当前PE")
+        ):
+            summary = result.summary
         output.append(result.model_copy(update={"metrics": metrics, "summary": summary,
                                                "score": None, "score_detail": "",
                                                "risk_flags": [], "industry_note": ""}))

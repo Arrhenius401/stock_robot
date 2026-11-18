@@ -10,6 +10,11 @@ from index.strategy_data import StrategyDataProvider, finite_number
 logger = logging.getLogger(__name__)
 HISTORY_URL = "https://www.csindex.com.cn/csindex-home/perf/index-perf"
 CURRENT_URL = "https://www.csindex.com.cn/csindex-home/data-service/indexValuation"
+CURRENT_NAMES = {
+    "000001": "上证指数", "000010": "上证180", "000016": "上证50", "000300": "沪深300",
+    "000009": "上证380", "000015": "红利指数", "000922": "中证红利", "000905": "中证500",
+}
+CURRENT_PE_BASIS = "官方当前PE（来源字段pe，口径未声明）"
 
 
 def _date(value: Any) -> date | None:
@@ -58,17 +63,39 @@ class StrategyValuationProvider(StrategyDataProvider):
         return fetch_factsheet(symbol, provider, end, self.request_timeout or self.timeout)
 
     def _current_pb(self, symbol: str, end: date) -> dict:
-        names = {"000015": "红利指数", "000922": "中证红利"}
-        if symbol not in names:
+        if symbol not in CURRENT_NAMES:
             return {}
         data = self._get_json(CURRENT_URL).get("data") or {}
         for row in data.get("indexValuations") or []:
-            if row.get("indexName") == names[symbol]:
+            if row.get("indexName") == CURRENT_NAMES[symbol]:
                 sampled = _date(row.get("tradeDate"))
                 if sampled is not None and 0 <= (end - sampled).days <= 14:
                     return {"symbol": symbol, "as_of": sampled, "pb": row.get("pb"),
+                            "pe": row.get("pe"), "dp": row.get("dp"),
                             "pb_basis": "官方每日估值", "source_url": CURRENT_URL}
         return {}
+
+    def fetch_current(self, symbol: str, end: date | None = None) -> IndexValuationData | None:
+        """仅披露当前官方快照，不查询历史，也不读取 peg。"""
+        if symbol not in CURRENT_NAMES:
+            return None
+        end = end or datetime.now().astimezone().date()
+        snapshot = self._source_snapshot("valuation_current", symbol, "csi", end, lambda: self._current_pb(symbol, end))
+        sampled = _date(snapshot.get("as_of"))
+        pe, pb = _positive(snapshot.get("pe")), _positive(snapshot.get("pb"))
+        dividend = finite_number(str(snapshot.get("dp")).removesuffix("%"))
+        if dividend is not None and dividend < 0:
+            dividend = None
+        if sampled is None or (pe is None and pb is None and dividend is None):
+            return None
+        return IndexValuationData(
+            symbol=symbol, date=sampled, pe_snapshot=pe, pe_snapshot_as_of=sampled if pe is not None else None,
+            pe_snapshot_basis=CURRENT_PE_BASIS if pe is not None else "",
+            pe_snapshot_source_url=CURRENT_URL if pe is not None else "",
+            pb=pb, pb_as_of=sampled if pb is not None else None, pb_basis=snapshot["pb_basis"] if pb is not None else "",
+            pb_source_url=CURRENT_URL if pb is not None else "", dividend_yield=dividend,
+            valuation_valid=False, valuation_notes=["当前官方PE/PB/股息快照，不含历史分位；peg 未使用"],
+        )
 
     def _source_snapshot(self, kind: str, symbol: str, provider: str, end: date, source: Any) -> dict:
         """每个来源单独缓存；未披露数值仍是成功响应。"""
@@ -81,7 +108,7 @@ class StrategyValuationProvider(StrategyDataProvider):
         try:
             snapshot = source()
             sampled = _date(snapshot.get("as_of")) if snapshot else None
-            max_age = 14 if kind == "valuation_daily_pb" else 62
+            max_age = 14 if kind in {"valuation_daily_pb", "valuation_current"} else 62
             if not snapshot:
                 if self.refresh_cache and cached and cached.get("ok") and cached.get("value"):
                     self.refresh_notes.append("估值刷新为空，使用原日期缓存")
@@ -100,11 +127,12 @@ class StrategyValuationProvider(StrategyDataProvider):
             self._write_cached(kind, key, {"ok": False, "error": str(exc)}, ttl=300)
             raise
 
-    def fetch(self, symbol: str, provider: str = "csi", end: date | None = None) -> IndexValuationData | None:
+    def fetch(self, symbol: str, provider: str = "csi", end: date | None = None, *,
+              include_daily_pe: bool = True) -> IndexValuationData | None:
         end = end or datetime.now().astimezone().date()
         notes = ["公开官方数据未提供可验证的 PB 日频历史，PB 历史分位不可用"]
         history: dict[date, float | None] = {}
-        if provider != "cni":
+        if provider != "cni" and include_daily_pe:
             try:
                 for row in self.fetch_official_history(symbol, end):
                     sampled = _date(row.get("tradeDate"))
@@ -118,7 +146,7 @@ class StrategyValuationProvider(StrategyDataProvider):
             except Exception as exc:  # noqa: BLE001 — 官方网络边界独立降级
                 logger.warning("策略估值历史源失败 %s: %s", symbol, exc)
                 notes.append(f"官方日频PE请求失败：{type(exc).__name__}: {exc}")
-        else:
+        elif provider == "cni":
             notes.append("国证公开单张 PE 未声明 TTM，不能计算滚动 PE 历史分位")
         snapshots = []
         for source in (self._factsheet,):

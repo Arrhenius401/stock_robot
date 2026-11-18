@@ -108,6 +108,8 @@ def build_index_research(
         if status != "available":
             reason = reason or summary or f"{label}数据未取得。"
         text = reason if status in {"not_supported", "not_collected"} else summary or reason
+        if name == "capital" and profile.capital_kind == "margin_background":
+            rule = "沪深融资余额仅作全 A 市场背景，不代表指数净流入或行业资金流。"
         if name in {"sentiment", "capital"} and (
             name == "sentiment" or profile.capital_kind == "southbound_background"
         ):
@@ -146,6 +148,8 @@ def build_index_research(
         risks.append({"id": "valuation.percentile", "text": reason, "evidence_ids": ["index_valuation"]})
     if profile.capital_kind == "southbound_background":
         risks.append({"id": "capital.background", "text": "港股通资金仅反映市场背景。", "evidence_ids": ["index_capital_flow"]})
+    elif profile.capital_kind == "margin_background":
+        risks.append({"id": "capital.background", "text": "沪深融资余额不等于指数净流入或行业资金流。", "evidence_ids": ["index_capital_flow"]})
     if "sentiment" in profile.dimensions and evidence["index_sentiment"]["status"] in {"available", "partial"}:
         risks.append({"id": "sentiment.background", "text": "市场新闻不能说明指数专属事件。", "evidence_ids": ["index_sentiment"]})
     if profile.key == "overseas":

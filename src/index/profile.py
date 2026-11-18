@@ -56,10 +56,10 @@ def profile_for(market: str, style: str | None) -> IndexProfile:
                             (*_FACTS, "strategy"), valuation_kind="strategy_official")
     if style == "sector":
         return IndexProfile("a-sector", "A 股行业指数", market, style, _BASE | {"capital", "sentiment"},
-                            (*_FACTS, "capital", "sentiment"), "northbound", news_kind="a_market")
+                            (*_FACTS, "capital", "sentiment"), "margin_background", news_kind="a_market")
     if style == "broad":
         return IndexProfile("a-broad", "A 股宽基指数", market, style, _BASE | {"capital", "macro", "sentiment"},
-                            (*_FACTS, "capital", "macro", "sentiment"), "northbound", "cn", "a_market")
+                            (*_FACTS, "capital", "macro", "sentiment"), "margin_background", "cn", "a_market")
     if market == "us":
         return IndexProfile("us", "美股指数", market, style, _BASE | {"macro", "sentiment"},
                             (*_FACTS, "macro", "sentiment"), macro_kind="us",

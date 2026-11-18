@@ -8,16 +8,17 @@ from data.akshare import AkShareAdapter
 from data.schemas import IndexPriceData
 
 
-def test_index_valuation_keeps_unknown_daily_pe_out_of_ttm(mocker):
+def test_index_valuation_uses_current_csi_snapshot(mocker):
     from data.schemas import IndexValuationData
     provider = mocker.patch("index.valuation_data.StrategyValuationProvider").return_value
-    provider.fetch.return_value = IndexValuationData(symbol="000300", date=date(2026, 10, 28), pe_ttm=12.76, pe_as_of=date(2026, 10, 28), pe_percentile=57.1)
+    provider.fetch_current.return_value = IndexValuationData(symbol="000300", date=date(2026, 10, 28), pe_snapshot=12.76, valuation_valid=False)
     result = AkShareAdapter().fetch("000300", data_type="index_valuation")
     assert result[0].pe_ttm is None
     assert result[0].pe_snapshot == 12.76
     assert result[0].pe_percentile is None
     assert result[0].valuation_valid is False
-    provider.fetch.assert_called_once_with("000300", provider="csi")
+    provider.fetch_current.assert_called_once_with("000300")
+    provider.fetch.assert_not_called()
 
 
 def test_index_valuation_routes_chinext_to_cni_snapshot(mocker):
@@ -29,7 +30,7 @@ def test_index_valuation_routes_chinext_to_cni_snapshot(mocker):
     assert result[0].pe_snapshot == 31.28
     assert result[0].pe_ttm is None
     assert result[0].pb == 5.2
-    provider.fetch.assert_called_once_with("399006", provider="cni")
+    provider.fetch.assert_called_once_with("399006", provider="cni", include_daily_pe=False)
 
 
 class TestAkShareIndexAdapter:
@@ -254,9 +255,13 @@ def test_existing_broad_indices_keep_verified_official_valuation(mocker,symbol,p
     assert entry is not None and entry.provider == provider and entry.source_url
     source=mocker.patch('index.valuation_data.StrategyValuationProvider').return_value
     source.fetch.return_value=IndexValuationData(symbol=symbol,date=date(2026,9,30),pe_snapshot=10.95,pb=1.15,valuation_valid=False)
+    source.fetch_current.return_value=source.fetch.return_value
     result=AkShareAdapter().fetch(symbol,data_type='index_valuation')
     assert result and result[0].pe_snapshot == 10.95 and result[0].pe_ttm is None
-    source.fetch.assert_called_once_with(symbol,provider=provider)
+    if symbol in {'000001', '000016', '000905'}:
+        source.fetch_current.assert_called_once_with(symbol)
+    else:
+        source.fetch.assert_called_once_with(symbol,provider=provider, include_daily_pe=False)
 
 def test_verified_sse50_official_layout_keeps_valuation():
     from pathlib import Path
