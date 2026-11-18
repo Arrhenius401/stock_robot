@@ -247,3 +247,33 @@ for (const [report,metrics] of [
 }
 '''
     _run_node(tmp_path, script)
+
+
+def test_report_quality_markdown_shows_table_before_coverage():
+    from report.builder import ReportBuilder
+
+    markdown = ReportBuilder().build(
+        "600519", "测试", [], {}, valuation_display={"details": ["重复的估值说明"]},
+        data_quality={"coverage": 75, "summary_rows": [{"title": "估值", "status": "ok"}],
+                      "limitations": [{"dimension": "舆情", "label": "采集限制", "value": "样本不足"}]},
+    )
+    quality = markdown.split("数据覆盖与时效", 1)[1].split("免责声明", 1)[0]
+    assert "估值数据说明" not in quality
+    assert "重复的估值说明" not in quality
+    assert quality.index("| 维度") < quality.index("计分维度覆盖：75%") < quality.index("数据限制")
+
+
+def test_report_quality_web_shows_table_before_coverage(tmp_path):
+    script = _DOM_STUB + "\nconst {renderStockReport}=await import(" + json.dumps(
+        _module_url("src/api/static/js/report-renderer.js")) + ");\n"
+    script += r'''
+const article=renderStockReport({market:'us',analysis_mode:'objective',
+ dimensions:{valuation:{display:{details:['重复的估值说明']}}},
+ data_quality:{coverage:75,summary_rows:[{title:'估值',status:'ok'}],
+ limitations:[{dimension:'舆情',label:'采集限制',value:'样本不足'}]}});
+const quality=descendants(article).find(n=>n.id==='report-quality').textContent;
+if(quality.includes('估值数据说明') || quality.includes('重复的估值说明')) throw Error('覆盖区仍显示估值说明');
+if(!(quality.indexOf('数据范围／截至') < quality.indexOf('分析数据覆盖：75%') &&
+ quality.indexOf('分析数据覆盖：75%') < quality.indexOf('数据限制'))) throw Error('覆盖率未放在表格后');
+'''
+    _run_node(tmp_path, script)

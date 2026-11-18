@@ -992,16 +992,7 @@ function qualitySection(report, sectionIdPrefix) {
   const quality = record(report.data_quality);
   const currentPriceSource = record(record(report.overview).current_price).source;
   if (currentPriceSource) card.appendChild(el("p", "dim-sum", `当前价格来源：${naturalText(currentPriceSource)}`));
-  if (Number.isFinite(quality.coverage)) {
-    const label = report.analysis_mode === "objective" || legacyHk(report) ? "分析数据覆盖" : "计分维度覆盖";
-    card.appendChild(el("p", "dim-sum", `${label}：${quality.coverage}%。${naturalText(quality.coverage_basis) || "不表示评分置信度。"}`));
-  }
   const dimensions = Array.isArray(quality.dimensions) ? quality.dimensions.map(record) : [];
-  const valuationDetails = record(record(report.dimensions).valuation).display?.details;
-  if (Array.isArray(valuationDetails) && valuationDetails.length) {
-    card.appendChild(el("h3", "", "估值数据说明"));
-    for (const text of valuationDetails.filter(Boolean)) card.appendChild(el("p", "dim-sum", String(text)));
-  }
   const fallbackRows = dimensions.map(d => {
     const fields = Array.isArray(d.fields) ? d.fields.map(record) : [];
     const raw = label => fields.find(field => field.label === label)?.value;
@@ -1035,6 +1026,10 @@ function qualitySection(report, sectionIdPrefix) {
     }
     table.appendChild(body); card.appendChild(table);
   } else card.appendChild(el("div", "report-empty", "数据范围、来源与截止日期未记录。"));
+  if (Number.isFinite(quality.coverage)) {
+    const label = report.analysis_mode === "objective" || legacyHk(report) ? "分析数据覆盖" : "计分维度覆盖";
+    card.appendChild(el("p", "dim-sum", `${label}：${quality.coverage}%。${naturalText(quality.coverage_basis) || "不表示评分置信度。"}`));
+  }
   const fallbackLimits = dimensions.flatMap(d => {
     const fields = Array.isArray(d.fields) ? d.fields.map(record) : [];
     const out = fields.filter(f => ["缺失原因", "分析限制", "采集限制", "评估说明", "依赖说明", "最新报告字段来源", "估值字段来源"].includes(f.label)

@@ -184,18 +184,10 @@
 {% endif %}
 ## {{ "五" if extra_analysis_enabled else "三" }}、数据覆盖与时效
 
-{% if valuation_display and valuation_display.details %}
-### 估值数据说明
-
-{% for item in valuation_display.details %}
-- {{ item }}
-{% endfor %}
-{% endif %}
-
 {% if data_quality %}
-{{ "计分维度覆盖" if extra_analysis_enabled else "数据覆盖" }}：{{ data_quality.coverage }}%。{{ data_quality.coverage_basis or "不表示字段完整度。" }}
-
 {{ data_quality.summary_rows | quality_table }}
+
+{{ "计分维度覆盖" if extra_analysis_enabled else "数据覆盖" }}：{{ data_quality.coverage }}%。{{ data_quality.coverage_basis or "不表示字段完整度。" }}
 
 {% if data_quality.limitations %}
 **数据限制：**
