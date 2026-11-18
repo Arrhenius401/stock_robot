@@ -44,6 +44,8 @@ def _block(block: dict[str, Any], *, operating: bool = False) -> list[str]:
         label = _text(block.get("label"))
         period = f"{_text(block.get('start'))} 至 {_text(block.get('end'))}"
         lines.append(f"报告期：{label if period in label else label + '；' + period}；口径：{_text(block.get('basis'))}")
+        if block.get("reference_only"):
+            lines.append("（仅参考，不计分）")
     else:
         lines.append(f"估值日期：{_text(block.get('as_of'))}")
     if block.get("reason"):
@@ -89,8 +91,14 @@ def format_peer_comparison_markdown(comparison: dict[str, Any], scoring_method: 
     for key, label in (("annual", "完整年度"), ("latest", "最新一期")):
         if key == "annual" and str(comparison.get("scope", "")).startswith("东财美股") and key not in periods:
             continue
+        period = periods.get(key) or {}
+        if period.get("reference_only"):
+            label = _text(period.get("label"), label)
         lines += ["", f"#### 经营表现 · {label}", ""]
-        lines += _block(periods.get(key) or {}, operating=True)
+        lines += _block(period, operating=True)
+    special = comparison.get("financial_special") or {}
+    if special.get("metrics"):
+        lines += ["", "#### 银行专项指标", "", *_block(special, operating=True)]
     lines += ["", "#### 数据来源与统计口径", ""]
     notes = [*COMPARISON_METHOD, *comparison.get("notes", []), *comparison.get("errors", [])]
     seen = set()

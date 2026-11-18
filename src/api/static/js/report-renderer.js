@@ -12,6 +12,12 @@ const DIMENSIONS = [
 
 // 数据层字段只在内部协议中使用；界面统一显示业务中文名称。
 const METRIC_LABELS = {
+  "net_interest_income_ratio_pct": "净利息收入占比",
+  "provision_to_revenue_pct": "拨备／营收",
+  "loan_to_deposit_pct": "贷存比",
+  "loan_to_assets_pct": "贷款／资产",
+  "roe_pct": "银行 ROE",
+  "roa_pct": "银行 ROA",
   operating_trends: "经营趋势", trend_note: "趋势分析限制",
   cash_flow_source: "经营现金流来源", deducted_net_profit: "扣非净利润",
   amount_basis: "财务金额口径", gross_margin_basis: "毛利率计算口径",
@@ -561,6 +567,7 @@ function comparisonBlock(block, operating = false) {
     const value = readable(text, "").trim();
     if (value) result.appendChild(el("p", "peer-caption", value));
   };
+  if (block.reference_only) note("仅参考，不计分。");
   if (block.reason) note(block.reason);
   const metrics = Array.isArray(block.metrics) ? block.metrics : [];
   if (metrics.length) {
@@ -621,6 +628,11 @@ function industryComparisonSection(dimension, sectionIdPrefix, newScoring = fals
   card.appendChild(el("h3", "peer-subtitle", "估值对比"));
   const valuation = record(comparison.valuation);
   card.appendChild(comparisonBlock(valuation, false));
+  const special = record(comparison.financial_special);
+  if (Array.isArray(special.metrics) && special.metrics.length) {
+    card.appendChild(el("h3", "peer-subtitle", "银行专项指标"));
+    card.appendChild(comparisonBlock(special, true));
+  }
   const heading = el("div", "peer-business-heading");
   heading.appendChild(el("h3", "peer-subtitle", "经营表现"));
   const tabs = el("div", "peer-period-tabs");
@@ -653,8 +665,13 @@ function industryComparisonSection(dimension, sectionIdPrefix, newScoring = fals
     panel.setAttribute("aria-labelledby", `${card.id}-tab-${key}`);
     panel.replaceChildren(comparisonBlock(block, true));
   }
+  const annual = record(record(comparison.periods).annual);
+  const referenceAnnual = annual.reference_only === true;
   const usTtm = String(comparison.scope || "").startsWith("东财美股") && !record(comparison.periods).annual;
-  const periodChoices = usTtm ? [["latest", "TTM"]] : [["annual", "完整年度"], ["latest", "最新一期"]];
+  const periodChoices = usTtm ? [["latest", "TTM"]] : [
+    ["annual", referenceAnnual ? naturalText(annual.label) || "完整年度（参考）" : "完整年度"],
+    ["latest", referenceAnnual ? "TTM最新期" : "最新一期"],
+  ];
   for (const [key, label] of periodChoices) {
     const button = el("button", "peer-period-button", label);
     button.type = "button";
@@ -673,7 +690,7 @@ function industryComparisonSection(dimension, sectionIdPrefix, newScoring = fals
     tabs.appendChild(button);
     buttons.push(button);
   }
-  selectPeriod(usTtm ? "latest" : "annual");
+  selectPeriod(usTtm || referenceAnnual ? "latest" : "annual");
   return card;
 }
 
@@ -879,8 +896,10 @@ function researchBody(research, state) {
   const rawBusiness = naturalText(model.business) || naturalText(profile.main_business);
   const business = naturalText(research.business_text) || (rawBusiness.length > 160 ? "主营资料已取得，简要介绍暂不可用。" : rawBusiness) || "主营业务资料暂不可用。";
   add(box, el("h3", "", "主营业务"), el("p", "", business));
-  if (profile.source) {
-    add(box, el("p", "dim-sum", `来源：同花顺主营介绍；采集日期：${naturalText(profile.fetched_at) || "未记录"}。`));
+  const sourceLabel = naturalText(profile.source_label)
+    || (!research.market || research.market === "a-shares" ? "同花顺主营介绍" : "");
+  if (profile.source && sourceLabel) {
+    add(box, el("p", "dim-sum", `来源：${sourceLabel}；采集日期：${naturalText(profile.fetched_at) || "未记录"}。`));
   }
   const rows = (labels, values) => {
     const list = el("dl", "report-research-rows");
@@ -1003,7 +1022,8 @@ function qualitySection(report, sectionIdPrefix) {
     for (const title of ["维度", "状态", "数据范围／截至", "来源"]) header.appendChild(el("th", "", title));
     head.appendChild(header); table.appendChild(head);
     const body = el("tbody");
-    const status = {ok:"正常", partial:"部分数据", unavailable:"数据不可用", not_applicable:"不适用"};
+    const status = {ok:"正常", partial:"部分数据", unavailable:"数据不可用", not_applicable:"不适用",
+      not_collected:"未采集", collection_failed:"采集失败", insufficient_sample:"样本不足"};
     for (const row of rows) {
       const tr = el("tr");
       for (const value of [readable(row.title), status[row.status] || readable(row.status, "未记录"), qualityRange(row.sample, row.cutoff), readable(row.source, "未记录")]) tr.appendChild(el("td", "", value));
@@ -1198,13 +1218,15 @@ export function renderStockReport(report, options = {}) {
   article.appendChild(summarySection(data, sectionIdPrefix));
   const dimensions = record(data.dimensions);
   const objective = data.analysis_mode === "objective";
+  const sentimentPolicy = data.market_profile?.sentiment_policy
+    ?? (data.market === "us" ? "not_collected" : "");
   const applicability = Array.isArray(data.data_quality?.dimensions) ? data.data_quality.dimensions : [];
   for (const [name, label] of DIMENSIONS) {
     if (objective && name === "sentiment") {
       article.appendChild(newsFactsSection(dimensions[name], sectionIdPrefix));
       continue;
     }
-    if (!objective && data.market === "us" && name === "sentiment") {
+    if (!objective && sentimentPolicy === "not_collected" && name === "sentiment") {
       const news = newsFactsSection(dimensions[name], sectionIdPrefix);
       news.appendChild(el("p", "report-score-detail", "舆情本期未计分（N/A），权重由其余有效维度归一。"));
       article.appendChild(news);
@@ -1214,7 +1236,7 @@ export function renderStockReport(report, options = {}) {
       article.appendChild(sentimentRiskSection(dimensions[name], sectionIdPrefix));
       continue;
     }
-    if (data.market === "hk" && name === "sentiment") {
+    if (legacyHk(data) && name === "sentiment") {
       article.appendChild(hkNewsSection(dimensions[name], sectionIdPrefix));
       continue;
     }

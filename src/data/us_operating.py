@@ -22,6 +22,71 @@ def _date(value: Any) -> date:
     return date.fromisoformat(str(value)[:10])
 
 
+def _finite(value: Any) -> float | None:
+    return float(value) if not isinstance(value, bool) and is_finite_number(value) else None
+
+
+def _annual_row(rows: list[dict[str, Any]], code: str, source: str) -> dict[str, Any] | None:
+    if source not in {GENERAL, BANK} or any(row.get("SECURITY_CODE") != code for row in rows):
+        return None
+    return max((row for row in rows if row.get("DATE_TYPE") == "年报"),
+               key=lambda row: str(row.get("REPORT_DATE") or ""), default=None)
+
+
+def _percent(numerator: float | None, denominator: float | None) -> float | None:
+    return _finite(numerator / denominator * 100) if numerator is not None and denominator and denominator > 0 else None
+
+
+def _ratio_pct(value: Any) -> float | None:
+    ratio = _finite(value)
+    return ratio * 100 if ratio is not None and 0 <= ratio <= 1 else None
+
+
+def _annual_facts(row: dict[str, Any], source: str) -> dict[str, Any] | None:
+    try:
+        start, end = _date(row.get("START_DATE")), _date(row.get("REPORT_DATE"))
+    except (TypeError, ValueError):
+        return None
+    if not 350 <= (end - start).days <= 380 or end > datetime.now().astimezone().date():
+        return None
+    bank = source == BANK
+    currency = row.get("CURRENCY" if bank else "CURRENCY_ABBR")
+    if not isinstance(currency, str) or not currency.strip():
+        return None
+    revenue = _finite(row.get("TOTAL_INCOME" if bank else "OPERATE_INCOME"))
+    profit = _finite(row.get("PARENT_HOLDER_NETPROFIT"))
+    return {
+        "start": start.isoformat(), "end": end.isoformat(), "basis": "FY", "source": source,
+        "currency": currency, "notice_dates": [row.get("NOTICE_DATE")],
+        "revenue": revenue, "net_profit": profit,
+        "revenue_growth_yoy": _finite(row.get("TOTAL_INCOME_YOY" if bank else "OPERATE_INCOME_YOY")),
+        "net_margin": _percent(profit, revenue) if bank else _finite(row.get("NET_PROFIT_RATIO")),
+        "roe": _finite(row.get("ROE" if bank else "ROE_AVG")),
+    }
+
+
+def build_annual(rows: list[dict[str, Any]], code: str, source: str) -> dict[str, Any] | None:
+    """提取最近完整年度的 F10 披露数据。"""
+    row = _annual_row(rows, code, source)
+    return _annual_facts(row, source) if row is not None else None
+
+
+def build_special(rows: list[dict[str, Any]], code: str, source: str) -> dict[str, Any] | None:
+    """银行专项使用与年度收入一致的 F10 披露行。"""
+    row = _annual_row(rows, code, source) if source == BANK else None
+    annual = _annual_facts(row, source) if row is not None else None
+    if row is None or annual is None:
+        return None
+    return {
+        "net_interest_income_ratio_pct": _percent(_finite(row.get("NET_INTEREST_INCOME")), annual["revenue"]),
+        "provision_to_revenue_pct": _percent(_finite(row.get("LOAN_LOSS_PROVISION")), annual["revenue"]),
+        "loan_to_deposit_pct": _ratio_pct(row.get("LOAN_DEPOSIT")),
+        "loan_to_assets_pct": _ratio_pct(row.get("LOAN_ASSETS")),
+        "roe_pct": _finite(row.get("ROE")),
+        "roa_pct": _finite(row.get("ROA")),
+    }
+
+
 def build_operating(rows: list[dict[str, Any]], code: str, source: str) -> dict[str, Any] | None:
     """仅消费明确单季；四季缺失不回退到主指标或旧TTM窗口。"""
     today = datetime.now().astimezone().date()
@@ -51,6 +116,11 @@ def build_operating(rows: list[dict[str, Any]], code: str, source: str) -> dict[
     profit = sum(float(v) for v in profit_values if v is not None) if all(is_finite_number(v) and not isinstance(v, bool) for v in profit_values) else None
     previous_values = [r.get(revenue_key) for r in singles[:4]]
     previous = sum(float(v) for v in previous_values if v is not None) if len(singles) == 8 and all(is_finite_number(v) and not isinstance(v, bool) for v in previous_values) else None
+    currency = next(iter(currencies))
+    annual = build_annual(rows, code, source)
+    if annual is not None and annual["currency"] != currency:
+        annual = None
+    special = build_special(rows, code, source) if annual is not None else None
     return {"symbol": code, "start": starts[-4].isoformat(), "end": ends[-1].isoformat(),
             "basis": "TTM", "source": source, "currency": next(iter(currencies)),
             "notice_dates": [r.get("NOTICE_DATE") for r in recent],
@@ -58,7 +128,8 @@ def build_operating(rows: list[dict[str, Any]], code: str, source: str) -> dict[
                           "notice": r.get("NOTICE_DATE"), "currency": r.get(currency_key), "source": source} for r in singles],
             "revenue": revenue, "net_profit": profit, "previous_revenue": previous,
             "revenue_growth_yoy": (revenue / previous - 1) * 100 if previous is not None and previous > 0 else None,
-            "net_margin": profit / revenue * 100 if profit is not None else None}
+            "net_margin": profit / revenue * 100 if profit is not None else None,
+            "annual": annual, "special": special}
 
 
 def fetch_operating(code: str) -> dict[str, Any] | None:
@@ -85,7 +156,7 @@ def load_operating(codes: list[str], *, cache: CacheManager | None = None, refre
     day = datetime.now().astimezone().date().isoformat()
 
     def load(code: str) -> tuple[str, Any]:
-        key = f"us_operating::v1::{code}"
+        key = f"us_operating::v2::{code}"
         try:
             saved = cache.get("us_operating", key, day) if cache and not refresh else None
             if saved is not None:

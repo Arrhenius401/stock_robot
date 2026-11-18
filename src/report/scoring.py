@@ -115,15 +115,12 @@ def with_commentary_fallback(
     commentary: dict[str, str],
     summary: ScoreSummary,
     no_llm: bool,
-    *, unscored: bool = False,
 ) -> dict[str, str]:
     if no_llm:
         return {**commentary, "bulk": quantitative_commentary(summary, "disabled")}
     bulk = (commentary.get("bulk") or "").strip()
     if bulk and not bulk.startswith(LLM_UNAVAILABLE_PREFIXES):
         return commentary
-    if unscored:
-        return {**commentary, "bulk": "AI 解读当前不可用，可用分析指标已保留；港股综合评分与交易信号不适用，行业对比使用恒生 HSICS 口径。"}
     return {**commentary, "bulk": quantitative_commentary(summary)}
 
 
@@ -133,6 +130,7 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
                  signal_cfg: SignalConfig | None = None) -> str:
     """组装完整报告文本（ReportBuilder 渲染）"""
     from report.builder import ReportBuilder
+    from report.market_profile import profile_for
     from report.quality import build_data_quality, hk_industry_label
 
     if not ctx.extra_analysis_enabled:
@@ -140,7 +138,8 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
 
         results = objective_results(results)
         commentary = {}
-    quality = build_data_quality(ctx, results)
+    profile = profile_for(ctx.market)
+    quality = build_data_quality(ctx, results, profile=profile)
     summary = compute_score_summary(results)
     if not quality["has_scored_data"]:
         summary.base_score = None
@@ -151,7 +150,7 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
         commentary = with_commentary_fallback(commentary, summary, no_llm)
     from report.research import render_research, resolve_research
 
-    research = resolve_research(ctx, results, commentary, allow_model=(
+    research = resolve_research(ctx, results, commentary, profile=profile, allow_model=(
         not no_llm and bool(commentary.get("research")) and quality["has_analysis_data"]))
     if research:
         notice = "" if research.get("model") else "> AI解读未生成，以下保留来源资料与程序生成的五维定性。\n\n"
@@ -182,8 +181,8 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
         scoring_method=SCORING_METHOD,
         symbol=symbol,
         name=name,
-        market=("美股" if ctx.market == "us" else
-                "港股" if ctx.market == "hk" else "A 股"),
+        market=profile.label,
+        profile=profile,
         results=results,
         commentary=commentary,
         no_llm=no_llm,

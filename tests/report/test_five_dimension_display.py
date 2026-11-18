@@ -183,3 +183,25 @@ const news=descendants(article).find(n=>n.id==='report-sentiment');
 if(!news.textContent.includes('原始新闻')||news.textContent.includes('越高风险越大'))throw new Error('未计分新闻伪装评估');
 '''
     _run_node(tmp_path, script)
+
+
+def test_us_web_defaults_to_ttm_with_reference_annual_and_keeps_source(tmp_path):
+    script = _DOM_STUB + "\nconst {renderStockReport}=await import(" + json.dumps(
+        _module_url("src/api/static/js/report-renderer.js")) + ");\n"
+    script += r'''
+const article=renderStockReport({market:'us',analysis_mode:'extra',scoring_method:'five-dimension-v1',
+ commentary_status:'disabled',market_profile:{sentiment_policy:'not_collected'},research_commentary:{
+ version:2,market:'us',business_profile:{source:'F10',source_label:'东财 F10 公司资料',main_business:'银行业务'},
+ dimensions:[{label:'财务健康',text:'年度专项事实'}],limitation:'样本范围有限'},
+ dimensions:{industry:{status:'ok',metrics:{comparison:{scope:'东财美股',score_periods:['latest'],
+ periods:{latest:{basis:'TTM',label:'TTM最新期'},annual:{basis:'FY',reference_only:true,label:'完整年度（参考）'}},
+ financial_special:{metrics:[{key:'loan_to_deposit_pct',label:'贷存比',target:58.35,unit:'percent',sample_count:0}]}}}}}});
+const tabs=descendants(article).filter(n=>n.getAttribute('role')==='tab');
+if(tabs.length!==2 || tabs[1].getAttribute('aria-selected')!=='true' || tabs[0].textContent!=='完整年度（参考）')
+ throw Error('参考年度改变默认期或标签错误');
+tabs[0].dispatchEvent({type:'click'});
+const panel=descendants(article).find(n=>n.getAttribute('role')==='tabpanel');
+if(!panel.textContent.includes('仅参考，不计分'))throw Error('年度面板缺少参考期说明');
+if(!article.textContent.includes('东财 F10 公司资料')||!article.textContent.includes('58.35%'))throw Error('主营来源或银行事实缺失');
+'''
+    _run_node(tmp_path, script)

@@ -41,6 +41,11 @@
 {% set r = results_map.get(dim) %}
 {% if not extra_analysis_enabled and dim == "sentiment" and r %}
 {{ r.metrics | news_facts_markdown }}
+{% elif extra_analysis_enabled and five_dimension and dim == "sentiment" and profile.sentiment_policy == "not_collected" %}
+{% if r %}
+{{ r.metrics | news_facts_markdown }}
+{% endif %}
+> 本期舆情未计分。
 {% elif extra_analysis_enabled and five_dimension and dim == "sentiment" and r %}
 {{ r.metrics | sentiment_risk_markdown }}
 {% elif market == "港股" and dim == "sentiment" %}
@@ -57,8 +62,8 @@
 **行业得分：** {{ (r.score | metric_value("score")) ~ "/10" if r.score is not none else "暂无" }}
 
 {% endif %}
-{% if market == "美股" and r.industry_note %}
-> {{ r.industry_note }}
+{% if profile.industry_note and r.industry_note %}
+> {{ profile.industry_note }}
 {% endif %}
 {{ r.metrics["comparison"] | peer_comparison_markdown(scoring_method) }}
 {% elif r and r.metrics %}
@@ -120,7 +125,7 @@
 > 不适用：港股不套用 A 股综合评分或交易信号；行业对比使用恒生 HSICS 口径。
 {% else %}
 {% if five_dimension %}
-> 计分口径：{{ scoring_method }}。财务/技术/估值/行业/舆情权重为30%/20%/25%/20%/5%。{% if market == "美股" %}美股舆情本期未计分，显示 N/A，权重由其余有效维度归一。{% else %}舆情列为综合参与分（10−原风险分）。{% endif %}维度内缺失子项按有效子项原相对权重折算为10分制；缺失项目不记零分，其余项目按原比例折算；仅有舆情数据时不输出综合分。风险标签仅作提示，不额外扣分。
+> 计分口径：{{ scoring_method }}。财务/技术/估值/行业/舆情权重为30%/20%/25%/20%/5%。{% if profile.sentiment_policy == "not_collected" %}美股舆情本期未计分，显示 N/A，权重由其余有效维度归一。{% else %}舆情列为综合参与分（10−原风险分）。{% endif %}维度内缺失子项按有效子项原相对权重折算为10分制；缺失项目不记零分，其余项目按原比例折算；仅有舆情数据时不输出综合分。风险标签仅作提示，不额外扣分。
 
 {{ score_rows | md_table({"维度": "label", "综合参与分": "score", "权重": "weight", "充足状态": "sufficiency"}) }}
 {% else %}

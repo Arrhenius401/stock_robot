@@ -162,9 +162,16 @@ METRIC_DISPLAY_NAMES = {
     "report_period": "最新报告期",
     "revenue": "营业收入",
     "net_profit": "净利润",
+    "net_profit_ttm": "TTM 净利润",
     "total_assets": "总资产",
     "total_equity": "股东权益",
     "common_equity": "普通股东权益",
+    "net_interest_income_ratio_pct": "净利息收入占比",
+    "provision_to_revenue_pct": "拨备／营收",
+    "loan_to_deposit_pct": "贷存比",
+    "loan_to_assets_pct": "贷款／资产",
+    "roe_pct": "银行 ROE",
+    "roa_pct": "银行 ROA",
     "operating_cash_flow": "经营活动现金流",
     "capital_expenditure": "资本开支",
     "free_cash_flow": "自由现金流",
@@ -265,7 +272,7 @@ _PERCENT_KEYS = {"change_pct", "pe_percentile", "pb_percentile", "target_pe_prem
                  "shibor_3m", "cpi_yoy", "shibor_percentile", "pmi_percentile",
                  "target_pe_percentile", "target_pb_percentile"}
 # 这些字段在适配层按基本货币单位记录；币种由各报告上下文披露，不由上市地推断。
-_AMOUNT_KEYS = {"revenue", "net_profit", "deducted_net_profit", "total_assets", "total_equity", "common_equity",
+_AMOUNT_KEYS = {"revenue", "net_profit", "net_profit_ttm", "deducted_net_profit", "total_assets", "total_equity", "common_equity",
                 "operating_cash_flow", "capital_expenditure", "free_cash_flow", "market_cap"}
 _ONE_DIGIT_KEYS = {"score", "base_score", "final_score", "risk_deduction"}
 _THREE_DIGIT_KEYS = {"macd_dif", "macd_dea", "macd_bar"}
@@ -348,6 +355,8 @@ def _format_comparison_facts(comparison: dict[str, Any]) -> dict[str, Any]:
     if isinstance(comparison.get("periods"), dict):
         formatted["periods"] = {key: block_facts(value) if isinstance(value, dict) else value
                                 for key, value in comparison["periods"].items()}
+    if isinstance(comparison.get("financial_special"), dict):
+        formatted["financial_special"] = block_facts(comparison["financial_special"])
     return formatted
 
 

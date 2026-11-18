@@ -5,7 +5,9 @@ from typing import Any
 from analysis.valuation_rules import valuation_snapshot_dates
 from data.schemas import AnalysisContext, AnalysisResult, DataReference
 from data.validation import FINANCIAL_ANALYSIS_FIELDS, has_finite_facts
+from report.capability import dimension_state
 from report.formatter import format_metric_value
+from report.market_profile import MarketProfile, profile_for
 from report.scoring import DIM_WEIGHTS, participation_score
 from utils.numbers import is_finite_number
 
@@ -149,8 +151,9 @@ def _reference_fields(reference: DataReference) -> list[dict[str, Any]]:
 
 
 def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
-                       include_references: bool = True) -> dict[str, Any]:
+                       include_references: bool = True, profile: MarketProfile | None = None) -> dict[str, Any]:
     """五维按原权重表达数据覆盖，A 股交易信号保持原三核心门槛。"""
+    profile = profile or profile_for(ctx.market)
     result_map = {r.dimension: r for r in results}
     records = getattr(ctx, "collection_records", {})
     dimensions: list[dict[str, Any]] = []
@@ -271,6 +274,16 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
             fields.append({"label": "评估窗口", "value": f"{result.metrics.get('window_start') or '未记录'} 至 {result.metrics.get('window_end') or '未记录'}"})
             if result.metrics.get("assessment_reason"):
                 fields.append({"label": "评估说明", "value": str(result.metrics["assessment_reason"])})
+        if key == "sentiment" and profile.sentiment_policy == "not_collected":
+            state = dimension_state(profile, result, ctx, dimension=key)
+            fields.append({"label": "采集限制", "value": state.detail})
+        if key == "industry" and profile.annual_industry_policy == "reference_only":
+            comparison = ctx.enriched_industry.comparison if ctx.enriched_industry else {}
+            annual = comparison.get("periods", {}).get("annual", {})
+            if annual.get("reference_only"):
+                fields.append({"label": "分析限制", "value": "完整年度仅供参考，行业评分仍采用最新 TTM。"})
+        if key == "financial" and profile.financial_special_policy == "facts_only" and ctx.financial_special:
+            fields.append({"label": "分析限制", "value": "银行专项为东财 F10 BMAIN 年度披露事实，仅作展示，不参与财务评分或信号。"})
         reasons = [suff.reason] if suff.reason and level < 2 else []
         if key == "sentiment" and not ctx.extra_analysis_enabled and suff.reason == "待充实":
             reasons = []
@@ -295,7 +308,14 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
         reference = ctx.reference_data.get(source_key) if include_references else None
         if reference is not None and reference.data_type == source_key:
             fields.extend(_reference_fields(reference))
-        dimensions.append({"key": key, "title": title, "status": _STATUS[level], "fields": fields})
+        display_status = _STATUS[level]
+        if profile.business_profile != "ths" and ctx.commentary_version == 2:
+            state = dimension_state(profile, result, ctx, dimension=key)
+            if not state.applicable:
+                display_status = state.status
+            elif level == 0 and state.reason in {"collection_failed", "insufficient_sample"}:
+                display_status = state.reason
+        dimensions.append({"key": key, "title": title, "status": display_status, "fields": fields})
     has_scored = any(participation_score(result_map.get(key)) is not None
                      for key in DIM_WEIGHTS if key != "sentiment")
     analysis_available = has_analysis_data(results, ctx)
@@ -310,9 +330,7 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
         "has_analysis_data": analysis_available,
         "dimensions": dimensions,
         "pending_verifications": list(dict.fromkeys(pending)),
-        "coverage_basis": ("五维原权重数据覆盖（美股舆情本期未计分），不表示评分置信度" if us else
-                           "五维原权重数据覆盖，不表示评分置信度" if ctx.extra_analysis_enabled else
-                           "五维原权重数据覆盖，不表示字段完整度"),
+        "coverage_basis": profile.coverage_basis(ctx.extra_analysis_enabled),
     }
     if ctx.market in {"hk", "us"}:
         quality.update(available_dimensions=available, applicable_dimensions=len(applicable))

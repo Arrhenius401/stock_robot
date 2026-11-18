@@ -1,7 +1,7 @@
 // 完整研报右侧抽屉：管理焦点、局部错误与请求竞态。
 import { api } from "./api.js";
 import { el } from "./components.js";
-import { normalizeArtifactReport, renderStockReport } from "./report-renderer.js?v=20261117-current-price";
+import { normalizeArtifactReport, renderStockReport } from "./report-renderer.js?v=20261118-market-unify";
 import { store, switchView } from "./state.js";
 import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js";
 

@@ -394,7 +394,8 @@ class AnalysisContext(BaseModel):
     enriched_industry: EnrichedIndustry | None = None
     enriched_sentiment: EnrichedSentiment | None = None
     financial_scoring_facts: dict[str, Any] = Field(default_factory=dict)
-    # 新版仅由A股真实分析流程启用；历史上下文仍走旧解读契约。
+    financial_special: dict[str, Any] = Field(default_factory=dict)
+    # 新版由额外分析流程启用；历史上下文仍走旧解读契约。
     commentary_version: int = 1
     business_profile: dict[str, Any] = Field(default_factory=dict)
     # 报价只用于基础概况，不覆盖日线、财务分母或评分。
