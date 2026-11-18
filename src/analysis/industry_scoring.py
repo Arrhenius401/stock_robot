@@ -54,14 +54,19 @@ def score_industry_comparison(comparison: dict[str, Any]) -> tuple[float | None,
     """先算每期有效子项，再按年度40%/最新60%合成；所有计算保留原精度。"""
     raw = comparison.get("periods", {}) if comparison.get("version") == 1 else {}
     raw = raw if isinstance(raw, dict) else {}
-    us_ttm = str(comparison.get("scope", "")).startswith("东财美股") and "annual" not in raw
-    period_keys = ("latest",) if us_ttm else tuple(PERIOD_WEIGHTS)
+    configured = comparison.get("score_periods")
+    legacy_us_ttm = str(comparison.get("scope", "")).startswith("东财美股") and "annual" not in raw
+    if not isinstance(configured, list):
+        configured = ["latest"] if legacy_us_ttm else list(PERIOD_WEIGHTS)
+    period_keys = tuple(key for key in PERIOD_WEIGHTS if key in configured and not (
+        isinstance(raw.get(key), dict) and raw[key].get("reference_only")))
+    us_ttm = period_keys == ("latest",) and str(comparison.get("scope", "")).startswith("东财美股")
     periods = {key: _period_score(raw[key] if isinstance(raw.get(key), dict) else {}) for key in period_keys}
     evidence: dict[str, Any] = {"version": 1, "periods": periods, "period_weights": {}}
     available = [key for key, period in periods.items() if period["score"] is not None]
     if not available:
         return None, "行业经营分暂无：" + ("TTM最新期缺少足够的同期有效指标" if us_ttm else "两期均缺少足够的同期有效指标"), evidence
-    annual, latest = periods.get("annual", {}), periods["latest"]
+    annual, latest = periods.get("annual", {}), periods.get("latest", {})
     same_period = (all(annual.get(key) == latest.get(key) for key in ("start", "end", "basis"))
                    and bool(annual.get("start")))
     if len(available) == 2 and same_period:

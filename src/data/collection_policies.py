@@ -80,13 +80,21 @@ class IndexPolicy(_Policy):
             "index_capital_flow": ("north_bound", "main_net_inflow", "margin_balance"),
             "index_macro": ("shibor_3m", "cpi_yoy", "pmi", "usd_cny"),
         }[self.kind]
+        if self.kind == "index_capital_flow" and getattr(rows[0], "margin_date", ""):
+            fields = ("margin_balance", "margin_change")
+        if self.kind == "index_macro" and any(
+            key in getattr(rows[0], "indicator_dates", {}) for key in ("us_cpi_yoy", "us_10y_yield")
+        ):
+            fields = ("us_cpi_yoy", "us_10y_yield")
         values = [getattr(rows[0], name, None) for name in fields]
         if self.kind == "index_valuation" and values[0] is None:
             values[0] = getattr(rows[0], "pe_snapshot", None)
         count = sum(isinstance(v, (int, float)) and math.isfinite(v) for v in values)
         if not count:
             return "failed"
-        return "partial" if count < len(fields) or diagnostic and diagnostic.error_kind else "complete"
+        return "partial" if count < len(fields) or diagnostic and (
+            diagnostic.error_kind or diagnostic.result_state == "partial"
+        ) else "complete"
 
     def reference_rows(self, rows: list[Any], now: datetime) -> list[Any] | None:
         return None

@@ -32,3 +32,21 @@ if(strategyBackground.textContent.includes('资金流向：暂无数据')||strat
 if(!strategyBackground.textContent.includes('不适用'))throw Error('应明确标注不适用');
 '''.replace('__RENDERER__', json.dumps(_module_url('src/api/static/js/report-renderer.js')))
     _run_node(tmp_path, script)
+
+def test_index_research_body_and_legacy_fallback(tmp_path):
+    script = _DOM_STUB + r'''
+const {renderIndexReport}=await import(__RENDERER__);
+const legacy={commentary:'### 核心判断\n旧三段式原文',commentary_status:'failed'};
+const research={version:2,positioning:[{label:'指数/ETF',value:'跟踪标的',note:'单独展示'}],
+  dimensions:[{label:'技术面',text:'收盘高于短期均线'}],model:null,limitation:'只使用实际证据'};
+const fallback=renderIndexReport({...legacy,index_research:research}).textContent;
+for(const word of ['指数定位','跟踪标的','维度解读','收盘高于短期均线','解读限制']) {
+  if(!fallback.includes(word))throw Error('缺失 '+word);
+}
+if(fallback.includes('旧三段式原文')||fallback.includes('核心结论'))throw Error('降级内容错误');
+if(!descendants(renderIndexReport(legacy)).some(node=>node.innerHTML.includes('旧三段式原文')))throw Error('旧正文未回退');
+const ready=renderIndexReport({...legacy,commentary_status:'ready',index_research:{...research,
+  model:{conclusion:{overall:'整体结论',support:'事实支撑',question:'证据缺口'},risks:[{text:'样本不足'}]}}}).textContent;
+for(const word of ['核心结论','整体结论','风险提示','样本不足'])if(!ready.includes(word))throw Error('缺失 '+word);
+'''.replace('__RENDERER__', json.dumps(_module_url('src/api/static/js/report-renderer.js')))
+    _run_node(tmp_path, script)

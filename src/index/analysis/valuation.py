@@ -17,8 +17,12 @@ class IndexValuationAnalyzer(AnalysisModule):
                 config: dict[str, Any] | None = None) -> AnalysisResult:
         val = context.valuation_data
         if val is None:
+            record = context.collection_records.get("index_valuation")
+            reason = record.error_message if record and (
+                context.target.market == "hk" or record.error_kind == "not_supported"
+            ) else ""
             return AnalysisResult(dimension=self.dimension, status="unavailable",
-                                  summary="估值数据不可用", metrics={})
+                                  summary=reason or "估值数据不可用", metrics={})
 
         if context.target.index_style == "strategy" or val.pe_snapshot is not None or val.valuation_notes:
             return self._analyze_strategy(val, extra=context.extra_analysis_enabled)
@@ -68,7 +72,7 @@ class IndexValuationAnalyzer(AnalysisModule):
         if not val.valuation_valid or not is_positive_finite(val.pe_ttm) or not is_valid_percentile(val.pe_percentile):
             metrics.pop("pe_percentile", None)
         metrics["valuation_notes"] = val.valuation_notes
-        has_values = any(is_finite_number(getattr(val, key)) for key in ("pe_ttm", "pe_snapshot", "pb"))
+        has_values = any(is_finite_number(getattr(val, key)) for key in ("pe_ttm", "pe_snapshot", "pb", "dividend_yield"))
         if not has_values:
             reason = "；".join(val.valuation_notes) or "公开官方估值未取得有效数值"
             return AnalysisResult(dimension=self.dimension, status="unavailable", summary=reason, metrics=metrics)
@@ -78,9 +82,13 @@ class IndexValuationAnalyzer(AnalysisModule):
         elif is_finite_number(val.pe_snapshot):
             # 快照容器也可承载日频未声明TTM的PE，展示名须服从真实来源口径。
             pe_label = "官方日频PE" if "日频" in val.pe_snapshot_basis else "官方月末PE" if "月" in val.pe_snapshot_basis else "官方PE"
+            if val.pe_snapshot_basis.startswith("官方当前PE"):
+                pe_label += "（口径未声明）"
             parts.append(f"{pe_label} {format_metric_value('pe_snapshot', val.pe_snapshot)}")
         if is_finite_number(val.pb):
             parts.append(f"PB {format_metric_value('pb', val.pb)}")
+        if is_finite_number(val.dividend_yield):
+            parts.append(f"股息率 {format_metric_value('dividend_yield', val.dividend_yield)}")
         if is_valid_percentile(val.pe_percentile) and val.valuation_valid and is_positive_finite(val.pe_ttm):
             metrics.update({
                 "tag": tag_valuation(val.pe_percentile) if extra else "invalid",

@@ -59,7 +59,7 @@ class IndexRequestCache:
         state = policy.classify(symbol, result.rows, result.record, None, now) if policy else "failed"
         if not source and result.rows and kind == "index_valuation":
             source = "；".join(dict.fromkeys(getattr(result.rows[0], field, "") for field in ("pe_source_url", "pb_source_url", "pe_snapshot_source_url") if getattr(result.rows[0], field, "")))
-        if not source and kind == "index_macro":
+        if not source and kind == "index_macro" and kwargs.get("market") != "us":
             source = "AkShare宏观PMI／银行间利率接口"
         if not source and kind == "index_sentiment":
             source = "；".join(dict.fromkeys(str(item.get("source") or "") for row in result.rows for item in getattr(row, "index_items", []) if item.get("source") not in (None, "", "未记录")))

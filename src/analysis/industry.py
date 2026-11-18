@@ -107,7 +107,7 @@ class IndustryAnalyzer(AnalysisModule):
     def _comparison_status(comparison: dict[str, Any]) -> Literal["ok", "partial"]:
         """逐项保留可用事实；来源失败或任一指标不足均明确标为部分可用。"""
         sections = [comparison.get("valuation", {})]
-        sections.extend(comparison.get("periods", {}).values())
+        sections.extend(period for period in comparison.get("periods", {}).values() if not period.get("reference_only"))
         metrics = [metric for section in sections for metric in section.get("metrics", [])]
         complete = bool(metrics) and all(metric.get("status") == "ok" for metric in metrics)
         return "ok" if complete and not comparison.get("errors") else "partial"

@@ -17,6 +17,7 @@ from data.schemas import (
     IndexClosePriceData,
     MacroContext,
 )
+from index.profile import profile_for
 from utils.numbers import is_positive_finite
 
 logger = logging.getLogger(__name__)
@@ -84,6 +85,7 @@ class IndexDataCollector:
             if on_progress:
                 on_progress("collect", 1, 1, "指数数据采集完成")
             return ctx
+        profile = profile_for(target.market, target.index_style)
         ctx = IndexAnalysisContext(target=target, requested_instrument=target.requested_instrument)
         if target.index_style == "strategy" and target.market != "hk":
             return self._collect_strategy(ctx, on_progress, refresh_cache=refresh_cache)
@@ -108,7 +110,7 @@ class IndexDataCollector:
                     urls = [getattr(row, key, "") for key in ("pe_source_url", "pb_source_url", "pe_snapshot_source_url")]
                     source = "；".join(dict.fromkeys(url for url in urls if url)) or source
             if not source or source in {"AkShare", "来源未记录", "未记录"}:
-                source = {"index_macro": "AkShare宏观PMI／银行间利率接口", "index_capital_flow": "东方财富沪深港通资金接口", "index_sentiment": "；".join(dict.fromkeys(str(item.get("source") or "来源未记录") for row in result.rows for item in getattr(row, "index_items", [])))}.get(kind) or "来源未记录"
+                source = {"index_macro": "AkShare宏观PMI／银行间利率接口", "index_capital_flow": "上交所、深交所融资融券汇总（AkShare）", "index_sentiment": "；".join(dict.fromkeys(str(item.get("source") or "来源未记录") for row in result.rows for item in getattr(row, "index_items", [])))}.get(kind) or "来源未记录"
             ctx.collection_records[kind] = make_record(
                 source, state, diagnostic=result.record,
                 collected_at=result.record.collected_at if result.record and result.record.collected_at else datetime.now().astimezone(),
@@ -120,7 +122,8 @@ class IndexDataCollector:
             # 仅已核验的港股指数简称可使用海外行情映射；其余走显式官方身份。
             hk_codes = {"HSI": "00001.00", "HSCEI": "00014.00", "HSTECH": "02083.00"}
             known = hk_codes.get(target.symbol)
-            if target.market == "hk" and (known is None or target.official_index_code not in (None, known)):
+            hstech = target.market == "hk" and (target.official_index_code or known) == "02083.00"
+            if target.market == "hk" and (hstech or known is None or target.official_index_code not in (None, known)):
                 result = CollectionResult([])
             else:
                 style = "overseas" if target.market == "hk" else target.index_style
@@ -134,7 +137,12 @@ class IndexDataCollector:
                     item = IndexClosePriceData(symbol=target.symbol, trade_date=day, close=close)
                     item._data_source = "恒生官方历史"
                     rows.append(item)
-                result = CollectionResult(rows, official.record, official.errors)
+                if hstech and rows:
+                    from index.hk_ohlc import fetch_hstech_ohlc
+
+                    result = CollectionResult(fetch_hstech_ohlc(rows) or rows, official.record, official.errors)
+                else:
+                    result = CollectionResult(rows, official.record, official.errors)
             price_result = record("index_price", result)
             if price_result:
                 ctx.price_data = price_result
@@ -153,9 +161,14 @@ class IndexDataCollector:
                 ctx.valuation_data = val_result[0]
 
         def _fetch_capital_flow():
+            anchor = max((row.trade_date for row in ctx.price_data), default=None)
+            if anchor is None:
+                record("index_capital_flow", CollectionResult([], make_record(
+                    "沪深融资余额", "failed", error_kind="empty", error_message="没有可用行情日，未采集融资余额")))
+                return
             cf_result = record("index_capital_flow", _fetch(
                 target.symbol, data_type="index_capital_flow",
-                index_style=target.index_style
+                index_style=target.index_style, as_of=anchor,
             ))
             if cf_result:
                 ctx.capital_flow = cf_result[0]
@@ -163,14 +176,15 @@ class IndexDataCollector:
         def _fetch_macro():
             macro_result = record("index_macro", _fetch(
                 target.symbol, data_type="index_macro",
-                index_style=target.index_style
+                index_style=target.index_style, market=target.market,
             ))
             if macro_result:
                 ctx.macro = macro_result[0]
 
         def _fetch_sentiment():
+            scope = {"market": target.market, "name": target.name} if profile.news_kind == "market_search" else {}
             sentiment_result = record("index_sentiment", _fetch(
-                target.symbol, data_type="index_sentiment"
+                target.symbol, data_type="index_sentiment", **scope,
             ))
             if sentiment_result and len(sentiment_result) > 0:
                 news = sentiment_result[0]
@@ -184,7 +198,7 @@ class IndexDataCollector:
         steps.append(("index_valuation", INDEX_COLLECT_LABELS["index_valuation"], _fetch_valuation))
 
         # 按类别采集资金流向
-        if target.market != "hk" and target.index_style in ("broad", "sector"):
+        if profile.capital_kind == "margin_background":
             steps.append(("index_capital_flow", INDEX_COLLECT_LABELS["index_capital_flow"], _fetch_capital_flow))
 
         if target.market == "hk":
@@ -197,8 +211,6 @@ class IndexDataCollector:
                         southbound_sh_yi=result.value["sh"], southbound_sz_yi=result.value["sz"],
                         notes=["港股通市场背景，单位亿元，不代表指数资金流"])
             steps.append(("index_capital_flow", INDEX_COLLECT_LABELS["index_capital_flow"], _fetch_hk_capital))
-            ctx.collection_records["index_sentiment"] = make_record("未取得", "failed",
-                error_kind="unavailable", error_message="未取得可靠的港股市场新闻来源")
 
         if target.market == "hk":
             def _fetch_hk_context():
@@ -216,7 +228,7 @@ class IndexDataCollector:
             steps.append(("index_macro", INDEX_COLLECT_LABELS["index_macro"], _fetch_hk_context))
 
         # 按类别采集宏观数据
-        if target.market != "hk" and target.index_style == "broad":
+        if profile.macro_kind in {"cn", "us"}:
             steps.append(("index_macro", INDEX_COLLECT_LABELS["index_macro"], _fetch_macro))
         elif target.market != "hk" and target.index_style == "sector":
             ctx.macro = MacroContext(symbol=target.symbol, fetch_date=datetime.now().astimezone().date())
@@ -227,7 +239,7 @@ class IndexDataCollector:
             steps.append(("benchmark", "采集同日比较基准", _fetch_benchmark))
 
         # 舆情（国内市场背景，不冒充海外指数专属新闻）
-        if target.market != "hk" and target.index_style != "overseas":
+        if profile.news_kind != "none":
             steps.append(("index_sentiment", INDEX_COLLECT_LABELS["index_sentiment"], _fetch_sentiment))
 
         total = len(steps)
@@ -251,7 +263,7 @@ class IndexDataCollector:
     def _collect_strategy(self, ctx: IndexAnalysisContext, on_progress: ProgressCallback, *, refresh_cache: bool = False) -> IndexAnalysisContext:
         """策略仅访问适配的真实数据源，不走旧宽基估值或资金流接口。"""
         from data.index_mapping import IndexMapping
-        from index.valuation_data import StrategyValuationProvider
+        from index.valuation_data import CURRENT_NAMES, StrategyValuationProvider
 
         provider = StrategyValuationProvider()
         provider.refresh_cache = refresh_cache
@@ -287,21 +299,27 @@ class IndexDataCollector:
             ctx.risk_flags.append("官方与独立回退行情源均未取得真实价格")
             return ctx
         try:
-            ctx.valuation_data = provider.fetch(ctx.target.symbol, provider=price_provider)
+            current_only = price_provider == "csi" and ctx.target.symbol in CURRENT_NAMES
+            if current_only:
+                ctx.valuation_data = provider.fetch_current(ctx.target.symbol)
+            else:
+                ctx.valuation_data = provider.fetch(ctx.target.symbol, provider=price_provider)
             valuation = ctx.valuation_data
             available = valuation is not None and any(
-                is_positive_finite(value) for value in (valuation.pe_ttm, valuation.pb, valuation.pe_snapshot))
+                is_positive_finite(value) for value in (valuation.pe_ttm, valuation.pb, valuation.pe_snapshot, valuation.dividend_yield))
             degradation = [] if valuation is None else [
                 note for note in valuation.valuation_notes
                 if any(marker in note for marker in ("失败", "不可用", "过期", "缺失", "未披露", "拒绝", "不足", "未提供估值"))
             ]
+            if available and current_only:
+                degradation.append("当前官方估值只有快照，不含历史分位")
             strategy_record("index_valuation", available, degradation)
         except Exception as exc:  # noqa: BLE001 — 估值数据源隔离，保留专项与行情分析
             logger.warning("策略指数 %s 官方估值采集失败: %s", ctx.target.symbol, exc)
             ctx.risk_flags.append("公开官方估值采集失败，稍后可重试")
             strategy_record("index_valuation", False)
         if on_progress:
-            on_progress("collect", 2, total, "采集公开官方估值及历史PE")
+            on_progress("collect", 2, total, "采集公开官方估值")
         try:
             ctx.strategy_data = provider.collect(ctx.target)
             if self.checkpoint_path is not None:

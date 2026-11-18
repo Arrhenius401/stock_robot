@@ -89,18 +89,39 @@ def test_ps_only_cache_is_hk_only():
         assert pipeline._is_healthy("valuation", [row]) is expected
 
 
-def test_collection_always_fetches_at_most_two_curves_and_retains_ps_date(mocker):
+def test_collection_retains_ps_date_when_tencent_uses_separate_long_curves(mocker):
     mocker.patch("data.akshare.stock_snapshot", return_value={
         "f57": "00700", "f86": 1767225600, "f164": 10, "f167": 2})
     mocker.patch("data.akshare.valuation_comparison_snapshot", return_value={
         "REPORT_DATE": "2025-12-31 00:00:00", "PS_TTM": 3.8})
     curves = mocker.patch("data.akshare.baidu_metric", return_value={date(2025, 12, 31): 12.0})
+    mocker.patch("data.akshare.tencent_history", return_value=[["2025-12-31"]])
     row = AkShareAdapter().fetch("00700.HK", market="hk", data_type="valuation")[0]
-    assert curves.call_count == 2
+    assert curves.call_count == 4
+    assert row.history_window_label == "近三年"
+    assert row.extended_pe_history == {date(2025, 12, 31): 12}
     assert row.pe_history == {date(2025, 12, 31): 12}
     assert row.ps_ttm == 3.8
     assert row.ps_as_of == date(2025, 12, 31)
     assert row.ps_source == "东方财富港股估值对比"
+
+
+def test_extended_valuation_requires_252_samples_per_metric():
+    from datetime import datetime, timedelta
+
+    from data.enrichers.valuation_enricher import ValuationEnricher
+    from data.schemas import AnalysisContext
+
+    collected = datetime.now().astimezone()
+    points = {collected.date() - timedelta(days=offset): 10.0 for offset in range(252)}
+    ctx = AnalysisContext(symbol="00700.HK", name="腾讯", market="hk", collected_at=collected, valuation_data=ValuationData(
+        symbol="00700.HK", date=collected.date(), pe_ttm=10, pb=2, history_source="百度港股估值（近一年）",
+        history_window_days=1096, history_window_label="近三年", extended_pe_history=points,
+        extended_pb_history={day: value for day, value in points.items() if day != collected.date()},
+    ))
+    result = ValuationEnricher.extended_history(ctx)
+    assert result["pe"]["sample_count"] == 252 and result["pe"]["percentile"] == 0
+    assert result["pb"]["sample_count"] == 251 and result["pb"]["percentile"] is None
 
 
 def test_optional_failures_preserve_snapshot_and_explain_missing(mocker):

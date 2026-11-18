@@ -27,6 +27,8 @@ class FinancialAnalyzer(AnalysisModule):
             template_note = (f"评分模板：{meta['scoring_template_source']}；投资风格：{meta.get('style_category', '未记录')}；"
                              f"通用规则回退：{'是' if meta.get('scoring_template_fallback') else '否'}；未做美股历史回测校准")
             template_metrics = {"评分模板": template_note}
+        if context.market == "us" and context.financial_special:
+            template_metrics.update(context.financial_special)
         financials = context.financial_data or []
         if not financials:
             return AnalysisResult(dimension=self.dimension, status="unavailable",

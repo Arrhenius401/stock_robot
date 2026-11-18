@@ -109,3 +109,36 @@ class TestIndexDataCollector:
         ctx = collector.collect(broad_target)  # no on_progress
         assert ctx.valuation_data is not None
         assert ctx.macro is not None
+
+
+def test_collect_us_routes_local_macro_and_market_news(mocker):
+    from data.collection_state import make_record
+
+    collector = IndexDataCollector(isolate_requests=False)
+    target = AnalysisTarget(target_type="index", symbol="SPX", name="标普500", market="us", index_style="overseas")
+    day = date(2026, 11, 17)
+    macro = MacroContext(symbol="SPX", fetch_date=day, us_cpi_yoy=3.7, us_10y_yield=5.1,
+                         indicator_dates={"us_cpi_yoy": "2026-09-01", "us_10y_yield": day.isoformat()})
+    news = NewsData(symbol="SPX", date=day, headlines=["标普500收盘"], index_items=[
+        {"title": "标普500收盘", "source": "样本", "published_at": day.isoformat(), "url": "https://example.com/news"},
+    ])
+
+    def fetch(_symbol, *, data_type, **kwargs):
+        if data_type == "index_macro":
+            assert kwargs == {"index_style": "overseas", "market": "us"}
+            return CollectionResult([macro], make_record("美国宏观", "complete"))
+        if data_type == "index_sentiment":
+            assert kwargs == {"market": "us", "name": "标普500"}
+            return CollectionResult([news], make_record("东方财富关键词新闻检索", "complete"))
+        assert data_type in {"index_price", "index_valuation"}
+        return CollectionResult([])
+
+    mocker.patch.object(collector, "_fetch_result", side_effect=fetch)
+    context = collector.collect(target)
+
+    assert context.macro == macro
+    assert context.news_items == news.index_items
+    assert context.collection_records["index_macro"].source == "美国宏观"
+    assert context.collection_records["index_sentiment"].source == "东方财富关键词新闻检索"
+    assert context.collection_records["index_macro"].result_state == "complete"
+    assert "index_capital_flow" not in context.collection_records

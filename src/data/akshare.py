@@ -399,11 +399,14 @@ class AkShareAdapter(DataSource):
         if data_type == "index_valuation":
             return self._fetch_index_valuation(symbol), self.get_collection_error()
         if data_type == "index_capital_flow":
-            return self._fetch_capital_flow(symbol, kwargs.get("index_style", "broad")), self.get_collection_error()
+            style = kwargs.get("index_style", "broad") if kwargs.get("market", "a-shares") == "a-shares" else "overseas"
+            return self._fetch_capital_flow(symbol, style, kwargs.get("as_of")), self.get_collection_error()
         if data_type == "index_macro":
-            return self._fetch_index_macro(symbol, kwargs.get("index_style", "broad")), self.get_collection_error()
+            return self._fetch_index_macro(
+                symbol, kwargs.get("index_style", "broad"), kwargs.get("market", "a-shares"),
+            ), self.get_collection_error()
         if data_type == "index_sentiment":
-            return self._fetch_index_sentiment(symbol), self.get_collection_error()
+            return self._fetch_index_sentiment(symbol, kwargs.get("market", "a-shares"), kwargs.get("name", "")), self.get_collection_error()
         try:
             method = getattr(self, f"_fetch_{data_type}", None)
             if method is None:
@@ -1137,6 +1140,32 @@ class AkShareAdapter(DataSource):
         item.ps_source = "东方财富港股估值对比" if ps is not None else ""
         item.pe_history, item.pb_history = pe_curve, pb_curve
         item.history_source = "百度港股估值（近一年）" if curves else ""
+        if code == "00700" and pe is not None and pb is not None and len(curves) == 2:
+            try:
+                start = today - timedelta(days=1096)
+                last_closed = today if datetime.now(timezone(timedelta(hours=8))).hour >= 17 else today - timedelta(days=1)
+                trading_days = {
+                    _parse_date(quote[0])
+                    for year in range(start.year, last_closed.year + 1)
+                    for quote in tencent_history(code, str(max(start, date(year, 1, 1))),
+                                                 str(min(last_closed, date(year, 12, 31))), 400)
+                }
+                for metric, attribute in (("市盈率(TTM)", "extended_pe_history"), ("市净率", "extended_pb_history")):
+                    points = baidu_metric(code, metric, chart_select="近三年")
+                    baseline = curves.get(metric, {})
+                    if any(points[day] != baseline[day] for day in points.keys() & baseline.keys()
+                           if day < today and day in trading_days):
+                        raise ValueError("百度长窗与短窗共同历史日估值不同")
+                    setattr(item, attribute, {day: value for day, value in points.items()
+                                              if start <= day <= last_closed and day in trading_days})
+                if item.extended_pe_history or item.extended_pb_history:
+                    item.history_window_days = 1096
+                    item.history_window_label = "近三年"
+            except Exception as error:
+                logger.warning("百度港股长窗估值未验证，保留近一年数据: %s", error)
+                notes.append("百度三年估值暂不可用，保留原近一年数据")
+                item.extended_pe_history = {}
+                item.extended_pb_history = {}
         item.valuation_notes = notes
         item.cache_degraded = (
             primary_failed or comparison_failed or history_failed or curve_fallback
@@ -1264,8 +1293,6 @@ class AkShareAdapter(DataSource):
 
     @retry_on_network_error()
     def _fetch_index_price(self, symbol: str, index_style: str) -> list[IndexPriceData]:
-        from data.schemas import IndexPriceData
-
         if index_style == "strategy":
             from data.index_mapping import IndexMapping
             from index.strategy_data import StrategyDataProvider
@@ -1290,142 +1317,175 @@ class AkShareAdapter(DataSource):
                 actual_source = "申万指数历史"
                 df: Any = ak.index_hist_sw(symbol=symbol)
             elif index_style == "overseas":
-                # 海外指数用全球指数接口（参数需中文名称）；东财失效时回退新浪源
                 try:
-                    actual_source = "东方财富全球指数历史"
-                    df: Any = ak.index_global_hist_em(symbol=_OVERSEAS_NAME_MAP.get(symbol, symbol))
-                except Exception:
-                    logger.debug(f"东财全球指数接口失败 {symbol}，回退新浪源")
-                    actual_source = "新浪全球指数历史（东方财富回退）"
-                    df = _fetch_overseas_index_sina(symbol)
-                if df is None or df.empty:
-                    actual_source = "新浪全球指数历史（东方财富回退）"
-                    df = _fetch_overseas_index_sina(symbol)
+                    df = ak.index_global_hist_em(symbol=_OVERSEAS_NAME_MAP.get(symbol, symbol))
+                    results = self._parse_index_prices(
+                        symbol, df, "东方财富全球指数历史", eastmoney_global=True,
+                    )
+                except Exception as exc:
+                    logger.debug("东财全球指数接口失败 %s：%s", symbol, exc)
+                    results = []
+                if results:
+                    return results
+                actual_source = "新浪全球指数历史（东方财富回退）"
+                df = _fetch_overseas_index_sina(symbol)
             else:
                 return []
 
-            if df is None or df.empty:
-                return []
-
-            results = []
-            prev_close: float | None = None
-            for _, row in df.iterrows():
-                try:
-                    date_val = _row_get_any(row, "date", "日期", "trade_date", "交易日期")
-                    open_val = _row_get_any(row, "open", "开盘", "开盘价")
-                    high_val = _row_get_any(row, "high", "最高", "最高价")
-                    low_val = _row_get_any(row, "low", "最低", "最低价")
-                    close_val = _row_get_any(row, "close", "收盘", "收盘价")
-                    volume_val = _row_get_any(row, "volume", "成交量", default=0)
-                    amount_val = _row_get_any(row, "amount", "成交额")
-
-                    if date_val is None or close_val is None:
-                        raise KeyError("date/close")
-
-                    close_f = float(close_val)
-                    # 涨跌幅：优先取源数据列（部分源/旧版 akshare 提供），缺失/坏值按前收盘计算。
-                    # 注：安装版 akshare 的 stock_zh_index_daily_em 在返回前丢弃承载涨跌幅
-                    # 的 "_" 列，腾讯源亦无涨跌幅列，故实际生效的是按前收盘计算；
-                    # "_" 回退仅为防御未来版本保留该列的情况。
-                    # 解析隔离在独立 try 中，坏 pct 值不连累整行 OHLCV 数据。
-                    pct_raw = _row_get_any(row, "涨跌幅", "pct_chg", "_")
-                    change_pct = None
-                    if pct_raw is not None and str(pct_raw) not in ("", "nan"):
-                        try:
-                            change_pct = round(float(pct_raw), 2)
-                        except (ValueError, TypeError) as e:
-                            logger.debug(f"指数涨跌幅解析失败，回退按前收盘计算: {e}")
-                    if change_pct is None and prev_close:
-                        change_pct = round((close_f - prev_close) / prev_close * 100, 2)
-                    results.append(IndexPriceData(
-                        symbol=symbol,
-                        trade_date=_parse_date(date_val),
-                        open=float(open_val),
-                        high=float(high_val),
-                        low=float(low_val),
-                        close=close_f,
-                        volume=int(float(volume_val or 0)),
-                        turnover=float(amount_val) / 1e8 if amount_val else None,
-                        change_pct=change_pct,
-                    ))
-                    prev_close = close_f
-                except (ValueError, KeyError, TypeError) as e:
-                    logger.warning(f"跳过异常指数行情数据行: {e}")
-            for item in results:
-                item._data_source = actual_source
-            return results
+            return self._parse_index_prices(symbol, df, actual_source)
         except Exception as e:
             logger.warning(f"获取指数 {symbol} 行情失败: {e}")
             return []
 
+    @staticmethod
+    def _parse_index_prices(
+        symbol: str, df: Any, source: str, *, eastmoney_global: bool = False,
+    ) -> list[IndexPriceData]:
+        from data.schemas import IndexPriceData
+
+        if df is None or df.empty:
+            return []
+        open_columns = ("open", "开盘", "开盘价")
+        close_columns = ("close", "收盘", "收盘价")
+        if eastmoney_global:
+            # SPX 2026-11-17 与新浪同日核验：今开一致，最新价与历史收盘仅差两位小数舍入。
+            open_columns += ("今开",)
+            close_columns += ("最新价",)
+        results: list[IndexPriceData] = []
+        prev_close: float | None = None
+        for _, row in df.iterrows():
+            try:
+                date_val = _row_get_any(row, "date", "日期", "trade_date", "交易日期")
+                open_val = _row_get_any(row, *open_columns)
+                high_val = _row_get_any(row, "high", "最高", "最高价")
+                low_val = _row_get_any(row, "low", "最低", "最低价")
+                close_val = _row_get_any(row, *close_columns)
+                volume_val = _row_get_any(row, "volume", "成交量", default=0)
+                amount_val = _row_get_any(row, "amount", "成交额")
+
+                if date_val is None or close_val is None:
+                    raise KeyError("date/close")
+
+                close_f = float(close_val)
+                # 涨跌幅：优先取源数据列（部分源/旧版 akshare 提供），缺失/坏值按前收盘计算。
+                # 注：安装版 akshare 的 stock_zh_index_daily_em 在返回前丢弃承载涨跌幅
+                # 的 "_" 列，腾讯源亦无涨跌幅列，故实际生效的是按前收盘计算；
+                # "_" 回退仅为防御未来版本保留该列的情况。
+                # 解析隔离在独立 try 中，坏 pct 值不连累整行 OHLCV 数据。
+                pct_raw = _row_get_any(row, "涨跌幅", "pct_chg", "_")
+                change_pct = None
+                if pct_raw is not None and str(pct_raw) not in ("", "nan"):
+                    try:
+                        change_pct = round(float(pct_raw), 2)
+                    except (ValueError, TypeError) as e:
+                        logger.debug(f"指数涨跌幅解析失败，回退按前收盘计算: {e}")
+                if change_pct is None and prev_close:
+                    change_pct = round((close_f - prev_close) / prev_close * 100, 2)
+                results.append(IndexPriceData(
+                    symbol=symbol,
+                    trade_date=_parse_date(date_val),
+                    open=float(open_val),
+                    high=float(high_val),
+                    low=float(low_val),
+                    close=close_f,
+                    volume=int(float(volume_val or 0)),
+                    turnover=float(amount_val) / 1e8 if amount_val else None,
+                    change_pct=change_pct,
+                ))
+                prev_close = close_f
+            except (ValueError, KeyError, TypeError) as e:
+                logger.warning(f"跳过异常指数行情数据行: {e}")
+        for item in results:
+            item._data_source = source
+        return results
+
     @retry_on_network_error()
     def _fetch_index_valuation(self, symbol: str) -> list[IndexValuationData]:
         from data.index_mapping import IndexMapping
-        from index.valuation_data import StrategyValuationProvider
+        from index.valuation_data import CURRENT_NAMES, StrategyValuationProvider
 
         entry = IndexMapping().lookup(symbol)
-        if entry is None or not entry.provider or entry.index_style == "overseas":
+        if symbol in CURRENT_NAMES:
+            source = "中证指数官方当前估值"
+            try:
+                value = StrategyValuationProvider(timeout=10, request_timeout=(5, 10)).fetch_current(symbol)
+            except Exception as exc:
+                self._record_collection_error(source, exc)
+                return []
+            self._collection_diagnostics.record = make_record(source, "partial" if value else "failed",
+                error_kind="" if value else "empty", error_message="" if value else "未取得有效官方估值快照")
+            return [value] if value else []
+        if entry is not None and entry.index_style == "overseas":
+            self._collection_diagnostics.record = make_record(
+                "指数估值", "failed", error_kind="not_supported", error_message="指数官方估值来源尚未核实",
+            )
+            return []
+        if entry is None or not entry.provider:
             self._record_collection_error("指数估值", ValueError("指数官方估值来源尚未核实"))
             return []
         provider = StrategyValuationProvider(timeout=10, request_timeout=(5, 10))
-        value = provider.fetch(symbol, provider=entry.provider)
-        if value is not None and entry.index_style != "strategy" and value.pe_ttm is not None:
-            # 普通指数peg计算口径未核实，不作为TTM或历史分位。
-            if value.pe_snapshot is None:
-                value.pe_snapshot = value.pe_ttm
-                value.pe_snapshot_as_of = value.pe_as_of
-                value.pe_snapshot_basis = "官方日频PE，计算口径待核实"
-                value.pe_snapshot_source_url = value.pe_source_url
-            value.pe_ttm = None
-            value.pe_percentile = None
-            value.valuation_valid = False
-            value.valuation_notes.append("官方日频PE计算口径待核实，不作为TTM或高低估判断")
+        value = provider.fetch(symbol, provider=entry.provider, include_daily_pe=False)
         return [value] if value is not None else []
 
     @retry_on_network_error()
-    def _fetch_capital_flow(self, symbol: str, index_style: str) -> list[CapitalFlowData]:
-        from data.schemas import CapitalFlowData
-
+    def _fetch_capital_flow(self, symbol: str, index_style: str, as_of: date | None = None) -> list[CapitalFlowData]:
+        if index_style not in {"broad", "sector"}:
+            return []
+        source = "上交所、深交所融资融券汇总（AkShare）"
+        anchor = as_of or datetime.now().astimezone().date()
+        start = anchor - timedelta(days=7)
+        sh_balances: dict[date, float] = {}
+        common: list[tuple[date, float]] = []
         try:
-            today = datetime.now().astimezone().date()
-            if index_style == "broad":
-                # 全市场北向资金（主源）
+            sh_frame: Any = ak.stock_margin_sse(start_date=start.strftime("%Y%m%d"), end_date=anchor.strftime("%Y%m%d"))
+            for row in sh_frame.to_dict("records"):
                 try:
-                    df = ak.stock_hsgt_north_net_flow_in_em(symbol="北上")  # pyright: ignore[reportAttributeAccessIssue]
-                except AttributeError:
-                    df = None
-                if df is None or df.empty:
-                    # 主源缺失 → 回退沪深港通资金汇总接口（过滤北向，汇总净流入）
-                    summary: Any = ak.stock_hsgt_fund_flow_summary_em()
-                    if summary is not None and not summary.empty:
-                        north = summary[summary["资金方向"] == "北向"]
-                        if not north.empty:
-                            return [CapitalFlowData(
-                                symbol=symbol, date=today,
-                                north_bound=None,
-                                notes=["北向资金返回值缺少可核实的净流量披露依据，不据此判断流向"],
-                            )]
-                    return [CapitalFlowData(symbol=symbol, date=today)]
-            elif index_style == "sector":
-                return [CapitalFlowData(symbol=symbol, date=today, notes=["指数代码与行业资金名称的对应关系尚未核实，未采用代码模糊匹配"])]
-            else:
-                return [CapitalFlowData(symbol=symbol, date=today)]
-
-            if df is not None and not df.empty:
-                latest = df.iloc[-1]
-                return [CapitalFlowData(
-                    symbol=symbol, date=today,
-                    north_bound=float(latest.get("value", 0)) if latest.get("value") else None,
-                )]
-            return [CapitalFlowData(symbol=symbol, date=today)]
-        except Exception as e:
-            logger.warning(f"获取指数 {symbol} 资金流向失败: {e}")
-            return [CapitalFlowData(symbol=symbol, date=datetime.now().astimezone().date())]
+                    day = _parse_date(row.get("信用交易日期"))
+                except ValueError:
+                    continue
+                balance = finite_number(row.get("融资余额"))
+                if start <= day <= anchor and balance is not None and balance > 0:
+                    sh_balances[day] = balance / 1e8
+        except Exception as exc:
+            self._record_collection_error(source, exc)
+            return []
+        for day in sorted(sh_balances, reverse=True):
+            try:
+                sz_frame: Any = ak.stock_margin_szse(date=day.strftime("%Y%m%d"))
+                rows = sz_frame.to_dict("records")
+                if len(rows) != 1:
+                    continue
+                row = rows[0]
+                if any(_parse_date(row[key]) != day for key in ("日期", "交易日期", "信用交易日期") if key in row):
+                    continue
+                balance = finite_number(row.get("融资余额"))
+                if balance is not None and balance > 0:
+                    common.append((day, sh_balances[day] + balance))
+                    if len(common) == 2:
+                        break
+            except ValueError as exc:
+                logger.debug("深交所融资余额 %s 无可用报表: %s", day, exc)
+            except Exception as exc:
+                logger.warning("深交所融资余额 %s 采集失败: %s", day, exc)
+                self._record_collection_error(source, exc)
+                break
+        if not common:
+            if self.get_collection_error() is None:
+                self._collection_diagnostics.record = make_record(source, "failed", error_kind="empty",
+                    error_message="七日内未取得沪深同日融资余额")
+            return []
+        day, balance = common[0]
+        change = balance - common[1][1] if len(common) == 2 else None
+        self._collection_diagnostics.record = make_record(source, "complete" if change is not None else "partial")
+        return [CapitalFlowData(symbol=symbol, date=day, margin_date=day.isoformat(),
+                                margin_balance=balance, margin_change=change)]
 
     @retry_on_network_error()
-    def _fetch_index_macro(self, symbol: str, index_style: str) -> list[MacroContext]:
-        from data.schemas import MacroContext
-
+    def _fetch_index_macro(self, symbol: str, index_style: str, market: str = "a-shares") -> list[MacroContext]:
+        if market == "us":
+            return self._fetch_us_index_macro(symbol)
+        if market != "a-shares":
+            return []
         if index_style == "sector":
             # sector 保留 MacroContext 实例但字段全 None
             return [MacroContext(symbol=symbol, fetch_date=datetime.now().astimezone().date())]
@@ -1485,9 +1545,72 @@ class AkShareAdapter(DataSource):
 
         return [result]
 
+    def _fetch_us_index_macro(self, symbol: str) -> list[MacroContext]:
+        source = "AkShare 美国 CPI／东方财富国债收益率"
+        macro = MacroContext(symbol=symbol, fetch_date=datetime.now().astimezone().date())
+        macro._data_source = source
+        specs = (
+            ("us_cpi_yoy", "美国 CPI", "macro_usa_cpi_yoy", "时间", "现值", "发布日期"),
+            ("us_10y_yield", "美国 10 年期国债收益率", "bond_zh_us_rate", "日期", "美国国债收益率10年", ""),
+        )
+        failures = []
+        for key, label, endpoint, day_column, value_column, release_column in specs:
+            try:
+                frame: Any = getattr(ak, endpoint)()
+            except Exception as exc:
+                logger.warning("%s 采集失败：%s", label, type(exc).__name__)
+                failures.append(f"{label} 请求失败")
+                continue
+            columns = [day_column, value_column, *([release_column] if release_column else [])]
+            if frame is None or any(column not in frame for column in columns):
+                failures.append(f"{label} 返回缺少字段")
+                continue
+            latest = None
+            for values in frame[columns].itertuples(index=False, name=None):
+                try:
+                    day = _parse_date(values[0])
+                    value = finite_number(values[1])
+                    release = _parse_date(values[2]) if release_column else day
+                except (TypeError, ValueError):
+                    continue
+                if (value is not None and day <= release <= macro.fetch_date
+                        and (latest is None or day > latest[0])):
+                    latest = day, value, release
+            if latest is None:
+                failures.append(f"{label} 未取得已发布的有效值")
+                continue
+            day, value, release = latest
+            setattr(macro, key, value)
+            macro.indicator_dates[key] = day.isoformat()
+            if release_column:
+                macro.indicator_dates[f"{key}_release"] = release.isoformat()
+        macro.notes.extend(failures)
+        if failures:
+            self._collection_diagnostics.record = make_record(
+                source, "partial" if macro.indicator_dates else "failed",
+                error_kind="partial_source" if macro.indicator_dates else "fetch_failed",
+                error_message="；".join(failures),
+            )
+        return [macro] if macro.indicator_dates else []
+
     @retry_on_network_error()
-    def _fetch_index_sentiment(self, symbol: str) -> list[NewsData]:
-        from data.schemas import NewsData
+    def _fetch_index_sentiment(self, symbol: str, market: str = "a-shares", name: str = "") -> list[NewsData]:
+        if market in {"hk", "us"}:
+            from data.hk_news import SOURCE
+            from index.index_news import search_index_news
+
+            try:
+                items = search_index_news(symbol, name, market)
+            except Exception as exc:
+                logger.warning("指数 %s 关键词新闻采集失败：%s", symbol, type(exc).__name__)
+                self._record_collection_error(SOURCE, exc)
+                return []
+            news = NewsData(symbol=symbol, date=datetime.now().astimezone().date(),
+                            headlines=[item["title"] for item in items], index_items=items)
+            news._data_source = SOURCE
+            return [news]
+        if market != "a-shares":
+            return []
 
         actual_source = "东方财富市场要闻接口"
         try:

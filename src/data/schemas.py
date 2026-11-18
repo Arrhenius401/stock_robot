@@ -246,6 +246,10 @@ class ValuationData(BaseModel):
     pe_history: dict[DateType, float] = Field(default_factory=dict)
     pb_history: dict[DateType, float] = Field(default_factory=dict)
     history_source: str = ""
+    history_window_days: int = 365
+    history_window_label: str = "近一年"
+    extended_pe_history: dict[DateType, float] = Field(default_factory=dict)
+    extended_pb_history: dict[DateType, float] = Field(default_factory=dict)
     valuation_notes: list[str] = Field(default_factory=list)
     cache_degraded: bool = False  # 请求失败导致的残缺结果，仅短 TTL 缓存
     failed_components: list[Literal["snapshot", "comparison", "pe_history", "pb_history"]] = Field(
@@ -394,7 +398,8 @@ class AnalysisContext(BaseModel):
     enriched_industry: EnrichedIndustry | None = None
     enriched_sentiment: EnrichedSentiment | None = None
     financial_scoring_facts: dict[str, Any] = Field(default_factory=dict)
-    # 新版仅由A股真实分析流程启用；历史上下文仍走旧解读契约。
+    financial_special: dict[str, Any] = Field(default_factory=dict)
+    # 新版由额外分析流程启用；历史上下文仍走旧解读契约。
     commentary_version: int = 1
     business_profile: dict[str, Any] = Field(default_factory=dict)
     # 报价只用于基础概况，不覆盖日线、财务分母或评分。
@@ -476,6 +481,8 @@ class CapitalFlowData(BaseModel):
     north_bound: float | None = None
     main_net_inflow: float | None = None
     margin_balance: float | None = None
+    margin_date: str = ""
+    margin_change: float | None = None
     southbound_sh_yi: float | None = None
     southbound_sz_yi: float | None = None
     notes: list[str] = Field(default_factory=list)
@@ -483,12 +490,15 @@ class CapitalFlowData(BaseModel):
 
 class MacroContext(BaseModel):
     """宏观经济指标上下文"""
+    _data_source: str = PrivateAttr(default="")
     symbol: str
     fetch_date: date
     shibor_3m: float | None = None
     hibor_1m: float | None = None
     hk_base_rate: float | None = None
     hk_closing_balance_million: float | None = None
+    us_cpi_yoy: float | None = None
+    us_10y_yield: float | None = None
     cpi_yoy: float | None = None
     pmi: float | None = None
     usd_cny: float | None = None
@@ -580,6 +590,10 @@ class IndexReport(BaseModel):
 
     risk_list: list[str]
     visible_sections: set[str]
+    market: str | None = None
+    index_style: str | None = None
+    index_profile: dict[str, Any] | None = None
+    index_research: dict[str, Any] | None = None
     report_version: int = 1  # 新报告使用版本2，历史结构继续兼容
     generated_at: str = ""
     data_quality: dict[str, Any] = Field(default_factory=dict)

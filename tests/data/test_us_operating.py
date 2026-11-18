@@ -75,3 +75,64 @@ def test_two_operating_metrics_each_need_five_peers(count, scored):
     ctx.industry_data.comparison_snapshot['operating']['TEST'] = None
     UsIndustryEnricher().enrich(ctx)
     assert score_industry_comparison(ctx.enriched_industry.comparison)[0] is None
+
+
+def test_f10_reported_annual_and_bank_special_facts():
+    import json
+    from pathlib import Path
+
+    from data.us_operating import BANK, build_annual, build_special
+
+    fixtures = Path(__file__).parents[1] / "resources" / "us_operating"
+    aapl = json.loads((fixtures / "eastmoney-aapl-gmain-annual.json").read_text(encoding="utf-8"))
+    jpm = json.loads((fixtures / "eastmoney-jpm-bmain-annual.json").read_text(encoding="utf-8"))
+    annual = build_annual([aapl], "AAPL", GENERAL)
+    assert annual is not None
+    assert annual["basis"] == "FY" and annual["currency"] == "USD"
+    assert annual["end"] == "2026-09-26"
+    assert annual["revenue_growth_yoy"] == pytest.approx(15.0597965691)
+    assert annual["roe"] == pytest.approx(142.2567347949)
+    assert build_annual([aapl], "OTHER", GENERAL) is None
+    assert build_special([aapl], "AAPL", GENERAL) is None
+    special = build_special([jpm], "JPM", BANK)
+    assert special is not None
+    assert special["net_interest_income_ratio_pct"] == pytest.approx(95443 / 182447 * 100)
+    assert special["provision_to_revenue_pct"] == pytest.approx(14212 / 182447 * 100)
+    assert special["loan_to_deposit_pct"] == pytest.approx(58.352570214)
+    assert special["roa_pct"] == pytest.approx(1.289249474564)
+    missing = build_special([{**jpm, "LOAN_DEPOSIT": None}], "JPM", BANK)
+    assert missing is not None and missing["loan_to_deposit_pct"] is None
+
+
+def test_annual_reference_does_not_affect_scoring():
+    from analysis.industry import IndustryAnalyzer
+
+    period = {"start": "2024-01-01", "end": "2024-12-31", "basis": "TTM", "metrics": [
+        {"key": key, "sample_count": 5, "status": "ok", "target": 10, "percentile": 50}
+        for key in ("revenue_growth_yoy", "net_margin")
+    ]}
+    baseline = {"version": 1, "scope": "东财美股", "periods": {"latest": period}}
+    updated = {**baseline, "score_periods": ["latest"], "periods": {
+        **baseline["periods"], "annual": {**period, "basis": "FY", "reference_only": True,
+                                         "metrics": [{"status": "insufficient"}]}}}
+    assert score_industry_comparison(updated) == score_industry_comparison(baseline)
+    assert IndustryAnalyzer._comparison_status(updated) == IndustryAnalyzer._comparison_status(baseline)
+    updated["score_periods"] = ["annual"]
+    assert score_industry_comparison(updated)[0] is None
+
+
+def test_jpm_latest_special_keeps_cumulative_period_and_units():
+    from data.us_operating import build_jpm_special
+
+    row = {"SECURITY_CODE": "JPM", "SECUCODE": "JPM.N", "DATE_TYPE": "累计季报",
+           "REPORT_TYPE": "2026/Q9", "START_DATE": "2026-01-01", "REPORT_DATE": "2026-09-30",
+           "CURRENCY": "USD", "TOTAL_INCOME": 157355000000, "NET_INTEREST_INCOME": 77913000000,
+           "LOAN_LOSS_PROVISION": 7765000000, "LOAN_DEPOSIT": .569852196837, "ROE": 14.220878270958,
+           "ROA": 1.04003794526}
+    facts = build_jpm_special([{**row, "DATE_TYPE": "单季报", "REPORT_TYPE": "2026/Q3", "TOTAL_INCOME": 1}, row])
+    assert facts["basis"] == "Q9"
+    assert facts["net_interest_income_ratio_pct"] == pytest.approx(77913 / 157355 * 100)
+    assert facts["provision_to_revenue_pct"] == pytest.approx(7765 / 157355 * 100)
+    assert facts["loan_to_deposit_pct"] == pytest.approx(56.9852196837)
+    assert facts["roe_pct"] == pytest.approx(14.220878270958)
+    assert facts["roa_pct"] == pytest.approx(1.04003794526)

@@ -224,9 +224,55 @@ def test_financial_company_statement_mapping(mocker, ticker, prefix, revenue_cod
     mocker.patch("data.us_stock._statement", side_effect=lambda _ticker, name: frames[name])
     mocker.patch("data.us_stock._annual_roe", return_value=(None, None))
     latest = us_financials(ticker)[-1]
-    assert latest.revenue == 100
+    assert latest.revenue == (None if ticker == "BRK.B" else 100)
     assert latest.net_profit == 10
     assert latest.total_assets == 1000
     assert latest.common_equity == 500
     assert latest.gross_margin is None
     assert latest.gross_margin_basis == "银行/保险不适用"
+
+
+@pytest.mark.parametrize("ticker,report_type", [("AAPL", "年报"), ("COST", "年报"), ("MSFT", "一季报"), ("NVDA", "三季报")])
+def test_us_balance_uses_raw_f10(mocker, ticker, report_type):
+    from data.us_stock import _statement
+
+    row = {"SECURITY_CODE": ticker, "SECUCODE": f"{ticker}.O", "REPORT_DATE": "2026-09-26",
+           "CURRENCY_ABBR": "美元", "REPORT_TYPE": report_type, "STD_ITEM_CODE": "004005999", "AMOUNT": 100}
+    request = mocker.patch("data.us_stock.requests.get")
+    request.return_value.json.return_value = {"success": True, "result": {"data": [
+        row, {**row, "REPORT_TYPE": "其他"},
+        {**row, "REPORT_DATE": "2026-06-27", "AMOUNT": 1},
+        {**row, "REPORT_DATE": "2026-06-27", "AMOUNT": 2},
+        {**row, "REPORT_DATE": "2026-03-28", "CURRENCY_ABBR": None},
+        {**row, "REPORT_DATE": None},
+    ]}}
+    periods = _statement(ticker, "资产负债表")
+    assert set(periods) == {"2026-09-26"}
+    assert periods["2026-09-26"]["004005999"] == 100
+    assert request.call_args.kwargs["params"]["filter"] == f'(SECURITY_CODE="{ticker}")'
+
+
+@pytest.mark.parametrize("rows", [[], [{"SECURITY_CODE": "AAPL", "SECUCODE": "OTHER.O"}]])
+def test_us_balance_rejects_empty_or_wrong_identity(mocker, rows):
+    from data.us_stock import _statement
+
+    request = mocker.patch("data.us_stock.requests.get")
+    request.return_value.json.return_value = {"success": True, "result": {"data": rows}}
+    with pytest.raises(ValueError):
+        _statement("AAPL", "资产负债表")
+
+
+def test_aapl_five_year_window_is_separate_from_legacy_scoring_input(mocker):
+    from datetime import timedelta
+
+    def curve(_ticker, _metric, chart_select="近一年"):
+        if chart_select == "近一年":
+            return {date(2026, 11, 13): 30}
+        return {date(2026, 11, 13) - timedelta(days=offset): 30 for offset in range(1000)}
+
+    mocker.patch("data.us_stock._baidu_metric", side_effect=curve)
+    mocker.patch("data.us_stock.us_quote", return_value={})
+    item = us_valuation("AAPL")[0]
+    assert item.history_window_label == "近五年"
+    assert len(item.extended_pe_history) > 252
+    assert len(item.pe_history) == 1

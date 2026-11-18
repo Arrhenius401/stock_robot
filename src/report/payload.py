@@ -4,7 +4,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from data.schemas import AnalysisContext, AnalysisResult
-from report.builder import build_disclaimer
+from report.market_profile import build_disclaimer, profile_for
 from report.presentation import signal_presentation
 from report.quality import build_data_quality, hk_industry_label
 from report.scoring import (
@@ -29,7 +29,8 @@ def build_stock_payload(
         from analysis.mode import objective_results
 
         results = objective_results(results)
-    quality = build_data_quality(ctx, results)
+    profile = profile_for(ctx.market)
+    quality = build_data_quality(ctx, results, profile=profile)
     summary = compute_score_summary(results)
     price = compute_price_info(ctx)
     bulk = (commentary.get("bulk") or "").strip()
@@ -53,7 +54,11 @@ def build_stock_payload(
     signal = None
     from report.research import render_research, resolve_research
 
-    research = resolve_research(ctx, results, commentary, allow_model=status == "ok")
+    research = resolve_research(ctx, results, commentary, profile=profile, allow_model=(
+        ctx.extra_analysis_enabled and not no_llm and llm_available
+        and quality["has_analysis_data"] and bool(commentary.get("research"))))
+    if research and research.get("model"):
+        status = "ok"
     if research:
         if status == "ok" and not research.get("model"):
             status = "failed"
@@ -71,6 +76,7 @@ def build_stock_payload(
         "analysis_mode": "extra" if ctx.extra_analysis_enabled else "objective",
         "scoring_method": SCORING_METHOD,
         "symbol": symbol, "code": symbol, "name": name, "market": ctx.market,
+        "market_profile": profile.payload(),
         "overview": {
             "latest_close": price["latest_price"], "year_high": price["year_high"],
             "current_price": price["current_price"], "quote_diagnostics": ctx.current_quote,
@@ -90,6 +96,6 @@ def build_stock_payload(
         **({"research_commentary": research} if research else {}),
         "commentary_status": status, "signal": signal, "data_quality": quality,
         "pending_verifications": quality["pending_verifications"],
-        "disclaimer": build_disclaimer(hk=ctx.market == "hk", us=ctx.market == "us"),
+        "disclaimer": build_disclaimer(profile),
         "generated_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
     }

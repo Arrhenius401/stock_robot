@@ -59,7 +59,7 @@ def test_structured_model_references_and_fallback():
         parse_model("普通长文章", research)
 
 
-def test_objective_or_hk_is_not_migrated():
+def test_legacy_hk_or_objective_is_not_migrated():
     from report.payload import build_stock_payload
 
     for ctx in [AnalysisContext(symbol="00700.HK", name="腾讯", market="hk"),
@@ -68,8 +68,9 @@ def test_objective_or_hk_is_not_migrated():
         assert not payload.get("research_commentary")
 
 
+@pytest.mark.parametrize("market", ["a-shares", "hk", "us"])
 @pytest.mark.parametrize("raw", ["valid", "非JSON长文", "（LLM 分析暂时不可用：超时）"])
-def test_pipeline_single_call_and_shared_output(tmp_path, raw):
+def test_pipeline_single_call_and_shared_output(tmp_path, raw, market):
     from core.pipeline import Pipeline
     from core.registry import Registry
     from llm.base import LLMBackend
@@ -91,7 +92,7 @@ def test_pipeline_single_call_and_shared_output(tmp_path, raw):
                 "support": "支撑证据不足。", "question": "盈利恢复尚待验证。"},
                 "evidence_ids": ["financial"], "risks": [{"id": "financial.loss", "text": "亏损可能影响经营积累。"}]}, ensure_ascii=False) if raw == "valid" else raw
 
-    ctx = AnalysisContext(symbol="000338", name="潍柴动力", commentary_version=2)
+    ctx = AnalysisContext(symbol="000338", name="潍柴动力", market=market, commentary_version=2)
     results = [result("financial", net_profit=-10)]
     registry = Registry()
     backend = Backend()
@@ -147,3 +148,46 @@ def test_insufficient_keeps_same_business_and_five_rows_in_export():
     assert payload["commentary_status"] == "insufficient"
     assert payload["research_commentary"]["business_text"] in markdown
     assert "五维解读" in markdown and "整体判断" not in markdown
+
+
+@pytest.mark.parametrize(("market", "symbol"), [("hk", "00700.HK"), ("us", "AAPL")])
+def test_overseas_v2_offline_outputs(market, symbol):
+    from report.payload import build_stock_payload
+    from report.scoring import build_report
+
+    ctx = AnalysisContext(
+        symbol=symbol, name="样本", market=market, commentary_version=2,
+        business_profile={"main_business": "主营公司业务。", "source": "F10", "source_label": "东财 F10 公司资料"},
+    )
+    results = [result("financial", net_profit=20)]
+    payload = build_stock_payload(ctx.symbol, ctx.name, results, {}, ctx, no_llm=True)
+    research = payload["research_commentary"]
+    assert research["market"] == market and research["profile_version"] == 1
+    assert len(research["dimensions"]) == 5
+    markdown = build_report(ctx.symbol, ctx.name, results, {}, ctx, no_llm=True)
+    assert "东财 F10 公司资料" in markdown and "五维解读" in markdown
+    assert "核心结论" not in markdown
+    prompt = model_prompt(ctx, research)
+    if market == "hk":
+        assert "HSICS" in prompt and "报告期" in prompt and "币种未核实" in prompt
+    else:
+        assert all(term not in prompt for term in ("GICS", "申万", "HSICS", "FCF"))
+        assert "TTM" in prompt and "年度" in prompt and "舆情本期未采集" in prompt
+        assert research["dimensions"][-1]["status"] == "not_collected"
+        assert "不能视为零风险" in research["dimensions"][-1]["text"]
+        assert "本期未采集可评估舆情样本" in markdown.split("数据覆盖与时效", 1)[1]
+        assert research["risk_candidates"] == []
+
+
+def test_formatted_thousands_normalize_without_accepting_changed_units():
+    research = build_research(AnalysisContext(symbol="AAPL", name="样本", market="us"), [
+        result("financial", revenue=396431000000),
+    ])
+    def model(overall):
+        return json.dumps({"business": "", "conclusion": {"overall": overall,
+                           "support": "依据有限。", "question": "需要复核。"},
+                           "evidence_ids": ["financial"], "risks": []}, ensure_ascii=False)
+    parse_model(model("营收3964.31 亿。"), research)
+    for text in ("营收3964.31 万。", "营收3964.31%。", "营收964.31 亿。"):
+        with pytest.raises(ValueError):
+            parse_model(model(text), research)

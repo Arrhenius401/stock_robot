@@ -202,7 +202,10 @@ def test_known_hk_symbol_uses_overseas_route_and_never_a_valuation(monkeypatch):
     monkeypatch.setattr(collector, "_fetch_result", fetch)
     monkeypatch.setattr(collector, "_fetch_hk_macro", lambda: ValueResult(None, make_record("香港金管局", "failed")))
     collector.collect(AnalysisTarget(target_type="index", symbol="HSI", name="恒指", market="hk", index_style="sector"))
-    assert calls == [("HSI", {"data_type": "index_price", "index_style": "overseas"})]
+    assert calls == [
+        ("HSI", {"data_type": "index_price", "index_style": "overseas"}),
+        ("HSI", {"data_type": "index_sentiment", "market": "hk", "name": "恒指"}),
+    ]
 
 
 def test_southbound_rejects_expired_missing_and_northbound():
@@ -273,11 +276,17 @@ def test_legacy_hk_symbols_fallback_to_verified_official_identity(monkeypatch, s
 
 
 def test_explicit_total_return_code_is_never_replaced_by_price_index(monkeypatch):
+    from data.base import CollectionResult
     from data.collection_state import ValueResult, make_record
     from data.schemas import AnalysisTarget
     from index.collector import IndexDataCollector
     collector = IndexDataCollector(isolate_requests=False, cache_requests=False)
-    monkeypatch.setattr(collector, "_fetch_result", lambda *a, **k: pytest.fail("总收益版本不能请求价格指数行情"))
+
+    def fetch_news_only(_symbol, **kwargs):
+        assert kwargs["data_type"] == "index_sentiment"
+        return CollectionResult([])
+
+    monkeypatch.setattr(collector, "_fetch_result", fetch_news_only)
     monkeypatch.setattr(collector, "_fetch_hk_macro", lambda: ValueResult(None, make_record("香港金管局", "failed")))
     seen = []
     def fetch_official(value):

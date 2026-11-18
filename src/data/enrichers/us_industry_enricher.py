@@ -12,6 +12,7 @@ from data.schemas import (
     SufficiencyLevel,
 )
 from data.us_industry import SOURCE, _positive
+from data.us_operating import BANK
 from utils.numbers import is_finite_number
 
 
@@ -27,11 +28,53 @@ def _metric(key: str, label: str, target: float | None, values: list[float], uni
             "reason": "" if enough and target is not None else "有效同行不足五家或目标缺失"}
 
 
+_ANNUAL_METRICS = {"revenue_growth_yoy": "营收同比", "net_margin": "净利率", "roe": "ROE"}
+_BANK_METRICS = {
+    "net_interest_income_ratio_pct": "净利息收入占比",
+    "provision_to_revenue_pct": "拨备／营收",
+    "loan_to_deposit_pct": "贷存比",
+    "loan_to_assets_pct": "贷款／资产",
+    "roe_pct": "银行 ROE",
+    "roa_pct": "银行 ROA",
+}
+
+
+def _reference_periods(target: dict, peers: list[dict]) -> tuple[dict, dict, dict]:
+    year = target.get("annual")
+    if not isinstance(year, dict) or year.get("basis") != "FY":
+        return {}, {}, {}
+    target_end = date.fromisoformat(year["end"])
+    comparable = [
+        peer for peer in peers
+        if (peer_year := peer.get("annual")) and peer_year.get("basis") == "FY"
+        and abs((date.fromisoformat(peer_year["end"]) - target_end).days) <= 100
+    ]
+    annual_metrics = [_metric(key, label, year.get(key), [peer["annual"].get(key) for peer in comparable], "percent")
+                      for key, label in _ANNUAL_METRICS.items()]
+    # 只输出已使用的展示字段，避免带入财务原值或专项对象。
+    period = {key: year.get(key) for key in ("start", "end", "basis", "source")}
+    period.update(reference_only=True, label="完整年度（参考）", metrics=annual_metrics,
+                  reason="" if sum(metric["status"] == "ok" for metric in annual_metrics) >= 2
+                  else "至少两项指标各五家的年度同期样本不足")
+    special = target.get("special")
+    if year.get("source") != BANK or not isinstance(special, dict):
+        return period, {}, {}
+    bank_peers = [peer["special"] for peer in comparable if peer["annual"].get("source") == BANK and peer.get("special")]
+    special_metrics = [_metric(key, label, special.get(key), [peer.get(key) for peer in bank_peers], "percent")
+                       for key, label in _BANK_METRICS.items()]
+    if not any(item["target"] is not None for item in special_metrics):
+        return period, {}, {"reason": "银行专项事实未取得"}
+    return period, special, {**{key: year[key] for key in ("start", "end", "basis", "source")},
+                             "label": "银行专项指标（年度）", "metrics": special_metrics,
+                             "reference_only": True}
+
+
 class UsIndustryEnricher(DataEnricher):
     def enrich(self, ctx: AnalysisContext) -> AnalysisContext:
         if ctx.market != "us":
             return ctx
         ctx.enriched_industry = None
+        ctx.financial_special = {}
         data = ctx.industry_data
         if data is None:
             ctx.sufficiency.industry = DimensionSufficiency(level=SufficiencyLevel.INSUFFICIENT,
@@ -99,6 +142,27 @@ class UsIndustryEnricher(DataEnricher):
                          "basis": "TTM", "label": "TTM最新期", "source": target_op.get("source"),
                          "metrics": metrics, "reason": reason}},
             "notes": notes, "errors": [reason] if reason else []}
+        annual, special, special_comparison = _reference_periods(
+            target_op, [operating.get(peer["symbol"]) or {} for peer in selected])
+        latest_bank = target_op.get("latest_bank_special")
+        if ctx.symbol == "JPM" and isinstance(latest_bank, dict) and latest_bank.get("source") == BANK:
+            special = {key: latest_bank.get(key) for key in _BANK_METRICS}
+            special_comparison = {**{key: latest_bank.get(key) for key in ("start", "end", "basis", "source", "currency")},
+                "label": "银行专项指标（累计报告期）", "reference_only": True,
+                "metrics": [_metric(key, label, special[key], [], "percent") for key, label in _BANK_METRICS.items()]}
+        ctx.financial_special = special
+        comparison["score_periods"] = ["latest"]
+        # TTM 节点仅保留原有事实，年度与专项各有独立口径。
+        for key in ("annual", "special"):
+            comparison["periods"]["latest"].pop(key, None)
+        if annual:
+            comparison["periods"]["annual"] = annual
+            notes[0] = "东财美股 F10 行业（BELONG_INDUSTRY）；行业评分仅使用连续单季派生的 TTM。"
+            notes.append("完整年度仅参考，不计分。")
+        if special_comparison:
+            comparison["financial_special"] = special_comparison
+        if special:
+            notes.append("银行专项按披露期间展示，不参与评分。")
         enough = len(selected) >= 5
         data.comparison_ready = enough
         ctx.enriched_industry = EnrichedIndustry(peer_count=len(selected),

@@ -338,7 +338,53 @@ def us_history(ticker: str, start: date | None = None, end: date | None = None) 
     return best
 
 
+def _balance_statement(ticker: str) -> dict[str, dict[str, Any]]:
+    code = "BRK_B" if ticker == "BRK.B" else ticker
+    response = requests.get("https://datacenter.eastmoney.com/securities/api/data/v1/get", params={
+        "reportName": "RPT_USF10_FN_BALANCE", "columns": "ALL", "source": "SECURITIES", "client": "PC",
+        "filter": f'(SECURITY_CODE="{code}")', "pageSize": 500, "pageNumber": 1,
+        "sortColumns": "REPORT_DATE", "sortTypes": "-1",
+    }, timeout=10)
+    response.raise_for_status()
+    payload = response.json()
+    rows = (payload.get("result") or {}).get("data")
+    if payload.get("success") is not True or not isinstance(rows, list) or not rows:
+        raise ValueError("美股资产负债表为空或响应失败")
+    periods: dict[str, dict[str, Any]] = {}
+    conflicts: set[str] = set()
+    today = datetime.now().astimezone().date()
+    terminal_date = _parse_date(rows[-1].get("REPORT_DATE")) if len(rows) >= 500 else None
+    for row in rows:
+        secucode = str(row.get("SECUCODE") or "").split(".")
+        if row.get("SECURITY_CODE") != code or len(secucode) != 2 or secucode[0] != code or secucode[1] not in {"N", "O", "A"}:
+            raise ValueError("美股资产负债表身份不匹配")
+        day = _parse_date(row.get("REPORT_DATE"))
+        if day is None or day > today or day == terminal_date:
+            continue
+        key = day.isoformat()
+        currency = FinancialData.normalize_report_currency(row.get("CURRENCY_ABBR"))
+        notice = _parse_date(row.get("NOTICE_DATE"))
+        if not currency or (notice is not None and notice > today):
+            conflicts.add(key)
+            continue
+        item = str(row.get("STD_ITEM_CODE") or "").strip()
+        amount = _number(row.get("AMOUNT"))
+        if not item or amount is None:
+            continue
+        accounting = str(row.get("ACCOUNT_STANDARD") or "")
+        entry = periods.setdefault(key, {"_meta": {"currency": currency, "accounting": accounting, "notice": ""}})
+        metadata = entry["_meta"]
+        if metadata["currency"] != currency or metadata["accounting"] != accounting or (item in entry and entry[item] != amount):
+            conflicts.add(key)
+        if notice:
+            metadata["notice"] = max(metadata["notice"], notice.isoformat())
+        entry[item] = amount
+    return {key: row for key, row in periods.items() if key not in conflicts}
+
+
 def _statement(ticker: str, statement: str) -> dict[str, dict[str, Any]]:
+    if statement == "资产负债表":
+        return _balance_statement(ticker)
     import akshare as ak
 
     frame: Any = ak.stock_financial_us_report_em(
@@ -449,7 +495,11 @@ def _annual_roe(ticker: str) -> tuple[float | None, date | None]:
 def us_financials(ticker: str, max_periods: int = 8) -> list[FinancialData]:
     """东财美股 F10 单季报：最近八个财季，报告期按财季月末归一。"""
     income = _statement(ticker, "综合损益表")
-    balance = _statement(ticker, "资产负债表")
+    try:
+        balance = _statement(ticker, "资产负债表")
+    except (requests.RequestException, ValueError, TypeError, KeyError) as error:
+        logger.warning("美股资产负债表失败 %s: %s", ticker, error)
+        balance = {}
     cash = _statement(ticker, "现金流量表")
     periods = sorted(set(income) & (set(balance) | set(cash)))[-max_periods:]
     if len(periods) < 4:
@@ -476,6 +526,8 @@ def us_financials(ticker: str, max_periods: int = 8) -> list[FinancialData]:
         cash_row = cash.get(period_key, {})
         financial_company = any(code.startswith(("001", "002")) for code in income_row if not code.startswith("_"))
         revenue = _row_value(income_row, "004001999", "004001001", "001008999", "002001999")
+        if ticker in {"BRK.B", "BRK_B"}:
+            revenue = None
         net_profit = _row_value(income_row, "004015999", "004013999", "001015999", "002011999")
         gross_profit = _row_value(income_row, "004005999")
         gross_margin = (gross_profit / revenue
@@ -561,11 +613,11 @@ def us_financials(ticker: str, max_periods: int = 8) -> list[FinancialData]:
     return rows
 
 
-def _baidu_metric(ticker: str, metric: str) -> dict[date, float]:
+def _baidu_metric(ticker: str, metric: str, chart_select: str = "近一年") -> dict[date, float]:
     response = requests.get(BAIDU_URL, params={
         "openapi": "1", "dspName": "iphone", "tn": "tangram", "client": "app",
         "query": metric, "code": ticker, "word": "", "resource_id": "51171",
-        "market": "us", "tag": metric, "chart_select": "近一年",
+        "market": "us", "tag": metric, "chart_select": chart_select,
         "industry_select": "", "skip_industry": "1", "finClientType": "pc",
     }, timeout=10)
     response.raise_for_status()
@@ -592,10 +644,12 @@ def _baidu_metric(ticker: str, metric: str) -> dict[date, float]:
                         continue
                     period = date.fromisoformat(str(item[0]))
                     value = _number(item[1])
-                    if period <= today and value is not None and value > 0:
-                        points[period] = value
                 except (ValueError, TypeError):
                     continue
+                if period <= today and value is not None and value > 0:
+                    if chart_select != "近一年" and period in points:
+                        raise ValueError("百度长窗估值日期重复")
+                    points[period] = value
         if not points:
             raise ValueError("百度美股估值缺少目标口径的合法日期指标")
         return points
@@ -665,6 +719,28 @@ def us_valuation(ticker: str) -> list[ValuationData]:
         cache_degraded=bool(failed),
         failed_components=list(failed),  # type: ignore[arg-type]
     )
+    if ticker == "AAPL":
+        now = datetime.now(US_TZ)
+        cutoff = now.date()
+        if now.time() < (_EARLY_CLOSE if cutoff in us_market_early_closes(cutoff.year) else _REGULAR_CLOSE):
+            cutoff -= timedelta(days=1)
+        for metric, key in BAIDU_METRICS.items():
+            try:
+                points = _baidu_metric(ticker, metric, "近五年")
+                eligible = {day: value for day, value in points.items() if day <= cutoff
+                            and day.weekday() < 5 and day not in us_market_holidays(day.year)}
+                baseline = curves.get(key, {})
+                if any(eligible[day] != baseline[day] for day in eligible.keys() & baseline.keys() if day < now.date()):
+                    raise ValueError("百度长窗与短窗共同历史日估值不同")
+                if eligible:
+                    setattr(item, f"extended_{key}_history", eligible)
+            except (requests.RequestException, TypeError, ValueError) as error:
+                logger.warning("百度美股长窗估值失败 %s/%s: %s", ticker, metric, error)
+        if item.extended_pe_history or item.extended_pb_history:
+            item.history_window_days = 1827
+            item.history_window_label = "近五年"
+        else:
+            item.valuation_notes.append("百度五年估值暂不可用，保留原近一年数据")
     item._data_source = "百度美股估值"
     return [item]
 

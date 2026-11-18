@@ -7,6 +7,9 @@ from utils.numbers import is_finite_number
 
 def capital_presentation(section: dict[str, Any]) -> dict[str, str]:
     """仅根据已取得的资金流值描述零、非零与缺失，余额不代替流量。"""
+    display = section.get("display") or {}
+    if display.get("label") == "融资余额背景":
+        return {"label": "融资余额背景", "tone": "gray", "summary": section.get("summary") or "资金数据不可用"}
     metrics: dict[str, Any] = section.get("metrics") or {}
     fields = (("north_bound", "北向资金"), ("main_net_inflow", "主力资金"))
     values = [metrics.get(key) for key, _ in fields if is_finite_number(metrics.get(key))]

@@ -111,7 +111,7 @@ def test_hk_quality_reference_and_payload_markdown():
     assert "https://example.com/0" not in markdown
     assert "测试媒体" in markdown
     assert NOW.strftime("%Y-%m-%d %H:%M") in html.unescape(markdown)
-    assert "关键词检索结果" in markdown
+    assert "按标题公司简称过滤" not in markdown
     assert "原采集时间" not in markdown
 
 

@@ -2,7 +2,7 @@
 import { store, switchView } from "./state.js";
 import { api } from "./api.js?v=20261030-index-refresh";
 import { renderMarkdown } from "./markdown.js?v=20261029-index-news-quality";
-import { appendReadableMetric, riskText, formatMetricValue, renderIndexReport } from "./report-renderer.js?v=20261117-current-price";
+import { appendReadableMetric, riskText, formatMetricValue, renderIndexReport } from "./report-renderer.js?v=20261118-index-research";
 import { el, kv, tagChip, priceBar, errorCard, skeleton,
          showEntryError, clearEntryError } from "./components.js";
 

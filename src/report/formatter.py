@@ -19,6 +19,8 @@ from utils.numbers import is_finite_number
 
 logger = logging.getLogger(__name__)
 
+STOCK_NEWS_DISPLAY_LIMIT = 10
+
 
 def format_hk_news_markdown(metrics: dict[str, Any]) -> str:
     """沿用普通新闻项目列表，只展示标题、时间和媒体，不输出链接。"""
@@ -28,8 +30,8 @@ def format_hk_news_markdown(metrics: dict[str, Any]) -> str:
         except ValueError:
             return str(value)
 
-    lines = [f"> {_news_text(metrics.get('news_disclaimer', ''))}"]
-    for item in metrics.get("news_items", [])[:20]:
+    lines = []
+    for item in metrics.get("news_items", [])[:STOCK_NEWS_DISPLAY_LIMIT]:
         media = "、".join(dict.fromkeys(str(link.get("media") or "来源未标注") for link in item.get("links", []))) or "来源未标注"
         lines.append(f"\n- {_news_text(item.get('title', ''))}（{_news_text(stamp(item.get('published_at', '')))} · {_news_text(media)}）")
     return "\n".join(lines)
@@ -75,8 +77,10 @@ def sentiment_display_items(metrics: dict[str, Any]) -> list[dict[str, Any]]:
 
 def format_news_facts_markdown(metrics: dict[str, Any]) -> str:
     """客观新闻只披露标题、日期及原文来源，不输出情绪或评分。"""
-    lines = [_news_text(note) for note in [metrics.get("news_disclaimer"), *(metrics.get("news_notes") or [])] if note]
-    for item in metrics.get("news_items") or []:
+    notes = [metrics.get("news_disclaimer"), *(metrics.get("news_notes") or [])]
+    hidden_prefixes = ("关键词检索结果，按标题公司简称过滤", "已达到单关键词100条候选上限")
+    lines = [_news_text(note) for note in notes if note and not note.startswith(hidden_prefixes)]
+    for item in (metrics.get("news_items") or [])[:STOCK_NEWS_DISPLAY_LIMIT]:
         sources = []
         links = item.get("links") or [{"url": item.get("url"), "media": item.get("media") or item.get("source")}]
         for link in links:
@@ -86,7 +90,7 @@ def format_news_facts_markdown(metrics: dict[str, Any]) -> str:
         stamp = item.get("publish_date") or item.get("published_at") or "日期未记录"
         lines.append(f"- {_news_text(item.get('title', ''))}（{_news_text(stamp)} · {'、'.join(sources)}）")
     if not metrics.get("news_items"):
-        lines.extend(f"- {_news_text(title)}（日期与来源未记录）" for title in metrics.get("headlines") or [])
+        lines.extend(f"- {_news_text(title)}（日期与来源未记录）" for title in (metrics.get("headlines") or [])[:STOCK_NEWS_DISPLAY_LIMIT])
     return "\n".join(lines) or "本次暂无可展示新闻。"
 
 
@@ -108,7 +112,7 @@ def format_sentiment_risk_markdown(metrics: dict[str, Any]) -> str:
     items = sentiment_display_items(metrics)
     if items:
         lines += ["", "#### 采集样本与来源"]
-    for item in items[:30]:
+    for item in items[:STOCK_NEWS_DISPLAY_LIMIT]:
         if not isinstance(item, dict):
             continue
         state = ("与目标无直接关联" if item.get("related") is False else "不可评估" if item.get("assessable") is False
@@ -162,9 +166,16 @@ METRIC_DISPLAY_NAMES = {
     "report_period": "最新报告期",
     "revenue": "营业收入",
     "net_profit": "净利润",
+    "net_profit_ttm": "TTM 净利润",
     "total_assets": "总资产",
     "total_equity": "股东权益",
     "common_equity": "普通股东权益",
+    "net_interest_income_ratio_pct": "净利息收入占比",
+    "provision_to_revenue_pct": "拨备／营收",
+    "loan_to_deposit_pct": "贷存比",
+    "loan_to_assets_pct": "贷款／资产",
+    "roe_pct": "银行 ROE",
+    "roa_pct": "银行 ROA",
     "operating_cash_flow": "经营活动现金流",
     "capital_expenditure": "资本开支",
     "free_cash_flow": "自由现金流",
@@ -229,6 +240,7 @@ METRIC_DISPLAY_NAMES = {
     "north_bound": "北向资金净流入",
     "main_net_inflow": "主力资金净流入",
     "margin_balance": "融资余额",
+    "margin_change": "融资余额较前一交易日变化",
     "pmi": "PMI",
     "shibor_3m": "3 月期 Shibor",
     "cpi_yoy": "CPI 同比",
@@ -265,7 +277,7 @@ _PERCENT_KEYS = {"change_pct", "pe_percentile", "pb_percentile", "target_pe_prem
                  "shibor_3m", "cpi_yoy", "shibor_percentile", "pmi_percentile",
                  "target_pe_percentile", "target_pb_percentile"}
 # 这些字段在适配层按基本货币单位记录；币种由各报告上下文披露，不由上市地推断。
-_AMOUNT_KEYS = {"revenue", "net_profit", "deducted_net_profit", "total_assets", "total_equity", "common_equity",
+_AMOUNT_KEYS = {"revenue", "net_profit", "net_profit_ttm", "deducted_net_profit", "total_assets", "total_equity", "common_equity",
                 "operating_cash_flow", "capital_expenditure", "free_cash_flow", "market_cap"}
 _ONE_DIGIT_KEYS = {"score", "base_score", "final_score", "risk_deduction"}
 _THREE_DIGIT_KEYS = {"macd_dif", "macd_dea", "macd_bar"}
@@ -287,9 +299,9 @@ def format_metric_value(key: object, value: Any) -> Any:
         return "数据异常"
     if not isinstance(value, (int, float)) or isinstance(value, bool) or not is_finite_number(value):
         return value
-    if key == "north_bound":
+    if key in {"north_bound", "margin_balance", "margin_change"}:
         return (f"{value:.8g}" if value != 0 and round(value, 2) == 0 else _fixed_number(value, 2)) + " 亿"
-    if key in {"main_net_inflow", "margin_balance"}:
+    if key == "main_net_inflow":
         return (f"{value:.8g}" if value != 0 and round(value, 2) == 0 else _fixed_number(value, 2)) + "（原始单位未记录）"
     if key in _AMOUNT_KEYS:
         unit, divisor = (" 亿", 1e8) if abs(value) >= 1e8 else (" 万", 1e4) if abs(value) >= 1e4 else ("", 1)
@@ -348,6 +360,8 @@ def _format_comparison_facts(comparison: dict[str, Any]) -> dict[str, Any]:
     if isinstance(comparison.get("periods"), dict):
         formatted["periods"] = {key: block_facts(value) if isinstance(value, dict) else value
                                 for key, value in comparison["periods"].items()}
+    if isinstance(comparison.get("financial_special"), dict):
+        formatted["financial_special"] = block_facts(comparison["financial_special"])
     return formatted
 
 

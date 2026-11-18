@@ -444,6 +444,8 @@ foreach ($file in $changedFiles) {
             Add-UniqueTarget $testTargets "tests\analysis\test_industry_comparison.py"
         } elseif ($resourceParts.Count -ge 4 -and $resourceParts[2] -eq "hk") {
             Add-UniqueTarget $testTargets "tests\data\test_hk_bank_currency.py"
+        } elseif ($resourceParts.Count -ge 4 -and $resourceParts[2] -eq "us_operating") {
+            Add-UniqueTarget $testTargets "tests\data\test_us_operating.py"
         } elseif ($resourceParts.Count -ge 4 -and $resourceParts[2] -eq "report") {
             Add-UniqueTarget $testTargets "tests/report"
             Add-UniqueTarget $testTargets "tests/api/test_app.py"
