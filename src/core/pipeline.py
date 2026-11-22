@@ -1030,8 +1030,8 @@ class Pipeline:
         if not attr:
             return
         # 单值数据类型直接赋值对象，多值赋值列表
-        if data_type in ("valuation", "industry", "news") and len(data) == 1:
-            setattr(ctx, attr, data[0])
+        if data_type in ("valuation", "industry", "news") and len(data) <= 1:
+            setattr(ctx, attr, data[0] if data else None)
         else:
             setattr(ctx, attr, data)
 

@@ -1,10 +1,37 @@
 """US 行业来源接入与分析前充实边界。"""
+import pytest
+
 from analysis.industry import IndustryAnalyzer
 from core.pipeline import Pipeline
 from core.registry import Registry
 from data.collection_state import ValueResult, make_record
 from data.schemas import AnalysisContext, IndustryData
 from utils.config import Config
+
+
+@pytest.mark.parametrize("market", ["a-shares", "hk", "us"])
+@pytest.mark.parametrize("kind", ["industry", "valuation", "news"])
+def test_empty_single_value_is_missing_in_every_market(market, kind):
+    ctx = AnalysisContext(symbol="TEST", name="目标", market=market)
+    Pipeline._assign_to_context(ctx, kind, [])
+    assert getattr(ctx, f"{kind}_data") is None
+
+
+@pytest.mark.parametrize("symbol", ["ANT", "SPCX"])
+def test_missing_us_industry_does_not_crash_enrichment(mocker, tmp_path, symbol):
+    # 用户现场报错：'list' object has no attribute 'comparison_snapshot'。
+    from data.enrichers.us_industry_enricher import UsIndustryEnricher
+
+    record = make_record("东财F10", "failed", error_kind="fetch_failed", error_message="行业数据缺失")
+    mocker.patch("data.us_industry.us_industry_result", return_value=ValueResult(None, record))
+    pipeline = Pipeline(Registry(), Config(tmp_path), llm_enabled=False)
+    ctx = pipeline.collect(symbol, symbol, market="us", data_types=["industry"])
+
+    assert ctx.industry_data is None
+    assert ctx.collection_records["industry"].result_state == "failed"
+    UsIndustryEnricher().enrich(ctx)
+    assert ctx.enriched_industry is None
+    assert ctx.sufficiency.industry.level == "insufficient"
 
 
 def test_collect_us_industry_preserves_diagnostic_and_cache(mocker, tmp_path):
