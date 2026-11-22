@@ -6,6 +6,18 @@ from report.builder import ReportBuilder
 from report.table_notes import prepare_table
 
 
+def test_operating_trends_heading_is_separate_from_currency_note():
+    from markdown_it import MarkdownIt
+
+    result = AnalysisResult(dimension="financial", status="ok", summary="", metrics={
+        "revenue": 100, "amount_basis": "最新利润表原币：CNY（不代表其他报表币种）",
+        "operating_trends": ["营收同比增长。"]})
+    md = ReportBuilder().build("TEST", "样本", [result], {}, no_llm=True)
+    html = MarkdownIt("commonmark", {"html": False}).enable("table").render(md)
+    assert "<p><strong>经营趋势：</strong></p>" in html
+    assert "其他报表币种不据此推断。\n\n**经营趋势：**" in md
+
+
 def test_financial_table_moves_long_basis_out_and_marks_net_margin():
     metrics = {"gross_margin": .54, "net_margin": .21, "roe": .063,
                "roe_basis": "TTM 归母净利润 / 最新期末权益",
