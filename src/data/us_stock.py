@@ -582,6 +582,11 @@ def us_financials(ticker: str, max_periods: int = 8) -> list[FinancialData]:
             row.field_positions[field] = {"start": meta.get("start", ""), "end": balance_key if field in {"total_assets", "common_equity", "total_equity"} else period_key,
                 "currency": meta.get("currency", ""), "unit": "元", "basis": "single", "scope": "公司整体",
                 "accounting": meta.get("accounting", ""), "revision": "当前源快照", "notice": meta.get("notice", "")}
+        row.precision_version = 1
+        row.field_precision = {field: "source_native" for field in (
+            "revenue", "net_profit", "total_assets", "total_equity", "common_equity",
+            "operating_cash_flow", "capital_expenditure", "free_cash_flow", "gross_margin", "basic_eps")
+            if is_finite_number(getattr(row, field))}
         rows.append(row)
 
     # ROE 按最近四个财季净利润 / 期末归母权益派生；资产负债表期不一致时不混算。
@@ -835,6 +840,10 @@ def us_ttm(financials: list[FinancialData]) -> dict[str, float | None]:
         return {"revenue": None, "net_profit": None, "operating_cash_flow": None,
                 "equity": rows[-1].common_equity or rows[-1].total_equity if rows else None}
     def total(field: str) -> float | None:
+        from data.financial_metrics import native_amounts
+
+        if not native_amounts(rows, (field,)):
+            return None
         values = [getattr(item, field) for item in rows]
         return sum(values) if all(is_finite_number(value) for value in values) else None
     return {

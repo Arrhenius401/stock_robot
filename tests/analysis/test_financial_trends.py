@@ -12,11 +12,47 @@ def period(day, **values):
     defaults = {"symbol": "688326", "fiscal_quarter": ending,
                     "period_start": date(ending.year, 1, 1), "period_basis": "cumulative",
                     "reporting_basis": "同花顺报告期原币", "report_currency": "CNY"}
-    return FinancialData(**(defaults | values))
+    row = FinancialData(**(defaults | values))
+    row.financial_source = "同花顺报告期原币"
+    row.field_precision = {k: "source_native" for k in values if hasattr(row, k)}
+    from data.ths_financial import attach_positions
+
+    attach_positions(row)
+    for pos in row.field_positions.values():
+        pos.update(accounting="CAS", revision="测试同一重述包")
+    return row
 
 
 def text(rows):
     return "；".join(build_financial_trends(rows, "688326")["highlights"])
+
+
+def test_disclosure_direction_does_not_mix_with_historical_amount_direction():
+    before = period("2025-06-30", revenue=100, net_profit=20)
+    after = period("2026-06-30", revenue=120, net_profit=10)
+    after.reported_metrics = {"revenue_growth_yoy": -.1, "profit_growth_yoy": .2}
+    for metric in after.reported_metrics:
+        after.field_precision[metric] = "source_native"
+        after.field_positions[metric] = {**after.field_positions["revenue"],
+                                        "definition": metric, "unit": "ratio"}
+    actual = text([before, after])
+    assert "营收增长而净利润下降" not in actual
+    assert "营收同比下降10.00%" in actual
+    assert "净利润同比增长20.00%" in actual
+
+
+def test_cashflow_divergence_never_overrides_disclosure_direction():
+    before = period("2025-06-30", net_profit=100, operating_cash_flow=100, cash_flow_basis="reported")
+    after = period("2026-06-30", net_profit=200, operating_cash_flow=50, cash_flow_basis="reported")
+    after.reported_metrics = {"profit_growth_yoy": -.1, "cash_flow_growth_yoy": .2}
+    for metric in after.reported_metrics:
+        after.field_precision[metric] = "source_native"
+        after.field_positions[metric] = {**after.field_positions["net_profit"],
+                                        "definition": metric, "unit": "ratio"}
+    actual = text([before, after])
+    assert "两者变化背离" not in actual
+    assert "净利润同比下降10.00%" in actual
+    assert "经营现金流同比增长20.00%" in actual
 
 
 def test_same_period_three_year_trend_not_cumulative_seasonality():

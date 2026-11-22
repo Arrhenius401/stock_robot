@@ -131,6 +131,10 @@ class ResilientCollector:
 
     @staticmethod
     def _fresh(snapshot: Snapshot) -> bool:
+        # 旧财务缓存仍可作历史参考，但必须重新采集精度证据。
+        if snapshot.rows and isinstance(snapshot.rows[0], FinancialData) and any(
+                row.precision_version < 1 for row in snapshot.rows):
+            return False
         age = time.time() - snapshot.entry.created_at
         ttl = snapshot.entry.ttl_seconds
         if snapshot.record.result_state in ("partial", "failed", "unknown"):

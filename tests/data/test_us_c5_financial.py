@@ -15,6 +15,7 @@ def context():
         rows.append(FinancialData(symbol='AAPL', fiscal_quarter=date.fromisoformat(end),
             period_start=date.fromisoformat(start), period_basis='single', net_profit=10,
             common_equity=100, total_equity=100, total_assets=200, financial_source='F10',
+            field_precision={'net_profit': 'source_native', 'common_equity': 'source_native'},
             field_positions={'net_profit': {'start': start, 'end': end, 'currency': 'USD'},
                              'common_equity': {'end': end, 'currency': 'USD'}}))
     return AnalysisContext(symbol='AAPL', name='苹果', market='us', financial_data=rows)

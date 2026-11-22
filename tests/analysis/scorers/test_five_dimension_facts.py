@@ -29,7 +29,11 @@ def row(**values):
                     "reporting_basis": "同源合并财报", "financial_source": "同源财报",
                     "report_currency": "CNY", "amount_currency_verified": True, "cash_flow_period_start": date(2025, 1, 1),
                     "cash_flow_basis": "reported"}
-    return FinancialData.model_validate(defaults | values)
+    item = FinancialData.model_validate(defaults | values)
+    item.field_precision = {key: "source_native" for key in (
+        "net_profit", "revenue", "operating_cash_flow", "total_assets", "total_equity", "gross_margin")
+        if getattr(item, key) is not None}
+    return item
 
 
 def financials(ctx: AnalysisContext) -> list[FinancialData]:

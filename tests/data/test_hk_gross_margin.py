@@ -111,8 +111,8 @@ def test_margin_enters_existing_trend_candidates_without_extra_highlights(mocker
             records.append(subject(code, amount, REPORT_DATE=f"{year}-06-30", START_DATE=f"{year}-01-01"))
     rows = collect(mocker, records)
     trends = build_financial_trends(rows, "00700.HK")
-    assert 1 <= len(trends["highlights"]) <= 3
-    assert any("毛利率" in text and "10.00 个百分点" in text for text in trends["highlights"])
+    assert trends["highlights"] == []
+    assert "口径" in trends["note"]
     old = FinancialData(symbol="00700.HK", fiscal_quarter=date(2026, 6, 30))
     assert old.gross_margin is None and old.gross_margin_basis == ""
 

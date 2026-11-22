@@ -43,7 +43,7 @@ def test_pipeline_collect_healthy_cache_and_breaker(tmp_path, mocker):
                         open=10, high=10.1, low=9.9, close=10, volume=1000)
               for i in range(250)]
     fin = FinancialData(symbol="000001", fiscal_quarter=date(2026, 6, 30),
-                        net_profit=10e8, basic_eps=0.5)
+                        net_profit=10e8, basic_eps=0.5, precision_version=1)
 
     # fail_first=1：首次尝试失败、重试成功——同时覆盖重试路径与健康数据写入缓存
     source = FakeSource({

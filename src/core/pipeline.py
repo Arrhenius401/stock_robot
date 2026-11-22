@@ -756,7 +756,8 @@ class Pipeline:
             data_list = json.loads(raw)
             if (data_type == "financial" and symbol[:1].isalpha() and not symbol.endswith(".HK")
                     and (not isinstance(data_list, list) or not data_list
-                         or any(row.get("_us_financial_version") != 1 for row in data_list))):
+                         or any(row.get("_us_financial_version") != 1 or row.get("precision_version", 0) < 1
+                                for row in data_list))):
                 return None
             results = self._deserialize_cache(data_type, symbol, data_list)
             if not self._is_healthy(data_type, results, symbol):

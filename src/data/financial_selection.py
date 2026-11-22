@@ -50,6 +50,7 @@ def _row_compatible(row: FinancialData, position: Position, name: str) -> bool:
 
 
 def _apply_metadata(row: FinancialData, name: str, other: FinancialData) -> None:
+    row.field_precision[name] = other.field_precision.get(name, "unknown")
     if name == "operating_cash_flow":
         row.cash_flow_basis = other.cash_flow_basis
         row.cash_flow_period_start = other.cash_flow_period_start

@@ -117,7 +117,8 @@ def test_cash_support_uses_period_and_source_evidence():
     row = FinancialData(symbol="000338", fiscal_quarter=date(2026, 9, 30),
         net_profit=10, operating_cash_flow=15, period_start=date(2026, 1, 1),
         cash_flow_period_start=date(2026, 1, 1), period_basis="cumulative", reporting_basis="合并",
-        report_currency="CNY", cash_flow_basis="reported", financial_source="同源")
+        report_currency="CNY", cash_flow_basis="reported", financial_source="同源",
+        field_precision={"net_profit": "source_native", "operating_cash_flow": "source_native"})
     ctx = AnalysisContext(symbol="000338", name="样本", financial_data=[row])
     results = [result("financial", net_profit=10)]
     assert "形成支持" in build_research(ctx, results)["dimensions"][0]["text"]

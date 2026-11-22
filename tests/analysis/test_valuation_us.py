@@ -15,7 +15,8 @@ from data.schemas import (
 def _context(net_profit: float) -> AnalysisContext:
     financials = [
         FinancialData(symbol="LOSS", fiscal_quarter=date(2026, month, 30),
-                      revenue=10, net_profit=net_profit)
+                      revenue=10, net_profit=net_profit,
+                      field_precision={"net_profit": "source_native", "revenue": "source_native"})
         for month in (3, 6, 9, 12)
     ]
     return AnalysisContext(

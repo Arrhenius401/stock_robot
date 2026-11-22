@@ -386,7 +386,7 @@ class TestCacheHealth:
         pipe = self._make_pipeline(tmp_path, mocker)
         # 先写入健康缓存
         fin = FinancialData(symbol="000001", fiscal_quarter=date(2026, 6, 30),
-                            net_profit=10e8, basic_eps=0.5)
+                            net_profit=10e8, basic_eps=0.5, precision_version=1)
         pipe._set_cache("000001", "financial", [fin])
         assert pipe._get_cached("000001", "financial") is not None
         # 手动打开断路器

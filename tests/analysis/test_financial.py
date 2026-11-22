@@ -27,9 +27,20 @@ def make_ctx(**kwargs) -> AnalysisContext:
 
 def known_periods(rows):
     """合成同比用例显式提供口径，不给真实旧缓存猜币种。"""
-    return [row.model_copy(update={"period_start": date(row.fiscal_quarter.year, 1, 1),
+    rows = [row.model_copy(update={"period_start": date(row.fiscal_quarter.year, 1, 1),
                                   "period_basis": "cumulative", "report_currency": "CNY",
                                   "reporting_basis": "测试同源财报"}) for row in rows]
+    from data.ths_financial import attach_positions
+
+    for row in rows:
+        row.financial_source = "测试同源财报"
+        row.field_precision = {field: "source_native" for field in (
+            "revenue", "net_profit", "total_assets", "total_equity", "operating_cash_flow", "gross_margin")
+            if getattr(row, field) is not None}
+        attach_positions(row)
+        for pos in row.field_positions.values():
+            pos.update(accounting="CAS", revision="测试同一重述包")
+    return rows
 
 
 
@@ -90,6 +101,6 @@ class TestFinancialAnalyzer:
             FinancialData(symbol="002714", fiscal_quarter=date(2025, 6, 30), revenue=764.63e8),
         ]
         result = FinancialAnalyzer().analyze(make_ctx(symbol="002714", name="牧原股份", financial_data=known_periods(financials)))
-        assert result.metrics["revenue_growth_yoy"] == pytest.approx(-0.2230)
+        assert result.metrics["revenue_growth_yoy"] == pytest.approx(594.10 / 764.63 - 1)
         assert result.metrics["operating_cash_flow_per_share"] == pytest.approx(-0.39)
         assert result.metrics["operating_cash_flow"] is None

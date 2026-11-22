@@ -163,6 +163,11 @@ def _model(
         cash_flow_period_start=start if ocf is not None else None,
     )
     row._data_source = source
+    row.precision_version = 1
+    row.field_precision = {name: "source_native" for name in (
+        "revenue", "net_profit", "deducted_net_profit", "total_assets", "total_equity",
+        "operating_cash_flow", "operating_cash_flow_per_share", "basic_eps", "roe", "gross_margin")
+        if getattr(row, name) is not None}
     return row
 
 

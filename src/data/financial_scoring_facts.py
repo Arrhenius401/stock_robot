@@ -55,6 +55,10 @@ def us_ttm_roe_fact(ctx: AnalysisContext) -> dict[str, Any]:
         return missing
     latest = rows[-1]
     equity_key = "common_equity" if latest.common_equity is not None else "total_equity"
+    from data.financial_metrics import native_amounts
+
+    if not native_amounts(rows, ("net_profit",)) or not native_amounts([latest], (equity_key,)):
+        return missing
     equity = getattr(latest, equity_key)
     denominator = latest.field_positions.get(equity_key, {})
     currencies = {p.get("currency") for p in [*positions, denominator]}

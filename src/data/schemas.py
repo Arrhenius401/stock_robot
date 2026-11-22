@@ -186,6 +186,10 @@ class FinancialData(BaseModel):
     financial_source: str = ""
     field_sources: dict[str, str] = Field(default_factory=dict)
     field_positions: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # 精度与业务等效位置分离；旧缓存缺证据，不能升级为原生精度。
+    field_precision: dict[str, Literal["source_native", "rounded", "estimated", "unknown"]] = Field(default_factory=dict)
+    reported_metrics: dict[str, float] = Field(default_factory=dict)
+    precision_version: int = 0
     financial_selection_status: Literal["unknown", "complete", "partial"] = "unknown"
     financial_selection_note: str = ""
 

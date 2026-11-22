@@ -5,6 +5,9 @@ import pytest
 @pytest.fixture(autouse=True)
 def _test_defaults(mocker):
     """全局测试默认：新数据源不可用则自动回退到已被 mock 覆盖的旧数据源"""
+    for api in ("abstract", "cash", "debt"):
+        mocker.patch(f"akshare.stock_financial_{api}_new_ths",
+                     side_effect=ConnectionError("mock: use legacy financial"))
     mocker.patch("akshare.stock_zh_a_daily", side_effect=ConnectionError("mock: use fallback"))
     mocker.patch("akshare.stock_financial_debt_ths", side_effect=ConnectionError("mock: use fallback"))
     # 管道测试不访问新增主营页面；适配器测试直接调用原函数并单独替换HTTP。

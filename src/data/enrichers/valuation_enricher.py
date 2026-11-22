@@ -131,8 +131,11 @@ class ValuationEnricher(DataEnricher):
             )
             return ctx
 
-        # 从最近财报计算 TTM（累计 YTD / 单季自适应）
-        ttm_profit, ttm_revenue = _compute_ttm(financials)
+        # 只检查实际参与当前 TTM 的期间，无关旧期缺失不影响当前值。
+        from data.financial_ttm import financial_ttm
+
+        ttm_profit = financial_ttm(financials, "net_profit", ctx.market, require_precision=True)
+        ttm_revenue = financial_ttm(financials, "revenue", ctx.market, require_precision=True)
         if ttm_profit is None or ttm_revenue is None:
             ctx.sufficiency.valuation = DimensionSufficiency(
                 level=SufficiencyLevel.INSUFFICIENT,
@@ -143,7 +146,7 @@ class ValuationEnricher(DataEnricher):
 
         # 最近一期净资产：PB 分母优先普通股东权益（剔除永续债，对齐腾讯实测口径）
         latest_fin = max(financials, key=lambda x: x.fiscal_quarter)
-        ttm_equity = latest_fin.common_equity or latest_fin.total_equity
+        ttm_equity = latest_fin.common_equity if latest_fin.common_equity is not None else latest_fin.total_equity
 
         if ttm_equity is None or ttm_equity <= 0:
             ctx.sufficiency.valuation = DimensionSufficiency(
@@ -154,6 +157,11 @@ class ValuationEnricher(DataEnricher):
             return ctx
 
         # 获取总股本（实测锚定优先，TTM 口径复用去累积逻辑）
+        if latest_fin.field_precision.get("common_equity" if latest_fin.common_equity is not None else "total_equity") != "source_native":
+            ctx.enriched_valuation = None
+            ctx.sufficiency.valuation = DimensionSufficiency(
+                level=SufficiencyLevel.INSUFFICIENT, reason="财务金额精度不足，不派生估值", score_weight=0)
+            return ctx
         total_shares = self._get_total_shares(ctx, ttm_profit, ttm_equity)
 
         # 逐日推导估值
