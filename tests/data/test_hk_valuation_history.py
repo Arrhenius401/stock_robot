@@ -169,8 +169,8 @@ def test_report_discloses_history_and_does_not_call_it_financial_derivation():
     ctx = ValuationEnricher().enrich(history_context())
     result = ValuationAnalyzer().analyze(ctx)
     report = build_report(ctx.symbol, ctx.name, [result], {}, ctx, no_llm=True)
-    assert "近一年历史" in report and "有效样本 130" in report
-    assert "参照值" in report and "百度港股估值" in report
+    assert "130 个有效样本" in report and "2025-10-01" in report
+    assert "PE 分位" in report and "百度实测曲线" in report
     assert "估值序列由行情和财务派生计算" not in report
 
 

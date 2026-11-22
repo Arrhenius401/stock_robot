@@ -73,12 +73,22 @@ def make_financial_data(n: int) -> list[FinancialData]:
         FinancialData(
             symbol="000001",
             fiscal_quarter=date(2025, 12 - i * 3, 1) if (12 - i * 3) > 0 else date(2025, 12, 1),
-            revenue=100e8, net_profit=10e8, deducted_net_profit=9e8,
+            revenue=max(1, 4 - i) * 100e8, net_profit=max(1, 4 - i) * 10e8, deducted_net_profit=9e8,
             total_assets=500e8, total_equity=50e8, operating_cash_flow=8e8,
             roe=0.12, gross_margin=0.45,
+            field_precision={field: "source_native" for field in
+                             ("revenue", "net_profit", "total_equity", "common_equity")},
         )
         for i in range(n)
     ]
+
+
+def native_financials(rows: list[FinancialData]) -> list[FinancialData]:
+    """本文件合成金额为原始数值；显式提供复算所需精度证据。"""
+    for row in rows:
+        row.field_precision.update({field: "source_native" for field in
+                                    ("revenue", "net_profit", "total_equity", "common_equity")})
+    return rows
 
 
 class TestFinancialEnricher:
@@ -133,7 +143,7 @@ class TestValuationEnricher:
         prices = make_price_series(29)
         financials = make_financial_data(4)
         ctx = AnalysisContext(symbol="000001", name="测试",
-                              price_data=prices, financial_data=financials)
+                              price_data=prices, financial_data=native_financials(financials))
         ctx = PriceEnricher().enrich(ctx)
         ctx = FinancialEnricher().enrich(ctx)
         ctx = ValuationEnricher().enrich(ctx)
@@ -153,7 +163,7 @@ class TestValuationEnricher:
         prices = make_price_series(200, close=10.0)
         financials = make_financial_data(4)
         ctx = AnalysisContext(symbol="000001", name="测试",
-                              price_data=prices, financial_data=financials)
+                              price_data=prices, financial_data=native_financials(financials))
         # 模拟 valuation_data（当前单时点估值，用于总股本回退逻辑）
         ctx.valuation_data = ValuationData(symbol="000001", date=datetime.now().astimezone().astimezone().date(),
                                            pe_ttm=7.5, pb=0.85, ps_ttm=1.2)
@@ -171,7 +181,7 @@ class TestValuationEnricher:
         for item in financials:
             item.net_profit = -1e8
         financials[-1].total_equity = 100e8
-        ctx = AnalysisContext(symbol="002714", name="牧原股份", price_data=prices, financial_data=financials,
+        ctx = AnalysisContext(symbol="002714", name="牧原股份", price_data=prices, financial_data=native_financials(financials),
                               valuation_data=ValuationData(symbol="002714", date=datetime.now().astimezone().date(),
                                                            pe_ttm=-226.48, pb=3.21))
         ctx = PriceEnricher().enrich(ctx)
@@ -196,7 +206,7 @@ class TestValuationEnricher:
             FinancialData(symbol="002714", fiscal_quarter=date(2026, 6, 30), revenue=594.10e8,
                           net_profit=-60.78e8, total_equity=100e8),
         ]
-        ctx = AnalysisContext(symbol="002714", name="牧原股份", price_data=prices, financial_data=financials,
+        ctx = AnalysisContext(symbol="002714", name="牧原股份", price_data=prices, financial_data=native_financials(financials),
                               valuation_data=ValuationData(symbol="002714", date=datetime.now().astimezone().date(),
                                                            pe_ttm=-226.48, pb=3.21))
         ctx = PriceEnricher().enrich(ctx)
@@ -281,15 +291,15 @@ class TestValuationAnchoring:
         """实测 PE 存在时反推总股本锚点，历史序列用锚点重算"""
         prices = make_price_series(200, close=10.0)
         financials = make_financial_data(4)
-        # 使 TTM 净利润 = 40 亿：最近4期各 10 亿（make_financial_data 结构见文件头部）
+        # 使全年累计净利润 = 40 亿，各期按累计月份递增。
         for f in financials:
-            f.net_profit = 10e8
+            f.net_profit = f.fiscal_quarter.month // 3 * 10e8
             f.total_equity = 200e8
         # 锚定路径只做离线估算偏差告警，不应触发 get_total_shares 网络链
         get_total_shares = mocker.patch(
             "data.enrichers.valuation_enricher.get_total_shares_result")
         ctx = AnalysisContext(symbol="000001", name="测试",
-                              price_data=prices, financial_data=financials)
+                              price_data=prices, financial_data=native_financials(financials))
         ctx.valuation_data = ValuationData(
             symbol="000001", date=datetime.now().astimezone().date(),
             pe_ttm=8.0, pb=1.6, ps_ttm=None)
@@ -311,10 +321,10 @@ class TestValuationAnchoring:
         prices = make_price_series(200, close=10.0)
         financials = make_financial_data(4)
         for f in financials:
-            f.net_profit = 10e8
+            f.net_profit = f.fiscal_quarter.month // 3 * 10e8
             f.total_equity = 200e8
         ctx = AnalysisContext(symbol="000001", name="测试",
-                              price_data=prices, financial_data=financials)
+                              price_data=prices, financial_data=native_financials(financials))
         # valuation_data 为空（快照失败）
         mocker.patch("data.enrichers.valuation_enricher.get_total_shares_result",
                      return_value=SimpleNamespace(value=32e8))
@@ -346,7 +356,7 @@ class TestTTMCumulative:
                           revenue=390e8, net_profit=130e8, total_equity=320e8),
         ]
         ctx = AnalysisContext(symbol="000001", name="测试",
-                              price_data=prices, financial_data=financials)
+                              price_data=prices, financial_data=native_financials(financials))
         ctx.valuation_data = ValuationData(
             symbol="000001", date=datetime.now().astimezone().date(),
             pe_ttm=8.0, pb=None, ps_ttm=None)
@@ -375,7 +385,7 @@ class TestTTMCumulative:
                           revenue=390e8, net_profit=130e8, total_equity=320e8),
         ]
         ctx = AnalysisContext(symbol="000001", name="测试",
-                              price_data=prices, financial_data=financials)
+                              price_data=prices, financial_data=native_financials(financials))
         # 无 valuation_data（快照失败）→ 三级链估算股本 184 亿股
         mocker.patch("data.enrichers.valuation_enricher.get_total_shares_result",
                      return_value=SimpleNamespace(value=184e8))
@@ -411,11 +421,11 @@ class TestTTMCumulative:
         prices = make_price_series(200, close=10.0)
         financials = make_financial_data(4)
         for f in financials:
-            f.net_profit = 10e8
+            f.net_profit = f.fiscal_quarter.month // 3 * 10e8
             f.total_equity = 5482.14e8
             f.common_equity = 4682.14e8
         ctx = AnalysisContext(symbol="000001", name="测试",
-                              price_data=prices, financial_data=financials)
+                              price_data=prices, financial_data=native_financials(financials))
         ctx.valuation_data = ValuationData(
             symbol="000001", date=datetime.now().astimezone().date(),
             pe_ttm=8.0, pb=None, ps_ttm=None)
@@ -432,11 +442,11 @@ class TestTTMCumulative:
         prices = make_price_series(200, close=10.0)
         financials = make_financial_data(4)
         for f in financials:
-            f.net_profit = 10e8
+            f.net_profit = f.fiscal_quarter.month // 3 * 10e8
             f.total_equity = 5482.14e8
             f.common_equity = None
         ctx = AnalysisContext(symbol="000001", name="测试",
-                              price_data=prices, financial_data=financials)
+                              price_data=prices, financial_data=native_financials(financials))
         ctx.valuation_data = ValuationData(
             symbol="000001", date=datetime.now().astimezone().date(),
             pe_ttm=8.0, pb=None, ps_ttm=None)
