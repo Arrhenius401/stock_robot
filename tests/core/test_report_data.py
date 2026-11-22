@@ -264,6 +264,8 @@ def test_loss_pb_history_threshold(count, level, monkeypatch):
                     revenue=100,
                     net_profit=-10,
                     total_equity=1000,
+                        field_precision={"revenue": "source_native", "net_profit": "source_native",
+                                         "total_equity": "source_native"},
                 )
                 for month in (3, 6, 9, 12)
             ],

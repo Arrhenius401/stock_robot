@@ -16,7 +16,7 @@ from data.schemas import FinancialData
 NUMERIC_FIELDS = frozenset({
     "revenue", "net_profit", "deducted_net_profit", "total_assets", "total_equity",
     "common_equity", "operating_cash_flow", "operating_cash_flow_per_share",
-    "roe", "gross_margin", "basic_eps", "capital_expenditure", "free_cash_flow",
+    "roe", "gross_margin", "net_margin", "basic_eps", "capital_expenditure", "free_cash_flow",
 })
 
 
@@ -50,11 +50,14 @@ def _row_compatible(row: FinancialData, position: Position, name: str) -> bool:
 
 
 def _apply_metadata(row: FinancialData, name: str, other: FinancialData) -> None:
+    row.field_precision[name] = other.field_precision.get(name, "unknown")
     if name == "operating_cash_flow":
         row.cash_flow_basis = other.cash_flow_basis
         row.cash_flow_period_start = other.cash_flow_period_start
     elif name == "gross_margin":
         row.gross_margin_basis = other.gross_margin_basis
+    elif name == "net_margin":
+        row.net_margin_basis = other.net_margin_basis
 
 
 def _as_financial(package: SourcePackage[FinancialData]) -> FinancialPackage:

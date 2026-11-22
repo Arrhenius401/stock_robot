@@ -63,6 +63,8 @@ def annotate_selection(selection: FinancialSelection) -> list[FinancialData]:
     if providers:
         note = "按逐期等效口径补位；" + note
     for row in package.rows:
+        # 已重新采集并评估；未知精度仍不升级，但不应因此永久跳过缓存。
+        row.precision_version = 1
         row.financial_source = package.source
         row.field_sources = {
             name: selection.supplements.get(row.fiscal_quarter, {}).get(name, package.source)

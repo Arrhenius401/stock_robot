@@ -39,7 +39,8 @@ def test_ths_domestic_report_has_cny_contract_without_extra_request(mocker):
     assert all(row.report_currency == "CNY" for row in rows)
     assert [row.revenue for row in rows] == [100, 120]
     assert [row.net_profit for row in rows] == [10, 15]
-    assert build_financial_trends(rows, "688326")["highlights"]
+    # 同币种不等于已知修订可比；旧接口未给出修订证据，不生成精确同比。
+    assert not build_financial_trends(rows, "688326")["latest_yoy"]
     summary.assert_called_once_with(symbol="688326")
     debt.assert_called_once_with(symbol="688326")
     network.assert_not_called()

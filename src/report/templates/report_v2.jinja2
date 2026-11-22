@@ -26,8 +26,7 @@
 | 采集区间价格位置 | {{ price_position }} |
 | 行情区间 | {{ price_start or "未记录" }} 至 {{ price_end or "未记录" }} |
 {% if current_price %}
-
-当前价格来源：{{ current_price.source }}
+| 行情来源 | {{ current_price.source }} |
 {% endif %}
 
 ---
@@ -72,41 +71,30 @@
 {% endif %}
 {% if r.status != "ok" %}
 > {{ valuation_display.summary if dim == "valuation" and valuation_display else r.summary }}（保留可用指标快照）
+{{ "\n" }}
 {% endif %}
 {% if dim == "industry" and r.industry_note %}
 > {{ r.industry_note }}
 {% endif %}
 {% if dim == "valuation" and valuation_display %}
-> {{ valuation_display.cutoff }}
+⁶ {{ valuation_display.cutoff.split("；")[0] }}
 
-{{ valuation_display.metrics | md_table }}
-{% if valuation_display.details %}
-
-{% for item in valuation_display.details %}
-- {{ item | plain_text }}
-{% endfor %}
-{% endif %}
+{{ table_views[dim].metrics | md_table }}
 {% else %}
-{{ r.metrics | md_table }}
+{{ table_views[dim].metrics | md_table }}
 {% endif %}
-{% if dim == "financial" %}
-{% for key in ["amount_basis", "gross_margin_basis"] %}
-{% if r.metrics.get(key) %}
-> {{ key | metric_name }}：{{ r.metrics[key] | plain_text }}
-{% endif %}
+{% for note in table_views[dim].notes %}
+
+{{ note | plain_text }}
 {% endfor %}
-{% endif %}
 {% if r.metrics.get("operating_trends") %}
+
 **经营趋势：**
+
 {% for trend in r.metrics["operating_trends"] %}
 - {{ trend }}
 {% endfor %}
 {% endif %}
-{% for note in r.metrics.get("valuation_notes", []) %}
-{% if not (note == "PS(TTM)：暂无数据" and "ps_ttm" in r.metrics and r.metrics.get("ps_ttm") is none) %}
-- {{ note }}
-{% endif %}
-{% endfor %}
 {% if r.metrics.get("headlines") %}
 {% for headline in r.metrics["headlines"][:stock_news_display_limit] %}
 - {{ headline }}
@@ -131,9 +119,12 @@
 > 不适用：港股不套用 A 股综合评分或交易信号；行业对比使用恒生 HSICS 口径。
 {% else %}
 {% if five_dimension %}
-> 计分口径：{{ scoring_method }}。财务/技术/估值/行业/舆情权重为30%/20%/25%/20%/5%。{% if profile.sentiment_policy == "not_collected" %}美股舆情本期未计分，显示 N/A，权重由其余有效维度归一。{% else %}舆情列为综合参与分（10−原风险分）。{% endif %}维度内缺失子项按有效子项原相对权重折算为10分制；缺失项目不记零分，其余项目按原比例折算；仅有舆情数据时不输出综合分。风险标签仅作提示，不额外扣分。
+{{ score_rows | md_table({"维度": "label", "综合参与分": "score", "配置权重¹⁴": "weight", "充足状态": "sufficiency"}) }}
 
-{{ score_rows | md_table({"维度": "label", "综合参与分": "score", "权重": "weight", "充足状态": "sufficiency"}) }}
+¹⁴ 缺失项不记零分，有效权重重新分配；风险标签不额外扣分。
+{% if profile.sentiment_policy == "not_collected" %}
+美股舆情本期不计分。
+{% endif %}
 {% else %}
 {{ score_rows | md_table({"维度": "label", "得分": "score", "权重": "weight", "充足状态": "sufficiency"}) }}
 {% endif %}
@@ -196,7 +187,7 @@
 {{ "计分维度覆盖" if extra_analysis_enabled else "数据覆盖" }}：{{ data_quality.coverage }}%。{{ data_quality.coverage_basis or "不表示字段完整度。" }}
 
 {% if data_quality.limitations %}
-**数据限制：**
+**本次数据限制：**
 
 {% for item in data_quality.limitations %}
 - {{ item.dimension | plain_text }} · {{ item.label | plain_text }}：{{ item.value | plain_text }}

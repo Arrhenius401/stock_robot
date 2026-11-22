@@ -86,7 +86,8 @@ def test_ths_reported_cashflow_and_gross_margin_basis_reach_scorer(mocker):
     assert latest.cash_flow_basis == "reported"
     assert latest.cash_flow_period_start == date(2026, 1, 1)
     assert latest.gross_margin_basis == GROSS_MARGIN_BASIS
-    assert cashflow_compatible(latest)
+    assert latest.field_precision["operating_cash_flow"] == "rounded"
+    assert not cashflow_compatible(latest)
     assert len(gross_margin_periods(rows)) == 4
 
     ctx = _context(rows)
@@ -94,8 +95,8 @@ def test_ths_reported_cashflow_and_gross_margin_basis_reach_scorer(mocker):
     score, detail, _ = GeneralScorer(config, {}).score_financial(ctx)
     assert score is not None
     assert "经营现金流/净利润" in detail and "毛利率稳定性" in detail
-    assert "直接披露" in detail and "reported" not in detail
-    assert FinancialAnalyzer().analyze(ctx, config).status == "ok"
+    assert "reported" not in detail
+    assert FinancialAnalyzer().analyze(ctx, config).status == "partial"
 
 
 def test_cashflow_fetch_failure_keeps_estimated_value_unscored(mocker):
@@ -177,5 +178,5 @@ def test_complete_evidence_allows_core_signal_gate(mocker):
         AnalysisResult(dimension="valuation", status="ok", score=7, summary="估值"),
     ]
     quality = build_data_quality(ctx, results)
-    assert financial.status == "ok"
-    assert quality["signal_allowed"]
+    assert financial.status == "partial"
+    assert not quality["signal_allowed"]

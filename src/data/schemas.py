@@ -160,6 +160,8 @@ class FinancialData(BaseModel):
     revenue: float | None = None
     net_profit: float | None = None
     deducted_net_profit: float | None = None  # 扣非净利润
+    net_margin: float | None = None  # 源披露净利率
+    net_margin_basis: str = ""  # 空值表示旧缓存尚未核实此字段
     total_assets: float | None = None
     total_equity: float | None = None
     common_equity: float | None = None  # 普通股东权益（剔除永续债/优先股），PB 口径对齐市场惯例
@@ -186,6 +188,10 @@ class FinancialData(BaseModel):
     financial_source: str = ""
     field_sources: dict[str, str] = Field(default_factory=dict)
     field_positions: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # 精度与业务等效位置分离；旧缓存缺证据，不能升级为原生精度。
+    field_precision: dict[str, Literal["source_native", "rounded", "estimated", "unknown"]] = Field(default_factory=dict)
+    reported_metrics: dict[str, float] = Field(default_factory=dict)
+    precision_version: int = 0
     financial_selection_status: Literal["unknown", "complete", "partial"] = "unknown"
     financial_selection_note: str = ""
 

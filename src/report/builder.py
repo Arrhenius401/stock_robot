@@ -14,7 +14,6 @@ from report.formatter import (
     format_hk_news_markdown,
     format_metric_value,
     format_metrics,
-    format_sentiment_risk_markdown,
     metric_display_name,
 )
 from report.market_profile import MarketProfile, profile_for, profile_for_label
@@ -168,12 +167,15 @@ class ReportBuilder:
         self._env.filters["compact_score_detail"] = compact_score_detail
         self._env.filters["quality_table"] = _quality_table
         self._env.filters["hk_news_markdown"] = format_hk_news_markdown
-        self._env.filters["sentiment_risk_markdown"] = format_sentiment_risk_markdown
+        from report.table_notes import compact_sentiment
+
+        self._env.filters["sentiment_risk_markdown"] = compact_sentiment
         from report.formatter import format_news_facts_markdown
 
         self._env.globals["stock_news_display_limit"] = STOCK_NEWS_DISPLAY_LIMIT
         self._env.filters["news_facts_markdown"] = format_news_facts_markdown
-        self._env.filters["peer_comparison_markdown"] = format_peer_comparison_markdown
+        self._env.filters["peer_comparison_markdown"] = (
+            lambda comparison, method=None: format_peer_comparison_markdown(comparison, method, compact=True))
         self._env.filters["metric_value"] = lambda value, key: format_metric_value(key, value)
         self._env.filters["metric_name"] = metric_display_name
         # 模型仍按原提示词输出编号段落，报告内统一降为第四节的子标题。
@@ -208,6 +210,25 @@ class ReportBuilder:
             results_map["financial"] = financial.model_copy(update={"metrics": metrics})
         if data_quality and "summary_rows" not in data_quality:
             data_quality = {**data_quality, **compact_quality(data_quality)}
+        from report.table_notes import (
+            compact_valuation_notes,
+            prepare_table,
+            valuation_window_notes,
+        )
+
+        tables = {dim: prepare_table(dim, result.metrics) for dim, result in results_map.items()}
+        if valuation_display and "valuation" in results_map:
+            view = prepare_table("valuation", valuation_display["metrics"])
+            view["notes"] = compact_valuation_notes([
+                *valuation_display.get("details", []),
+                *results_map["valuation"].metrics.get("valuation_notes", []),
+                *view["notes"],
+                *valuation_window_notes(valuation_display.get("cutoff", "")),
+            ])
+            if any("⁷" in key for key in view["metrics"]) and not any(
+                    note.startswith("⁷") for note in view["notes"]):
+                view["notes"].append("⁷ 分位表示历史数值位置，不直接代表高低估。")
+            tables["valuation"] = view
         template = self._env.get_template("report_v2.jinja2")
         return template.render(
             extra_analysis_enabled=extra_analysis_enabled,
@@ -225,6 +246,7 @@ class ReportBuilder:
             year_low=year_low,
             price_position=price_position,
             results_map=results_map,
+            table_views=tables,
             score_rows=score_rows or [],
             commentary=commentary,
             base_score=base_score,

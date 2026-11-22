@@ -3,7 +3,12 @@ import itertools
 from datetime import date
 from typing import Any
 
-from data.schemas import FinancialData
+from data.financial_metrics import (
+    METRIC_FIELDS,
+    comparable_fields,
+    resolve_financial_metric,
+)
+from data.schemas import AnalysisContext, FinancialData
 from report.formatter import format_metric_value
 from utils.numbers import is_finite_number
 
@@ -22,6 +27,8 @@ def _previous_year(day: date) -> date | None:
 
 
 def _same_period(before: FinancialData, after: FinancialData, field: str) -> bool:
+    if not comparable_fields(before, after, field):
+        return False
     if (before.period_basis == "unknown" or before.period_basis != after.period_basis
             or not before.reporting_basis or before.reporting_basis != after.reporting_basis
             or before.period_start is None or after.period_start is None
@@ -48,15 +55,6 @@ def _amount(field: str, value: float) -> str:
     return str(format_metric_value("net_profit" if field == "deducted_net_profit" else field, value))
 
 
-def _change(before: float, after: float) -> str:
-    if after == before:
-        return "同比持平"
-    rate = (after - before) / before * 100
-    if not is_finite_number(rate):
-        return "同比变化率超出有效数值范围"
-    return f"同比{'增长' if after > before else '下降'}{abs(rate):.2f}%"
-
-
 def build_financial_trends(records: list[FinancialData], symbol: str) -> dict[str, Any]:
     """使用实际期间和有限数；冲突重复期不任意选值，缺币种时不作金额比较。"""
     by_date: dict[date, FinancialData] = {}
@@ -75,6 +73,16 @@ def build_financial_trends(records: list[FinancialData], symbol: str) -> dict[st
     latest = by_date[newest] if newest not in conflicts else None
     candidates: list[tuple[int, int, frozenset[str], str]] = []
     latest_yoy: dict[str, float] = {}
+    metric_context = AnalysisContext(symbol=symbol, name=symbol, financial_data=rows)
+    resolved = {(row.fiscal_quarter, field): resolve_financial_metric(metric_context, metric, row.fiscal_quarter)
+                for metric, field in METRIC_FIELDS.items() for row in rows}
+    basis = []
+    for metric, field in METRIC_FIELDS.items():
+        result = resolved.get((newest, field))
+        if result is not None and result.value is not None:
+            latest_yoy[metric] = result.value.value
+            basis.append(f"{_FIELDS[field]}同比：{result.value.source}·"
+                         + ("源披露" if result.value.method == "reported" else "精确金额复算"))
     note: list[str] = []
     if any(row.period_basis == "unknown" or not row.reporting_basis or row.period_start is None for row in rows):
         note.append("部分报告期间口径未记录，不用于趋势比较")
@@ -82,8 +90,14 @@ def build_financial_trends(records: list[FinancialData], symbol: str) -> dict[st
         note.append("币种未记录的期间不作金额趋势比较；不换汇")
     if any(row.cash_flow_basis == "estimated" for row in rows):
         note.append("经营现金流含推算值，未纳入连续趋势")
+    if any(row.field_precision.get(field, "unknown") != "source_native"
+           for row in rows for field in ("revenue", "net_profit") if getattr(row, field) is not None):
+        note.append("部分金额为舍入、估算或未知精度，不用于精确复算")
     if conflicts:
         note.append("重复报告期数值或口径冲突，已排除")
+    if any((result := resolved.get((newest, field))) is not None and result.value is None
+           for field in METRIC_FIELDS.values()):
+        note.append("部分同比缺少有效披露值或精确可比金额/修订证据，未生成")
     if latest is None:
         return {"highlights": [], "note": "；".join(note), "latest_yoy": {}}
     previous_day = _previous_year(newest)
@@ -92,31 +106,65 @@ def build_financial_trends(records: list[FinancialData], symbol: str) -> dict[st
         previous = None
     previous_label = previous.fiscal_quarter.isoformat() if previous is not None else ""
 
+    def change(field: str, values: tuple[float, float]) -> str:
+        result = resolved.get((newest, field))
+        if result is not None and result.value is not None:
+            value = result.value.value * 100
+            return f"同比{'增长' if value >= 0 else '下降'}{abs(value):.2f}%"
+        return "金额增加" if values[1] > values[0] else "金额下降" if values[1] < values[0] else "金额持平"
+
     def pair(field: str) -> tuple[float, float] | None:
         if previous is None or not _same_period(previous, latest, field):
             return None
         return getattr(previous, field), getattr(latest, field)
 
+    # 披露同比不依赖历史金额完整；所有增速序列只消费同一个入口。
+    for order, field in enumerate(METRIC_FIELDS.values()):
+        current = resolved.get((newest, field))
+        if current is None or current.value is None:
+            continue
+        fact = current.value
+        rate = fact.value * 100
+        candidates.append((4, order, frozenset({field}),
+            (f"{fact.period_start} 至 {fact.period_end}：{_FIELDS[field]}同比"
+             f"{'增长' if rate >= 0 else '下降'}{abs(rate):.2f}%。")))
+        rates = []
+        for row in rows:
+            result = resolved.get((row.fiscal_quarter, field))
+            if result is None or result.value is None:
+                continue
+            other = result.value
+            if (other.source != fact.source or any(
+                    getattr(other.position, key) != getattr(fact.position, key)
+                    for key in ("definition", "unit", "currency", "basis", "scope", "accounting"))):
+                continue
+            rates.append((row.fiscal_quarter, other.value * 100))
+        recent = rates[-3:]
+        gaps = [(b.year - a.year) * 12 + b.month - a.month for (a, _), (b, _) in itertools.pairwise(recent)]
+        deltas = [b - a for (_, a), (_, b) in itertools.pairwise(recent)]
+        if (len(recent) == 3 and recent[-1][0] == newest and gaps[0] == gaps[1] and gaps[0] in (3, 6)
+                and (all(d > 0 for d in deltas) or all(d < 0 for d in deltas))):
+            direction = "提高" if deltas[0] > 0 else "下降"
+            evidence = " → ".join(f"{day} {value:.2f}%" for day, value in recent)
+            kind = "累计" if latest.period_basis == "cumulative" else "单期"
+            candidates.append((2, order - 10, frozenset({field}),
+                f"{kind}{_FIELDS[field]}同比增速连续{direction}（{evidence}）。"))
+
     # 两期指标背离直接描述事实，不编造成本、需求或现金回收原因。
-    rev, profit = pair("revenue"), pair("net_profit")
-    if rev and profit and rev[0] > 0 and profit[0] > 0 and profit[1] >= 0 and rev[1] > rev[0] and profit[1] < profit[0]:
+    rev_rate, profit_rate = latest_yoy.get("revenue_growth_yoy"), latest_yoy.get("profit_growth_yoy")
+    if rev_rate is not None and profit_rate is not None and rev_rate > 0 > profit_rate:
         candidates.append((1, -1, frozenset({"revenue", "net_profit"}), (f"{newest} 较 {previous_label}：营收增长而净利润下降"
-                           f"（营收{_change(*rev)}，净利润{_change(*profit)}），收入与利润变化背离。")))
-    cf = pair("operating_cash_flow")
-    if profit and cf and profit[1] > profit[0] > 0 and cf[1] < cf[0]:
-        candidates.append((1, 0, frozenset({"net_profit", "operating_cash_flow"}), (f"{newest} 较 {previous_label}：净利润增长，"
-                           f"经营现金流由 {_amount('operating_cash_flow', cf[0])} 降至 "
-                           f"{_amount('operating_cash_flow', cf[1])}，两者变化背离。")))
+                           f"（营收同比增长{rev_rate*100:.2f}%，净利润同比下降{abs(profit_rate)*100:.2f}%），收入与利润变化背离。")))
+    cash_rate = latest_yoy.get("cash_flow_growth_yoy")
+    if profit_rate is not None and cash_rate is not None and profit_rate > 0 > cash_rate:
+        candidates.append((1, 0, frozenset({"net_profit", "operating_cash_flow"}),
+            f"{newest}：净利润同比增长{profit_rate*100:.2f}%，经营现金流同比下降{abs(cash_rate)*100:.2f}%，两者变化背离。"))
 
     for order, (field, label) in enumerate(_FIELDS.items()):
         values = pair(field)
         if values is None:
             continue
         before, after = values
-        if field in {"revenue", "net_profit"} and before > 0 and after >= 0:
-            growth = (after - before) / before
-            if is_finite_number(growth) and is_finite_number(growth * 100):
-                latest_yoy["revenue_growth_yoy" if field == "revenue" else "profit_growth_yoy"] = round(growth, 4)
         dates = f"{newest} 较 {previous_label}"
         if field in {"net_profit", "deducted_net_profit"} and (before <= 0 or after < 0):
             state = ("扭亏为盈" if before < 0 < after else "由盈转亏" if before > 0 > after
@@ -149,36 +197,11 @@ def build_financial_trends(records: list[FinancialData], symbol: str) -> dict[st
             candidates.append((4, order, frozenset({field}), (f"{dates}：{label}由 {_amount(field, before)} 至 "
                                f"{_amount(field, after)}，同比{description}。")))
         elif before > 0:
-            candidates.append((4, order, frozenset({field}), (f"{dates}：{label}{_change(before, after)}"
+            candidates.append((4, order, frozenset({field}), (f"{dates}：{label}{change(field, values)}"
                                f"（{_amount(field, before)} → {_amount(field, after)}）。")))
         else:
             candidates.append((4, order, frozenset({field}), (f"{dates}：{label}由 {_amount(field, before)} 至 "
                                f"{_amount(field, after)}；非正基数，不计算普通同比增长率。")))
-
-        # 最近各披露期间的同比增速；不把累计值相减为未经披露的单季度。
-        if field not in {"revenue", "net_profit", "deducted_net_profit"}:
-            continue
-        rates: list[tuple[date, float]] = []
-        for row in rows:
-            if (row.reporting_basis != latest.reporting_basis or row.report_currency != latest.report_currency
-                    or row.period_basis != latest.period_basis):
-                continue
-            previous_day = _previous_year(row.fiscal_quarter)
-            prev = by_date.get(previous_day) if previous_day is not None else None
-            if (prev is not None and prev.fiscal_quarter not in conflicts and _same_period(prev, row, field)
-                    and getattr(prev, field) > 0 and getattr(row, field) >= 0):
-                rate = (getattr(row, field) / getattr(prev, field) - 1) * 100
-                if is_finite_number(rate):
-                    rates.append((row.fiscal_quarter, rate))
-        recent = rates[-3:]
-        gaps = [(b.year - a.year) * 12 + b.month - a.month for (a, _), (b, _) in itertools.pairwise(recent)]
-        deltas = [b - a for (_, a), (_, b) in itertools.pairwise(recent)]
-        if (len(recent) == 3 and recent[-1][0] == newest and gaps[0] == gaps[1] and gaps[0] in (3, 6)
-                and (all(d > 0 for d in deltas) or all(d < 0 for d in deltas))):
-            direction = "提高" if deltas[0] > 0 else "下降"
-            evidence = " → ".join(f"{day} {rate:.2f}%" for day, rate in recent)
-            kind = "累计" if latest.period_basis == "cumulative" else "单期"
-            candidates.append((2, order - 10, frozenset({field}), f"{kind}{label}同比增速连续{direction}（{evidence}）。"))
 
     highlights: list[str] = []
     covered: set[str] = set()
@@ -191,4 +214,5 @@ def build_financial_trends(records: list[FinancialData], symbol: str) -> dict[st
             break
     if not highlights:
         note.append("同口径同期样本不足，暂不判断经营趋势")
-    return {"highlights": highlights, "note": "；".join(dict.fromkeys(note)), "latest_yoy": latest_yoy}
+    return {"highlights": highlights, "note": "；".join(dict.fromkeys(note)), "latest_yoy": latest_yoy,
+            "yoy_basis": "；".join(basis)}

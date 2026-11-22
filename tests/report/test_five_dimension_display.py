@@ -34,8 +34,8 @@ def test_new_markdown_shows_positive_scores_and_original_sentiment_risk(market, 
         score_rows=[{"label": "行业对比", "score": 7.2, "weight": "20%", "detail": "完整年度与最新一期合成"},
                     {"label": "舆情风险", "score": None if risk is None else 10-risk,
                      "weight": "5%", "direction": "risk", "raw_score": risk}])
-    for value in ["five-dimension-v1", "综合参与分", "越高风险越大", "来源甲", "2026", "https://example.com/news",
-                  "12.50%", "完整年度与最新一期合成", "缺失项目不记零分"]:
+    for value in ["综合参与分", "越高风险越大", "来源甲", "2026", "https://example.com/news",
+                  "12.50%", "完整年度与最新一期合成", "缺失项不记零分"]:
         assert value in markdown
     assert "行业对比不计分" not in markdown
     assert "港股不套用 A 股综合评分" not in markdown
@@ -46,8 +46,8 @@ def test_new_markdown_shows_positive_scores_and_original_sentiment_risk(market, 
     if risk is None:
         assert "模型标注超时" in markdown
     else:
-        assert f"**舆情原风险分：** {risk:.1f}/10" in markdown
-        assert f"**综合参与分：** {10-risk:.1f}/10" in markdown
+        assert f"| 舆情风险分¹³ | {risk:.1f}/10 |" in markdown
+        assert f"| 综合参与分 | {10-risk:.1f}/10 |" in markdown
 
 
 def test_new_web_score_cards_and_legacy_semantics(tmp_path):

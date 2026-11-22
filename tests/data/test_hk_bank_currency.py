@@ -81,7 +81,8 @@ def test_explicit_statement_currency_is_not_replaced_by_disclosure_currency(mock
     rows = replay(mocker, "00005", explicit_currency="CNY", directory_currency="USD")
     assert all(row.report_currency == "CNY" and row.amount_currency_verified for row in rows)
     assert all(row.disclosure_currency == "USD" for row in rows)
-    assert build_financial_trends(rows, "00005.HK")["latest_yoy"]
+    # 显式币种证据不能替代跨期修订和指标定义证据。
+    assert not build_financial_trends(rows, "00005.HK")["latest_yoy"]
     restored = FinancialData.model_validate_json(rows[-1].model_dump_json())
     assert restored.report_currency == "CNY" and restored.amount_currency_verified
 

@@ -39,6 +39,10 @@ def debt_ratio(row: FinancialData) -> float | None:
 
 def cashflow_compatible(row: FinancialData) -> bool:
     """明确的同源期间与币种是最低证据；逐字段元信息存在时也须一致。"""
+    from data.financial_metrics import native_amounts
+
+    if not native_amounts([row], ("net_profit", "operating_cash_flow")):
+        return False
     if (row.period_start is None or row.period_start > row.fiscal_quarter
             or row.period_basis == "unknown" or not row.reporting_basis or not row.report_currency
             or row.cash_flow_period_start != row.period_start or row.cash_flow_basis == "unknown"

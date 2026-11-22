@@ -1,0 +1,188 @@
+{
+  "summary": [
+    {
+      "report_date": "2026-09-30",
+      "metric_name": "index_per_operating_cash_flow_net",
+      "value": "0.4789",
+      "yoy": ""
+    },
+    {
+      "report_date": "2026-09-30",
+      "metric_name": "deduct_net_profit_yoy_growth_ratio",
+      "value": "-18.9592",
+      "yoy": ""
+    },
+    {
+      "report_date": "2026-09-30",
+      "metric_name": "parent_holder_net_profit",
+      "value": "386691923.6100",
+      "yoy": "2.70541798"
+    },
+    {
+      "report_date": "2026-09-30",
+      "metric_name": "basic_eps",
+      "value": "1.0500",
+      "yoy": "2.62068966"
+    },
+    {
+      "report_date": "2026-09-30",
+      "metric_name": "sale_gross_margin",
+      "value": "54.0213",
+      "yoy": "-0.09701430"
+    },
+    {
+      "report_date": "2026-09-30",
+      "metric_name": "calculate_operating_income_total_yoy_growth_ratio",
+      "value": "55.71121200",
+      "yoy": ""
+    },
+    {
+      "report_date": "2026-09-30",
+      "metric_name": "operating_income_total",
+      "value": "1817290048.4800",
+      "yoy": "0.55711212"
+    },
+    {
+      "report_date": "2026-09-30",
+      "metric_name": "calculate_parent_holder_net_profit_yoy_growth_ratio",
+      "value": "270.54179800",
+      "yoy": ""
+    },
+    {
+      "report_date": "2026-09-30",
+      "metric_name": "index_deduct_holder_net_profit",
+      "value": "348971635.2700",
+      "yoy": ""
+    },
+    {
+      "report_date": "2026-09-30",
+      "metric_name": "index_weighted_avg_roe",
+      "value": "11.1900",
+      "yoy": ""
+    },
+    {
+      "report_date": "2025-09-30",
+      "metric_name": "index_per_operating_cash_flow_net",
+      "value": "",
+      "yoy": ""
+    },
+    {
+      "report_date": "2025-09-30",
+      "metric_name": "deduct_net_profit_yoy_growth_ratio",
+      "value": "",
+      "yoy": ""
+    },
+    {
+      "report_date": "2025-09-30",
+      "metric_name": "parent_holder_net_profit",
+      "value": "104358516.6300",
+      "yoy": ""
+    },
+    {
+      "report_date": "2025-09-30",
+      "metric_name": "basic_eps",
+      "value": "0.2900",
+      "yoy": ""
+    },
+    {
+      "report_date": "2025-09-30",
+      "metric_name": "sale_gross_margin",
+      "value": "59.8252",
+      "yoy": ""
+    },
+    {
+      "report_date": "2025-09-30",
+      "metric_name": "calculate_operating_income_total_yoy_growth_ratio",
+      "value": "",
+      "yoy": ""
+    },
+    {
+      "report_date": "2025-09-30",
+      "metric_name": "operating_income_total",
+      "value": "1167090043.6300",
+      "yoy": ""
+    },
+    {
+      "report_date": "2025-09-30",
+      "metric_name": "calculate_parent_holder_net_profit_yoy_growth_ratio",
+      "value": "",
+      "yoy": ""
+    },
+    {
+      "report_date": "2025-09-30",
+      "metric_name": "index_deduct_holder_net_profit",
+      "value": "",
+      "yoy": ""
+    },
+    {
+      "report_date": "2025-09-30",
+      "metric_name": "index_weighted_avg_roe",
+      "value": "",
+      "yoy": ""
+    },
+    {
+      "report_date": "2026-09-30",
+      "metric_name": "sale_net_interest_ratio",
+      "value": "21.2785",
+      "yoy": "1.35851252"
+    },
+    {
+      "report_date": "2025-09-30",
+      "metric_name": "sale_net_interest_ratio",
+      "value": "9.0220",
+      "yoy": ""
+    }
+  ],
+  "balance": [
+    {
+      "report_date": "2026-09-30",
+      "metric_name": "other_equity_tools",
+      "value": "",
+      "yoy": ""
+    },
+    {
+      "report_date": "2026-09-30",
+      "metric_name": "holder_equity_total",
+      "value": "8910489161.9700",
+      "yoy": ""
+    },
+    {
+      "report_date": "2026-09-30",
+      "metric_name": "assets_total",
+      "value": "10155714699.5700",
+      "yoy": ""
+    },
+    {
+      "report_date": "2026-09-30",
+      "metric_name": "preferred_stock",
+      "value": "",
+      "yoy": ""
+    }
+  ],
+  "cash": [
+    {
+      "report_date": "2026-09-30",
+      "metric_name": "act_cash_flow_net",
+      "value": "193707344.4500",
+      "yoy": "-0.54691756"
+    },
+    {
+      "report_date": "2026-09-30",
+      "metric_name": "pay_fixed_assets_etc_cash",
+      "value": "101302479.8100",
+      "yoy": "2.62108014"
+    },
+    {
+      "report_date": "2025-09-30",
+      "metric_name": "act_cash_flow_net",
+      "value": "427532226.3500",
+      "yoy": ""
+    },
+    {
+      "report_date": "2025-09-30",
+      "metric_name": "pay_fixed_assets_etc_cash",
+      "value": "27975763.0400",
+      "yoy": ""
+    }
+  ]
+}

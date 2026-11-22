@@ -40,10 +40,10 @@ def rows(kind, symbol, *, partial=False):
     today = datetime.now().astimezone().date()
     if kind == "financial":
         if partial:
-            return [FinancialData(symbol=symbol, fiscal_quarter=today, revenue=101,
+            return [FinancialData(symbol=symbol, fiscal_quarter=today, revenue=101, precision_version=1,
                                   financial_selection_status="partial")]
         return [FinancialData(symbol=symbol, fiscal_quarter=today-timedelta(days=i*90),
-            revenue=100, net_profit=10, total_assets=100, total_equity=50, operating_cash_flow=12,
+            revenue=100, net_profit=10, total_assets=100, total_equity=50, operating_cash_flow=12, precision_version=1,
             basic_eps=1, report_currency="CNY", financial_selection_status="complete") for i in range(4)]
     if kind == "price":
         return [PriceData(symbol=symbol, trade_date=today-timedelta(days=i), open=10, high=11,

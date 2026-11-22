@@ -123,7 +123,7 @@ def test_stock_markdown_and_payload_use_same_dates():
     markdown = build_report(ctx.symbol, ctx.name, [result], {}, ctx, no_llm=True)
     payload = build_stock_payload(ctx.symbol, ctx.name, [result], {}, ctx, no_llm=True)
     display = payload["dimensions"]["valuation"]["display"]
-    assert display["cutoff"] in markdown
+    assert display["baseline"] in markdown
     assert display["metrics"]["ps_ttm"] in markdown
     assert "3.00（截至 2026-10-21）" in markdown
     assert any("PS(TTM)：测试" in detail for detail in display["details"])

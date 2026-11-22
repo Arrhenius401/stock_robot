@@ -85,7 +85,9 @@ def test_us_ttm_sums_last_four_quarters_only():
     rows = [
         FinancialData(symbol="MSFT", fiscal_quarter=date(2026, month, 30),
                       revenue=10, net_profit=1, operating_cash_flow=2,
-                      total_equity=50, common_equity=50)
+                      total_equity=50, common_equity=50,
+                      field_precision={"revenue": "source_native", "net_profit": "source_native",
+                                       "operating_cash_flow": "source_native"})
         for month in (3, 6, 9, 12)
     ]
     result = us_ttm(rows)

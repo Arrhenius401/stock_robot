@@ -601,6 +601,16 @@ class AkShareAdapter(DataSource):
 
     def _fetch_ths_financial(self, symbol: str, **kwargs) -> list[FinancialData]:
         """原同花顺主源采集与算法原样保留，外层仅负责主备选择。"""
+        from data.ths_financial import fetch_ths_native
+
+        native = fetch_ths_native(symbol)
+        if native:
+            return native
+        logger.warning("同花顺新版财务摘要不可用，回退旧摘要；缩写金额不参与精确计算")
+        return self._fetch_ths_legacy_financial(symbol, **kwargs)
+
+    def _fetch_ths_legacy_financial(self, symbol: str, **kwargs) -> list[FinancialData]:
+        """旧接口降级保留原始展示值，精度证据不足不升级。"""
         df: Any = ak.stock_financial_abstract_ths(symbol=symbol)
 
         # 从资产负债表端点补充 total_equity / total_assets（同花顺源，非东方财富）
@@ -731,6 +741,26 @@ class AkShareAdapter(DataSource):
                 ))
             except (ValueError, IndexError, TypeError) as e:
                 logger.warning(f"跳过异常财务数据行 {idx}: {e}")
+        from data.ths_financial import attach_positions, source_precision
+
+        for row in results:
+            idx = next((i for i in range(total)
+                        if str(periods.iloc[i] if hasattr(periods, "iloc") else periods[i]).replace("-", "")
+                        == row.fiscal_quarter.strftime("%Y%m%d")), None)
+            row.precision_version = 1
+            row.net_margin_basis = "旧摘要未取得已验证净利率"
+            for field, column in (("revenue", revenues), ("net_profit", profits), ("deducted_net_profit", deducted_profits)):
+                if idx is not None and idx < len(column):
+                    row.field_precision[field] = source_precision(column.iloc[idx] if hasattr(column, "iloc") else column[idx])
+            row.field_precision.update({field: "rounded" for field in
+                ("operating_cash_flow", "capital_expenditure", "free_cash_flow")
+                if getattr(row, field) is not None})
+            if row.cash_flow_basis == "estimated" and row.operating_cash_flow is not None:
+                row.field_precision["operating_cash_flow"] = "estimated"
+            row.field_precision.update({field: "source_native" for field in
+                ("roe", "gross_margin", "basic_eps", "operating_cash_flow_per_share")
+                if getattr(row, field) is not None})
+            attach_positions(row)
         return results
 
     def _fetch_valuation(self, symbol: str, **kwargs) -> list[ValuationData]:
@@ -997,6 +1027,11 @@ class AkShareAdapter(DataSource):
                 cash_flow_basis="reported" if cf.get("003999") is not None and start is not None and currency
                     and cf_start == start and cf_currency == currency else "unknown",
                 cash_flow_period_start=cf_start))
+            # 此接口 AMOUNT 为未缩写数值；币种/单位与跨期修订仍由独立口径证据校验。
+            result[-1].field_precision = {field: "source_native" for field in (
+                "revenue", "net_profit", "basic_eps", "total_assets", "total_equity", "common_equity",
+                "operating_cash_flow", "capital_expenditure", "free_cash_flow", "gross_margin")
+                if getattr(result[-1], field) is not None}
         return result
 
     def _fetch_hk_valuation(self, symbol: str) -> list[ValuationData]:

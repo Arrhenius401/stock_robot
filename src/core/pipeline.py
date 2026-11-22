@@ -756,7 +756,8 @@ class Pipeline:
             data_list = json.loads(raw)
             if (data_type == "financial" and symbol[:1].isalpha() and not symbol.endswith(".HK")
                     and (not isinstance(data_list, list) or not data_list
-                         or any(row.get("_us_financial_version") != 1 for row in data_list))):
+                         or any(row.get("_us_financial_version") != 1 or row.get("precision_version", 0) < 1
+                                for row in data_list))):
                 return None
             results = self._deserialize_cache(data_type, symbol, data_list)
             if not self._is_healthy(data_type, results, symbol):
@@ -1029,8 +1030,8 @@ class Pipeline:
         if not attr:
             return
         # 单值数据类型直接赋值对象，多值赋值列表
-        if data_type in ("valuation", "industry", "news") and len(data) == 1:
-            setattr(ctx, attr, data[0])
+        if data_type in ("valuation", "industry", "news") and len(data) <= 1:
+            setattr(ctx, attr, data[0] if data else None)
         else:
             setattr(ctx, attr, data)
 

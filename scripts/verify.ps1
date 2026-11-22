@@ -431,6 +431,11 @@ foreach ($file in $changedFiles) {
         Add-UniqueTarget $testTargets "tests/radar/test_dividend_documents_cli.py"
         continue
     }
+    if ($path -eq "tests\resources\data\ths-688836-financial-precision.json") {
+        Add-UniqueTarget $testTargets "tests/data/test_ths_financial_precision.py"
+        Add-UniqueTarget $testTargets "tests/data/test_financial_metrics.py"
+        continue
+    }
     if ($path.StartsWith("tests\resources\", [StringComparison]::OrdinalIgnoreCase)) {
         # 静态资源变化必须验证所属业务模块，不能按非 Python 文件跳过。
         $resourceParts = $path.Split("\")

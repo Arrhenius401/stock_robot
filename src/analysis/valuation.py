@@ -58,7 +58,7 @@ class ValuationAnalyzer(AnalysisModule):
         financials = context.financial_data or []
         latest_fin = max(financials, key=lambda row: row.fiscal_quarter, default=None)
         equity = (latest_fin.common_equity if latest_fin.common_equity is not None else latest_fin.total_equity) if latest_fin else None
-        revenue_ttm = financial_ttm(financials, "revenue", context.market)
+        revenue_ttm = financial_ttm(financials, "revenue", context.market, require_precision=True)
         if equity is not None and equity <= 0:
             metrics["pb"] = None
             metrics["pb_percentile"] = None

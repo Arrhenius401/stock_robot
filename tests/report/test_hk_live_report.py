@@ -41,7 +41,7 @@ def test_real_qq_failure_sample_and_corrected_market_report():
     assert "市场：港股" in text
     assert "基于营业收入的解读" in text
     assert "金额币种未核实" in text
-    assert "five-dimension-v1" in text
+    assert "缺失项不记零分" in text
     assert "模型信号：暂未生成" in text
     assert "申万行业待补全" not in text
     assert "最新财报季度" not in text

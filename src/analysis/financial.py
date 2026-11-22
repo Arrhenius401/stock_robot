@@ -58,6 +58,7 @@ class FinancialAnalyzer(AnalysisModule):
             "total_equity": latest.total_equity,
             "roe": latest.roe,
             "gross_margin": "不适用（银行/保险）" if latest.gross_margin_basis == "银行/保险不适用" else latest.gross_margin,
+            "net_margin": latest.net_margin,
             "amount_basis": amount_basis,
             "annual_roe": context.financial_scoring_facts.get("annual_roe", {}),
             **template_metrics,
@@ -73,9 +74,13 @@ class FinancialAnalyzer(AnalysisModule):
 
         from data.financial_ttm import financial_ttm
 
-        profit_ttm = financial_ttm(financials, "net_profit", context.market)
+        profit_ttm = financial_ttm(financials, "net_profit", context.market, require_precision=True)
         equity_row = next((row for row in sorted_data if row.common_equity is not None or row.total_equity is not None), None)
         equity = (equity_row.common_equity if equity_row.common_equity is not None else equity_row.total_equity) if equity_row else None
+        if equity_row is not None:
+            equity_field = "common_equity" if equity_row.common_equity is not None else "total_equity"
+            if equity_row.field_precision.get(equity_field) != "source_native":
+                equity = None
         if equity is not None and equity <= 0:
             metrics["roe"] = "净资产为负，ROE 不适用" if equity < 0 else "净资产为零，ROE 不适用"
         elif profit_ttm is None:
@@ -93,8 +98,9 @@ class FinancialAnalyzer(AnalysisModule):
                           or any(word in context.name for word in ("银行", "保险")))
         if not_applicable:
             metrics["gross_margin"] = "不适用（银行/保险）"
+            metrics["net_margin"] = "不适用（银行/保险）"
         for field in ("operating_cash_flow", "capital_expenditure", "free_cash_flow"):
-            metrics[field] = "不适用（银行/保险）" if not_applicable else financial_ttm(financials, field, context.market)
+            metrics[field] = "不适用（银行/保险）" if not_applicable else financial_ttm(financials, field, context.market, require_precision=True)
         metrics["cash_flow_source"] = latest.financial_source or latest.reporting_basis or "来源未记录"
         metrics["cash_flow_period"] = f"TTM，截至 {latest.fiscal_quarter.isoformat()}；自由现金流 = 经营活动现金流 − 资本开支；缺失不填零"
 
@@ -107,6 +113,7 @@ class FinancialAnalyzer(AnalysisModule):
         metrics.update(trends["latest_yoy"])
         metrics["operating_trends"] = trends["highlights"]
         metrics["trend_note"] = trends["note"]
+        metrics["yoy_basis"] = trends.get("yoy_basis", "")
         if latest.operating_cash_flow is not None:
             metrics["cash_flow_source"] = {"reported": "直接披露", "estimated": "推算值（非直接披露）"}.get(
                 latest.cash_flow_basis, "期间或币种证据不足")

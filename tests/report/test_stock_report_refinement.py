@@ -110,7 +110,8 @@ def test_financial_notes_outside_table_and_no_duplicate_missing_ps():
             "ps_ttm": None, "valuation_notes": ["PS(TTM)：暂无数据"]})]
     text = ReportBuilder().build("600519", "样本", results, {})
     assert not any(line.startswith("|") and ("CNY口径" in line or "摘要披露" in line) for line in text.splitlines())
-    assert "财务金额口径：CNY口径" in text and "毛利率计算口径：摘要披露" in text
+    assert "金额币种：CNY。" in text
+    assert "财务金额口径：CNY口径" not in text and "毛利率计算口径：摘要披露" not in text
     assert "- PS(TTM)：暂无数据" not in text
 
 

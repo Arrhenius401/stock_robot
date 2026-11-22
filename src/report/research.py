@@ -44,7 +44,7 @@ def build_research(ctx: AnalysisContext, results: list[AnalysisResult],
                     m["cash_profit_ratio"] = ratio
         if key == "financial" and profile.period_basis == "ttm":
             if r is not None:
-                m["net_profit_ttm"] = financial_ttm(ctx.financial_data or [], "net_profit", ctx.market)
+                m["net_profit_ttm"] = financial_ttm(ctx.financial_data or [], "net_profit", ctx.market, require_precision=True)
             m.update(ctx.financial_special)
         state = dimension_state(profile, results_by_dimension.get(key), ctx, dimension=key)
         text, rule = dimension_text(key, label, m, comparison, state, profile, has_result=r is not None)
