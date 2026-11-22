@@ -119,6 +119,18 @@
       "metric_name": "index_weighted_avg_roe",
       "value": "",
       "yoy": ""
+    },
+    {
+      "report_date": "2026-09-30",
+      "metric_name": "sale_net_interest_ratio",
+      "value": "21.2785",
+      "yoy": "1.35851252"
+    },
+    {
+      "report_date": "2025-09-30",
+      "metric_name": "sale_net_interest_ratio",
+      "value": "9.0220",
+      "yoy": ""
     }
   ],
   "balance": [

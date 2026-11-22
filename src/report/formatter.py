@@ -189,6 +189,7 @@ METRIC_DISPLAY_NAMES = {
     "roe": "ROE",
     "roe_basis": "ROE 期间与口径",
     "gross_margin": "毛利率",
+    "net_margin": "净利率",
     "latest_close": "最新收盘价",
     "ma_5": "5 日均线",
     "ma_20": "20 日均线",
@@ -275,7 +276,7 @@ def metric_display_name(key: object) -> str:
 _PRICE_KEYS = {"latest_close", "latest_price", "year_high", "year_low", "ma_5", "ma_20", "ma_60"}
 _MULTIPLE_KEYS = {"pe_static", "pe_lyr", "pe_ttm", "pe_snapshot", "pb", "ps_ttm", "industry_median_pe", "industry_median_pb",
                   "target_pe", "target_pb"}
-_RATIO_KEYS = {"roe", "gross_margin", "revenue_growth_yoy", "profit_growth_yoy",
+_RATIO_KEYS = {"roe", "gross_margin", "net_margin", "revenue_growth_yoy", "profit_growth_yoy",
                "deducted_profit_growth_yoy", "cash_flow_growth_yoy", "industry_median_gross_margin"}
 _PERCENT_KEYS = {"change_pct", "pe_percentile", "pb_percentile", "target_pe_premium", "dividend_yield",
                  "shibor_3m", "cpi_yoy", "shibor_percentile", "pmi_percentile",

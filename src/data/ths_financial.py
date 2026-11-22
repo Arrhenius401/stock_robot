@@ -14,6 +14,7 @@ SUMMARY = {
     "deducted_net_profit": "index_deduct_holder_net_profit", "basic_eps": "basic_eps",
     "operating_cash_flow_per_share": "index_per_operating_cash_flow_net",
     "roe": "index_weighted_avg_roe", "gross_margin": "sale_gross_margin",
+    "net_margin": "sale_net_interest_ratio",
 }
 GROWTH = {
     "revenue_growth_yoy": "calculate_operating_income_total_yoy_growth_ratio",
@@ -54,7 +55,7 @@ def _value(table: dict[str, dict[str, Any]], key: str) -> float | None:
 
 def attach_positions(row: FinancialData) -> None:
     """源直接披露可用；revision 留空，不能充当跨源补位或跨期修订证据。"""
-    ratios = {"roe", "gross_margin", *row.reported_metrics}
+    ratios = {"roe", "gross_margin", "net_margin", *row.reported_metrics}
     per_share = {"basic_eps", "operating_cash_flow_per_share"}
     instant = {"total_assets", "total_equity", "common_equity"}
     for field in (*row.field_precision, *row.reported_metrics):
@@ -82,7 +83,7 @@ def fetch_ths_native(symbol: str) -> list[FinancialData]:
         if (day.month, day.day) not in {(3, 31), (6, 30), (9, 30), (12, 31)}:
             continue
         values = {field: _value(summary[day], key) for field, key in SUMMARY.items()}
-        for field in ("roe", "gross_margin"):
+        for field in ("roe", "gross_margin", "net_margin"):
             value = values[field]
             if value is not None:
                 values[field] = value / 100
@@ -95,6 +96,7 @@ def fetch_ths_native(symbol: str) -> list[FinancialData]:
         )
         for field, value in values.items():
             setattr(row, field, value)
+        row.net_margin_basis = "同花顺源披露销售净利率" if row.net_margin is not None else "未取得源披露净利率"
         if row.total_equity is not None:
             other = _value(balance.get(day, {}), "other_equity_tools")
             preferred = _value(balance.get(day, {}), "preferred_stock")

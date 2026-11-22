@@ -135,6 +135,9 @@ class ResilientCollector:
         if snapshot.rows and isinstance(snapshot.rows[0], FinancialData) and any(
                 row.precision_version < 1 for row in snapshot.rows):
             return False
+        if any(isinstance(row, FinancialData) and row.financial_source == "同花顺财报"
+               and not row.net_margin_basis for row in snapshot.rows):
+            return False
         age = time.time() - snapshot.entry.created_at
         ttl = snapshot.entry.ttl_seconds
         if snapshot.record.result_state in ("partial", "failed", "unknown"):

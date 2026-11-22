@@ -748,6 +748,7 @@ class AkShareAdapter(DataSource):
                         if str(periods.iloc[i] if hasattr(periods, "iloc") else periods[i]).replace("-", "")
                         == row.fiscal_quarter.strftime("%Y%m%d")), None)
             row.precision_version = 1
+            row.net_margin_basis = "旧摘要未取得已验证净利率"
             for field, column in (("revenue", revenues), ("net_profit", profits), ("deducted_net_profit", deducted_profits)):
                 if idx is not None and idx < len(column):
                     row.field_precision[field] = source_precision(column.iloc[idx] if hasattr(column, "iloc") else column[idx])

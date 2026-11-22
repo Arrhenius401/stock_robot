@@ -107,6 +107,9 @@ class PeerComparisonService:
                       "notes": [*snapshot.get("notes", []),
                                 "分位表示数值位置，采用低于目标比例加相等值比例的一半，不直接等同经营优劣。",
                                 "各指标独立统计，至少 5 家有效同行；目标不计入分母。"]}
+        from data.peer_rank import market_cap_rank
+
+        comparison["market_cap_rank"] = market_cap_rank(snapshot, symbols, ctx.symbol)
         pe, pb = valuation["metrics"]
         premium = None
         if (pe["median"] is not None and pe["target"] is not None

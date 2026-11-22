@@ -58,6 +58,7 @@ class FinancialAnalyzer(AnalysisModule):
             "total_equity": latest.total_equity,
             "roe": latest.roe,
             "gross_margin": "不适用（银行/保险）" if latest.gross_margin_basis == "银行/保险不适用" else latest.gross_margin,
+            "net_margin": latest.net_margin,
             "amount_basis": amount_basis,
             "annual_roe": context.financial_scoring_facts.get("annual_roe", {}),
             **template_metrics,
@@ -97,6 +98,7 @@ class FinancialAnalyzer(AnalysisModule):
                           or any(word in context.name for word in ("银行", "保险")))
         if not_applicable:
             metrics["gross_margin"] = "不适用（银行/保险）"
+            metrics["net_margin"] = "不适用（银行/保险）"
         for field in ("operating_cash_flow", "capital_expenditure", "free_cash_flow"):
             metrics[field] = "不适用（银行/保险）" if not_applicable else financial_ttm(financials, field, context.market, require_precision=True)
         metrics["cash_flow_source"] = latest.financial_source or latest.reporting_basis or "来源未记录"

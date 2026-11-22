@@ -148,8 +148,10 @@ def parse_tencent_quotes(text: str, requested: dict[str, str]) -> list[dict[str,
         if not as_of or as_of > datetime.now().astimezone().date().isoformat():
             continue
         # 官网前端独立映射 52 为 dynamic_ratio、53 为 lyr_ratio；不以二者代替 39。
+        cap = finite(fields[45])
         rows.append({"symbol": symbol, "name": fields[1], "as_of": as_of,
-                     "pe_ttm": finite(fields[39]), "pb": finite(fields[46])})
+                     "pe_ttm": finite(fields[39]), "pb": finite(fields[46]),
+                     "market_cap": finite(cap * 1e8) if cap is not None else None})
     return rows
 
 
@@ -197,7 +199,7 @@ def _parallel_batches(jobs: list, worker, deadline: float) -> tuple[list, list[s
 def _quote_snapshot(members: list[dict], target: str, cache: CacheManager | None,
                     refresh: bool, deadline: float) -> dict:
     # 缓存保存完整原始报价，不保存依赖某一目标的拆分；同池切换目标仍只请求一批。
-    key = _key("tencent-quotes-v2", *sorted(m["symbol"] + "." + m["exchange"] for m in members))
+    key = _key("tencent-quotes-v3", *sorted(m["symbol"] + "." + m["exchange"] for m in members))
     old, fresh = read_snapshot(cache, "peer_valuation", key, 3600)
 
     def derive(pool: dict, cache_status: str, errors: list[str]) -> dict:

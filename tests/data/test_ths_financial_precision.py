@@ -29,6 +29,7 @@ def test_native_amounts_source_rates_and_persistence(mocker):
     assert latest.capital_expenditure == 101302479.81
     assert latest.free_cash_flow == pytest.approx(92404864.64)
     assert latest.gross_margin == pytest.approx(.540213)
+    assert latest.net_margin == pytest.approx(.212785)
     assert rows[0].deducted_net_profit is None
     output = annotate_selection(FinancialSelection(package=FinancialPackage("同花顺财报", rows, {})))
     restored = [FinancialData.model_validate_json(row.model_dump_json()) for row in output]

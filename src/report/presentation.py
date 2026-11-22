@@ -63,6 +63,16 @@ def compact_quality(quality: dict[str, Any]) -> dict[str, Any]:
                 value = f"使用过期缓存{'（' + detail + '）' if detail else ''}，请结合实际数据截止日判断时效。"
             if not relevant or not value:
                 continue
+            if label == "依赖说明" and value == "估值序列由行情和财务派生计算；实测快照用于锚定":
+                # 通用过程说明已在估值表标明；此处只保留实际限制。
+                continue
+            if label == "分析限制" and "有效日期样本" in value and "不计算分位" in value:
+                counts = re.findall(r"有效日期样本\s*(\d+)", value)
+                if counts and len(set(counts)) == 1 and not any(
+                        word in value for word in ("过期", "失效", "失败", "未验证", "未校验", "派生", "参考")):
+                    value = f"历史样本 {counts[0]}／120 个，分位暂缺"
+            if label == "分析限制" and "存在直接相关但内容不足以评估" in value:
+                value = "相关消息信息不足，本期不计分"
             has_reason = has_reason or label in {"缺失原因", "分析限制", "采集限制", "评估说明"}
             value = _unique_clauses(value, seen_clauses)
             if value:

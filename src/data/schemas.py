@@ -160,6 +160,8 @@ class FinancialData(BaseModel):
     revenue: float | None = None
     net_profit: float | None = None
     deducted_net_profit: float | None = None  # 扣非净利润
+    net_margin: float | None = None  # 源披露净利率
+    net_margin_basis: str = ""  # 空值表示旧缓存尚未核实此字段
     total_assets: float | None = None
     total_equity: float | None = None
     common_equity: float | None = None  # 普通股东权益（剔除永续债/优先股），PB 口径对齐市场惯例
