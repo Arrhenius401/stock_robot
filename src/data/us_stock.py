@@ -221,8 +221,10 @@ def us_name_result(ticker: str) -> ValueResult[str]:
             symbol=ticker, indicator="年报",
         )
         if frame is not None and not frame.empty:
-            name = str(frame.iloc[0].get("SECURITY_NAME_ABBR") or "").strip()
-            if name:
+            row = frame.iloc[0]
+            name = str(row.get("SECURITY_NAME_ABBR") or "").strip()
+            code = str(row.get("SECURITY_CODE") or "").upper().replace("_", ".")
+            if name and code == ticker.upper().replace("_", "."):
                 return ValueResult(
                     name,
                     make_record("东方财富美股F10", "complete",
@@ -309,7 +311,8 @@ def _eastmoney_history(ticker: str, start: date, end: date) -> list[PriceData]:
     return best
 
 
-def us_history(ticker: str, start: date | None = None, end: date | None = None) -> list[PriceData]:
+def us_history(ticker: str, start: date | None = None, end: date | None = None,
+               *, diagnostics: list[dict[str, Any]] | None = None) -> list[PriceData]:
     """近一年前复权日线；新浪为主源，东财为不拼接的备用整份。"""
     today = datetime.now(HK_TZ).date()
     end_date = min(end or today, today)
@@ -318,21 +321,26 @@ def us_history(ticker: str, start: date | None = None, end: date | None = None) 
         raise ValueError("美股行情起始日期晚于结束日期")
     best: list[PriceData] = []
     errors: list[str] = []
+    sources = diagnostics if diagnostics is not None else []
     try:
         rows = _sina_history(ticker, start_date, end_date)
+        sources.append({"source": "新浪美股行情", "status": "ok", "rows": len(rows), "error": ""})
         if len(rows) >= 60:
             return rows
         best = rows
     except Exception as error:  # noqa: BLE001 — 第三方主源边界，切换到备用整份
         logger.warning("新浪美股行情失败 %s: %s", ticker, type(error).__name__)
         errors.append(f"新浪：{type(error).__name__}")
+        sources.append({"source": "新浪美股行情", "status": "failed", "rows": 0, "error": type(error).__name__})
     try:
         rows = _eastmoney_history(ticker, start_date, end_date)
+        sources.append({"source": "东方财富美股行情", "status": "ok", "rows": len(rows), "error": ""})
         if len(rows) > len(best):
             best = rows
     except Exception as error:  # noqa: BLE001 — 第三方备源边界，保留主源结果
         logger.warning("东财美股行情失败 %s: %s", ticker, type(error).__name__)
         errors.append(f"东财：{type(error).__name__}")
+        sources.append({"source": "东方财富美股行情", "status": "failed", "rows": 0, "error": type(error).__name__})
     if not best:
         raise ValueError("未取得美股行情" + ("；" + "；".join(errors) if errors else ""))
     return best

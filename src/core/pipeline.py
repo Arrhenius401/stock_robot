@@ -294,6 +294,7 @@ class Pipeline:
                                 record = record.model_copy(update={
                                     "error_kind": diagnostic.error_kind,
                                     "error_message": diagnostic.error_message,
+                                    "sources": diagnostic.sources,
                                 })
                             used_stale = False
                             if data_type == "valuation" and market == "hk":

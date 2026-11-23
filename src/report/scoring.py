@@ -24,6 +24,7 @@ class ScoreSummary:
     risk_deduction: int = 0
     final_score: float | None = None
     risk_flags: list[str] = field(default_factory=list)
+    score_label: str = "最终综合得分"
 
 
 def participation_score(result: AnalysisResult | None) -> float | None:
@@ -83,12 +84,15 @@ def compute_price_info(ctx: AnalysisContext) -> dict:
 
     current = price_presentation(ctx.current_quote, latest_price, price_data[-1].trade_date.isoformat() if price_data else None)
     change_pct = price_data[-1].change_pct if price_data else None
-    if year_high and year_low and latest_price and (year_high - year_low) > 0:
+    if len(price_data) < 20:
+        price_position = f"样本不足（{len(price_data)} 个交易日），不计算"
+    elif year_high and year_low and latest_price and (year_high - year_low) > 0:
         pct = (latest_price - year_low) / (year_high - year_low) * 100
         price_position = f"{pct:.0f}%"
     else:
         price_position = "暂无"
     return {"year_high": year_high, "year_low": year_low,
+            "price_bars": len(price_data),
             "current_price": current,
             "latest_price": latest_price, "price_position": price_position,
             "change_pct": change_pct,
@@ -103,7 +107,7 @@ def quantitative_commentary(summary: ScoreSummary, state: str = "failed") -> str
     if summary.final_score is None:
         lines.append("暂无综合得分，不形成综合判断。")
     else:
-        lines.append(f"最终综合得分为 {summary.final_score:.1f}/10。")
+        lines.append(f"{summary.score_label}为 {summary.final_score:.1f}/10。")
     for row in summary.score_rows:
         value = f"{row['score']}/10" if row.get("score") != "N/A" else "未计分"
         lines.append(f"- {row['label']}：{value}。")
@@ -140,7 +144,13 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
         commentary = {}
     profile = profile_for(ctx.market)
     quality = build_data_quality(ctx, results, profile=profile)
+    facts_only = quality.get("report_scope") == "facts_only"
+    if facts_only:
+        if any(result.dimension == "technical" for result in results):
+            commentary = {}
+        results = [result for result in results if result.dimension != "technical"]
     summary = compute_score_summary(results)
+    summary.score_label = quality.get("score_label", "最终综合得分")
     if not quality["has_scored_data"]:
         summary.base_score = None
         summary.final_score = None
@@ -156,6 +166,8 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
         notice = "" if research.get("model") else "> AI解读未生成，以下保留来源资料与程序生成的五维定性。\n\n"
         commentary = {**commentary, "structured_version": "2", "bulk": notice + render_research(research)}
     price_info = compute_price_info(ctx)
+    if quality.get("report_scope") == "facts_only":
+        price_info.update(year_high=None, year_low=None, price_position="不适用（事实报告）")
     if ctx.market == "us":
         industry = ctx.industry_data.industry if ctx.industry_data else "行业数据不足"
     elif ctx.market == "hk":
@@ -202,5 +214,6 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
         data_quality=quality,
         price_start=price_info["price_start"],
         price_end=price_info["price_end"],
+        price_bars=price_info["price_bars"],
         valuation_display=stock_date_presentation(ctx, valuation.metrics, valuation.summary) if valuation else None,
     )

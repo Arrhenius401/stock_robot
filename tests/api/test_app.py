@@ -2,6 +2,7 @@
 import asyncio
 import json
 import uuid
+from datetime import date
 from types import SimpleNamespace
 from typing import Any
 
@@ -19,6 +20,7 @@ from api.bootstrap import AgentCore
 from api.runtime import RuntimeManager
 from api.sessions import SessionManager, SessionStore
 from data.industry_mapping_builder import IndustryMappingError
+from data.schemas import FinancialData
 from tests.agent.fake_chat_model import FakeChatModel
 
 
@@ -124,6 +126,7 @@ class FakePipeline:
         )]
         return results, {"bulk": "AI 解读"}, AnalysisContext(
             symbol=symbol, name=name, market=market,
+            financial_data=[FinancialData(symbol=symbol, fiscal_quarter=date(2026, 9, 30), revenue=100)],
             sufficiency=DataSufficiency(financial=DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT, sample_count=6)),
         )
 
@@ -393,6 +396,7 @@ class TestRuntimeSnapshotEndpoints:
 
             def run(self, symbol, name, market="a-shares"):
                 results, _, context = FakePipeline().run(symbol, name, market)
+                results[0].summary = self.label
                 return results, {"bulk": self.label}, context
 
         def labeled_core(label):
@@ -432,9 +436,9 @@ class TestRuntimeSnapshotEndpoints:
             second = await client.post("/api/v1/analyze", json={"symbol": "000001"})
 
         assert first.status_code == 200
-        assert first.json()["commentary"] == "旧快照"
+        assert first.json()["dimensions"]["financial"]["summary"] == "旧快照"
         assert second.status_code == 200
-        assert second.json()["commentary"] == "新快照"
+        assert second.json()["dimensions"]["financial"]["summary"] == "新快照"
         assert runtime.calls == 2
 
 
@@ -1225,6 +1229,98 @@ class TestStreamEndpoint:
 
 class TestAnalyzeEndpoint:
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("symbol", ["sh300001", "007000.HK", "A?B"])
+    async def test_invalid_syntax_has_structured_code_for_each_market(self, client, symbol):
+        response = await client.post("/api/v1/analyze", json={"symbol": symbol})
+        assert response.status_code == 422
+        assert response.json()["error_code"] == "invalid_symbol"
+        assert response.json()["retryable"] is False
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("market,symbol", [("a-shares", "600519"), ("hk", "00700.HK")])
+    async def test_zero_bars_reuses_existing_market_name(self, client, mocker, market, symbol):
+        from data.schemas import DataCollectionRecord
+
+        results, commentary, ctx = FakePipeline().run(symbol, "已确认的原名称", market)
+        ctx.collection_records["financial"] = DataCollectionRecord(source="原采集记录", result_state="complete")
+        mocker.patch("utils.symbols.resolve_name", return_value="")
+        mocker.patch.object(FakePipeline, "run", return_value=(results, commentary, ctx))
+        response = await client.post("/api/v1/analyze", json={"symbol": symbol})
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["name"] == "已确认的原名称" and payload["identity_status"] == "confirmed"
+        assert payload["report_scope"] == "facts_only" and payload["signal"] is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("market", "symbol"), [("a-shares", "600519"), ("hk", "00700.HK"), ("us", "ANT")])
+    @pytest.mark.parametrize(("name", "fact", "failure", "code"), [
+        ("", "none", "", "identity_unconfirmed"),
+        ("目标", "none", "price", "price_unavailable"),
+        ("目标", "none", "financial", "collection_failed"),
+        ("目标", "none", "", "no_usable_data"),
+        ("", "quote", "", None),
+        ("目标", "quote", "", None),
+        ("目标", "financial", "", None),
+    ])
+    async def test_market_fact_and_structured_error_contract(self, client, mocker, name, fact, failure, code, market, symbol):
+        from datetime import date
+
+        from data.schemas import AnalysisContext, DataCollectionRecord, FinancialData
+
+        ctx = AnalysisContext(symbol=symbol, name=name or symbol, market=market)
+        if fact == "quote":
+            ctx.current_quote = {"status": "ok", "symbol": symbol, "price": 13,
+                                 "quoted_at": "2026-11-20T16:00:00-05:00", "source": "已校验报价"}
+        if fact == "financial":
+            ctx.financial_data = [FinancialData(symbol=symbol, fiscal_quarter=date(2026, 9, 30), revenue=100)]
+        if failure:
+            ctx.collection_records[failure] = DataCollectionRecord(error_kind="fetch_failed", sources=[
+                {"source": "隔离来源", "status": "failed", "rows": 0, "error": "ConnectionError"}])
+        mocker.patch("utils.symbols.resolve_name", return_value=name)
+        mocker.patch.object(FakePipeline, "run", return_value=([], {}, ctx))
+        response = await client.post("/api/v1/analyze", json={"symbol": symbol})
+        payload = response.json()
+        if code:
+            assert response.status_code == 422
+            assert payload["error_code"] == code and payload["detail"]
+            assert payload["symbol"] == symbol and payload["market"] == market
+            assert payload["price"]["bars"] == 0 and payload["retryable"] is True
+        else:
+            assert response.status_code == 200
+            assert payload["report_scope"] == "facts_only" and payload["signal"] is None
+            assert payload["score"]["final"] is None
+            assert payload["identity_status"] == ("confirmed" if name else "probable")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("count", [0, 1, 19, 20])
+    @pytest.mark.parametrize("market,symbol", [("a-shares", "600519"), ("hk", "00700.HK"), ("us", "ANT")])
+    async def test_market_short_history_keeps_report_but_no_signal(self, client, mocker, count, market, symbol):
+        from datetime import date, timedelta
+
+        from data.schemas import PriceData
+
+        mocker.patch("utils.symbols.resolve_name", return_value="测试标的")
+        original = FakePipeline.run
+
+        def run(symbol, name, market):
+            results, commentary, context = original(FakePipeline(), symbol, name, market)
+            context.price_data = [PriceData(
+                symbol=symbol, trade_date=date(2026, 11, 1) + timedelta(days=i),
+                open=10, high=11, low=9, close=10, volume=100) for i in range(count)]
+            return results, commentary, context
+
+        mocker.patch.object(FakePipeline, "run", side_effect=run)
+        response = await client.post("/api/v1/analyze", json={"symbol": symbol})
+        assert response.status_code == 200
+        payload = response.json()
+        if count:
+            assert payload["symbol"] == symbol
+            assert payload["signal"] is None
+            assert not payload["data_quality"]["signal_allowed"]
+        else:
+            assert response.json()["report_scope"] == "facts_only"
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(("symbol", "refresh", "expected"), [
         ("00700.HK", True, {"refresh_cache": True}),
         ("00700.HK", False, {}),
@@ -1249,7 +1345,8 @@ class TestAnalyzeEndpoint:
         assert data["symbol"] == "000001"
         assert data["name"] == "平安银行"
         assert data["dimensions"]["financial"]["score"] == 8.0
-        assert data["score"]["base"] == 8.0
+        assert data["score"]["base"] is None
+        assert data["report_scope"] == "facts_only"
         assert data["commentary"] == "AI 解读"
         assert "change_pct" in data["overview"]
         assert data["overview"]["change_pct"] is None  # FakePipeline 无价格数据
@@ -1286,6 +1383,7 @@ class TestAnalyzeEndpoint:
                 )]
                 return results, {"bulk": ""}, AnalysisContext(
                     symbol=symbol, name=name, market=market,
+                    financial_data=[FinancialData(symbol=symbol, fiscal_quarter=date(2026, 9, 30), revenue=100)],
                     sufficiency=DataSufficiency(financial=DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT, sample_count=6)),
                 )
 
@@ -1306,11 +1404,11 @@ class TestAnalyzeEndpoint:
         assert resp.status_code == 200
         commentary = resp.json()["commentary"]
         assert "AI 解读当前不可用" in commentary
-        assert "最终综合得分为 8.0/10" in commentary
+        assert "暂无综合得分" in commentary
 
     @pytest.mark.asyncio
     async def test_analyze_invalid_symbol_returns_422(self, client):
-        resp = await client.post("/api/v1/analyze", json={"symbol": "abc"})
+        resp = await client.post("/api/v1/analyze", json={"symbol": "A?B"})
         assert resp.status_code == 422
 
     @pytest.mark.asyncio

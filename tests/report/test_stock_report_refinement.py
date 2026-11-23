@@ -1,5 +1,6 @@
 """个股报告精简展示的确定性契约。"""
 from copy import deepcopy
+from datetime import date, timedelta
 from typing import Literal
 
 import pytest
@@ -8,6 +9,7 @@ from data.schemas import (
     AnalysisContext,
     AnalysisResult,
     DimensionSufficiency,
+    PriceData,
     SufficiencyLevel,
 )
 from report.builder import ReportBuilder
@@ -18,6 +20,8 @@ from report.signal import SignalConfig
 
 def scored_context():
     ctx = AnalysisContext(symbol="600519", name="样本")
+    ctx.price_data = [PriceData(symbol=ctx.symbol, trade_date=date(2026, 1, 1) + timedelta(days=i),
+                               open=10, high=12, low=8, close=11, volume=100) for i in range(60)]
     for key in ("financial", "price", "valuation"):
         setattr(ctx.sufficiency, key, DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT))
     dims: tuple[Literal["financial", "technical", "valuation"], ...] = ("financial", "technical", "valuation")

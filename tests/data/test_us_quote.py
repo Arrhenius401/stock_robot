@@ -60,7 +60,7 @@ def test_us_name_result_falls_back_to_f10(mocker):
     mocker.patch("data.us_stock.us_quote", side_effect=ValueError("snapshot unavailable"))
     mocker.patch(
         "akshare.stock_financial_us_analysis_indicator_em",
-        return_value=pd.DataFrame([{"SECURITY_NAME_ABBR": "苹果"}]),
+        return_value=pd.DataFrame([{"SECURITY_NAME_ABBR": "苹果", "SECURITY_CODE": "AAPL"}]),
     )
     result = us_name_result("AAPL")
     assert result.value == "苹果"

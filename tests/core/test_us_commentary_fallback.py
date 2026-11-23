@@ -41,7 +41,9 @@ def test_us_commentary_failure_preserves_scores_and_visible_fallback(tmp_path, r
     payload = build_stock_payload(ctx.symbol, ctx.name, values, commentary, ctx)
     assert payload["commentary_status"] == "failed"
     assert "程序生成的量化摘要" in payload["commentary"]
-    assert payload["score"]["final"] == 8
+    # 单维有分且没有日线时仅展示事实；原始维度评分仍保留供审计。
+    assert payload["score"]["final"] is None
+    assert payload["assessment_status"] == "facts_only"
     assert payload["signal"] is None
     assert payload["data_quality"]["signal_allowed"] is False
     assert values == before

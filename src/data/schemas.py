@@ -367,6 +367,7 @@ class DataCollectionRecord(BaseModel):
     error_message: str = ""
     cache_state: Literal["complete", "degraded", "not_applicable", "unknown"] = "unknown"
     result_state: ResultState = "unknown"
+    sources: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class DataReference(BaseModel):
@@ -384,6 +385,7 @@ class AnalysisContext(BaseModel):
     symbol: str
     name: str
     market: str = "a-shares"
+    identity_status: Literal["confirmed", "probable", "unconfirmed"] | None = None
     # 历史直接构造上下文保持旧语义；正式管道按配置显式覆盖。
     extra_analysis_enabled: bool = True
     financial_data: list[FinancialData] | None = None
