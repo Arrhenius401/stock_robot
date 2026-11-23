@@ -912,7 +912,11 @@ def create_app(
         body = await request.json()
         symbol = str(body.get("symbol", "")).strip()
         if not symbol:
-            raise HTTPException(status_code=422, detail="symbol 不能为空")
+            return JSONResponse({"detail": "symbol 不能为空", "error_code": "invalid_symbol",
+                                 "symbol": symbol, "market": "unknown", "identity_status": "unconfirmed",
+                                 "price": {"bars": 0, "start": None, "end": None,
+                                           "cache_status": "unknown", "sources": []},
+                                 "retryable": False}, status_code=422)
         snapshot = _runtime_snapshot()
         if is_gold_request(symbol):
             try:
@@ -931,7 +935,12 @@ def create_app(
             validate_analyze_symbol,
         )
         if not validate_analyze_symbol(symbol):
-            raise HTTPException(status_code=422, detail=f"无效的股票代码: {symbol}")
+            return JSONResponse({"detail": f"无效的股票代码: {symbol}",
+                                 "error_code": "invalid_symbol", "symbol": symbol,
+                                 "market": symbol_market(symbol), "identity_status": "unconfirmed",
+                                 "price": {"bars": 0, "start": None, "end": None,
+                                           "cache_status": "unknown", "sources": []},
+                                 "retryable": False}, status_code=422)
         symbol = normalize_symbol(symbol)
         market = symbol_market(symbol)
         name = await asyncio.to_thread(resolve_name, symbol) or symbol
@@ -944,12 +953,29 @@ def create_app(
             else:
                 results, commentary, ctx = await asyncio.to_thread(
                     agent_core.pipeline.run, symbol, name, market=market)
-            # 新股短历史仍可输出已有事实，各分析维度独立执行样本门槛。
-            if market == "us" and not ctx.price_data:
-                raise HTTPException(
-                    status_code=422,
-                    detail="未取得该美股有效行情，请核对代码或稍后重试",
-                )
+            if market in {"a-shares", "hk", "us"}:
+                from report.quality import has_usable_facts
+
+                facts = has_usable_facts(ctx)
+                if market != "us" and name == symbol and ctx.name.strip() and ctx.name.strip() != symbol:
+                    name = ctx.name.strip()
+                ctx.identity_status = ("confirmed" if name != symbol else
+                                       "probable" if facts else "unconfirmed")
+                if not facts:
+                    record = ctx.collection_records.get("price")
+                    failed = any(r.error_kind for r in ctx.collection_records.values())
+                    code = ("identity_unconfirmed" if ctx.identity_status == "unconfirmed" else
+                            "price_unavailable" if record and record.error_kind else
+                            "collection_failed" if failed else "no_usable_data")
+                    return JSONResponse({
+                        "detail": "未取得可用事实，请核对代码或稍后重试",
+                        "error_code": code, "symbol": symbol, "market": market,
+                        "identity_status": ctx.identity_status,
+                        "price": {"bars": 0, "start": None, "end": None,
+                                  "cache_status": record.cache_status if record else "unknown",
+                                  "sources": record.sources if record else []},
+                        "retryable": True,
+                    }, status_code=422)
             from report.commentary import CommentaryContext, commentary_store
             from report.payload import build_stock_payload
             from report.signal import load_signal_config

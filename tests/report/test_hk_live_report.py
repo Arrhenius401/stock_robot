@@ -1,5 +1,5 @@
 """真实 QQ 失败报告、港股有效事实及评分信号边界回归。"""
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -10,6 +10,7 @@ from data.schemas import (
     AnalysisResult,
     DimensionSufficiency,
     FinancialData,
+    PriceData,
     SufficiencyLevel,
 )
 from report.payload import build_stock_payload
@@ -41,7 +42,7 @@ def test_real_qq_failure_sample_and_corrected_market_report():
     assert "市场：港股" in text
     assert "基于营业收入的解读" in text
     assert "金额币种未核实" in text
-    assert "缺失项不记零分" in text
+    assert "本期仅展示事实，不生成综合评分" in text
     assert "模型信号：暂未生成" in text
     assert "申万行业待补全" not in text
     assert "最新财报季度" not in text
@@ -133,6 +134,8 @@ def test_hk_financial_source_and_selection_note_are_visible():
 
 def test_hk_valid_scores_enable_total_and_model_signal_without_position():
     ctx = hk_context()
+    ctx.price_data = [PriceData(symbol=ctx.symbol, trade_date=date(2026, 1, 1) + timedelta(days=i),
+                               open=10, high=12, low=8, close=11, volume=100) for i in range(60)]
     for key in ("financial", "price", "valuation"):
         setattr(ctx.sufficiency, key, DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT))
     facts: list[tuple[Literal["financial", "technical", "valuation"], str]] = [

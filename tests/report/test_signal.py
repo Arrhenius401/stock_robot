@@ -1,6 +1,9 @@
 """信号推导与配置加载测试"""
+from datetime import date, timedelta
+
 import pytest
 
+from data.schemas import PriceData
 from report.signal import (
     SIGNAL_LABELS,
     Signal,
@@ -113,6 +116,8 @@ class TestBuildReportSignal:
         results = [AnalysisResult(dimension=dim, status="ok", summary="样本充分", score=final_score)
                    for dim in ("financial", "technical", "valuation", "industry")]
         ctx = AnalysisContext(symbol="000001", name="平安银行")
+        ctx.price_data = [PriceData(symbol=ctx.symbol, trade_date=date(2026, 1, 1) + timedelta(days=i),
+                                   open=10, high=12, low=8, close=11, volume=100) for i in range(60)]
         for key in ("financial", "price", "valuation", "industry"):
             setattr(ctx.sufficiency, key, DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT, sample_count=60))
         return build_report("000001", "平安银行", results, {"bulk": "解读"},

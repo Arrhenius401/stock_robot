@@ -53,6 +53,7 @@ def make_record(
     error_kind: str = "", error_message: str = "",
 ) -> DataCollectionRecord:
     return DataCollectionRecord(
+        sources=diagnostic.sources if diagnostic else [],
         source=source, collected_at=collected_at, cache_status=cache_status,
         error_kind=error_kind or (diagnostic.error_kind if diagnostic else ""),
         error_message=error_message or (diagnostic.error_message if diagnostic else ""),

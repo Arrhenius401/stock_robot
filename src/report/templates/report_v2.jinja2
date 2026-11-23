@@ -4,6 +4,9 @@
 > 生成时间：{{ generated_at }} | 市场：{{ market }}
 >
 > 报告定位：以中长期跟踪评估为主，兼容波段参考。
+{% if data_quality.scope_notice %}
+> {{ data_quality.scope_notice }}
+{% endif %}
 
 {% if not extra_analysis_enabled %}
 > 客观数据模式
@@ -21,10 +24,12 @@
 | 股票代码 | {{ symbol }} |
 | 所属行业 | {{ industry }} |
 | 当前价格 | {% if current_price %}{{ current_price.value | metric_value("latest_close") }}（{{ current_price.note }}）{% else %}{{ latest_close | metric_value("latest_close") }}{% if latest_close is not none and price_end %}（截至 {{ price_end }}）{% endif %}{% endif %} |
+{% if data_quality.report_scope != "facts_only" %}
 | 采集区间最高价 | {{ year_high }} |
 | 采集区间最低价 | {{ year_low }} |
 | 采集区间价格位置 | {{ price_position }} |
-| 行情区间 | {{ price_start or "未记录" }} 至 {{ price_end or "未记录" }} |
+| 行情区间 | {{ price_start or "未记录" }} 至 {{ price_end or "未记录" }}（{{ price_bars if price_bars is not none else "未记录" }} 个交易日） |
+{% endif %}
 {% if current_price %}
 | 行情来源 | {{ current_price.source }} |
 {% endif %}
@@ -33,7 +38,7 @@
 
 ## 二、五大维度量化数据
 
-{% for dim in ["financial", "technical", "valuation", "industry", "sentiment"] %}
+{% for dim in ["financial", "technical", "valuation", "industry", "sentiment"] if not (data_quality.report_scope == "facts_only" and dim == "technical") %}
 
 ### {{ "5. 相关新闻" if not extra_analysis_enabled and dim == "sentiment" else "5. 相关新闻检索" if market == "港股" and dim == "sentiment" and not five_dimension else {"financial": "1. 财务量化数据", "technical": "2. 技术面量化数据", "valuation": "3. 估值量化数据", "industry": "4. 行业对比量化数据", "sentiment": "5. 舆情量化数据"}[dim] }}
 
@@ -117,6 +122,8 @@
 
 {% if market == "港股" and not five_dimension %}
 > 不适用：港股不套用 A 股综合评分或交易信号；行业对比使用恒生 HSICS 口径。
+{% elif data_quality.report_scope == "facts_only" %}
+> 本期仅展示事实，不生成综合评分。
 {% else %}
 {% if five_dimension %}
 {{ score_rows | md_table({"维度": "label", "综合参与分": "score", "配置权重¹⁴": "weight", "充足状态": "sufficiency"}) }}
@@ -135,7 +142,7 @@
 **风险扣分：** -{{ risk_deduction | metric_value("risk_deduction") }}
 {% endif %}
 {% endif %}
-**最终综合得分：** {{ (final_score | metric_value("final_score")) ~ "/10" if final_score is not none else "暂无" }}
+**{{ data_quality.score_label or "最终综合得分" }}：** {{ (final_score | metric_value("final_score")) ~ "/10" if final_score is not none else "暂无" }}
 
 {% for dim in score_rows %}
 {% if dim.detail %}

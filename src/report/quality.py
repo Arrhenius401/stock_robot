@@ -4,7 +4,11 @@ from typing import Any
 
 from analysis.valuation_rules import valuation_snapshot_dates
 from data.schemas import AnalysisContext, AnalysisResult, DataReference
-from data.validation import FINANCIAL_ANALYSIS_FIELDS, has_finite_facts
+from data.validation import (
+    FINANCIAL_ANALYSIS_FIELDS,
+    financial_has_facts,
+    has_finite_facts,
+)
 from report.capability import dimension_state
 from report.formatter import format_metric_value
 from report.market_profile import MarketProfile, profile_for
@@ -53,6 +57,16 @@ def has_analysis_data(results: list[AnalysisResult], ctx: AnalysisContext | None
     if any(participation_score(result) is not None for result in core):
         return True
     return any(_has_hk_facts(result) for result in core)
+
+
+def has_usable_facts(ctx: AnalysisContext) -> bool:
+    """原始事实独立于分析器是否能评分，空模型不视为可用事实。"""
+    quote = ctx.current_quote
+    return bool(ctx.price_data or (
+        quote.get("status") == "ok" and is_finite_number(quote.get("price")) and quote["price"] > 0)
+        or financial_has_facts(ctx.financial_data or [], ctx.symbol)
+        or (ctx.valuation_data and has_finite_facts(ctx.valuation_data.model_dump(), {"pe_ttm", "pb", "ps_ttm"}))
+        or (ctx.industry_data and ctx.industry_data.industry.strip() not in {"", "未知"}))
 
 
 def _sample_dates(ctx: AnalysisContext, key: str) -> tuple[str, str]:
@@ -219,6 +233,11 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
             {"label": "数据来源", "value": getattr(record, "source", "") or "未记录"},
             {"label": "数据截止", "value": cutoff},
         ]
+        if key == "technical" and record and record.sources:
+            fields.append({"label": "采集限制", "value": "行情来源诊断：" + "；".join(
+                f"{item.get('source', '未记录')}：{item.get('status', 'unknown')}，"
+                f"{item.get('rows', 0)} 条，{item.get('error') or '无异常'}"
+                for item in record.sources)})
         if key == "valuation" and ctx.market in {"hk", "us"} and ctx.valuation_data:
             valuation = ctx.valuation_data
             snapshot_dates = valuation_snapshot_dates(ctx)
@@ -334,6 +353,49 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
     }
     if ctx.market in {"hk", "us"}:
         quality.update(available_dimensions=available, applicable_dimensions=len(applicable))
+    if ctx.market in {"a-shares", "hk", "us"}:
+        required = ["financial", "technical", "valuation", *(["industry"] if us else [])]
+        scored = [key for key in required if participation_score(result_map.get(key)) is not None]
+        identity = ctx.identity_status or (
+            "confirmed" if ctx.name.strip() and ctx.name.upper() != ctx.symbol.upper()
+            else "probable" if ctx.price_data or ctx.current_quote.get("status") == "ok" else "unconfirmed")
+        bars = len(ctx.price_data or [])
+        # A/港股沿用现有三核心充分度门槛，不引入美股入口或四维规则。
+        complete = (bars > 0 and len(scored) == len(required) and signal_complete
+                    and (not us or (identity == "confirmed" and bars >= 60
+                         and all(getattr(ctx.sufficiency, "price" if key == "technical" else key).level == "sufficient"
+                                 for key in required))))
+        assessment = ("complete" if complete else "partial" if (not us or identity == "confirmed")
+                      and bars > 0 and len(scored) >= 2 else "facts_only")
+        scope = "full" if complete else "limited" if assessment == "partial" else "facts_only"
+        limitations = []
+        if identity != "confirmed":
+            limitations.append("身份未确认；行情或报价存在不能确认公司身份")
+        if bars == 0:
+            limitations.append("未取得历史行情；保留可用报价、财务、估值和行业事实")
+        elif bars < 60:
+            dates = [point.trade_date for point in ctx.price_data or []]
+            window = f"（{min(dates).isoformat()} 至 {max(dates).isoformat()}）" if dates else ""
+            limitations.append(f"本次仅取得 {bars} 个交易日行情{window}，无法确认是否覆盖上市以来完整历史")
+        if bars < 20:
+            limitations.append("技术指标和价格位置不可用")
+        if not complete:
+            limitations.append("未生成操作信号")
+        label = {"complete": "完整评估", "partial": "部分评估", "facts_only": "事实报告"}[assessment]
+        quality.update(
+            required_dimensions=required, scored_required_dimensions=scored,
+            identity_status=identity, report_scope=scope, assessment_status=assessment,
+            scope_notice=f"报告范围：{label}。" + ("；".join(limitations) + "。" if limitations else ""),
+            score_label="部分评估综合得分（参考）" if assessment == "partial" else "最终综合得分",
+            has_scored_data=quality["has_scored_data"] and assessment != "facts_only",
+            signal_allowed=quality["signal_allowed"] and complete,
+        )
+        if scope == "facts_only":
+            for dimension in dimensions:
+                if dimension["key"] == "technical":
+                    for item in dimension["fields"]:
+                        if item["label"] in {"缺失原因", "分析限制"}:
+                            item["value"] = "事实报告仅保留行情来源与实际样本范围，不展示技术指标或技术评分"
     from report.presentation import compact_quality
 
     quality.update(compact_quality(quality))

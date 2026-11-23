@@ -1,4 +1,5 @@
 """美股四核心信号门槛与五维报告回归。"""
+from datetime import date, timedelta
 from typing import Literal
 
 import pytest
@@ -10,6 +11,7 @@ from data.schemas import (
     AnalysisResult,
     DimensionSufficiency,
     IndustryData,
+    PriceData,
     SufficiencyLevel,
 )
 from report.payload import build_stock_payload
@@ -20,6 +22,8 @@ from report.scoring import build_report, compute_score_summary
 def context(market="us"):
     ctx = AnalysisContext(symbol="AAPL", name="苹果公司", market=market, extra_analysis_enabled=True)
     ctx.industry_data = IndustryData(symbol="AAPL", industry="系统软件", sector="")
+    ctx.price_data = [PriceData(symbol="AAPL", trade_date=date(2026, 1, 1) + timedelta(days=i),
+                                open=10, high=12, low=8, close=11, volume=100) for i in range(60)]
     for key in ("financial", "price", "valuation", "industry"):
         setattr(ctx.sufficiency, key, DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT))
     return ctx

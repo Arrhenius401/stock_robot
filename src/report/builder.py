@@ -195,7 +195,7 @@ class ReportBuilder:
               market_env: dict | None = None,
               signal: dict | None = None,
               data_quality: dict | None = None,
-              price_start: str | None = None, price_end: str | None = None,
+              price_start: str | None = None, price_end: str | None = None, price_bars: int | None = None,
               market: str = "A 股", valuation_display: dict | None = None,
               scoring_method: str | None = None, extra_analysis_enabled: bool = True,
               latest_close: float | None = None, current_price: dict | None = None,
@@ -257,6 +257,7 @@ class ReportBuilder:
             data_quality=data_quality,
             price_start=price_start,
             price_end=price_end,
+            price_bars=price_bars,
             valuation_display=valuation_display,
             disclaimer=profile_disclaimer(profile),
         )

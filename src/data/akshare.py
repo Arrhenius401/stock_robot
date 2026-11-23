@@ -333,8 +333,10 @@ class AkShareAdapter(DataSource):
         return getattr(self._collection_diagnostics, "record", None)
 
     def _record_collection_error(self, source: str, error: Exception):
+        previous = self.get_collection_error()
         kind = "timeout" if isinstance(error, TimeoutError) or "Timeout" in type(error).__name__ else "fetch_failed"
         self._collection_diagnostics.record = DataCollectionRecord(
+            sources=previous.sources if previous is not None else [],
             source=source, error_kind=kind,
             error_message="数据请求超时" if kind == "timeout" else "数据请求失败",
         )
@@ -429,7 +431,15 @@ class AkShareAdapter(DataSource):
         if kwargs.get("market") == "us":
             from data.us_stock import us_history
 
-            return us_history(symbol)
+            diagnostic = DataCollectionRecord(source="新浪/东方财富美股行情", cache_status="live")
+            self._collection_diagnostics.record = diagnostic
+            rows = us_history(symbol, diagnostics=diagnostic.sources)
+            failures = [f"{item['source']}：{item['error']}" for item in diagnostic.sources
+                        if item["status"] == "failed"]
+            if failures:
+                diagnostic.error_kind = "source_failed"
+                diagnostic.error_message = "；".join(failures)
+            return rows
         # 回测等场景可显式指定起止日期（YYYYMMDD）；未完整指定时保持默认近一年（days=250）行为
         start_date = kwargs.get("start_date")
         end_date = kwargs.get("end_date")

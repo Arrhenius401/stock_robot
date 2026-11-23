@@ -75,7 +75,7 @@ class TestComputePriceInfo:
         assert info["year_high"] == 12.0
         assert info["year_low"] == 2.0
         assert info["latest_price"] == 6.0
-        assert info["price_position"] == "40%"
+        assert info["price_position"] == "样本不足（2 个交易日），不计算"
 
     def test_change_pct_from_latest_price(self):
         from data.schemas import PriceData
@@ -90,7 +90,7 @@ class TestComputePriceInfo:
         ctx = _ctx()
         info = compute_price_info(ctx)
         assert info["year_high"] is None
-        assert info["price_position"] == "暂无"
+        assert info["price_position"] == "样本不足（0 个交易日），不计算"
         assert info["change_pct"] is None
 
 
@@ -109,8 +109,8 @@ class TestBuildReport:
         call_kwargs = mock_builder.build.call_args.kwargs
         assert call_kwargs["symbol"] == "000001"
         assert call_kwargs["industry"] == "申万行业待补全（数据源不可用）"
-        assert call_kwargs["base_score"] == 8.0
-        assert call_kwargs["final_score"] == 8.0
+        assert call_kwargs["base_score"] is None
+        assert call_kwargs["final_score"] is None
 
     def test_build_report_prefers_sw_industry(self, mocker):
         mock_builder_cls = mocker.patch("report.builder.ReportBuilder")
@@ -137,7 +137,7 @@ class TestBuildReport:
 
         bulk = mock_builder.build.call_args.kwargs["commentary"]["bulk"]
         assert "AI 解读当前不可用" in bulk
-        assert "最终综合得分为 7.0/10" in bulk
+        assert "暂无综合得分" in bulk
         assert "舆情风险" in bulk
 
     def test_build_report_keeps_existing_ai_commentary(self, mocker):

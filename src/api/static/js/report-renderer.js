@@ -45,7 +45,7 @@ const METRIC_LABELS = {
   etf_start_date: "ETF区间起始日期", etf_end_date: "ETF区间结束日期",
   etf_sample_count: "ETF交易日样本数", etf_unavailable_reason: "ETF表现不可用原因",
   latest_close: "最新收盘价", latest_price: "最新价格", change_pct: "涨跌幅",
-  year_high: "近一年最高价", year_low: "近一年最低价", price_position: "价格位置",
+  year_high: "采集区间最高价", year_low: "采集区间最低价", price_position: "价格位置",
   latest_quarter: "最新报告期", revenue: "营业收入", net_profit: "净利润",
   total_assets: "总资产", total_equity: "股东权益", operating_cash_flow: "经营活动现金流",
   operating_cash_flow_per_share: "每股经营现金流", revenue_growth_yoy: "营收同比增长",
@@ -415,11 +415,13 @@ function summarySection(report, sectionIdPrefix) {
   card.appendChild(reportHeader(report));
   if (report.analysis_mode === "objective") card.appendChild(el("p", "dim-sum", "客观数据模式"));
   const quality = record(report.data_quality);
+  if (quality.scope_notice) card.appendChild(el("p", "dim-sum", quality.scope_notice));
   if (quality.status) {
     const badge = statusBadge(quality.status);
     badge.textContent = (legacyHk(report)
       ? {ok: "分析数据可用 · 评分不适用", partial: "部分分析数据可用 · 评分不适用", unavailable: "数据不可用 · 暂无结论"}
       : {ok: "数据完整", partial: "数据不完整", unavailable: "数据不可用 · 暂无结论"})[quality.status] || "数据状态未记录";
+    if (report.report_scope === "facts_only") badge.textContent = "事实报告 · 不形成综合评估";
     card.appendChild(badge);
   }
   const overview = record(report.overview);
@@ -428,7 +430,7 @@ function summarySection(report, sectionIdPrefix) {
       && overview.year_low !== null && overview.year_low !== undefined) {
     const range = overview.price_start && overview.price_end
       ? `${readable(overview.price_start)} — ${readable(overview.price_end)}` : "区间未记录";
-    facts.appendChild(kv("样本区间", range));
+    facts.appendChild(kv("样本区间", `${range}（${overview.price_bars ?? "未记录"} 个交易日）`));
     facts.appendChild(kv("区间最高 / 最低",
       `${formatMetricValue('year_high',overview.year_high)} / ${formatMetricValue('year_low',overview.year_low)}`));
   }
@@ -437,7 +439,7 @@ function summarySection(report, sectionIdPrefix) {
     position.appendChild(el("div", "k", "采集区间价格位置"));
     const value = el("div", "v");
     value.appendChild(el("span", "", readable(overview.price_position)));
-    value.appendChild(priceBar(parseInt(overview.price_position, 10)));
+    if (/^\d+%$/.test(overview.price_position)) value.appendChild(priceBar(parseInt(overview.price_position, 10)));
     position.appendChild(value);
     facts.appendChild(position);
   }
@@ -462,7 +464,7 @@ function summarySection(report, sectionIdPrefix) {
 }
 
 function scoreSection(report, sectionIdPrefix) {
-  const card = section("report-score", "综合评分", "panel", sectionIdPrefix);
+  const card = section("report-score", report.data_quality?.score_label || "综合评分", "panel", sectionIdPrefix);
   if (legacyHk(report)) {
     card.appendChild(el("div", "report-empty", "不适用：港股不套用 A 股综合评分或交易信号；行业对比使用恒生 HSICS 口径。"));
     return card;
@@ -1256,6 +1258,7 @@ export function renderStockReport(report, options = {}) {
     ?? (data.market === "us" ? "not_collected" : "");
   const applicability = Array.isArray(data.data_quality?.dimensions) ? data.data_quality.dimensions : [];
   for (const [name, label] of DIMENSIONS) {
+    if (data.report_scope === "facts_only" && name === "technical") continue;
     if (objective && name === "sentiment") {
       article.appendChild(newsFactsSection(dimensions[name], sectionIdPrefix));
       continue;
@@ -1278,7 +1281,7 @@ export function renderStockReport(report, options = {}) {
     const title = objective ? ({financial: "财务数据", technical: "技术指标", valuation: "估值数据", industry: "行业对比"}[name] || label) : label;
     article.appendChild(dimensionSection(name, title, dimensions[name], sectionIdPrefix, legacyHk(data), applicable, fiveDimension(data), objective));
   }
-  if (!objective) article.appendChild(scoreSection(data, sectionIdPrefix));
+  if (!objective && data.report_scope !== "facts_only") article.appendChild(scoreSection(data, sectionIdPrefix));
   const commentary = commentarySection(data, sectionIdPrefix, options);
   if (!objective) article.appendChild(commentary);
   const disclaimer = section("report-disclaimer", "免责声明", "panel", sectionIdPrefix);

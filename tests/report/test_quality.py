@@ -1,15 +1,21 @@
 """报告数据依据与输出门槛回归。"""
-from datetime import UTC
+from datetime import UTC, date, timedelta
 from typing import Literal
 
 from data.schemas import (
     AnalysisContext,
     AnalysisResult,
     DimensionSufficiency,
+    PriceData,
     SufficiencyLevel,
 )
 from report.scoring import build_report, compute_score_summary
 from report.signal import SignalConfig
+
+
+def _prices(symbol="000001", count=60):
+    return [PriceData(symbol=symbol, trade_date=date(2026, 1, 1) + timedelta(days=i),
+                      open=10, high=12, low=8, close=11, volume=100) for i in range(count)]
 
 
 def test_all_missing_has_no_score_signal_or_model_conclusion():
@@ -17,7 +23,7 @@ def test_all_missing_has_no_score_signal_or_model_conclusion():
     results = [AnalysisResult(dimension="valuation", status="unavailable", summary="历史不足", metrics={"pb": 1.2})]
     text = build_report(ctx.symbol, ctx.name, results, {"bulk": "不应输出模型结论"}, ctx, signal_cfg=SignalConfig())
     assert compute_score_summary(results).final_score is None
-    assert "最终综合得分：** 暂无" in text
+    assert "本期仅展示事实，不生成综合评分" in text
     assert "模型信号：暂未生成" in text
     assert "不应输出模型结论" not in text
     assert "1.2" in text
@@ -28,6 +34,7 @@ def test_all_missing_has_no_score_signal_or_model_conclusion():
 def test_coverage_conservative_fixed_weights_and_unknown_source():
     from report.quality import build_data_quality
     ctx = AnalysisContext(symbol="000001", name="测试")
+    ctx.price_data = _prices(ctx.symbol, 30)
     ctx.sufficiency.financial = DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT, sample_count=6)
     ctx.sufficiency.price = DimensionSufficiency(level=SufficiencyLevel.PARTIAL, sample_count=30, reason="不足60条")
     results = [AnalysisResult(dimension="financial", status="ok", summary="财务", score=8),
@@ -83,7 +90,7 @@ def test_price_dates_sorted_and_actual_interval_in_markdown():
     assert info["price_end"] == "2026-02-03"
     assert info["latest_price"] == 2
     text = build_report(ctx.symbol, ctx.name, [], {}, ctx, no_llm=True)
-    assert "采集区间最高价" in text
+    assert "采集区间最高价" not in text
     assert "近1年最高价" not in text
     assert "2026-02-02 至 2026-02-03" in text
 
@@ -122,6 +129,7 @@ def test_real_signal_has_no_placeholder_and_hk_uses_same_evidence_gate():
     from report.quality import build_data_quality
 
     ctx = AnalysisContext(symbol="000001", name="测试")
+    ctx.price_data = _prices(ctx.symbol, 60)
     for key in ("financial", "price", "valuation"):
         setattr(ctx.sufficiency, key, DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT))
     results = [AnalysisResult(dimension=dim, status="ok", score=8, summary="已计算")
@@ -177,6 +185,7 @@ def test_industry_missing_reduces_coverage_but_keeps_core_signal_gate():
     from report.quality import build_data_quality
 
     ctx = AnalysisContext(symbol="000001", name="测试")
+    ctx.price_data = _prices(ctx.symbol, 60)
     for name in ("financial", "price", "valuation"):
         setattr(ctx.sufficiency, name, DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT))
     results = [AnalysisResult(dimension=dim, status="ok", summary="充分", score=8)
@@ -192,6 +201,7 @@ def test_financial_subitem_score_does_not_bypass_original_signal_gate():
     from report.quality import build_data_quality
 
     ctx = AnalysisContext(symbol="000001", name="测试")
+    ctx.price_data = _prices(ctx.symbol, 60)
     ctx.sufficiency.financial = DimensionSufficiency(level=SufficiencyLevel.PARTIAL, reason="最新营收缺失")
     for key in ("price", "valuation"):
         setattr(ctx.sufficiency, key, DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT))
@@ -216,6 +226,7 @@ def test_ps_missing_does_not_block_core_signal_gate():
         "industry_premium": {"tiers": [{"max": 100, "score": 4}]},
     }}
     ctx = AnalysisContext(symbol="600519", name="贵州茅台")
+    ctx.price_data = _prices(ctx.symbol, 60)
     for key in ("financial", "price", "valuation"):
         setattr(ctx.sufficiency, key, DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT))
     ctx.valuation_data = ValuationData(symbol="600519", date=date(2026, 10, 20),

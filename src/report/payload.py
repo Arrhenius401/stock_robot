@@ -31,8 +31,20 @@ def build_stock_payload(
         results = objective_results(results)
     profile = profile_for(ctx.market)
     quality = build_data_quality(ctx, results, profile=profile)
+    facts_only = quality.get("report_scope") == "facts_only"
+    if facts_only:
+        if any(result.dimension == "technical" for result in results):
+            commentary = {}
+        results = [result for result in results if result.dimension != "technical"]
     summary = compute_score_summary(results)
+    summary.score_label = quality.get("score_label", "最终综合得分")
+    if not quality["has_scored_data"]:
+        summary.base_score = None
+        summary.final_score = None
     price = compute_price_info(ctx)
+    if facts_only:
+        price.update(year_high=None, year_low=None, price_position="不适用（事实报告）")
+    record = ctx.collection_records.get("price")
     bulk = (commentary.get("bulk") or "").strip()
     if not ctx.extra_analysis_enabled:
         status = "not_requested"
@@ -73,11 +85,17 @@ def build_stock_payload(
         industry = ctx.sw_industry or (
             ctx.industry_data.industry if ctx.industry_data else "未知")
     return {
+        **({key: quality[key] for key in ("report_scope", "assessment_status", "identity_status")}
+           if ctx.market in {"a-shares", "hk", "us"} else {}),
         "analysis_mode": "extra" if ctx.extra_analysis_enabled else "objective",
         "scoring_method": SCORING_METHOD,
         "symbol": symbol, "code": symbol, "name": name, "market": ctx.market,
         "market_profile": profile.payload(),
+        "price": {"bars": price["price_bars"], "start": price["price_start"], "end": price["price_end"],
+                  "cache_status": record.cache_status if record else "unknown",
+                  "sources": record.sources if record else []},
         "overview": {
+            "price_bars": price["price_bars"],
             "latest_close": price["latest_price"], "year_high": price["year_high"],
             "current_price": price["current_price"], "quote_diagnostics": ctx.current_quote,
             "year_low": price["year_low"], "price_position": price["price_position"],
@@ -91,7 +109,7 @@ def build_stock_payload(
         "score_rows": summary.score_rows if ctx.extra_analysis_enabled else [],
         "dimensions": {r.dimension: {**r.model_dump(mode="json", exclude={"dimension", "charts"}),
                        **({"display": stock_date_presentation(ctx, r.metrics, r.summary)} if r.dimension == "valuation" else {})}
-                       for r in results},
+                       for r in results if not (facts_only and r.dimension == "technical")},
         "commentary": bulk, "comments": [bulk] if bulk else [],
         **({"research_commentary": research} if research else {}),
         "commentary_status": status, "signal": signal, "data_quality": quality,
