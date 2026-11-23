@@ -944,10 +944,11 @@ def create_app(
             else:
                 results, commentary, ctx = await asyncio.to_thread(
                     agent_core.pipeline.run, symbol, name, market=market)
-            if market == "us" and len(ctx.price_data or []) < 20:
+            # 新股短历史仍可输出已有事实，各分析维度独立执行样本门槛。
+            if market == "us" and not ctx.price_data:
                 raise HTTPException(
                     status_code=422,
-                    detail="未取得足够的该美股行情，请核对代码或稍后重试",
+                    detail="未取得该美股有效行情，请核对代码或稍后重试",
                 )
             from report.commentary import CommentaryContext, commentary_store
             from report.payload import build_stock_payload

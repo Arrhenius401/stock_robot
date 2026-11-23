@@ -1225,6 +1225,34 @@ class TestStreamEndpoint:
 
 class TestAnalyzeEndpoint:
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("count", [0, 2, 19, 20])
+    async def test_us_short_history_keeps_report_but_no_signal(self, client, mocker, count):
+        from datetime import date, timedelta
+
+        from data.schemas import PriceData
+
+        mocker.patch("utils.symbols.resolve_name", return_value="测试新股")
+        original = FakePipeline.run
+
+        def run(symbol, name, market):
+            results, commentary, context = original(FakePipeline(), symbol, name, market)
+            context.price_data = [PriceData(
+                symbol=symbol, trade_date=date(2026, 11, 1) + timedelta(days=i),
+                open=10, high=11, low=9, close=10, volume=100) for i in range(count)]
+            return results, commentary, context
+
+        mocker.patch.object(FakePipeline, "run", side_effect=run)
+        response = await client.post("/api/v1/analyze", json={"symbol": "ANT"})
+        assert response.status_code == (200 if count else 422)
+        if count:
+            payload = response.json()
+            assert payload["symbol"] == "ANT"
+            assert payload["signal"] is None
+            assert not payload["data_quality"]["signal_allowed"]
+        else:
+            assert "未取得" in response.json()["detail"]
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(("symbol", "refresh", "expected"), [
         ("00700.HK", True, {"refresh_cache": True}),
         ("00700.HK", False, {}),
