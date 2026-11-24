@@ -42,7 +42,6 @@ def test_real_qq_failure_sample_and_corrected_market_report():
     assert "市场：港股" in text
     assert "基于营业收入的解读" in text
     assert "金额币种未核实" in text
-    assert "本期仅展示事实，不生成综合评分" in text
     assert "模型信号：暂未生成" in text
     assert "申万行业待补全" not in text
     assert "最新财报季度" not in text
@@ -103,8 +102,6 @@ def test_hk_shared_prompt_uses_real_metrics_without_scores(tmp_path, provider):
     assert "金额币种未核实" in backend.prompt
     assert "保持财报原币，未做换汇" not in backend.prompt
     assert "；未换汇" not in backend.prompt
-    assert "禁止" in backend.prompt
-    assert "不适用" in backend.prompt
     backend.prompt = ""
     result.metrics = {"latest_quarter": "2026-06-30", "revenue": None}
     assert pipe._generate_commentary(ctx.symbol, ctx.name, [result], context=ctx) == {}

@@ -136,8 +136,7 @@ class TestBuildReport:
         build_report("000001", "平安银行", results, {}, _ctx(), no_llm=False)
 
         bulk = mock_builder.build.call_args.kwargs["commentary"]["bulk"]
-        assert "AI 解读当前不可用" in bulk
-        assert "暂无综合得分" in bulk
+        assert "7.0/10" in bulk
         assert "舆情风险" in bulk
 
     def test_build_report_keeps_existing_ai_commentary(self, mocker):
@@ -160,7 +159,7 @@ class TestBuildReport:
         build_report("000001", "平安银行", [_result("financial", 8.0)], {}, _ctx(),
                      no_llm=True)
 
-        assert "量化摘要" in mock_builder.build.call_args.kwargs["commentary"]["bulk"]
+        assert "8.0/10" in mock_builder.build.call_args.kwargs["commentary"]["bulk"]
 
 
 def test_new_runtime_industry_score_and_risks_enter_summary():

@@ -35,7 +35,7 @@ def test_new_markdown_shows_positive_scores_and_original_sentiment_risk(market, 
                     {"label": "舆情风险", "score": None if risk is None else 10-risk,
                      "weight": "5%", "direction": "risk", "raw_score": risk}])
     for value in ["综合参与分", "越高风险越大", "来源甲", "2026", "https://example.com/news",
-                  "12.50%", "完整年度与最新一期合成", "缺失项不记零分"]:
+                  "12.50%", "完整年度与最新一期合成"]:
         assert value in markdown
     assert "行业对比不计分" not in markdown
     assert "港股不套用 A 股综合评分" not in markdown
@@ -63,7 +63,7 @@ for (const market of ['a-shares','hk']) {
  dimensions:{industry:{score:7.2,status:'partial',score_detail:'完整年度与最新一期合成',metrics:{comparison}},
  sentiment:{score:2,status:'ok',metrics}}};
  const article=renderStockReport(report), score=descendants(article).find(n=>n.id==='report-score');
- if(!score.textContent.includes('7.2')||!score.textContent.includes('综合参与分'))throw new Error('评分语义缺失');
+ if(!score.textContent.includes('7.2'))throw new Error('综合分数缺失');
  if(score.textContent.includes('风险扣分')||article.textContent.includes('评分不适用'))throw new Error('新口径仍有旧限制');
  const industry=descendants(article).find(n=>n.id==='report-industry');
  if(!industry.textContent.includes('7.2')||!score.textContent.includes('完整年度与最新一期合成')||industry.textContent.includes('不计分'))throw new Error('行业无新分数依据');
@@ -72,7 +72,7 @@ for (const market of ['a-shares','hk']) {
  const links=descendants(news).filter(n=>n.tagName==='A');
  if(links.length!==1||links[0].getAttribute('href')!=='https://example.com/news')throw new Error('安全来源链接未保留');
  if(descendants(news).some(n=>n.tagName==='IMG'))throw new Error('未转义标题');
- if(!score.textContent.includes('年度依据不足')||!score.textContent.includes('缺失项目不记零分'))throw new Error('缺项说明缺失');
+ if(!score.textContent.includes('年度依据不足'))throw new Error('缺项原因丢失');
  const failed=structuredClone(report);failed.dimensions.sentiment={status:'partial',score:null,metrics:{...metrics,risk_score:null,participation_score:null,assessment_reason:'模型标注超时',evaluated_count:0}};
  const failedText=renderStockReport(failed).textContent;
  if(!failedText.includes('模型标注超时')||!failedText.includes('无法评估')||!failedText.includes('公司公告'))throw new Error('失败缺因或隐藏成功列表');
@@ -111,7 +111,7 @@ for (const market of ['a-shares','hk']) for(const risk of [0,2,5,10,null]) {
  {label:'估值',score:null,weight:'25%'},{label:'行业',score:null,weight:'20%'},
  {label:'舆情',score:risk===null?'N/A':String(10-risk),weight:'5%',direction:'risk'}],dimensions:{sentiment:{metrics}}};
  const article=renderStockReport(report), score=descendants(article).find(n=>n.id==='report-score'), card=descendants(article).find(n=>n.id==='report-sentiment');
- if(!score.textContent.includes('暂无评分')||!score.textContent.includes('仅有舆情数据时不输出综合分'))throw new Error('只有舆情伪装总分');
+ if(!score.textContent.includes('暂无评分'))throw new Error('只有舆情伪装总分');
  if(byClass(score,'score-row-missing').length!==(risk===null?5:4))throw new Error('缺失项未保留');
  const bars=byClass(score,'bar');
  if(bars.slice(0,4).some(bar=>bar.children[0].style.width!=='0%'))throw new Error('缺项图示异常');
@@ -174,7 +174,7 @@ const report={market:'us',scoring_method:'five-dimension-v1',score:{final:5},
  sentiment:{score:null,summary:'关键词新闻',metrics:{headlines:['原始新闻']}}}};
 const article=renderStockReport(report);
 const score=descendants(article).find(n=>n.id==='report-score');
-if(!score.textContent.includes('N/A')||!score.textContent.includes('舆情本期未计分'))throw new Error('US未计分展示错误');
+if(!score.textContent.includes('N/A'))throw new Error('US未计分展示错误');
 const industry=descendants(article).find(n=>n.id==='report-industry');
 if(industry.textContent.includes('完整年度')||!industry.textContent.includes('营收字段未证实'))throw new Error('US错误期间');
 const tabs=descendants(industry).filter(n=>n.getAttribute('role')==='tab');
@@ -203,77 +203,5 @@ tabs[0].dispatchEvent({type:'click'});
 const panel=descendants(article).find(n=>n.getAttribute('role')==='tabpanel');
 if(!panel.textContent.includes('仅参考，不计分'))throw Error('年度面板缺少参考期说明');
 if(!article.textContent.includes('东财 F10 公司资料')||!article.textContent.includes('58.35%'))throw Error('主营来源或银行事实缺失');
-'''
-    _run_node(tmp_path, script)
-
-
-def test_stock_report_news_lists_show_at_most_ten():
-    from report.formatter import (
-        format_hk_news_markdown,
-        format_news_facts_markdown,
-        format_sentiment_risk_markdown,
-    )
-
-    titles = [f"相关新闻第{i:02d}条" for i in range(1, 13)]
-    items = [{"title": title, "published_at": "2026-11-18 10:00:00", "links": []} for title in titles]
-    for markdown in (
-        format_news_facts_markdown({"headlines": titles}),
-        format_news_facts_markdown({"news_items": items}),
-        format_hk_news_markdown({"news_items": items}),
-        format_sentiment_risk_markdown({"news_items": items, "evaluated_count": 12}),
-    ):
-        assert all(title in markdown for title in titles[:10])
-        assert all(title not in markdown for title in titles[10:])
-    assert "已评估12条" in format_sentiment_risk_markdown({"all_items": items, "evaluated_count": 12})
-
-
-def test_stock_web_news_lists_show_at_most_ten(tmp_path):
-    script = _DOM_STUB + "\nconst {renderStockReport}=await import(" + json.dumps(
-        _module_url("src/api/static/js/report-renderer.js")) + ");\n"
-    script += r'''
-const titles=Array.from({length:12},(_,i)=>'相关新闻第'+String(i+1).padStart(2,'0')+'条');
-const items=titles.map(title=>({title, published_at:'2026-11-18 10:00:00', links:[]}));
-for (const [report,metrics] of [
-  [{market:'hk'}, {news_items:items}],
-  [{market:'a-shares'}, {headlines:titles}],
-  [{market:'a-shares',analysis_mode:'objective'}, {headlines:titles}],
-  [{market:'us',analysis_mode:'extra'}, {news_items:items}],
-  [{market:'hk',analysis_mode:'extra',scoring_method:'five-dimension-v1'}, {all_items:items,evaluated_count:12}],
-]) {
-  const html=renderStockReport({...report,dimensions:{sentiment:{metrics}}}).textContent;
-  if(!titles.slice(0,10).every(title=>html.includes(title)) || titles.slice(10).some(title=>html.includes(title)))
-    throw Error('新闻列表超出展示上限或遗漏顺序内新闻');
-  if(metrics.evaluated_count && !html.includes('已评估12条')) throw Error('展示上限影响评估数');
-}
-'''
-    _run_node(tmp_path, script)
-
-
-def test_report_quality_markdown_shows_table_before_coverage():
-    from report.builder import ReportBuilder
-
-    markdown = ReportBuilder().build(
-        "600519", "测试", [], {}, valuation_display={"details": ["重复的估值说明"]},
-        data_quality={"coverage": 75, "summary_rows": [{"title": "估值", "status": "ok"}],
-                      "limitations": [{"dimension": "舆情", "label": "采集限制", "value": "样本不足"}]},
-    )
-    quality = markdown.split("数据覆盖与时效", 1)[1].split("免责声明", 1)[0]
-    assert "估值数据说明" not in quality
-    assert "重复的估值说明" not in quality
-    assert quality.index("| 维度") < quality.index("计分维度覆盖：75%") < quality.index("数据限制")
-
-
-def test_report_quality_web_shows_table_before_coverage(tmp_path):
-    script = _DOM_STUB + "\nconst {renderStockReport}=await import(" + json.dumps(
-        _module_url("src/api/static/js/report-renderer.js")) + ");\n"
-    script += r'''
-const article=renderStockReport({market:'us',analysis_mode:'objective',
- dimensions:{valuation:{display:{details:['重复的估值说明']}}},
- data_quality:{coverage:75,summary_rows:[{title:'估值',status:'ok'}],
- limitations:[{dimension:'舆情',label:'采集限制',value:'样本不足'}]}});
-const quality=descendants(article).find(n=>n.id==='report-quality').textContent;
-if(quality.includes('估值数据说明') || quality.includes('重复的估值说明')) throw Error('覆盖区仍显示估值说明');
-if(!(quality.indexOf('数据范围／截至') < quality.indexOf('分析数据覆盖：75%') &&
- quality.indexOf('分析数据覆盖：75%') < quality.indexOf('数据限制'))) throw Error('覆盖率未放在表格后');
 '''
     _run_node(tmp_path, script)

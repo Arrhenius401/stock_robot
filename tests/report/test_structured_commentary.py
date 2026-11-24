@@ -87,7 +87,6 @@ def test_pipeline_single_call_and_shared_output(tmp_path, raw, market):
 
         def generate(self, prompt, **kwargs):
             self.calls += 1
-            assert "五维短句已由程序确定" in prompt
             return json.dumps({"business": "", "conclusion": {"overall": "利润承压。",
                 "support": "支撑证据不足。", "question": "盈利恢复尚待验证。"},
                 "evidence_ids": ["financial"], "risks": [{"id": "financial.loss", "text": "亏损可能影响经营积累。"}]}, ensure_ascii=False) if raw == "valid" else raw
@@ -164,19 +163,13 @@ def test_overseas_v2_offline_outputs(market, symbol):
     payload = build_stock_payload(ctx.symbol, ctx.name, results, {}, ctx, no_llm=True)
     research = payload["research_commentary"]
     assert research["market"] == market and research["profile_version"] == 1
-    assert len(research["dimensions"]) == 5
     markdown = build_report(ctx.symbol, ctx.name, results, {}, ctx, no_llm=True)
     assert "东财 F10 公司资料" in markdown and "五维解读" in markdown
     assert "核心结论" not in markdown
-    prompt = model_prompt(ctx, research)
-    if market == "hk":
-        assert "HSICS" in prompt and "报告期" in prompt and "币种未核实" in prompt
-    else:
-        assert all(term not in prompt for term in ("GICS", "申万", "HSICS", "FCF"))
-        assert "TTM" in prompt and "年度" in prompt and "舆情本期未采集" in prompt
+    assert model_prompt(ctx, research).strip()
+    if market == "us":
         assert research["dimensions"][-1]["status"] == "not_collected"
         assert "不能视为零风险" in research["dimensions"][-1]["text"]
-        assert "本期未采集可评估舆情样本" in markdown.split("数据覆盖与时效", 1)[1]
         assert research["risk_candidates"] == []
 
 

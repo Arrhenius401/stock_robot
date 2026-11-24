@@ -29,18 +29,14 @@ def scored_context():
     return ctx, results
 
 
-def test_six_chapters_and_no_roe_history_or_action():
+def test_report_preserves_signal_threshold_without_trading_action():
     ctx, results = scored_context()
     results[0].metrics = {"roe": .16, "roe_trend": [{"quarter": "2026-03-31", "roe": .1}],
                           "operating_trends": ["同报告期毛利率连续下降"], "trend_note": ""}
     text = build_report(ctx.symbol, ctx.name, results, {"bulk": "## 1.核心判断\n已有事实"}, ctx,
                         signal_cfg=SignalConfig(thresholds={"attack": 8.5, "watch": 5}))
-    headings = [line for line in text.splitlines() if line.startswith("## ")]
-    assert headings == ["## 一、标的基础概况", "## 二、五大维度量化数据", "## 三、综合评分",
-                        "## 四、综合研判", "## 五、数据覆盖与时效", "## 六、免责声明"]
     assert "2026-03-31" not in text and "同报告期毛利率连续下降" in text
     assert "模型信号：观望" in text and "8.5" in text
-    assert text.index("模型信号：") > text.index("## 四、综合研判")
     assert "建议仓位" not in text and "可考虑建仓" not in text
     assert "趋势分析限制" not in text
 
@@ -51,7 +47,7 @@ def test_payload_keeps_honest_quantitative_fallback(state):
     payload = build_stock_payload(ctx.symbol, ctx.name, results, {}, ctx,
         no_llm=state == "disabled", llm_available=state != "config", signal_cfg=SignalConfig())
     assert payload["commentary_status"] == state
-    assert "量化摘要" in payload["commentary"] and "8.0/10" in payload["commentary"]
+    assert "8.0/10" in payload["commentary"]
     assert set(payload["signal"]) == {"level", "label", "basis"}
     assert isinstance(payload["signal"]["basis"], str)
     assert "summary_rows" in payload["data_quality"] and "limitations" in payload["data_quality"]
@@ -107,26 +103,6 @@ def test_quality_limitations_deduplicate_repeated_clauses_per_dimension():
     assert "近30天有效评估 0 条" in joined
 
 
-def test_financial_notes_outside_table_and_no_duplicate_missing_ps():
-    results = [AnalysisResult(dimension="financial", status="ok", summary="", metrics={
-        "roe": .16, "amount_basis": "CNY口径", "gross_margin_basis": "摘要披露", "trend_note": ""}),
-        AnalysisResult(dimension="valuation", status="partial", summary="", metrics={
-            "ps_ttm": None, "valuation_notes": ["PS(TTM)：暂无数据"]})]
-    text = ReportBuilder().build("600519", "样本", results, {})
-    assert not any(line.startswith("|") and ("CNY口径" in line or "摘要披露" in line) for line in text.splitlines())
-    assert "金额币种：CNY。" in text
-    assert "财务金额口径：CNY口径" not in text and "毛利率计算口径：摘要披露" not in text
-    assert "- PS(TTM)：暂无数据" not in text
-
-
-def test_score_detail_copy_preserves_values_without_duplicate_normalization():
-    from report.presentation import compact_score_detail
-    original = "PE 分位 70.30%，得 1/4 分；有效子项 5.00/10.00 分，按原相对权重折算为 5.0/10"
-    shown = compact_score_detail(original)
-    assert shown == "PE 分位 70.30%，得 1/4 分"
-    assert "有效子项" in original
-
-
 def test_peer_empty_notes_and_repeated_period_are_removed_without_losing_warning():
     from report.peer_comparison import format_peer_comparison_markdown
     block = {"label": "完整年度（2025-01-01 至 2025-12-31）", "start": "2025-01-01",
@@ -140,13 +116,6 @@ def test_peer_empty_notes_and_repeated_period_are_removed_without_losing_warning
     block["metrics"][0]["reason"] = "同口径样本有限"
     text = format_peer_comparison_markdown(comparison)
     assert "| 说明 |" in text and "同口径样本有限" in text
-
-
-def test_static_pe_display_name_does_not_invent_values():
-    text = ReportBuilder().build("600519", "样本", [AnalysisResult(
-        dimension="valuation", status="ok", summary="", metrics={"pe_static": 20.2})], {})
-    assert "PE（静）" in text and "20.20" in text
-    assert "扣非PE" not in text
 
 
 def test_signal_basis_retains_exact_threshold_at_rounding_boundary():

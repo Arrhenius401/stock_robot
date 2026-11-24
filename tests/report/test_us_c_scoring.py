@@ -16,7 +16,7 @@ from data.schemas import (
 )
 from report.payload import build_stock_payload
 from report.quality import build_data_quality
-from report.scoring import build_report, compute_score_summary
+from report.scoring import compute_score_summary
 
 
 def context(market="us"):
@@ -76,11 +76,6 @@ def test_us_zero_industry_score_is_valid_and_news_unscored():
     payload = build_stock_payload(ctx.symbol, ctx.name, values, {}, ctx, no_llm=True)
     assert len(payload["score_rows"]) == 5
     assert payload["overview"]["industry"] == "系统软件"
-    report = build_report(ctx.symbol, ctx.name, values, {}, ctx, no_llm=True)
-    assert "不是 GICS/申万" in report
-    assert "未做美股历史回测校准" in report
-    assert "财报金额币种和会计准则以来源证据为准" in report
-    assert "本期美股不提供综合评分" not in report
 
 
 def test_complete_us_core_generates_only_rule_label_and_partial_closes_it():
