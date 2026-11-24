@@ -9,7 +9,8 @@ from data.schemas import FinancialData
 
 @pytest.mark.parametrize("market", ["a-shares", "hk"])
 def test_cumulative_cash_flow_ttm(market):
-    rows = [FinancialData(symbol="TEST", fiscal_quarter=period, operating_cash_flow=value)
+    rows = [FinancialData(symbol="TEST", fiscal_quarter=period, operating_cash_flow=value,
+                          amount_currency_verified=market == "hk", report_currency="HKD" if market == "hk" else "CNY")
             for period, value in [(date(2025, 6, 30), 20), (date(2025, 12, 31), 50), (date(2026, 6, 30), 30)]]
     assert financial_ttm(rows, "operating_cash_flow", market) == 60
     assert financial_ttm(rows, "capital_expenditure", market) is None

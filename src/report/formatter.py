@@ -133,6 +133,13 @@ METRIC_DISPLAY_NAMES = {
     "trend_note": "趋势分析限制",
     "cash_flow_source": "经营现金流来源",
     "deducted_net_profit": "扣非净利润",
+    "reported_annual_roe": "年度披露 ROE（未年化）",
+    "amount_currency_reason": "金额币种核验",
+    "reported_revenue": "营业收入（SEC，不含投资损益，单季）",
+    "reported_revenue_ttm": "营业收入（SEC，不含投资损益，TTM）",
+    "reported_revenue_basis": "SEC 营业收入口径",
+    "reported_revenue_source": "SEC 营业收入来源",
+    "reported_revenue_period": "SEC 营业收入期间",
     "amount_basis": "财务金额口径",
     "revenue_basis": "营收科目口径",
     "gross_margin_basis": "毛利率计算口径",
@@ -269,13 +276,13 @@ _PRICE_KEYS = {"latest_close", "latest_price", "year_high", "year_low", "ma_5", 
 _MULTIPLE_KEYS = {"pe_static", "pe_lyr", "pe_ttm", "pe_snapshot", "pb", "ps_ttm", "industry_median_pe", "industry_median_pb",
                   "target_pe", "target_pb"}
 _RATIO_KEYS = {"roe", "gross_margin", "net_margin", "revenue_growth_yoy", "profit_growth_yoy",
-               "deducted_profit_growth_yoy", "cash_flow_growth_yoy", "industry_median_gross_margin"}
+               "deducted_profit_growth_yoy", "cash_flow_growth_yoy", "industry_median_gross_margin", "reported_annual_roe"}
 _PERCENT_KEYS = {"change_pct", "pe_percentile", "pb_percentile", "target_pe_premium", "dividend_yield",
                  "shibor_3m", "cpi_yoy", "shibor_percentile", "pmi_percentile",
                  "target_pe_percentile", "target_pb_percentile"}
 # 这些字段在适配层按基本货币单位记录；币种由各报告上下文披露，不由上市地推断。
 _AMOUNT_KEYS = {"revenue", "net_profit", "net_profit_ttm", "deducted_net_profit", "total_assets", "total_equity", "common_equity",
-                "operating_cash_flow", "capital_expenditure", "free_cash_flow", "market_cap"}
+                "operating_cash_flow", "capital_expenditure", "free_cash_flow", "market_cap", "reported_revenue", "reported_revenue_ttm"}
 _ONE_DIGIT_KEYS = {"score", "base_score", "final_score", "risk_deduction"}
 _THREE_DIGIT_KEYS = {"macd_dif", "macd_dea", "macd_bar"}
 _TWO_DIGIT_KEYS = {"volume_ratio", "operating_cash_flow_per_share", "basic_eps", "pmi", "usd_cny"}

@@ -63,6 +63,7 @@ class FinancialAnalyzer(AnalysisModule):
             "annual_roe": context.financial_scoring_facts.get("annual_roe", {}),
             **template_metrics,
         }
+        metrics["amount_currency_reason"] = latest.amount_currency_reason
         if latest.revenue_basis:
             metrics["revenue_basis"] = latest.revenue_basis
         if latest.gross_margin_basis:
@@ -101,6 +102,13 @@ class FinancialAnalyzer(AnalysisModule):
             metrics["net_margin"] = "不适用（银行/保险）"
         for field in ("operating_cash_flow", "capital_expenditure", "free_cash_flow"):
             metrics[field] = "不适用（银行/保险）" if not_applicable else financial_ttm(financials, field, context.market, require_precision=True)
+        if profit_ttm is None and latest.reported_annual_roe is not None:
+            metrics["reported_annual_roe"] = latest.reported_annual_roe
+            metrics["reported_annual_roe_period"] = (
+                latest.reported_annual_roe_period.isoformat() if latest.reported_annual_roe_period else ""
+            )
+            metrics["reported_annual_roe_source"] = latest.reported_annual_roe_source
+
         metrics["cash_flow_source"] = latest.financial_source or latest.reporting_basis or "来源未记录"
         metrics["cash_flow_period"] = f"TTM，截至 {latest.fiscal_quarter.isoformat()}；自由现金流 = 经营活动现金流 − 资本开支；缺失不填零"
 

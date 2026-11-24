@@ -3,6 +3,12 @@ from data.schemas import FinancialData
 from utils.numbers import is_finite_number
 
 
+def _hk_verified(rows: list[FinancialData]) -> bool:
+    return bool(rows) and all(
+        row.amount_currency_verified and row.report_currency for row in rows
+    ) and len({row.report_currency for row in rows}) == 1
+
+
 def financial_ttm(rows: list[FinancialData], field: str, market: str, *,
                   require_precision: bool = False) -> float | None:
     ordered = sorted(rows, key=lambda row: row.fiscal_quarter)
@@ -19,10 +25,17 @@ def financial_ttm(rows: list[FinancialData], field: str, market: str, *,
         return sum(values) if len(recent) == 4 and usable(recent) and all(is_finite_number(value) for value in values) else None
     end = latest.fiscal_quarter
     if end.month == 12:
+        if market == "hk" and not _hk_verified([latest]):
+            return None
         return getattr(latest, field) if usable([latest]) else None
-    annual = next((row for row in reversed(ordered) if row.fiscal_quarter.year == end.year - 1 and row.fiscal_quarter.month == 12), None)
-    previous = next((row for row in reversed(ordered) if row.fiscal_quarter.year == end.year - 1 and row.fiscal_quarter.month == end.month), None)
+    annual = next((row for row in reversed(ordered)
+                   if row.fiscal_quarter.year == end.year - 1 and row.fiscal_quarter.month == 12), None)
+    previous = next((row for row in reversed(ordered)
+                     if row.fiscal_quarter.year == end.year - 1 and row.fiscal_quarter.month == end.month), None)
     if annual is None or previous is None:
         return None
-    values = [getattr(row, field) for row in (latest, annual, previous)]
-    return values[0] + values[1] - values[2] if usable([latest, annual, previous]) and all(is_finite_number(value) for value in values) else None
+    selected = [latest, annual, previous]
+    if market == "hk" and not _hk_verified(selected):
+        return None
+    values = [getattr(row, field) for row in selected]
+    return values[0] + values[1] - values[2] if usable(selected) and all(is_finite_number(value) for value in values) else None

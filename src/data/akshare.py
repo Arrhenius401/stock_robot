@@ -1035,6 +1035,15 @@ class AkShareAdapter(DataSource):
 
         assets, cash_flows = supplement("资产负债表"), supplement("现金流量表")
         income_meta = period_metadata(income)
+        from data.hk_currency_evidence import load_indicator_periods, verify_period
+
+        try:
+            indicators = load_indicator_periods(code)
+        except Exception as error:  # 第三方指标边界，失败不阻断三表
+            indicators = {}
+            logger.warning("港股分析指标获取失败 %s: %s", code, type(error).__name__)
+            self._append_collection_error("东方财富港股分析指标", error)
+
         cash_meta = period_metadata(statement_rows.get("现金流量表", []))
         directory_meta: dict[date, tuple[date | None, str, str]] = {}
         try:
@@ -1100,6 +1109,15 @@ class AkShareAdapter(DataSource):
             parts = [cf.get(key) for key in ("005005", "005007")]
             capex = sum(abs(value) for value in parts if value is not None) if any(value is not None for value in parts) and not bank_template else None
             ocf = cf.get("003999")
+            indicator = indicators.get(period)
+            evidence = verify_period(period, start, income, indicator, bank=bank_template)
+            currency = evidence.currency if evidence.verified else ""
+            verified = evidence.verified
+
+            annual_indicator = indicator if start is not None and start.month == 1 and period.month == 12 else None
+            annual_roe = finite_number(annual_indicator.get("ROE_AVG")) if annual_indicator else None
+            reported_annual_roe = annual_roe / 100 if annual_roe is not None else None
+
             result.append(FinancialData(symbol=symbol, fiscal_quarter=period,
                 revenue=row.get(revenue), net_profit=row.get(profit), basic_eps=row.get(eps),
                 total_assets=bs.get(total_assets), total_equity=bs.get(total_equity),
@@ -1108,7 +1126,12 @@ class AkShareAdapter(DataSource):
                 gross_margin=margin, gross_margin_basis="银行/保险不适用" if bank_template else GROSS_MARGIN_BASIS if margin is not None else "",
                 period_start=start, period_basis="cumulative" if start is not None else "unknown",
                 reporting_basis=reporting_basis, report_currency=currency,
-                amount_currency_verified=bool(currency), disclosure_currency=disclosure_currency,
+                amount_currency_verified=verified,
+                amount_currency_reason="逐期报表聚合与分析指标一致" if verified else evidence.reason,
+                reported_annual_roe=reported_annual_roe,
+                reported_annual_roe_period=period if reported_annual_roe is not None else None,
+                reported_annual_roe_source="东方财富港股分析指标" if reported_annual_roe is not None else "",
+                disclosure_currency=disclosure_currency,
                 revenue_basis="银行：经营收入总额" if bank_template else "",
                 cash_flow_basis="reported" if cf.get("003999") is not None and start is not None and currency
                     and cf_start == start and cf_currency == currency else "unknown",
@@ -1261,7 +1284,7 @@ class AkShareAdapter(DataSource):
         item.ps_source = "东方财富港股估值对比" if ps is not None else ""
         item.pe_history, item.pb_history = pe_curve, pb_curve
         item.history_source = "百度港股估值（近一年）" if curves else ""
-        if code == "00700" and pe is not None and pb is not None and len(curves) == 2:
+        if pe is not None and pb is not None and len(curves) == 2:
             try:
                 start = today - timedelta(days=1096)
                 last_closed = today if datetime.now(timezone(timedelta(hours=8))).hour >= 17 else today - timedelta(days=1)
