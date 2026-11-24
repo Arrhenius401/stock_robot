@@ -102,16 +102,12 @@ def compute_price_info(ctx: AnalysisContext) -> dict:
 
 def quantitative_commentary(summary: ScoreSummary, state: str = "failed") -> str:
     """AI 不可用时只陈述程序结果，不补造经营解释或模型评级。"""
-    reasons = {"disabled": "未启用 AI 解读", "config": "AI 解读尚未配置", "failed": "AI 解读当前不可用"}
-    lines = [f"> {reasons.get(state, reasons['failed'])}，以下为程序生成的量化摘要。", ""]
-    if summary.final_score is None:
-        lines.append("暂无综合得分，不形成综合判断。")
-    else:
+    lines: list[str] = []
+    if summary.final_score is not None:
         lines.append(f"{summary.score_label}为 {summary.final_score:.1f}/10。")
     for row in summary.score_rows:
         value = f"{row['score']}/10" if row.get("score") != "N/A" else "未计分"
         lines.append(f"- {row['label']}：{value}。")
-    lines.append("本摘要仅陈述可用量化结果，具体经营趋势、风险与数据限制见对应章节。")
     return "\n".join(lines)
 
 
@@ -163,8 +159,7 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
     research = resolve_research(ctx, results, commentary, profile=profile, allow_model=(
         not no_llm and bool(commentary.get("research")) and quality["has_analysis_data"]))
     if research:
-        notice = "" if research.get("model") else "> AI解读未生成，以下保留来源资料与程序生成的五维定性。\n\n"
-        commentary = {**commentary, "structured_version": "2", "bulk": notice + render_research(research)}
+        commentary = {**commentary, "structured_version": "2", "bulk": render_research(research)}
     price_info = compute_price_info(ctx)
     if quality.get("report_scope") == "facts_only":
         price_info.update(year_high=None, year_low=None, price_position="不适用（事实报告）")

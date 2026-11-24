@@ -77,9 +77,7 @@ def sentiment_display_items(metrics: dict[str, Any]) -> list[dict[str, Any]]:
 
 def format_news_facts_markdown(metrics: dict[str, Any]) -> str:
     """客观新闻只披露标题、日期及原文来源，不输出情绪或评分。"""
-    notes = [metrics.get("news_disclaimer"), *(metrics.get("news_notes") or [])]
-    hidden_prefixes = ("关键词检索结果，按标题公司简称过滤", "已达到单关键词100条候选上限")
-    lines = [_news_text(note) for note in notes if note and not note.startswith(hidden_prefixes)]
+    lines: list[str] = []
     for item in (metrics.get("news_items") or [])[:STOCK_NEWS_DISPLAY_LIMIT]:
         sources = []
         links = item.get("links") or [{"url": item.get("url"), "media": item.get("media") or item.get("source")}]
@@ -98,17 +96,11 @@ def format_sentiment_risk_markdown(metrics: dict[str, Any]) -> str:
     """新舆情口径同时披露原风险、反向参与值和可追溯样本。"""
     risk, participation = metrics.get("risk_score"), metrics.get("participation_score")
     lines = ["**舆情原风险分：** " + (f"{risk:.1f}/10" if is_finite_number(risk) else "无法评估") + "（越高风险越大）",
-             "", "**综合参与分：** " + (f"{participation:.1f}/10" if is_finite_number(participation) else "暂无，暂不参与综合评分") + " · 权重5%",
+             "", "**综合参与分：** " + (f"{participation:.1f}/10" if is_finite_number(participation) else "暂无") + " · 权重5%",
              "", f"评估窗口：{_news_text(metrics.get('window_start') or '未记录')} 至 {_news_text(metrics.get('window_end') or '未记录')}；已评估{_news_text(metrics.get('evaluated_count', 0))}条。"]
     reason = metrics.get("assessment_reason")
     if reason:
         lines += ["", _news_text(reason)]
-    if risk == 0:
-        lines += ["", "本次有效样本未识别到负面，不代表全市场无风险。"]
-    disclaimer = metrics.get("news_disclaimer") or "本次限量样本，不保证完整覆盖；风险依据仅来自已取得内容。"
-    if "不作AI筛选或情绪评分" in disclaimer or "不进行模型或评分" in disclaimer:
-        disclaimer = "本次限量样本，不保证完整覆盖；风险依据仅来自已取得内容。"
-    lines += ["", _news_text(disclaimer)]
     items = sentiment_display_items(metrics)
     if items:
         lines += ["", "#### 采集样本与来源"]

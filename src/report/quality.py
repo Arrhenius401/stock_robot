@@ -233,11 +233,6 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
             {"label": "数据来源", "value": getattr(record, "source", "") or "未记录"},
             {"label": "数据截止", "value": cutoff},
         ]
-        if key == "technical" and record and record.sources:
-            fields.append({"label": "采集限制", "value": "行情来源诊断：" + "；".join(
-                f"{item.get('source', '未记录')}：{item.get('status', 'unknown')}，"
-                f"{item.get('rows', 0)} 条，{item.get('error') or '无异常'}"
-                for item in record.sources)})
         if key == "valuation" and ctx.market in {"hk", "us"} and ctx.valuation_data:
             valuation = ctx.valuation_data
             snapshot_dates = valuation_snapshot_dates(ctx)
@@ -293,9 +288,6 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
             fields.append({"label": "评估窗口", "value": f"{result.metrics.get('window_start') or '未记录'} 至 {result.metrics.get('window_end') or '未记录'}"})
             if result.metrics.get("assessment_reason"):
                 fields.append({"label": "评估说明", "value": str(result.metrics["assessment_reason"])})
-        if key == "sentiment" and profile.sentiment_policy == "not_collected":
-            state = dimension_state(profile, result, ctx, dimension=key)
-            fields.append({"label": "采集限制", "value": state.detail})
         if key == "industry" and profile.annual_industry_policy == "reference_only":
             comparison = ctx.enriched_industry.comparison if ctx.enriched_industry else {}
             annual = comparison.get("periods", {}).get("annual", {})
@@ -368,34 +360,20 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
         assessment = ("complete" if complete else "partial" if (not us or identity == "confirmed")
                       and bars > 0 and len(scored) >= 2 else "facts_only")
         scope = "full" if complete else "limited" if assessment == "partial" else "facts_only"
-        limitations = []
-        if identity != "confirmed":
-            limitations.append("身份未确认；行情或报价存在不能确认公司身份")
-        if bars == 0:
-            limitations.append("未取得历史行情；保留可用报价、财务、估值和行业事实")
-        elif bars < 60:
-            dates = [point.trade_date for point in ctx.price_data or []]
-            window = f"（{min(dates).isoformat()} 至 {max(dates).isoformat()}）" if dates else ""
-            limitations.append(f"本次仅取得 {bars} 个交易日行情{window}，无法确认是否覆盖上市以来完整历史")
-        if bars < 20:
-            limitations.append("技术指标和价格位置不可用")
-        if not complete:
-            limitations.append("未生成操作信号")
-        label = {"complete": "完整评估", "partial": "部分评估", "facts_only": "事实报告"}[assessment]
         quality.update(
             required_dimensions=required, scored_required_dimensions=scored,
             identity_status=identity, report_scope=scope, assessment_status=assessment,
-            scope_notice=f"报告范围：{label}。" + ("；".join(limitations) + "。" if limitations else ""),
             score_label="部分评估综合得分（参考）" if assessment == "partial" else "最终综合得分",
             has_scored_data=quality["has_scored_data"] and assessment != "facts_only",
             signal_allowed=quality["signal_allowed"] and complete,
         )
-        if scope == "facts_only":
-            for dimension in dimensions:
-                if dimension["key"] == "technical":
-                    for item in dimension["fields"]:
-                        if item["label"] in {"缺失原因", "分析限制"}:
-                            item["value"] = "事实报告仅保留行情来源与实际样本范围，不展示技术指标或技术评分"
+        for dimension in dimensions:
+            if scope == "facts_only" and dimension["key"] == "technical":
+                dimension["fields"] = [item for item in dimension["fields"]
+                                       if item["label"] not in {"缺失原因", "分析限制"}]
+            if dimension["key"] == "sentiment" and profile.sentiment_policy == "not_collected":
+                dimension["fields"] = [item for item in dimension["fields"]
+                                       if item["label"] not in {"采集限制", "缺失原因", "分析限制"}]
     from report.presentation import compact_quality
 
     quality.update(compact_quality(quality))

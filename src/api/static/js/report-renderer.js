@@ -415,7 +415,6 @@ function summarySection(report, sectionIdPrefix) {
   card.appendChild(reportHeader(report));
   if (report.analysis_mode === "objective") card.appendChild(el("p", "dim-sum", "客观数据模式"));
   const quality = record(report.data_quality);
-  if (quality.scope_notice) card.appendChild(el("p", "dim-sum", quality.scope_notice));
   if (quality.status) {
     const badge = statusBadge(quality.status);
     badge.textContent = (legacyHk(report)
@@ -499,12 +498,6 @@ function scoreSection(report, sectionIdPrefix) {
   big.appendChild(rows);
   card.appendChild(big);
   if (fiveDimension(report)) {
-    card.appendChild(el("p", "report-score-detail", report.market === "us"
-      ? "五维计分 · 舆情本期未计分（N/A），权重由其余有效维度归一。风险标签仅作提示，不额外扣分。"
-      : "五维计分 · 舆情列为综合参与分（10−原风险分）。风险标签仅作提示，不额外扣分。"));
-    const available = (report.score_rows || []).filter(row => scoreText(row.score, "") !== "");
-    if (available.length < 5) card.appendChild(el("p", "report-score-detail",
-      score.final == null ? "主要分析数据不足；仅有舆情数据时不输出综合分。缺失项目不记零分。" : "缺失项目不记零分，其余项目按原比例折算。"));
     for (const row of report.score_rows || []) {
       if (row.detail) card.appendChild(el("p", "report-score-detail", `${readable(row.label)}：${compactScoreDetail(row.detail)}`));
     }
@@ -793,10 +786,6 @@ function safeNewsUrl(value) {
 function newsFactsSection(data, sectionIdPrefix) {
   const card = section("report-sentiment", "相关新闻", "panel", sectionIdPrefix);
   const dimension = record(data), metrics = record(dimension.metrics);
-  for (const note of [metrics.news_disclaimer, ...(metrics.news_notes || [])].filter(Boolean)) {
-    if (/^(关键词检索结果，按标题公司简称过滤|已达到单关键词100条候选上限)/.test(String(note))) continue;
-    card.appendChild(el("p", "dim-sum", String(note)));
-  }
   const list = el("ul", "report-metric-list sentiment-source-list");
   const items = Array.isArray(metrics.news_items) && metrics.news_items.length ? metrics.news_items
     : (metrics.headlines || []).map(title => ({title}));
@@ -832,12 +821,8 @@ function sentimentRiskSection(data, sectionIdPrefix) {
   appendRiskFlags(card, dimension);
   card.appendChild(el("p", "peer-caption", `评估窗口：${readable(metrics.window_start, "未记录")} 至 ${readable(metrics.window_end, "未记录")} · 已评估${metrics.evaluated_count ?? 0}条`));
   if (metrics.assessment_reason || dimension.summary) card.appendChild(el("p", "dim-sum", metrics.assessment_reason || dimension.summary));
-  if (metrics.risk_score === 0) card.appendChild(el("p", "dim-sum", "本次有效样本未识别到负面，不代表全市场无风险。"));
   const participation = scoreText(metrics.participation_score, "");
-  card.appendChild(el("p", "report-score-detail", participation ? `综合参与分 ${participation} /10 · 权重5%` : "舆情暂不参与综合评分"));
-  const disclaimer = metrics.news_disclaimer && !/不作AI筛选或情绪评分|不进行模型或评分/.test(metrics.news_disclaimer)
-    ? metrics.news_disclaimer : "本次限量样本，不保证完整覆盖；风险依据仅来自已取得内容。";
-  card.appendChild(el("p", "peer-caption", disclaimer));
+  if (participation) card.appendChild(el("p", "report-score-detail", `综合参与分 ${participation} /10 · 权重5%`));
   const assessed = Array.isArray(metrics.all_items) ? metrics.all_items.map(record) : [];
   const news = Array.isArray(metrics.news_items) ? metrics.news_items.map(record) : [];
   const identity = item => JSON.stringify([item.title || "", String(item.publish_date || item.published_at || "").slice(0, 10)]);
@@ -914,7 +899,7 @@ function researchBody(research, state) {
   const model = state === "ok" ? record(research.model) : {};
   const rawBusiness = naturalText(model.business) || naturalText(profile.main_business);
   const business = naturalText(research.business_text) || (rawBusiness.length > 160 ? "主营资料已取得，简要介绍暂不可用。" : rawBusiness) || "主营业务资料暂不可用。";
-  add(box, el("h3", "", "主营业务"), el("p", "", business));
+  if (!["主营业务资料暂不可用。", "主营资料已取得，简要介绍暂不可用。"].includes(business)) add(box, el("h3", "", "主营业务"), el("p", "", business));
   const sourceLabel = naturalText(profile.source_label)
     || (!research.market || research.market === "a-shares" ? "同花顺主营介绍" : "");
   if (profile.source && sourceLabel) {
@@ -925,7 +910,7 @@ function researchBody(research, state) {
     add(box, el("h3", "", "核心结论"), researchRows(["整体判断", "主要支撑", "主要疑问"],
       [conclusion.overall, conclusion.support, conclusion.question]));
   }
-  const dims = Array.isArray(research.dimensions) ? research.dimensions.map(record) : [];
+  const dims = Array.isArray(research.dimensions) ? research.dimensions.map(record).filter(row => !(row.key === "sentiment" && String(row.text || "").startsWith("本期未采集可评估舆情样本"))) : [];
   add(box, el("h3", "", "五维解读"), researchRows(dims.map(row => row.label), dims.map(row => row.text)));
   if (conclusion.overall) {
     add(box, el("h3", "", "风险提示"));
@@ -936,7 +921,6 @@ function researchBody(research, state) {
       add(box, list);
     } else add(box, el("p", "", "本次未形成有充分依据的独立风险提示，不代表不存在风险。"));
   }
-  add(box, el("p", "dim-sum", `解读限制：${naturalText(research.limitation)}`));
   return box;
 }
 
@@ -944,9 +928,6 @@ function commentarySection(report, sectionIdPrefix, options) {
   const card = section("report-commentary", "综合研判", "llm", sectionIdPrefix);
   const state = report.commentary_status;
   if (state && state !== "ok") {
-    const fallbackLabel = record(report.research_commentary).version === 2 ? "来源资料与程序生成的五维定性" : "量化摘要";
-    const messages = {failed: `AI 解读生成失败，以下为${fallbackLabel}。`, disabled: `AI 解读未启用，以下为${fallbackLabel}。`, insufficient: "主要分析数据不足，暂不生成综合判断。", config: `AI 解读尚未配置，以下为${fallbackLabel}。`};
-    card.appendChild(el("div", "report-empty", messages[state] || "暂无 AI 解读"));
     const configure = state === "config";
     const callback = configure ? options.onConfigure : options.onRetryCommentary;
     if (!options.readOnly && (configure || state === "failed") && typeof callback === "function") {
@@ -967,15 +948,13 @@ function commentarySection(report, sectionIdPrefix, options) {
   // 旧快照仅含研究摘要时保留其正文；带旧交易动作或仓位的摘要不再展示。
   const safeLegacy = /建议仓位|可考虑建仓|加仓|减仓|买入|卖出|持仓|重仓|轻仓/.test(legacy) ? "" : legacy;
   const rawBody = commentaryText(report) || safeLegacy;
-  // 降级状态已在卡片顶部说明，去掉量化摘要正文重复的引导句。
+  // 旧快照正文中的降级引导句不重复展示。
   const body = state && state !== "ok" ? rawBody.replace(/^>\s*[^\n]*(?:\n+|$)/, "").trim() : rawBody;
   if (record(report.research_commentary).version === 2) {
     card.appendChild(researchBody(report.research_commentary, state));
   } else if (body && state !== "insufficient") {
     const nested = body.replace(/^#{1,2}[ \t]+(?=\d+[.、．])/gm, "### ");
     card.appendChild(markdownBlock(nested, "report-commentary-intro dim-sum md"));
-  } else if (!state || state === "ok") {
-    card.appendChild(el("div", "report-empty", "暂无 AI 解读"));
   }
   const signal = record(report.signal), quality = record(report.data_quality);
   const signalBlock = el("div", "report-signal");
@@ -1152,7 +1131,6 @@ function indexResearchBody(research, state) {
     risks.forEach(risk => list.appendChild(el("li", "", naturalText(risk.text))));
     add("风险提示", risks.length ? list : el("p", "", "本次未形成有充分依据的独立风险提示。"));
   }
-  add("解读限制", el("p", "dim-sum", naturalText(research.limitation)));
   return box;
 }
 
@@ -1265,7 +1243,6 @@ export function renderStockReport(report, options = {}) {
     }
     if (!objective && sentimentPolicy === "not_collected" && name === "sentiment") {
       const news = newsFactsSection(dimensions[name], sectionIdPrefix);
-      news.appendChild(el("p", "report-score-detail", "舆情本期未计分（N/A），权重由其余有效维度归一。"));
       article.appendChild(news);
       continue;
     }

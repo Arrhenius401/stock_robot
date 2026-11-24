@@ -161,7 +161,7 @@ def render_research(research: dict, profile: MarketProfile | None = None) -> str
     profile = profile or profile_for(research.get("market", "a-shares"))
     source, model = research["business_profile"], research.get("model")
     business = business_text(research, profile)
-    parts = ["### 主营业务", _safe(business)]
+    parts = [] if business in {"主营业务资料暂不可用。", "主营资料已取得，简要介绍暂不可用。"} else ["### 主营业务", _safe(business)]
     if source.get("source"):
         label = source.get("source_label") or ("同花顺主营介绍" if profile.business_profile == "ths" else "")
         if label:
@@ -171,13 +171,13 @@ def render_research(research: dict, profile: MarketProfile | None = None) -> str
         for key, label in (("overall", "整体判断"), ("support", "主要支撑"), ("question", "主要疑问")):
             parts.append(f"**{label}：** {_safe(model['conclusion'][key])}")
     parts.append("### 五维解读")
-    parts.extend(f"**{r['label']}：** {_safe(r['text'])}" for r in research["dimensions"])
+    parts.extend(f"**{r['label']}：** {_safe(r['text'])}" for r in research["dimensions"]
+                 if not (r["key"] == "sentiment" and r["text"].startswith("本期未采集可评估舆情样本")))
     if model:
         parts.append("### 风险提示")
         parts.extend(f"- {_safe(r['text'])}" for r in model["risks"])
         if not model["risks"]:
             parts.append("本次未形成有充分依据的独立风险提示，不代表不存在风险。")
-    parts.append("解读限制：" + _safe(research["limitation"]))
     return "\n\n".join(parts)
 
 
