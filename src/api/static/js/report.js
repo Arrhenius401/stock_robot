@@ -3,7 +3,7 @@ import { store, switchView, bus } from "./state.js";
 import { api } from "./api.js?v=20261029-index-news-quality";
 import { el, errorCard, skeleton,
          showEntryError, clearEntryError } from "./components.js";
-import { STOCK_NEWS_DISPLAY_LIMIT, renderStockReport } from "./report-renderer.js?v=20261124-report-copy-2";
+import { STOCK_NEWS_DISPLAY_LIMIT, renderStockReport } from "./report-renderer.js?v=20261124-commentary-restore";
 
 const content = () => document.getElementById("reportContent");
 

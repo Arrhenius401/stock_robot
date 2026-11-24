@@ -899,7 +899,7 @@ function researchBody(research, state) {
   const model = state === "ok" ? record(research.model) : {};
   const rawBusiness = naturalText(model.business) || naturalText(profile.main_business);
   const business = naturalText(research.business_text) || (rawBusiness.length > 160 ? "主营资料已取得，简要介绍暂不可用。" : rawBusiness) || "主营业务资料暂不可用。";
-  if (!["主营业务资料暂不可用。", "主营资料已取得，简要介绍暂不可用。"].includes(business)) add(box, el("h3", "", "主营业务"), el("p", "", business));
+  add(box, el("h3", "", "主营业务"), el("p", "", business));
   const sourceLabel = naturalText(profile.source_label)
     || (!research.market || research.market === "a-shares" ? "同花顺主营介绍" : "");
   if (profile.source && sourceLabel) {
@@ -910,7 +910,7 @@ function researchBody(research, state) {
     add(box, el("h3", "", "核心结论"), researchRows(["整体判断", "主要支撑", "主要疑问"],
       [conclusion.overall, conclusion.support, conclusion.question]));
   }
-  const dims = Array.isArray(research.dimensions) ? research.dimensions.map(record).filter(row => !(row.key === "sentiment" && String(row.text || "").startsWith("本期未采集可评估舆情样本"))) : [];
+  const dims = Array.isArray(research.dimensions) ? research.dimensions.map(record) : [];
   add(box, el("h3", "", "五维解读"), researchRows(dims.map(row => row.label), dims.map(row => row.text)));
   if (conclusion.overall) {
     add(box, el("h3", "", "风险提示"));
@@ -921,6 +921,7 @@ function researchBody(research, state) {
       add(box, list);
     } else add(box, el("p", "", "本次未形成有充分依据的独立风险提示，不代表不存在风险。"));
   }
+  add(box, el("p", "dim-sum", `解读限制：${naturalText(research.limitation)}`));
   return box;
 }
 
@@ -928,6 +929,9 @@ function commentarySection(report, sectionIdPrefix, options) {
   const card = section("report-commentary", "综合研判", "llm", sectionIdPrefix);
   const state = report.commentary_status;
   if (state && state !== "ok") {
+    const fallbackLabel = record(report.research_commentary).version === 2 ? "来源资料与程序生成的五维定性" : "量化摘要";
+    const messages = {failed: `AI 解读生成失败，以下为${fallbackLabel}。`, disabled: `AI 解读未启用，以下为${fallbackLabel}。`, insufficient: "主要分析数据不足，暂不生成综合判断。", config: `AI 解读尚未配置，以下为${fallbackLabel}。`};
+    card.appendChild(el("div", "report-empty", messages[state] || "暂无 AI 解读"));
     const configure = state === "config";
     const callback = configure ? options.onConfigure : options.onRetryCommentary;
     if (!options.readOnly && (configure || state === "failed") && typeof callback === "function") {
@@ -948,13 +952,15 @@ function commentarySection(report, sectionIdPrefix, options) {
   // 旧快照仅含研究摘要时保留其正文；带旧交易动作或仓位的摘要不再展示。
   const safeLegacy = /建议仓位|可考虑建仓|加仓|减仓|买入|卖出|持仓|重仓|轻仓/.test(legacy) ? "" : legacy;
   const rawBody = commentaryText(report) || safeLegacy;
-  // 旧快照正文中的降级引导句不重复展示。
+  // 降级状态已在卡片顶部说明，去掉量化摘要正文重复的引导句。
   const body = state && state !== "ok" ? rawBody.replace(/^>\s*[^\n]*(?:\n+|$)/, "").trim() : rawBody;
   if (record(report.research_commentary).version === 2) {
     card.appendChild(researchBody(report.research_commentary, state));
   } else if (body && state !== "insufficient") {
     const nested = body.replace(/^#{1,2}[ \t]+(?=\d+[.、．])/gm, "### ");
     card.appendChild(markdownBlock(nested, "report-commentary-intro dim-sum md"));
+  } else if (!state || state === "ok") {
+    card.appendChild(el("div", "report-empty", "暂无 AI 解读"));
   }
   const signal = record(report.signal), quality = record(report.data_quality);
   const signalBlock = el("div", "report-signal");
@@ -1131,6 +1137,7 @@ function indexResearchBody(research, state) {
     risks.forEach(risk => list.appendChild(el("li", "", naturalText(risk.text))));
     add("风险提示", risks.length ? list : el("p", "", "本次未形成有充分依据的独立风险提示。"));
   }
+  add("解读限制", el("p", "dim-sum", naturalText(research.limitation)));
   return box;
 }
 

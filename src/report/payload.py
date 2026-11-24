@@ -51,7 +51,7 @@ def build_stock_payload(
         bulk = ""
     elif not quality["has_analysis_data"]:
         status = "insufficient"
-        bulk = ""
+        bulk = "主要数据不足，暂不调用模型生成结论。"
     elif no_llm:
         status = "disabled"
         bulk = quantitative_commentary(summary, "disabled")

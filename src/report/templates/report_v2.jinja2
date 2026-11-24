@@ -147,9 +147,11 @@
 {% if commentary.get("structured_version") == "2" %}
 {{ commentary["bulk"] | commentary_section }}
 {% elif data_quality and not data_quality.has_analysis_data %}
+> 主要分析数据不可用，暂不生成 AI 结论。
 {% elif commentary.get("bulk") %}
 {{ commentary["bulk"] | commentary_section }}
 {% else %}
+> {{ "纯量化模式，未启用 AI 解读。" if no_llm else "AI 解读不可用。" }}以下为量化摘要。
 
 {{ "最终综合得分：" ~ (final_score | metric_value("final_score")) ~ "/10。" if final_score is not none else "暂无综合得分，不形成综合判断。" }}
 {% endif %}
