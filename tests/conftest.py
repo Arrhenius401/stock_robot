@@ -3,7 +3,7 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _test_defaults(mocker, tmp_path):
+def _test_defaults(mocker, tmp_path_factory):
     """全局测试默认：新数据源不可用则自动回退到已被 mock 覆盖的旧数据源"""
     for api in ("abstract", "cash", "debt"):
         mocker.patch(f"akshare.stock_financial_{api}_new_ths",
@@ -22,8 +22,15 @@ def _test_defaults(mocker, tmp_path):
 
     # 新增来源的成功缓存逐测试隔离，不读写开发者真实运行缓存。
     from data.cache import CacheManager
-    cache = CacheManager(tmp_path / "source-success.db")
-    mocker.patch("data.a_valuation_history._source_cache", return_value=cache)
-    mocker.patch("data.us_sec._source_cache", return_value=cache)
+    cache_path = None
+
+    def source_cache():
+        nonlocal cache_path
+        if cache_path is None:
+            cache_path = tmp_path_factory.mktemp("source-success") / "cache.db"
+        return CacheManager(cache_path)
+
+    mocker.patch("data.a_valuation_history._source_cache", side_effect=source_cache)
+    mocker.patch("data.us_sec._source_cache", side_effect=source_cache)
     mocker.patch("akshare.stock_value_em", side_effect=ConnectionError("mock: valuation unavailable"))
     mocker.patch("akshare.stock_financial_hk_analysis_indicator_em", side_effect=ConnectionError("mock: indicator unavailable"))

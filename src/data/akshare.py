@@ -350,10 +350,7 @@ class AkShareAdapter(DataSource):
             message = f"{source}：{current.error_message}"
             if previous is not None:
                 message = f"{previous.error_message}；{message}"
-            self._collection_diagnostics.record = current.model_copy(update={
-                "error_message": message,
-                "source": f"{previous.source}；{source}" if previous is not None else source,
-            })
+            self._collection_diagnostics.record = current.model_copy(update={"error_message": message})
 
     def supports(self, market: str, data_type: str) -> bool:
         if market == "a-shares" and data_type in (
@@ -1071,7 +1068,13 @@ class AkShareAdapter(DataSource):
         except Exception as error:  # 第三方指标边界，失败不阻断三表
             indicators = {}
             logger.warning("港股分析指标获取失败 %s: %s", code, type(error).__name__)
+            previous = self.get_collection_error()
             self._append_collection_error("东方财富港股分析指标", error)
+            current = self.get_collection_error()
+            if previous is not None and current is not None:
+                self._collection_diagnostics.record = previous.model_copy(update={
+                    "error_message": current.error_message,
+                })
 
         cash_meta = period_metadata(statement_rows.get("现金流量表", []))
         directory_meta: dict[date, tuple[date | None, str, str]] = {}

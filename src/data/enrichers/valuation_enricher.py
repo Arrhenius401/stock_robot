@@ -358,9 +358,14 @@ class ValuationEnricher(DataEnricher):
         as_of = snapshot.market_cap_as_of or snapshot.date
         if cap is None:
             prices = sorted(ctx.price_data or [], key=lambda item: item.trade_date)
-            shares = (snapshot.total_shares if snapshot.total_shares_as_of and snapshot.total_shares_source
-                      and is_positive_finite(snapshot.total_shares) else get_total_shares_result(ctx.symbol, ctx.financial_data).value)
-            if not prices or not shares or prices[-1].close <= 0:
+            if not prices or prices[-1].close <= 0:
+                return
+            financials = ctx.financial_data or []
+            latest = max(financials, key=lambda row: row.fiscal_quarter, default=None)
+            equity = (latest.common_equity if latest.common_equity is not None else latest.total_equity) if latest else None
+            profit = financial_ttm(financials, "net_profit", "a-shares", require_precision=True)
+            shares = ValuationEnricher()._get_total_shares(ctx, profit, equity)
+            if not shares:
                 return
             cap = prices[-1].close * shares
             as_of = prices[-1].trade_date
@@ -368,15 +373,15 @@ class ValuationEnricher(DataEnricher):
         snapshot.ps_as_of = as_of
         snapshot.ps_source = "总市值 ÷ 同报告期TTM营收（派生，仅参考）"
 
-    def _get_total_shares(self, ctx: AnalysisContext, ttm_profit: float,
-                          ttm_equity: float) -> float | None:
+    def _get_total_shares(self, ctx: AnalysisContext, ttm_profit: float | None,
+                          ttm_equity: float | None) -> float | None:
         """总股本：实测 PE/PB 反推锚点优先，其次三级链。"""
         snapshot = ctx.valuation_data
         if snapshot and snapshot.total_shares_as_of and snapshot.total_shares_source and is_positive_finite(snapshot.total_shares):
             return snapshot.total_shares
         # 实测锚定：估值数据来自腾讯快照（独立口径），锚定计算只用内存数据
         measured_pe = ctx.valuation_data.pe_ttm if ctx.valuation_data else None
-        if measured_pe is not None and is_positive_finite(measured_pe):
+        if measured_pe is not None and is_positive_finite(measured_pe) and ttm_profit is not None:
             sorted_prices = sorted(ctx.price_data or [], key=lambda x: x.trade_date)
             if sorted_prices:
                 latest_close = sorted_prices[-1].close
@@ -391,7 +396,7 @@ class ValuationEnricher(DataEnricher):
                             )
                         return anchor
         measured_pb = ctx.valuation_data.pb if ctx.valuation_data else None
-        if measured_pb is not None and is_positive_finite(measured_pb):
+        if measured_pb is not None and is_positive_finite(measured_pb) and ttm_equity is not None:
             sorted_prices = sorted(ctx.price_data or [], key=lambda x: x.trade_date)
             if sorted_prices and sorted_prices[-1].close > 0:
                 return measured_pb * ttm_equity / sorted_prices[-1].close
