@@ -261,3 +261,18 @@ def test_missing_cashflow_keeps_core_signal_gate_closed():
     quality = build_data_quality(ctx, results)
     assert not quality["signal_allowed"]
     assert "财务" in quality["signal_unavailable_reason"]
+
+
+def test_us_industry_missing_does_not_block_signal():
+    from report.quality import build_data_quality
+
+    ctx = AnalysisContext(symbol="AAPL", name="苹果", market="us", extra_analysis_enabled=True)
+    ctx.price_data = _prices(ctx.symbol, 60)
+    for name in ("financial", "price", "valuation"):
+        setattr(ctx.sufficiency, name, DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT))
+    ctx.sufficiency.industry = DimensionSufficiency(level=SufficiencyLevel.INSUFFICIENT)
+    results = [AnalysisResult(dimension=dim, status="ok", summary="充分", score=8)
+               for dim in ("financial", "technical", "valuation")]
+    quality = build_data_quality(ctx, results)
+    assert quality["signal_allowed"]
+    assert quality["required_dimensions"] == ["financial", "technical", "valuation"]

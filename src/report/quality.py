@@ -209,7 +209,7 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
         if weight and key in applicable:
             coverage += weight * (level / 2)
             all_complete = all_complete and level == 2 and (value is not None or not ctx.extra_analysis_enabled)
-        if key in {"financial", "technical", "valuation"} or (us and key == "industry"):
+        if key in {"financial", "technical", "valuation"}:
             sufficient = suff.level == "sufficient"
             if key == "financial" and result and result.metrics.get("scoring_basis"):
                 basis = result.metrics["scoring_basis"]
@@ -335,7 +335,6 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
         "coverage": round(coverage / applicable_weight * 100, 1),
         "signal_allowed": ctx.extra_analysis_enabled and signal_complete and has_scored,
         "signal_unavailable_reason": ("未启用额外分析。" if not ctx.extra_analysis_enabled else
-            "行业对比样本不足或经营指标未证实，未生成信号。" if us and "行业" in signal_blocked else
             f"{'、'.join(signal_blocked)}分析依据未满足信号生成条件。" if signal_blocked else ""),
         "has_scored_data": ctx.extra_analysis_enabled and has_scored,
         "has_analysis_data": analysis_available,
@@ -346,20 +345,14 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
     if ctx.market in {"hk", "us"}:
         quality.update(available_dimensions=available, applicable_dimensions=len(applicable))
     if ctx.market in {"a-shares", "hk", "us"}:
-        required = ["financial", "technical", "valuation", *(["industry"] if us else [])]
+        required = ["financial", "technical", "valuation"]
         scored = [key for key in required if participation_score(result_map.get(key)) is not None]
         identity = ctx.identity_status or (
             "confirmed" if ctx.name.strip() and ctx.name.upper() != ctx.symbol.upper()
             else "probable" if ctx.price_data or ctx.current_quote.get("status") == "ok" else "unconfirmed")
         bars = len(ctx.price_data or [])
-        # A/港股沿用现有三核心充分度门槛，不引入美股入口或四维规则。
-        complete = (bars > 0 and len(scored) == len(required) and signal_complete
-                    and (not us or (identity == "confirmed" and bars >= 60
-                         and all(getattr(ctx.sufficiency, "price" if key == "technical" else key).level == "sufficient"
-                                 for key in required))))
-        # A/港股已有有效核心评分即可展示部分评估，信号仍须通过完整门槛。
-        partial_available = (identity == "confirmed" and bars > 0 and len(scored) >= 2
-                             if us else ctx.extra_analysis_enabled and bool(scored))
+        complete = bars > 0 and len(scored) == len(required) and signal_complete
+        partial_available = ctx.extra_analysis_enabled and bool(scored)
         assessment = "complete" if complete else "partial" if partial_available else "facts_only"
         scope = "full" if complete else "limited" if assessment == "partial" else "facts_only"
         quality.update(
