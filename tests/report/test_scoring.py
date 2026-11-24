@@ -109,8 +109,8 @@ class TestBuildReport:
         call_kwargs = mock_builder.build.call_args.kwargs
         assert call_kwargs["symbol"] == "000001"
         assert call_kwargs["industry"] == "申万行业待补全（数据源不可用）"
-        assert call_kwargs["base_score"] is None
-        assert call_kwargs["final_score"] is None
+        assert call_kwargs["base_score"] == 8
+        assert call_kwargs["final_score"] == 8
 
     def test_build_report_prefers_sw_industry(self, mocker):
         mock_builder_cls = mocker.patch("report.builder.ReportBuilder")

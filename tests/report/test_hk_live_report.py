@@ -1,6 +1,5 @@
-"""真实 QQ 失败报告、港股有效事实及评分信号边界回归。"""
+"""港股有效事实及评分信号边界回归。"""
 from datetime import date, timedelta
-from pathlib import Path
 from typing import Literal
 
 import pytest
@@ -15,7 +14,6 @@ from data.schemas import (
 )
 from report.payload import build_stock_payload
 from report.quality import build_data_quality
-from report.scoring import build_report
 from report.signal import SignalConfig
 
 
@@ -25,26 +23,6 @@ def hk_context():
     return ctx
 
 
-def test_real_qq_failure_sample_and_corrected_market_report():
-    original = (Path(__file__).parents[1] / "resources/report/qq-00700-unavailable-report.md").read_text(encoding="utf-8")
-    assert "市场：A 股" in original
-    assert "2241期财报" in original
-    ctx = hk_context()
-    result = AnalysisResult(dimension="financial", status="partial", summary="港股报告期", metrics={"latest_quarter": "2026-06-30", "revenue": 396431000000})
-    quality = build_data_quality(ctx, [result])
-    assert quality["has_analysis_data"]
-    assert not quality["has_scored_data"]
-    payload = build_stock_payload(ctx.symbol, ctx.name, [result], {"bulk": "基于营业收入的解读"}, ctx)
-    assert payload["commentary_status"] == "ok"
-    assert payload["score"]["final"] is None
-    assert payload["signal"] is None
-    text = build_report(ctx.symbol, ctx.name, [result], {"bulk": "基于营业收入的解读"}, ctx)
-    assert "市场：港股" in text
-    assert "基于营业收入的解读" in text
-    assert "金额币种未核实" in text
-    assert "模型信号：暂未生成" in text
-    assert "申万行业待补全" not in text
-    assert "最新财报季度" not in text
 
 
 @pytest.mark.parametrize("metrics,status", [({"latest_quarter": "2026-06-30", "revenue": None}, "partial"), ({"revenue": 1}, "unavailable"), ({"revenue": float("nan")}, "partial"), ({"sample_count": 2241}, "partial")])

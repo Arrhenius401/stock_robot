@@ -357,8 +357,10 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
                     and (not us or (identity == "confirmed" and bars >= 60
                          and all(getattr(ctx.sufficiency, "price" if key == "technical" else key).level == "sufficient"
                                  for key in required))))
-        assessment = ("complete" if complete else "partial" if (not us or identity == "confirmed")
-                      and bars > 0 and len(scored) >= 2 else "facts_only")
+        # A/港股已有有效核心评分即可展示部分评估，信号仍须通过完整门槛。
+        partial_available = (identity == "confirmed" and bars > 0 and len(scored) >= 2
+                             if us else ctx.extra_analysis_enabled and bool(scored))
+        assessment = "complete" if complete else "partial" if partial_available else "facts_only"
         scope = "full" if complete else "limited" if assessment == "partial" else "facts_only"
         quality.update(
             required_dimensions=required, scored_required_dimensions=scored,
