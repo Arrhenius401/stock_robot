@@ -119,6 +119,7 @@ def test_industry_cutoff_keeps_cached_snapshot_datetime():
 def test_us_identity_and_short_history_do_not_block_three_core_signal():
     ctx = context()
     ctx.identity_status = "probable"
+    assert ctx.price_data is not None
     ctx.price_data = ctx.price_data[:20]
     quality = build_data_quality(ctx, results()[:3])
     assert quality["signal_allowed"]
