@@ -28,3 +28,49 @@
 工作流函数：`run_workflow(input_path: Path, workspace: Path, as_of: date, evidence_path: Path | None = None, refresh: bool = False) -> dict[str, Any]`，位于 `stock_robot.dividend_workflow`。CLI定义同模块；复用 `_read`、`_write_json`、`prepare_candidates`、`run_batch`、`discover_announcements`、`collect_documents`、`extract_archived_documents`，最终调用审核包函数。模块常量版本纳入提取缓存依赖。主会话随后注册CLI。
 
 补充验收边界：审核建议必须具有有效的原文和文本SHA；缺失、错误状态或非有限追踪字段逐项隔离，其他公司的资料仍保留。证据字段列表类型在任何采集和工作目录写入前校验。工作流摘要替换遇到PermissionError仅局部最多重试两次，等待50ms、100ms；持续失败记录错误，不修改ACL或绕过权限。
+
+<a id="historical-2026-10-14-stock-radar-dividend-workflow-validation"></a>
+
+## 分红批量工作流与审核包验收
+
+> 2026-11-24 文档整理：本节合并自 `2026-10-14-stock-radar-dividend-workflow-validation.md`，保留原历史记录；以下结果仅适用于所述日期和代码状态，不代表当前验收结果。
+
+日期：2026-10-14。用户要求持续推进，不逐小部分确认；承接已有共享资料与通用研究工具方案。对应实施计划为 `2026-10-14-stock-radar-dividend-workflow.md`。
+
+### 完成范围
+
+新增 `radar dividend-workflow`：一次命令执行官方发现、PDF留档、字段提取、规范证据准备、支付率研究及审核资料包。工作目录绑定公司输入SHA、截止日和版本；显式证据可更新并重算，错误格式在采集和写入前拒绝。各阶段原子写入、异常检查点及缓存依赖明确。
+
+新增 `build_review_packet`：保留所有公司、失败公告、三个完整财政年度缺口、规范证据及带稳定ID的机器建议；原文／文本SHA、来源、披露日和摘录可追踪。机器建议没有审核放行权，不自动填利润、股类范围、实际分红或年度完整性。坏原文追踪字段逐项隔离，不丢失其他正常公司的建议。CLI、有限验证映射及使用说明一并接入。
+
+没有新增依赖、前端、数据库、成员发布或自动调度。红利价值池与成长趋势池仍revision=0、items=[]、status=empty；研究结果不能代替正式入池。
+
+### 真实CLI验收
+
+使用已有三公司输入（600900、000333、601088），从空目录 `tmp/dividend-workflow-acceptance` 执行真实CLI路径，截止2026-10-14。
+
+- 三家公司查询范围完成，14份PDF下载，10份模板匹配、4份待核验，16条审核建议。
+- 未提供规范证据：研究完整0家、待核验3家。公司不因缺少建议或财务证据而从产物中消失。
+- 显式提供此前核验的规范证据资源：长江电力研究完整，另两家待核验，即完整1家、待核验2家。结果只表示支付率研究资料完整，不表示共同准入或投资建议。
+- 最终重复执行：14份PDF缓存复用，提取缓存复用，3家公司支付率结果缓存复用。补证来源SHA保留，审核包始终requires_review=true、financial_verified=false、rule_enabled=false；工作流总体partial反映仍有待核验内容。
+- 原始产物、无补证及补证摘要快照都保留在忽略tmp；不提交PDF／缓存／日志。
+
+首次真实续跑出现一次Windows PermissionError（WinError5）拒绝替换summary.json，随后两次成功。针对可复核异常，在本工作流写入处加入最多两次局部重试（50ms、100ms），持续拒绝仍报错并尝试记录失败检查点，不修改ACL；两条精准回归及最终真实续跑通过。原有通用原子写入器未改动。
+
+### 审查、检查与失败记录
+
+独立规格与质量审查均已复核通过。修复缓存准备／证据落盘阶段外异常缺少失败检查点、证据列表校验过晚、原文SHA缺失和非法状态／非有限追踪字段等问题。最后的局部文件占用修复由主会话差异核对与精准测试复核。
+
+最终范围命令：
+
+```powershell
+.\scripts\verify.ps1 -Scope Changed -Source Staged -VenvPath D:/code/stock_robot/.venv
+```
+
+源码Ruff通过，Pyright为0 errors、0 warnings、0 informations；相关测试150项通过，1项新增验证映射测试失败。失败原因是测试用PowerShell -File传递两个Files参数被错误绑定为Scope；改为分别参数化验证后，只复核这两个用例及测试文件Ruff／Pyright，2项通过。其他150项同一代码状态结果复用，最终相关回归合计152项通过。`git diff --cached --check`通过。不执行全量回归。
+
+先前失败已保留：一次主会话遗漏创建临时目录导致19项setup错误（18项审核包测试已通过），随后新独立目录重跑19项通过；首次门禁RUF100与项目显式异常标注要求冲突，局部豁免unused标注后通过；随后SHA校验与故意异常测试样本的类型收窄错误已修复。失败目录留tmp用于诊断，未把未执行的业务断言算作通过。
+
+### 未完成范围
+
+目前规范证据仍需显式提供；任意年报利润与普通股口径、所有股类及完整年度分红证明尚未全自动核验。官方关键词完整范围不等于年度事件完整。没有全市场公司自动财务核验或正式数值筛选；未知保持待核验。无UI／会话变更，沿用此前真实服务验收，未重复浏览器测试。
