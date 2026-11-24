@@ -92,9 +92,10 @@ def test_hk_uses_source_period_start_and_cashflow_metadata(mocker):
     ])
     row = AkShareAdapter()._fetch_hk_financial("00700.HK")[0]
     assert row.period_start == date(2026, 4, 1)
-    assert row.cash_flow_basis == "reported"
+    assert row.cash_flow_basis == "unknown"  # 缺少同期指标核验，显式币种本身不足以放行
+    assert not row.amount_currency_verified
     assert row.cash_flow_period_start == row.period_start
-    assert row.report_currency == "HKD"
+    assert row.report_currency == ""
 
 
 def test_hk_mismatched_cashflow_start_or_ambiguous_income_is_not_reported_trend(mocker):

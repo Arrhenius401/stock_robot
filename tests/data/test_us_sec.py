@@ -34,3 +34,15 @@ def test_sec_direct_and_derived_quarters_must_agree():
             row["val"] += 1000000000
     with pytest.raises(ValueError, match="冲突"):
         single_quarters(parse_company_concept(data, "RevenueFromContractWithCustomerExcludingAssessedTax"))
+
+
+def test_failed_sec_refresh_keeps_success_with_stale_marker(mocker):
+    from data.us_sec import load_brk_revenue
+    response = mocker.Mock()
+    response.json.return_value = payload()
+    mocker.patch("data.us_sec.requests.get", return_value=response)
+    first = load_brk_revenue()
+    mocker.patch("data.us_sec.requests.get", side_effect=ConnectionError("SEC失败"))
+    stale = load_brk_revenue(refresh=True)
+    assert stale[-1].value == first[-1].value and stale[-1].filed == first[-1].filed
+    assert stale[-1].cache_stale

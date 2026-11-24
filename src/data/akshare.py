@@ -350,7 +350,10 @@ class AkShareAdapter(DataSource):
             message = f"{source}：{current.error_message}"
             if previous is not None:
                 message = f"{previous.error_message}；{message}"
-            self._collection_diagnostics.record = current.model_copy(update={"error_message": message})
+            self._collection_diagnostics.record = current.model_copy(update={
+                "error_message": message,
+                "source": f"{previous.source}；{source}" if previous is not None else source,
+            })
 
     def supports(self, market: str, data_type: str) -> bool:
         if market == "a-shares" and data_type in (
@@ -520,7 +523,7 @@ class AkShareAdapter(DataSource):
         if kwargs.get("market") == "us":
             from data.us_stock import us_financials
 
-            return us_financials(symbol)
+            return us_financials(symbol, refresh_cache=bool(kwargs.get("refresh_cache", False)))
         from data.a_financial_policy import (
             DEPENDENCIES,
             SNAPSHOT_FIELDS,
@@ -807,39 +810,49 @@ class AkShareAdapter(DataSource):
             tencent_failed = True
             self._record_collection_error("腾讯估值快照", error)
 
-        history_result = load_history(symbol)
+        pe_source = "腾讯估值快照" if pe is not None else ""
+        pb_source = "腾讯估值快照" if pb is not None else ""
+        history_result = load_history(symbol, refresh=bool(kwargs.get("refresh_cache", False)))
         history = history_result.value or []
         latest = history[-1] if history else None
         notes: list[str] = []
         if tencent_failed:
-            notes.append("腾讯估值快照失败，使用东财日频最新行兜底")
+            notes.append("腾讯估值快照失败，继续尝试东财日频最新行与百度曲线")
+        if history_result.record.cache_status == "stale":
+            notes.append(history_result.record.error_message)
         if history_result.value is None:
             notes.append(f"东财日频估值历史不可用：{history_result.record.error_message or '未取得数据'}")
         if latest is not None:
             if pe is None and latest.pe_ttm is not None:
                 pe, pe_as_of = latest.pe_ttm, latest.trade_date
+                pe_source = "东财日频估值历史最新行"
             if pb is None and latest.pb is not None:
                 pb, pb_as_of = latest.pb, latest.trade_date
+                pb_source = "东财日频估值历史最新行"
 
         # 东财历史不可用时，保留百度近一年曲线作为历史与快照末值兜底。
         baidu_curves: dict[str, dict[date, float]] = {}
-        if not history:
-            for metric, field in (("市盈率(TTM)", "pe"), ("市净率", "pb")):
-                try:
-                    points = {day: value for day, value in
-                              baidu_metric(symbol, metric, market="ab").items()
-                              if is_positive_finite(value)}
-                    if not points:
-                        continue
-                    baidu_curves[field] = points
-                    day = max(points)
-                    if field == "pe" and pe is None:
-                        pe, pe_as_of = points[day], day
-                    if field == "pb" and pb is None:
-                        pb, pb_as_of = points[day], day
-                except Exception as error:  # 百度网络边界
-                    self._record_collection_error(f"百度A股{metric}", error)
-                    notes.append(f"{metric} 百度曲线不可用")
+        for metric, field in (("市盈率(TTM)", "pe"), ("市净率", "pb")):
+            recent_start = datetime.now().astimezone().date() - timedelta(days=365)
+            if (pe if field == "pe" else pb) is not None and any(row.trade_date >= recent_start and is_positive_finite(getattr(row, "pe_ttm" if field == "pe" else "pb")) for row in history):
+                continue
+            try:
+                points = {day: value for day, value in
+                          baidu_metric(symbol, metric, market="ab").items()
+                          if day <= datetime.now().astimezone().date() and is_positive_finite(value)}
+                if not points:
+                    continue
+                baidu_curves[field] = points
+                day = max(points)
+                if field == "pe" and pe is None:
+                    pe, pe_as_of = points[day], day
+                    pe_source = "百度曲线末值（非实时快照）"
+                if field == "pb" and pb is None:
+                    pb, pb_as_of = points[day], day
+                    pb_source = "百度曲线末值（非实时快照）"
+            except Exception as error:  # 百度网络边界
+                self._record_collection_error(f"百度A股{metric}", error)
+                notes.append(f"{metric} 百度曲线不可用")
         if pe is None and pb is None:
             return []
 
@@ -868,6 +881,17 @@ class AkShareAdapter(DataSource):
             if pe_history or pb_history:
                 notes.append("百度近一年历史：各指标按自身有效日期计算")
 
+        metric_sources = {key: "东财日频估值历史" if history else "百度实测估值（近一年）"
+                          for key, curve in (("pe", pe_history), ("pb", pb_history)) if curve}
+        if not pe_history:
+            pe_history = baidu_curves.get("pe", {})
+            if pe_history:
+                metric_sources["pe"] = "百度实测估值（近一年）"
+        if not pb_history:
+            pb_history = baidu_curves.get("pb", {})
+            if pb_history:
+                metric_sources["pb"] = "百度实测估值（近一年）"
+        has_extended = bool(extended_pe or extended_pb)
         known_dates = [day for day in (pe_as_of, pb_as_of, latest.trade_date if latest else None)
                        if day is not None]
         item = ValuationData(
@@ -875,18 +899,23 @@ class AkShareAdapter(DataSource):
             date=max(known_dates) if known_dates else datetime.now().astimezone().date(),
             pe_ttm=pe, pb=pb,
             pe_as_of=pe_as_of, pb_as_of=pb_as_of,
+            pe_source=pe_source, pb_source=pb_source, history_metric_sources=metric_sources,
             ps_ttm=(latest.ps_ttm if latest and is_positive_finite(latest.ps_ttm) else None),
             ps_as_of=(latest.trade_date if latest and is_positive_finite(latest.ps_ttm) else None),
             ps_source="东财日频估值历史-市销率（口径未声明）" if latest and is_positive_finite(latest.ps_ttm) else "",
+            total_shares=latest.total_shares if latest else None,
+            total_shares_as_of=latest.trade_date if latest and latest.total_shares is not None else None,
+            total_shares_source="东财日频估值历史" if latest and latest.total_shares is not None else "",
             market_cap=latest.market_cap if latest else None,
             market_cap_as_of=latest.trade_date if latest else None,
             pe_history=pe_history, pb_history=pb_history,
-            history_source=("东财日频估值历史" if history else
+            history_source=("东财日频估值历史" if has_extended else
                             "百度实测估值（近一年）" if (pe_history or pb_history) else ""),
-            history_window_days=1827 if history else 365,
-            history_window_label="近五年" if history else "近一年",
+            history_window_days=1827 if has_extended else 365,
+            history_window_label="近五年" if has_extended else "近一年",
             extended_pe_history=extended_pe, extended_pb_history=extended_pb,
             valuation_notes=notes,
+            cache_degraded=history_result.record.cache_status == "stale",
         )
         item._data_source = "；".join(dict.fromkeys(filter(None, [
             "腾讯估值快照" if not tencent_failed else "",

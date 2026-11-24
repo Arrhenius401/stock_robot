@@ -500,7 +500,7 @@ def _annual_roe(ticker: str) -> tuple[float | None, date | None]:
     return roe / 100, period
 
 
-def us_financials(ticker: str, max_periods: int = 8) -> list[FinancialData]:
+def us_financials(ticker: str, max_periods: int = 8, *, refresh_cache: bool = False) -> list[FinancialData]:
     """东财美股 F10 单季报：最近八个财季，报告期按财季月末归一。"""
     income = _statement(ticker, "综合损益表")
     try:
@@ -626,7 +626,7 @@ def us_financials(ticker: str, max_periods: int = 8) -> list[FinancialData]:
     if ticker == "BRK.B":
         from data.us_sec import load_brk_revenue
         try:
-            facts = load_brk_revenue()
+            facts = load_brk_revenue(refresh=refresh_cache)
         except Exception as error:  # noqa: BLE001 — SEC 展示事实边界
             logger.warning("BRK.B SEC 营业收入失败: %s", type(error).__name__)
             facts = []
@@ -639,6 +639,8 @@ def us_financials(ticker: str, max_periods: int = 8) -> list[FinancialData]:
             row.reported_revenue = fact.value
             row.reported_revenue_period = f"{fact.start.isoformat()} 至 {fact.end.isoformat()}"
             row.reported_revenue_source = f"SEC XBRL {fact.concept}（{fact.form}，filed {fact.filed.isoformat()}）"
+            if fact.cache_stale:
+                row.reported_revenue_source += "；旧成功缓存（本次 SEC 刷新失败，保留原日期）"
             row.reported_revenue_basis = "营业收入（不含投资损益）"
         last4 = [by_period.get(row.fiscal_quarter) for row in rows[-4:]]
         if (len(last4) == 4 and all(item is not None for item in last4)

@@ -1,11 +1,16 @@
 """SEC XBRL 营业收入事实；只服务 BRK.B 展示，不进入通用评分。"""
+import json
 import logging
 import math
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from typing import Any
 
 import requests
+
+from data.cache import CacheManager
+from utils.paths import project_state_dir
 
 logger = logging.getLogger(__name__)
 SOURCE = "SEC XBRL"
@@ -24,6 +29,7 @@ class SecRevenueFact:
     concept: str
     currency: str
     basis: str
+    cache_stale: bool = False
 
 
 def _date(value: Any) -> date | None:
@@ -97,13 +103,31 @@ def single_quarters(facts: list[SecRevenueFact]) -> list[SecRevenueFact]:
     return [output[key] for key in sorted(output)]
 
 
-def load_brk_revenue() -> list[SecRevenueFact]:
-    url = (f"https://data.sec.gov/api/xbrl/companyconcept/CIK{BRK_CIK}/us-gaap/{BRK_CONCEPT}.json")
-    response = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=20)
-    response.raise_for_status()
-    payload = response.json()
-    if payload.get("cik") != int(BRK_CIK):
-        raise ValueError("SEC BRK.B 身份不匹配")
-    # 2026-11-24 已与 10-Q 0001193125-26-452412 原始 inline XBRL 对账，见实施计划。
-    facts = parse_company_concept(payload, BRK_CONCEPT)
-    return single_quarters(facts)
+def _source_cache() -> CacheManager:
+    return CacheManager(project_state_dir() / "cache.db")
+
+
+def load_brk_revenue(*, refresh: bool = False) -> list[SecRevenueFact]:
+    """已与原始10-Q对账的概念；保留旧成功响应及其 filed/期间。"""
+    cache = _source_cache()
+    saved = cache.get_entry("sec_revenue", BRK_CIK, "success-v1")
+    def parse(payload: dict[str, Any]) -> list[SecRevenueFact]:
+        if payload.get("cik") != int(BRK_CIK):
+            raise ValueError("SEC BRK.B 身份不匹配")
+        return single_quarters(parse_company_concept(payload, BRK_CONCEPT))
+    if saved and not refresh and time.time() - saved.created_at <= saved.ttl_seconds:
+        return parse(json.loads(saved.value))
+    url = f"https://data.sec.gov/api/xbrl/companyconcept/CIK{BRK_CIK}/us-gaap/{BRK_CONCEPT}.json"
+    try:
+        response = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=20)
+        response.raise_for_status()
+        payload = response.json()
+        facts = parse(payload)
+        # 2026-11-24 已与 10-Q 0001193125-26-452412 的 USD inline XBRL 对账。
+        cache.put("sec_revenue", BRK_CIK, "success-v1", json.dumps(payload), ttl_seconds=86400)
+        return facts
+    except (requests.RequestException, OSError, TypeError, ValueError) as error:
+        logger.warning("SEC 收入刷新失败：%s", type(error).__name__)
+        if saved is not None:
+            return [replace(fact, cache_stale=True) for fact in parse(json.loads(saved.value))]
+        raise

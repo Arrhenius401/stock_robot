@@ -141,7 +141,8 @@ def test_hk_network_failure_diagnostic_identifies_real_provider(mocker):
     assert adapter.fetch("00700.HK", market="hk", data_type="valuation") == []
     diagnostic = adapter.get_collection_error()
     assert diagnostic is not None
-    assert diagnostic.source == "百度港股市净率"
+    assert diagnostic.source.endswith("百度港股市净率")
+    assert "东方财富港股估值快照" in diagnostic.source
     assert "东方财富港股估值快照" in diagnostic.error_message
     assert "百度港股市盈率(TTM)" in diagnostic.error_message
     assert diagnostic.error_kind == "timeout"

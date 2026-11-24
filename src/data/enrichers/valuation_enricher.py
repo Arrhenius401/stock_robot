@@ -294,7 +294,7 @@ class ValuationEnricher(DataEnricher):
         for metric in ("pe", "pb"):
             samples = [(p.trade_date, getattr(p, metric)) for p in points if getattr(p, metric) is not None]
             values = [value for _, value in samples]
-            summary = ValuationHistorySummary(source=snapshot.history_source, sample_count=len(samples))
+            summary = ValuationHistorySummary(source=snapshot.history_metric_sources.get(metric, snapshot.history_source), sample_count=len(samples))
             if samples:
                 summary.start, summary.as_of = samples[0][0], samples[-1][0]
                 summary.reference = values[-1]
@@ -338,7 +338,7 @@ class ValuationEnricher(DataEnricher):
         complete = enriched.pe_percentile is not None and enriched.pb_percentile is not None
         ctx.sufficiency.valuation = DimensionSufficiency(
             level=SufficiencyLevel.SUFFICIENT if complete else SufficiencyLevel.PARTIAL,
-            reason="近一年百度实测曲线，按各指标有效日期计样本；PE/PB 分别以同源末值计算分位" if complete else
+            reason="近一年实测曲线，按各指标对应来源及有效日期计样本；PE/PB 分别以同源末值计算分位" if complete else
                    "仅有快照或部分历史；" + "；".join(s.reason for s in
                    (enriched.pe_history_summary, enriched.pb_history_summary) if s.reason),
             sample_count=max(1, len(points)), score_weight=1.0 if complete else 0.5)
@@ -358,7 +358,8 @@ class ValuationEnricher(DataEnricher):
         as_of = snapshot.market_cap_as_of or snapshot.date
         if cap is None:
             prices = sorted(ctx.price_data or [], key=lambda item: item.trade_date)
-            shares = get_total_shares_result(ctx.symbol, ctx.financial_data).value
+            shares = (snapshot.total_shares if snapshot.total_shares_as_of and snapshot.total_shares_source
+                      and is_positive_finite(snapshot.total_shares) else get_total_shares_result(ctx.symbol, ctx.financial_data).value)
             if not prices or not shares or prices[-1].close <= 0:
                 return
             cap = prices[-1].close * shares
@@ -370,6 +371,9 @@ class ValuationEnricher(DataEnricher):
     def _get_total_shares(self, ctx: AnalysisContext, ttm_profit: float,
                           ttm_equity: float) -> float | None:
         """总股本：实测 PE/PB 反推锚点优先，其次三级链。"""
+        snapshot = ctx.valuation_data
+        if snapshot and snapshot.total_shares_as_of and snapshot.total_shares_source and is_positive_finite(snapshot.total_shares):
+            return snapshot.total_shares
         # 实测锚定：估值数据来自腾讯快照（独立口径），锚定计算只用内存数据
         measured_pe = ctx.valuation_data.pe_ttm if ctx.valuation_data else None
         if measured_pe is not None and is_positive_finite(measured_pe):

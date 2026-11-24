@@ -255,7 +255,13 @@ class ValuationData(BaseModel):
     pe_as_of: "date | None" = None
     pb_as_of: "date | None" = None
     ps_as_of: "date | None" = None
+    pe_source: str = ""
+    pb_source: str = ""
+    history_metric_sources: dict[str, str] = Field(default_factory=dict)
     ps_source: str = ""
+    total_shares: float | None = None
+    total_shares_as_of: "date | None" = None
+    total_shares_source: str = ""
     market_cap: float | None = None
     market_cap_as_of: "date | None" = None
     pe_history: dict[DateType, float] = Field(default_factory=dict)

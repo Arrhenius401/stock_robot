@@ -238,8 +238,8 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
             snapshot_dates = valuation_snapshot_dates(ctx)
             source = getattr(record, "source", "") or valuation._data_source or "未记录"
             fields.append({"label": "估值字段来源", "value": "；".join(filter(None, [
-                f"PE(TTM) 快照：{source}（{snapshot_dates['pe_ttm'] or '未记录'}）" if valuation.pe_ttm is not None else "PE(TTM) 快照：未取得",
-                f"PB 快照：{source}（{snapshot_dates['pb'] or '未记录'}）" if valuation.pb is not None else "PB 快照：未取得",
+                f"PE(TTM) 快照：{valuation.pe_source or source}（{snapshot_dates['pe_ttm'] or '未记录'}）" if valuation.pe_ttm is not None else "PE(TTM) 快照：未取得",
+                f"PB 快照：{valuation.pb_source or source}（{snapshot_dates['pb'] or '未记录'}）" if valuation.pb is not None else "PB 快照：未取得",
                 f"历史分位：{valuation.history_source}，各指标日期与样本数见估值说明" if valuation.history_source else "",
                 f"PS(TTM)：{valuation.ps_source or '未记录'}（{valuation.ps_as_of or '未记录'}）" if valuation.ps_ttm is not None else "",
             ]))})
@@ -370,12 +370,17 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
             signal_allowed=quality["signal_allowed"] and complete,
         )
         for dimension in dimensions:
-            if scope == "facts_only" and dimension["key"] == "technical":
-                dimension["fields"] = [item for item in dimension["fields"]
-                                       if item["label"] not in {"缺失原因", "分析限制"}]
             if dimension["key"] == "sentiment" and profile.sentiment_policy == "not_collected":
                 dimension["fields"] = [item for item in dimension["fields"]
                                        if item["label"] not in {"采集限制", "缺失原因", "分析限制"}]
+                news = result_map.get("sentiment")
+                items = news.metrics.get("news_items") if news else None
+                reason = ("美股舆情仅展示新闻事实，不参与评分" if items
+                          else "本次无可展示新闻样本；美股舆情仅作事实展示，不参与评分")
+                failure = getattr(records.get("news"), "error_message", "")
+                if failure:
+                    reason += "；" + failure
+                dimension["fields"].append({"label": "评估说明", "value": reason})
     from report.presentation import compact_quality
 
     quality.update(compact_quality(quality))

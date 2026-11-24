@@ -133,6 +133,7 @@ METRIC_DISPLAY_NAMES = {
     "trend_note": "趋势分析限制",
     "cash_flow_source": "经营现金流来源",
     "deducted_net_profit": "扣非净利润",
+    "ps_as_of": "PS数据日期",
     "reported_annual_roe": "年度披露 ROE（未年化）",
     "amount_currency_reason": "金额币种核验",
     "reported_revenue": "营业收入（SEC，不含投资损益，单季）",

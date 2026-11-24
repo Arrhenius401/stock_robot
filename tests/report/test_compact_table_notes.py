@@ -62,3 +62,15 @@ def test_margin_cache_refreshes_once_without_promoting_missing_value():
     row.net_margin_basis = "未取得源披露净利率"
     assert ResilientCollector._fresh(snap)
     assert row.net_margin is None
+
+
+def test_compact_peer_table_shows_partial_coverage_rank():
+    from report.peer_comparison import format_peer_comparison_markdown
+
+    comparison = {"scope": "申万三级·机器人", "peer_count": 16, "valuation": {},
+                  "periods": {}, "market_cap_rank": {
+                      "rank": 1, "total": 5, "pool_total": 17, "coverage": "5/17",
+                      "as_of": "2026-11-20"}}
+    md = format_peer_comparison_markdown(comparison, compact=True)
+    assert "第 1／5 家（同日有效覆盖 5/17）" in md
+    assert "暂缺" not in md

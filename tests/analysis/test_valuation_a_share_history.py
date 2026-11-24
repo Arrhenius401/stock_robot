@@ -70,3 +70,13 @@ def test_missing_ps_is_derived_from_market_cap_and_ttm_revenue():
     assert ctx.valuation_data is not None
     assert ctx.valuation_data.ps_ttm == pytest.approx(1000 / 460)
     assert "派生" in ctx.valuation_data.ps_source
+
+
+def test_verified_eastmoney_shares_take_priority_without_network(mocker):
+    ctx = context()
+    assert ctx.valuation_data is not None
+    ctx.valuation_data.total_shares = 1250081601
+    ctx.valuation_data.total_shares_as_of = ctx.valuation_data.date
+    ctx.valuation_data.total_shares_source = "东财日频估值历史"
+    mocker.patch("data.enrichers.valuation_enricher.get_total_shares_result", side_effect=AssertionError("不应联网"))
+    assert ValuationEnricher()._get_total_shares(ctx, 100, 100) == 1250081601
