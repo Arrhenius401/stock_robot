@@ -54,7 +54,10 @@ def cashflow_compatible(row: FinancialData) -> bool:
         if not profit or not cash:
             return False
         for key in ("currency", "unit", "start", "basis", "scope", "accounting", "revision"):
-            if not profit.get(key) or profit[key] != cash.get(key):
+            if profit.get(key) != cash.get(key):
+                return False
+            # 双方未记录会计准则/修订时允许比较；单边有值仍拒绝。
+            if key not in {"accounting", "revision"} and not profit.get(key):
                 return False
         if (profit["currency"] != row.report_currency or profit["start"] != row.period_start.isoformat()
                 or profit["basis"] != row.period_basis):
