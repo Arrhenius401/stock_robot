@@ -1,0 +1,88 @@
+{
+  "source": "东方财富港股分析指标",
+  "symbol": "00700",
+  "sampled_at": "2026-11-24",
+  "rows": [
+    {
+      "REPORT_DATE": "2026-09-30 00:00:00",
+      "START_DATE": "2026-01-01 00:00:00",
+      "CURRENCY": "HKD",
+      "IS_CNY_CODE": 0,
+      "OPERATE_INCOME": 608579000000,
+      "HOLDER_PROFIT": 177727000000,
+      "ROE_AVG": 15.025110610538
+    },
+    {
+      "REPORT_DATE": "2026-06-30 00:00:00",
+      "START_DATE": "2026-01-01 00:00:00",
+      "CURRENCY": "HKD",
+      "IS_CNY_CODE": 0,
+      "OPERATE_INCOME": 401243000000,
+      "HOLDER_PROFIT": 114115000000,
+      "ROE_AVG": 9.966353785254
+    },
+    {
+      "REPORT_DATE": "2026-03-31 00:00:00",
+      "START_DATE": "2026-01-01 00:00:00",
+      "CURRENCY": "HKD",
+      "IS_CNY_CODE": 0,
+      "OPERATE_INCOME": 196458000000,
+      "HOLDER_PROFIT": 58093000000,
+      "ROE_AVG": 5.091848379615
+    },
+    {
+      "REPORT_DATE": "2025-12-31 00:00:00",
+      "START_DATE": "2025-01-01 00:00:00",
+      "CURRENCY": "HKD",
+      "IS_CNY_CODE": 0,
+      "OPERATE_INCOME": 751766000000,
+      "HOLDER_PROFIT": 224842000000,
+      "ROE_AVG": 21.134746439818
+    },
+    {
+      "REPORT_DATE": "2025-09-30 00:00:00",
+      "START_DATE": "2025-01-01 00:00:00",
+      "CURRENCY": "HKD",
+      "IS_CNY_CODE": 0,
+      "OPERATE_INCOME": 557395000000,
+      "HOLDER_PROFIT": 166582000000,
+      "ROE_AVG": 15.527575143501
+    },
+    {
+      "REPORT_DATE": "2025-06-30 00:00:00",
+      "START_DATE": "2025-01-01 00:00:00",
+      "CURRENCY": "HKD",
+      "IS_CNY_CODE": 0,
+      "OPERATE_INCOME": 364526000000,
+      "HOLDER_PROFIT": 103449000000,
+      "ROE_AVG": 9.908020689718
+    },
+    {
+      "REPORT_DATE": "2025-03-31 00:00:00",
+      "START_DATE": "2025-01-01 00:00:00",
+      "CURRENCY": "HKD",
+      "IS_CNY_CODE": 0,
+      "OPERATE_INCOME": 180022000000,
+      "HOLDER_PROFIT": 47821000000,
+      "ROE_AVG": 4.748853278199
+    },
+    {
+      "REPORT_DATE": "2024-12-31 00:00:00",
+      "START_DATE": "2024-01-01 00:00:00",
+      "CURRENCY": "HKD",
+      "IS_CNY_CODE": 0,
+      "OPERATE_INCOME": 660257000000,
+      "HOLDER_PROFIT": 194073000000,
+      "ROE_AVG": 21.77978260955
+    },
+    {
+      "REPORT_DATE": "2024-09-30 00:00:00",
+      "START_DATE": "2024-01-01 00:00:00",
+      "CURRENCY": "HKD",
+      "IS_CNY_CODE": 0,
+      "OPERATE_INCOME": 487811000000,
+      "HOLDER_PROFIT": 142749000000,
+      "ROE_AVG": 16.587370154261
+    }
+  ]
+}
