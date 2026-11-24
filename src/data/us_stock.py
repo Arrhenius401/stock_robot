@@ -541,7 +541,13 @@ def us_financials(ticker: str, max_periods: int = 8, *, refresh_cache: bool = Fa
         gross_margin = (gross_profit / revenue
                         if not financial_company and revenue and revenue > 0 and gross_profit is not None else None)
         income_meta = income_row.get("_meta", {})
-        cash_meta = cash_row.get("_meta", {})
+        cash_meta = dict(cash_row.get("_meta", {}))
+        cash_periods = sorted(cash)
+        cash_index = cash_periods.index(period_key) if period_key in cash else 0
+        if cash_meta and cash_index and not cash_meta.get("start"):
+            previous_end = date.fromisoformat(cash_periods[cash_index - 1])
+            if 70 <= (report_date - previous_end).days <= 113:
+                cash_meta["start"] = (previous_end + timedelta(days=1)).isoformat()
         balance_meta = balance_row.get("_meta", {})
         start = _parse_date(income_meta.get("start"))
         currency = income_meta.get("currency", "")
@@ -590,6 +596,9 @@ def us_financials(ticker: str, max_periods: int = 8, *, refresh_cache: bool = Fa
             row.field_positions[field] = {"start": meta.get("start", ""), "end": balance_key if field in {"total_assets", "common_equity", "total_equity"} else period_key,
                 "currency": meta.get("currency", ""), "unit": "元", "basis": "single", "scope": "公司整体",
                 "accounting": meta.get("accounting", ""), "revision": "当前源快照", "notice": meta.get("notice", "")}
+        if row.revenue is not None and row.revenue > 0 and row.net_profit is not None and start is not None:
+            row.net_margin = row.net_profit / row.revenue
+            row.net_margin_basis = "计算值：单季净利润÷营业收入；仅展示"
         row.precision_version = 1
         row.field_precision = {field: "source_native" for field in (
             "revenue", "net_profit", "total_assets", "total_equity", "common_equity",
