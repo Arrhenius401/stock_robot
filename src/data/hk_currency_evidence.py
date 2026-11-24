@@ -105,3 +105,22 @@ def verify_period(period: date, start: date | None,
     if not _close(profit, indicator.get("HOLDER_PROFIT")):
         return PeriodCurrencyEvidence(period, start, currency, False, "报表利润聚合与指标接口不一致")
     return PeriodCurrencyEvidence(period, start, currency, True, "")
+
+
+def verify_cash_flow(start: date | None, cash_flow: Any,
+                     indicator: dict[str, Any] | None, currency: str) -> tuple[bool, str]:
+    """用指标接口的 OCF_SALES 与同币种收入反推 OCF，核验现金流金额币种/单位。"""
+    if cash_flow is None:
+        return False, "经营现金流金额缺失"
+    if indicator is None or not currency:
+        return False, "缺少同期分析指标或币种"
+    if _date(indicator.get("START_DATE")) != start:
+        return False, "分析指标与现金流量表期间起点不一致"
+    revenue = finite_number(indicator.get("OPERATE_INCOME"))
+    ratio = finite_number(indicator.get("OCF_SALES"))
+    if revenue is None or ratio is None or revenue <= 0:
+        return False, "分析指标未提供可用于核验的 OCF_SALES"
+    derived = revenue * ratio / 100
+    if not math.isclose(float(cash_flow), derived, rel_tol=1e-4, abs_tol=1.0):
+        return False, "经营现金流与指标 OCF_SALES 反推值不一致"
+    return True, ""

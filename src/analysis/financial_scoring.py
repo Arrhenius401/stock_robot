@@ -59,10 +59,12 @@ def cashflow_compatible(row: FinancialData) -> bool:
             # 双方未记录会计准则/修订时允许比较；单边有值仍拒绝。
             if key not in {"accounting", "revision"} and not profit.get(key):
                 return False
+        if profit.get("end") != cash.get("end"):
+            return False
         if (profit["currency"] != row.report_currency or profit["start"] != row.period_start.isoformat()
                 or profit["basis"] != row.period_basis):
             return False
-    return _source(row, "net_profit") == _source(row, "operating_cash_flow") or bool(profit and cash)
+    return _source(row, "net_profit") == _source(row, "operating_cash_flow")
 
 
 def gross_margin_periods(rows: list[FinancialData]) -> list[float]:
@@ -76,9 +78,10 @@ def gross_margin_periods(rows: list[FinancialData]) -> list[float]:
 
     def signature(row: FinancialData):
         start = row.period_start
+        # 美股 52/53 周财季的年际日号会漂移，按月份与年度偏移判断同一财季位置。
         return (row.period_basis, row.reporting_basis, row.gross_margin_basis,
-                _source(row, "gross_margin"), row.fiscal_quarter.month, row.fiscal_quarter.day,
-                start.month if start else None, start.day if start else None,
+                _source(row, "gross_margin"), row.fiscal_quarter.month,
+                start.month if start else None,
                 row.fiscal_quarter.year - start.year if start else None)
 
     return [r.gross_margin for r in valid if r.gross_margin is not None and signature(r) == signature(latest)][:4]

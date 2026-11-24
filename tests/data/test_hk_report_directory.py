@@ -26,14 +26,18 @@ def no_live_indicator(mocker):
 
 def verified_indicators(mocker, frames, currency="CNY"):
     """合成报表与指标逐期一致；显式零是测试披露值，不是缺项填补。"""
+    cash = {date.fromisoformat(row["REPORT_DATE"]): row["AMOUNT"]
+            for row in frames[2] if row["STD_ITEM_CODE"] == "003999"}
     indicators = {}
     for row in list(frames[0]):
         if row["STD_ITEM_CODE"] != "004001001":
             continue
         frames[0].append({**row, "STD_ITEM_CODE": "004001002", "AMOUNT": 0})
-        indicators[date.fromisoformat(row["REPORT_DATE"])] = {**row,
+        period = date.fromisoformat(row["REPORT_DATE"])
+        indicators[period] = {**row,
             "CURRENCY": currency, "IS_CNY_CODE": int(currency == "CNY"),
-            "OPERATE_INCOME": row["AMOUNT"], "HOLDER_PROFIT": row["AMOUNT"]}
+            "OPERATE_INCOME": row["AMOUNT"], "HOLDER_PROFIT": row["AMOUNT"],
+            "OCF_SALES": cash[period] / row["AMOUNT"] * 100 if row["AMOUNT"] else None}
     mocker.patch("data.hk_currency_evidence.load_indicator_periods", return_value=indicators)
 
 
@@ -141,7 +145,8 @@ def test_statement_currency_conflict_is_not_overwritten_by_directory(source, moc
     rows = AkShareAdapter()._fetch_hk_financial("00700.HK")
     assert rows[-1].revenue == 120 and rows[-1].report_currency == "HKD"
     assert rows[-1].disclosure_currency == "CNY"
-    assert build_financial_trends(rows, "00700.HK")["highlights"] == []
+    # 逐期金额与 OCF 已独立核验，目录披露币种不覆盖金额证据。
+    assert len(build_financial_trends(rows, "00700.HK")["highlights"]) == 3
 
 
 def test_cashflow_conflict_only_disables_cashflow_comparison(source, mocker):
@@ -191,7 +196,7 @@ def test_metadata_enables_verified_cashflow_score_without_changing_raw_values(so
                                                     financial_data=rows))
     unknown = known.model_copy(deep=True)
     unknown.financial_data = [r.model_copy(update={"report_currency": "",
-                             "reporting_basis": "东方财富港股财报-报告期"}) for r in rows]
+                             "reporting_basis": "东方财富港股财报-报告期", "field_positions": {}}) for r in rows]
     analyzer = FinancialAnalyzer()
     config = ConfigLoader().load("机械设备")
     before = analyzer.analyze(unknown, config)
@@ -203,8 +208,9 @@ def test_metadata_enables_verified_cashflow_score_without_changing_raw_values(so
     assert after.status == before.status == "partial"
     assert after.metrics["net_profit"] == before.metrics["net_profit"] == 120
     assert after.metrics["operating_cash_flow"] is before.metrics["operating_cash_flow"] is None  # 缺上年同期，不能把中期累计当 TTM
-    # 可核实币种支持同源单期现金流比值，但不能代替跨期修订证据。
-    assert not after.metrics["operating_trends"] and not before.metrics["operating_trends"]
+    # 本轮新增逐期 positions，已核验的同源同比可以展示；旧行仍拒绝。
+    assert len(after.metrics["operating_trends"]) == 3
+    assert not before.metrics["operating_trends"]
     assert "金额币种：CNY" in after.metrics["amount_basis"]
     assert "金额币种未核实" in before.metrics["amount_basis"]
     request.assert_called_once()

@@ -1318,7 +1318,7 @@ class TestAnalyzeEndpoint:
             assert payload["signal"] is None
             assert not payload["data_quality"]["signal_allowed"]
         else:
-            assert response.json()["report_scope"] == ("facts_only" if market == "us" else "limited")
+            assert response.json()["report_scope"] == "limited"
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("symbol", "refresh", "expected"), [

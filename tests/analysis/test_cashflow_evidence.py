@@ -52,3 +52,13 @@ def test_currency_or_start_mismatch_fails():
     row = base_row()
     row.field_positions["operating_cash_flow"]["start"] = "2026-04-01"
     assert not cashflow_compatible(row)
+
+
+def test_mismatched_source_or_period_end_is_rejected():
+    row = base_row()
+    row.field_sources["operating_cash_flow"] = "其他来源"
+    assert not cashflow_compatible(row)
+    row = base_row()
+    row.field_positions["net_profit"]["end"] = "2026-09-30"
+    row.field_positions["operating_cash_flow"]["end"] = "2026-06-30"
+    assert not cashflow_compatible(row)

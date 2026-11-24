@@ -144,6 +144,8 @@ METRIC_DISPLAY_NAMES = {
     "amount_basis": "财务金额口径",
     "revenue_basis": "营收科目口径",
     "gross_margin_basis": "毛利率计算口径",
+    "net_margin_basis": "净利率计算口径（仅展示）",
+    "cash_flow_limitation": "现金流明细限制",
     "valuation_applicability": "估值适用性",
     "historical_valuation_applicability": "独立历史分位适用性",
     "applicable": "可用于高低估判断",

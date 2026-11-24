@@ -245,6 +245,8 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
             ]))})
         if key == "financial" and ctx.market in {"a-shares", "hk", "us"} and ctx.financial_data:
             latest = max(ctx.financial_data, key=lambda row: row.fiscal_quarter)
+            if not latest.field_positions.get("net_profit", {}).get("accounting"):
+                fields.append({"label": "财务证据限制", "value": "会计准则未记录；双方为空仅允许现金流比较，不表示已核实准则。"})
             if latest.financial_source and not getattr(record, "source", ""):
                 fields[1]["value"] = latest.financial_source
             for name, label in (("capital_expenditure", "资本开支"), ("free_cash_flow", "自由现金流")):

@@ -2,7 +2,7 @@ import json
 from datetime import date
 from pathlib import Path
 
-from data.hk_currency_evidence import verify_period
+from data.hk_currency_evidence import verify_cash_flow, verify_period
 
 
 def indicator(code):
@@ -61,3 +61,16 @@ def test_indicator_period_must_match():
     evidence = verify_period(date(2025, 12, 31), date(2025, 1, 1),
         income("00700", "2025-12-31", "2025-01-01", 751766000000, 224842000000), row, bank=False)
     assert evidence.verified is False
+
+
+def test_cash_flow_ratio_verifies_currency_and_amount():
+    row = {"START_DATE": "2026-01-01", "OPERATE_INCOME": 1000, "OCF_SALES": 25}
+    verified, reason = verify_cash_flow(date(2026, 1, 1), 250, row, "HKD")
+    assert verified is True and reason == ""
+
+
+def test_cash_flow_mismatch_or_missing_ratio_fails():
+    row = {"START_DATE": "2026-01-01", "OPERATE_INCOME": 1000, "OCF_SALES": 25}
+    assert verify_cash_flow(date(2026, 1, 1), 260, row, "HKD")[0] is False
+    assert verify_cash_flow(date(2026, 1, 1), 250, {"START_DATE": "2026-01-01"}, "HKD")[0] is False
+    assert verify_cash_flow(date(2026, 1, 1), 250, row, "")[0] is False

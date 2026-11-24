@@ -150,17 +150,18 @@ def test_indicator_evidence_sets_positions_and_net_margin(mocker):
     # 裁切样本缺营运收入科目；显式添加合成的 10 元以验证完整证据路径，不视作真实金额。
     revenue_rows = [row for row in sample["income"] if row["STD_ITEM_CODE"] == "004001001"]
     sample["income"].extend({**row, "STD_ITEM_CODE": "004001002", "AMOUNT": 10} for row in revenue_rows)
-    for cash_row in sample["cash"]:
-        cash_row["CURRENCY"] = "HKD"  # 合成同币种现金流证据；真实样本未提供该字段
     dates = sorted({str(row["REPORT_DATE"])[:10] for row in sample["income"]})
     latest = dates[-1]
     rows_for_date = [row for row in sample["income"] if str(row["REPORT_DATE"])[:10] == latest]
     revenue = sum(row["AMOUNT"] for row in rows_for_date if row["STD_ITEM_CODE"] in {"004001001", "004001002"})
     profit = sum(row["AMOUNT"] for row in rows_for_date if row["STD_ITEM_CODE"] == "004025002")
+    ocf = sum(row["AMOUNT"] for row in sample["cash"]
+              if str(row["REPORT_DATE"])[:10] == latest and row["STD_ITEM_CODE"] == "003999")
     indicator = {date.fromisoformat(latest): {
         "REPORT_DATE": latest, "START_DATE": latest[:4] + "-01-01",
         "CURRENCY": "HKD", "IS_CNY_CODE": "0",
         "OPERATE_INCOME": revenue, "HOLDER_PROFIT": profit,
+        "OCF_SALES": ocf / revenue * 100,
     }}
     mocker.patch("data.hk_currency_evidence.load_indicator_periods", return_value=indicator)
     mocker.patch("data.akshare.financial_statement", side_effect=[sample["income"], sample["balance"], sample["cash"]])
@@ -168,4 +169,6 @@ def test_indicator_evidence_sets_positions_and_net_margin(mocker):
     row = max(AkShareAdapter()._fetch_hk_financial("00700.HK"), key=lambda item: item.fiscal_quarter)
     assert row.amount_currency_verified is True
     assert row.net_margin is not None
+    assert row.field_positions["total_assets"]["currency"] == ""
+    assert row.field_positions["total_equity"]["currency"] == ""
     assert row.field_positions["operating_cash_flow"]["currency"] == "HKD"

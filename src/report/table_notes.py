@@ -5,7 +5,8 @@ from typing import Any
 from report.formatter import format_metric_value, format_metrics, metric_display_name
 
 _FINANCIAL_DETAILS = {
-    "roe_basis", "amount_basis", "amount_currency_reason", "gross_margin_basis", "cash_flow_source", "cash_flow_period",
+    "roe_basis", "amount_basis", "amount_currency_reason", "gross_margin_basis", "net_margin_basis",
+    "cash_flow_source", "cash_flow_period", "cash_flow_limitation",
     "yoy_basis", "trend_note", "annual_roe", "scoring_basis", "roe_trend", "operating_trends",
 }
 _MARKERS = {
@@ -68,6 +69,8 @@ def prepare_table(dimension: str, metrics: dict[str, Any]) -> dict[str, Any]:
                          else "¹ ROE 按本次披露口径展示。")
         if "gross_margin" in metrics or "net_margin" in metrics:
             notes.append("² 利润率按表内报告期口径；缺失不推算。")
+            if metrics.get("net_margin_basis"):
+                notes.append(str(metrics["net_margin_basis"]))
             gross = str(metrics.get("gross_margin_basis") or "")
             if "营运收入" in gross:
                 notes.append("毛利率为派生值，分母为营运收入，可能不同于表内营业额。")
@@ -79,6 +82,9 @@ def prepare_table(dimension: str, metrics: dict[str, Any]) -> dict[str, Any]:
                 notes.append("现金流为推算值，非直接披露。")
             elif "证据不足" in str(metrics.get("cash_flow_source", "")):
                 notes.append("现金流期间或币种证据不足。")
+            limitation = str(metrics.get("cash_flow_limitation") or "")
+            if limitation:
+                notes.append(limitation)
         if metrics.get("yoy_basis"):
             text = str(metrics["yoy_basis"])
             methods = [method for method in ("源披露", "精确金额复算") if method in text]

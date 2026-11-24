@@ -1061,7 +1061,11 @@ class AkShareAdapter(DataSource):
 
         assets, cash_flows = supplement("资产负债表"), supplement("现金流量表")
         income_meta = period_metadata(income)
-        from data.hk_currency_evidence import load_indicator_periods, verify_period
+        from data.hk_currency_evidence import (
+            load_indicator_periods,
+            verify_cash_flow,
+            verify_period,
+        )
 
         try:
             indicators = load_indicator_periods(code)
@@ -1077,6 +1081,7 @@ class AkShareAdapter(DataSource):
                 })
 
         cash_meta = period_metadata(statement_rows.get("现金流量表", []))
+        balance_meta = period_metadata(statement_rows.get("资产负债表", []))
         directory_meta: dict[date, tuple[date | None, str, str]] = {}
         try:
             grouped: dict[date, set[tuple[date | None, str, str]]] = {}
@@ -1145,6 +1150,8 @@ class AkShareAdapter(DataSource):
             evidence = verify_period(period, start, income, indicator, bank=bank_template)
             currency = evidence.currency if evidence.verified else ""
             verified = evidence.verified
+            cf_verified = (verify_cash_flow(start, ocf, indicator, currency)[0]
+                           and (not cf_currency or cf_currency == currency))
 
             annual_indicator = indicator if start is not None and start.month == 1 and period.month == 12 else None
             annual_roe = finite_number(annual_indicator.get("ROE_AVG")) if annual_indicator else None
@@ -1165,9 +1172,8 @@ class AkShareAdapter(DataSource):
                 reported_annual_roe_source="东方财富港股分析指标" if reported_annual_roe is not None else "",
                 disclosure_currency=disclosure_currency,
                 revenue_basis="银行：经营收入总额" if bank_template else "",
-                cash_flow_basis="reported" if cf.get("003999") is not None and start is not None and currency
-                    and cf_start == start and cf_currency == currency else "unknown",
-                cash_flow_period_start=cf_start))
+                cash_flow_basis="reported" if cf_verified else "unknown",
+                cash_flow_period_start=start if cf_verified else cf_start))
             row_data = result[-1]
             if verified and start is not None:
                 accounting = ""
@@ -1183,13 +1189,17 @@ class AkShareAdapter(DataSource):
                         continue
                     instant = name in {"total_assets", "total_equity"}
                     cash_field = name == "operating_cash_flow"
+                    cash_verified = cash_field and cf_verified
                     row_data.field_positions[name] = {
                         "definition": definition, "unit": "currency",
-                        "currency": cf_currency if cash_field else currency,
-                        "start": (cf_start.isoformat() if cf_start else "") if cash_field else (period if instant else start).isoformat(),
+                        "currency": (currency if cash_verified else "") if cash_field
+                        else balance_meta.get(period, (None, ""))[1] if instant else currency,
+                        "start": (start.isoformat() if cash_verified and start else
+                                  (cf_start.isoformat() if cf_start else "")) if cash_field
+                        else (period if instant else start).isoformat(),
                         "end": period.isoformat(), "basis": "instant" if instant else "cumulative",
                         "scope": "consolidated", "accounting": accounting, "revision": "当前源快照",
-                        "calculation": "unknown" if cash_field and row_data.cash_flow_basis == "unknown" else "reported",
+                        "calculation": ("reported" if cash_verified else "unknown") if cash_field else "reported",
                     }
             # 此接口 AMOUNT 为未缩写数值；币种/单位与跨期修订仍由独立口径证据校验。
             result[-1].field_precision = {field: "source_native" for field in (

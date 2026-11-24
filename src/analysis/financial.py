@@ -63,6 +63,11 @@ class FinancialAnalyzer(AnalysisModule):
             "annual_roe": context.financial_scoring_facts.get("annual_roe", {}),
             **template_metrics,
         }
+        if latest.net_margin is not None and latest.net_margin_basis:
+            metrics["net_margin_basis"] = (
+                f"{latest.net_margin_basis}；期间 {latest.period_start or '未记录'} 至 {latest.fiscal_quarter}；"
+                f"来源 {latest.field_sources.get('net_profit') or latest.financial_source or latest.reporting_basis or '未记录'}"
+            )
         metrics["amount_currency_reason"] = latest.amount_currency_reason
         if latest.reported_revenue is not None:
             metrics.update(
@@ -111,6 +116,9 @@ class FinancialAnalyzer(AnalysisModule):
             metrics["net_margin"] = "不适用（银行/保险）"
         for field in ("operating_cash_flow", "capital_expenditure", "free_cash_flow"):
             metrics[field] = "不适用（银行/保险）" if not_applicable else financial_ttm(financials, field, context.market, require_precision=True)
+        if (context.market == "hk" and latest.capital_expenditure is None
+                and latest.free_cash_flow is None):
+            metrics["cash_flow_limitation"] = "港股F10现金流仅提供汇总项，资本开支/自由现金流明细不可用"
         if profit_ttm is None and latest.reported_annual_roe is not None:
             metrics["reported_annual_roe"] = latest.reported_annual_roe
             metrics["reported_annual_roe_period"] = (

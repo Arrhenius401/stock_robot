@@ -8,7 +8,7 @@ from data.us_stock import us_financials
 from tests.data.test_us_stock import _statement_frames
 
 
-@pytest.mark.parametrize("problem", ["", "currency", "accounting", "missing"])
+@pytest.mark.parametrize("problem", ["", "currency", "accounting", "missing", "start_missing"])
 def test_us_cashflow_positions_and_net_margin(mocker, problem):
     frames = _statement_frames()
     periods = sorted(frames["综合损益表"])
@@ -17,6 +17,8 @@ def test_us_cashflow_positions_and_net_margin(mocker, problem):
         for name in ("综合损益表", "现金流量表"):
             frames[name][end]["_meta"] = {"start": start, "currency": "USD", "accounting": "US GAAP"}
     cash = frames["现金流量表"][periods[-1]]["_meta"]
+    if problem == "start_missing":
+        cash["start"] = ""
     if problem == "currency":
         cash["currency"] = "EUR"
     elif problem == "accounting":
@@ -27,7 +29,7 @@ def test_us_cashflow_positions_and_net_margin(mocker, problem):
     latest = us_financials("AAPL")[-1]
     assert latest.net_margin == pytest.approx(.1)
     assert "计算值" in latest.net_margin_basis
-    assert cashflow_compatible(latest) is (not problem)
-    if not problem:
+    assert cashflow_compatible(latest) is (problem in {"", "start_missing"})
+    if problem in {"", "start_missing"}:
         assert latest.field_positions["operating_cash_flow"]["currency"] == "USD"
         assert latest.field_positions["operating_cash_flow"]["start"] == latest.field_positions["net_profit"]["start"]
