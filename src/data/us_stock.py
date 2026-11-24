@@ -766,6 +766,15 @@ def us_valuation(ticker: str) -> list[ValuationData]:
         cache_degraded=bool(failed),
         failed_components=list(failed),  # type: ignore[arg-type]
     )
+    from data.dividend_yield import us_dividend_yield
+
+    dividend = us_dividend_yield(ticker)
+    item.dividend_yield = dividend.value
+    item.dividend_yield_as_of = dividend.as_of
+    item.dividend_yield_source = dividend.source
+    item.dividend_yield_basis = dividend.basis
+    if dividend.value is None:
+        notes.append(f"股息率：{dividend.reason}")
     now = datetime.now(US_TZ)
     cutoff = now.date()
     if now.time() < (_EARLY_CLOSE if cutoff in us_market_early_closes(cutoff.year) else _REGULAR_CLOSE):

@@ -259,6 +259,10 @@ class ValuationData(BaseModel):
     pb_source: str = ""
     history_metric_sources: dict[str, str] = Field(default_factory=dict)
     ps_source: str = ""
+    dividend_yield: float | None = None
+    dividend_yield_as_of: "date | None" = None
+    dividend_yield_source: str = ""
+    dividend_yield_basis: str = ""
     total_shares: float | None = None
     total_shares_as_of: "date | None" = None
     total_shares_source: str = ""

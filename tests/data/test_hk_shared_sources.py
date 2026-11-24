@@ -5,12 +5,15 @@ import pandas as pd
 import pytest
 
 from data.akshare import AkShareAdapter
+from data.dividend_yield import DividendYield
 
 
 @pytest.fixture(autouse=True)
 def isolate_ps_snapshot(mocker):
-    """本文件只验证原行情/百度来源，新 PS 独立测试且禁止意外联网。"""
+    """本文件只验证原行情/百度来源，新 PS 与股息率独立测试且禁止意外联网。"""
     mocker.patch("data.akshare.valuation_comparison_snapshot", side_effect=TimeoutError())
+    mocker.patch("data.dividend_yield.hk_dividend_yield",
+                 return_value=DividendYield(None, None, "", "", "test"))
 
 
 def history(count, close=505):

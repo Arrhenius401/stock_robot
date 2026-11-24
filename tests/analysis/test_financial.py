@@ -9,6 +9,7 @@ from data.schemas import (
     DimensionSufficiency,
     FinancialData,
     SufficiencyLevel,
+    ValuationData,
 )
 
 
@@ -158,3 +159,27 @@ def test_hk_missing_capex_flow_limitation_is_visible():
     assert "汇总项" in result.metrics["cash_flow_limitation"]
     from report.table_notes import prepare_table
     assert any("汇总项" in note for note in prepare_table("financial", result.metrics)["notes"])
+
+
+def test_dividend_yield_follows_net_margin_with_source():
+    row = FinancialData(symbol="600519", fiscal_quarter=date(2026, 9, 30),
+                        period_start=date(2026, 1, 1), period_basis="cumulative",
+                        reporting_basis="同花顺财务摘要-按报告期", report_currency="CNY",
+                        revenue=100, net_profit=20, net_margin=.2,
+                        financial_source="同花顺财报")
+    valuation = ValuationData(
+        symbol="600519", date=date(2026, 11, 24), pe_ttm=20, pb=6,
+        dividend_yield=2.31, dividend_yield_as_of=date(2026, 6, 25),
+        dividend_yield_source="东方财富分红送配",
+        dividend_yield_basis="最近已实施现金分红方案股息率（东财，方案口径）",
+    )
+    result = FinancialAnalyzer().analyze(make_ctx(symbol="600519", name="贵州茅台",
+                                                  market="a-shares", financial_data=[row],
+                                                  valuation_data=valuation))
+    keys = list(result.metrics)
+    assert keys.index("dividend_yield") == keys.index("net_margin") + 1
+    assert result.metrics["dividend_yield"] == pytest.approx(2.31)
+    from report.table_notes import prepare_table
+    view = prepare_table("financial", result.metrics)
+    assert "股息率" in view["metrics"]
+    assert any("股息率来源" in note and "东方财富分红送配" in note for note in view["notes"])

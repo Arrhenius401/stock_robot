@@ -891,6 +891,11 @@ class AkShareAdapter(DataSource):
         has_extended = bool(extended_pe or extended_pb)
         known_dates = [day for day in (pe_as_of, pb_as_of, latest.trade_date if latest else None)
                        if day is not None]
+        from data.dividend_yield import a_share_dividend_yield
+
+        dividend = a_share_dividend_yield(symbol)
+        if dividend.value is None:
+            notes.append(f"股息率：{dividend.reason}")
         item = ValuationData(
             symbol=symbol,
             date=max(known_dates) if known_dates else datetime.now().astimezone().date(),
@@ -900,6 +905,8 @@ class AkShareAdapter(DataSource):
             ps_ttm=(latest.ps_ttm if latest and is_positive_finite(latest.ps_ttm) else None),
             ps_as_of=(latest.trade_date if latest and is_positive_finite(latest.ps_ttm) else None),
             ps_source="东财日频估值历史-市销率（口径未声明）" if latest and is_positive_finite(latest.ps_ttm) else "",
+            dividend_yield=dividend.value, dividend_yield_as_of=dividend.as_of,
+            dividend_yield_source=dividend.source, dividend_yield_basis=dividend.basis,
             total_shares=latest.total_shares if latest else None,
             total_shares_as_of=latest.trade_date if latest and latest.total_shares is not None else None,
             total_shares_source="东财日频估值历史" if latest and latest.total_shares is not None else "",
@@ -1347,6 +1354,15 @@ class AkShareAdapter(DataSource):
             item._data_source = "东方财富港股估值快照"
         item.ps_ttm, item.ps_as_of = ps, ps_date
         item.ps_source = "东方财富港股估值对比" if ps is not None else ""
+        from data.dividend_yield import hk_dividend_yield
+
+        dividend = hk_dividend_yield(code)
+        item.dividend_yield = dividend.value
+        item.dividend_yield_as_of = dividend.as_of
+        item.dividend_yield_source = dividend.source
+        item.dividend_yield_basis = dividend.basis
+        if dividend.value is None:
+            notes.append(f"股息率：{dividend.reason}")
         item.pe_history, item.pb_history = pe_curve, pb_curve
         item.history_source = "百度港股估值（近一年）" if curves else ""
         if pe is not None and pb is not None and len(curves) == 2:

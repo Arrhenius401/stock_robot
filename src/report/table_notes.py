@@ -6,7 +6,7 @@ from report.formatter import format_metric_value, format_metrics, metric_display
 
 _FINANCIAL_DETAILS = {
     "roe_basis", "amount_basis", "amount_currency_reason", "gross_margin_basis", "net_margin_basis",
-    "cash_flow_source", "cash_flow_period", "cash_flow_limitation",
+    "dividend_yield_basis", "cash_flow_source", "cash_flow_period", "cash_flow_limitation",
     "yoy_basis", "trend_note", "annual_roe", "scoring_basis", "roe_trend", "operating_trends",
 }
 _MARKERS = {
@@ -71,6 +71,8 @@ def prepare_table(dimension: str, metrics: dict[str, Any]) -> dict[str, Any]:
             notes.append("² 利润率按表内报告期口径；缺失不推算。")
             if metrics.get("net_margin_basis"):
                 notes.append(str(metrics["net_margin_basis"]))
+            if metrics.get("dividend_yield_basis"):
+                notes.append(f"股息率来源：{metrics['dividend_yield_basis']}")
             gross = str(metrics.get("gross_margin_basis") or "")
             if "营运收入" in gross:
                 notes.append("毛利率为派生值，分母为营运收入，可能不同于表内营业额。")

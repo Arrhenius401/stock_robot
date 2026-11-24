@@ -59,6 +59,8 @@ class FinancialAnalyzer(AnalysisModule):
             "roe": latest.roe,
             "gross_margin": "不适用（银行/保险）" if latest.gross_margin_basis == "银行/保险不适用" else latest.gross_margin,
             "net_margin": latest.net_margin,
+            "dividend_yield": (context.valuation_data.dividend_yield
+                               if context.valuation_data is not None else None),
             "amount_basis": amount_basis,
             "annual_roe": context.financial_scoring_facts.get("annual_roe", {}),
             **template_metrics,
@@ -67,6 +69,13 @@ class FinancialAnalyzer(AnalysisModule):
             metrics["net_margin_basis"] = (
                 f"{latest.net_margin_basis}；期间 {latest.period_start or '未记录'} 至 {latest.fiscal_quarter}；"
                 f"来源 {latest.field_sources.get('net_profit') or latest.financial_source or latest.reporting_basis or '未记录'}"
+            )
+        dividend = context.valuation_data
+        if dividend is not None and dividend.dividend_yield is not None:
+            metrics["dividend_yield_basis"] = (
+                f"{dividend.dividend_yield_source or '来源未记录'}"
+                f"（{dividend.dividend_yield_as_of or '日期未记录'}）；"
+                f"{dividend.dividend_yield_basis or '口径未记录'}"
             )
         metrics["amount_currency_reason"] = latest.amount_currency_reason
         if latest.reported_revenue is not None:
