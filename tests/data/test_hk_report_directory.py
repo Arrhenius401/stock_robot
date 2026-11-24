@@ -19,6 +19,28 @@ def directory_row(year=2026, **extra):
             "REPORT_TYPE": "中报", **extra}
 
 
+@pytest.fixture(autouse=True)
+def no_live_indicator(mocker):
+    mocker.patch("data.hk_currency_evidence.load_indicator_periods", return_value={})
+
+
+def verified_indicators(mocker, frames, currency="CNY"):
+    """合成报表与指标逐期一致；显式零是测试披露值，不是缺项填补。"""
+    cash = {date.fromisoformat(row["REPORT_DATE"]): row["AMOUNT"]
+            for row in frames[2] if row["STD_ITEM_CODE"] == "003999"}
+    indicators = {}
+    for row in list(frames[0]):
+        if row["STD_ITEM_CODE"] != "004001001":
+            continue
+        frames[0].append({**row, "STD_ITEM_CODE": "004001002", "AMOUNT": 0})
+        period = date.fromisoformat(row["REPORT_DATE"])
+        indicators[period] = {**row,
+            "CURRENCY": currency, "IS_CNY_CODE": int(currency == "CNY"),
+            "OPERATE_INCOME": row["AMOUNT"], "HOLDER_PROFIT": row["AMOUNT"],
+            "OCF_SALES": cash[period] / row["AMOUNT"] * 100 if row["AMOUNT"] else None}
+    mocker.patch("data.hk_currency_evidence.load_indicator_periods", return_value=indicators)
+
+
 @pytest.fixture
 def source(mocker):
     frames = [[], [], []]
@@ -104,31 +126,35 @@ def test_conflicting_directory_duplicates_are_not_arbitrarily_selected(source, e
     assert build_financial_trends(rows, "00700.HK")["highlights"] == []
 
 
-def test_currency_aliases_and_identical_duplicates_are_not_conflicts(source):
+def test_currency_aliases_and_identical_duplicates_are_not_conflicts(source, mocker):
     frames, request = source
     for row in frames[0] + frames[2]:
         row["CURRENCY_CODE"] = "CNY"
     request.return_value.append(directory_row(CURRENCY="CNY"))
+    verified_indicators(mocker, frames, "CNY")
     rows = AkShareAdapter()._fetch_hk_financial("00700.HK")
     assert rows[-1].report_currency == "CNY" and rows[-1].cash_flow_basis == "reported"
 
 
-def test_statement_currency_conflict_is_not_overwritten_by_directory(source):
+def test_statement_currency_conflict_is_not_overwritten_by_directory(source, mocker):
     frames, _ = source
     for row in frames[0]:
         if row["REPORT_DATE"] == "2026-06-30":
             row["CURRENCY"] = "HKD"
+    verified_indicators(mocker, frames, "HKD")
     rows = AkShareAdapter()._fetch_hk_financial("00700.HK")
     assert rows[-1].revenue == 120 and rows[-1].report_currency == "HKD"
     assert rows[-1].disclosure_currency == "CNY"
-    assert build_financial_trends(rows, "00700.HK")["highlights"] == []
+    # 逐期金额与 OCF 已独立核验，目录披露币种不覆盖金额证据。
+    assert len(build_financial_trends(rows, "00700.HK")["highlights"]) == 3
 
 
-def test_cashflow_conflict_only_disables_cashflow_comparison(source):
+def test_cashflow_conflict_only_disables_cashflow_comparison(source, mocker):
     frames, _ = source
     for row in frames[0] + frames[2]:
         row["CURRENCY"] = "CNY"
     frames[2][-1]["CURRENCY"] = "HKD"
+    verified_indicators(mocker, frames, "CNY")
     rows = AkShareAdapter()._fetch_hk_financial("00700.HK")
     assert rows[-1].report_currency == "CNY" and rows[-1].cash_flow_basis == "unknown"
     assert rows[-1].operating_cash_flow == 120
@@ -138,11 +164,12 @@ def test_cashflow_conflict_only_disables_cashflow_comparison(source):
     assert "仅代表已核实的利润表金额" in metric
 
 
-def test_changed_accounting_standard_is_not_joined_into_a_trend(source):
+def test_changed_accounting_standard_is_not_joined_into_a_trend(source, mocker):
     frames, request = source
     for row in frames[0] + frames[2]:
         row["CURRENCY_CODE"] = "CNY"
     request.return_value[-1]["ACCOUNT_STANDARD"] = "中国会计准则"
+    verified_indicators(mocker, frames, "CNY")
     rows = AkShareAdapter()._fetch_hk_financial("00700.HK")
     assert all(r.report_currency == "CNY" for r in rows)
     assert build_financial_trends(rows, "00700.HK")["highlights"] == []
@@ -159,16 +186,17 @@ def test_directory_timeout_preserves_three_statement_values_and_logs(source, cap
     assert "目录" in caplog.text and "超时" in caplog.text
 
 
-def test_metadata_enables_verified_cashflow_score_without_changing_raw_values(source):
+def test_metadata_enables_verified_cashflow_score_without_changing_raw_values(source, mocker):
     frames, request = source
     for row in frames[0] + frames[2]:
         row["CURRENCY_CODE"] = "CNY"
+    verified_indicators(mocker, frames, "CNY")
     rows = AkShareAdapter()._fetch_hk_financial("00700.HK")
     known = FinancialEnricher().enrich(AnalysisContext(symbol="00700.HK", name="腾讯控股", market="hk",
                                                     financial_data=rows))
     unknown = known.model_copy(deep=True)
     unknown.financial_data = [r.model_copy(update={"report_currency": "",
-                             "reporting_basis": "东方财富港股财报-报告期"}) for r in rows]
+                             "reporting_basis": "东方财富港股财报-报告期", "field_positions": {}}) for r in rows]
     analyzer = FinancialAnalyzer()
     config = ConfigLoader().load("机械设备")
     before = analyzer.analyze(unknown, config)
@@ -180,8 +208,9 @@ def test_metadata_enables_verified_cashflow_score_without_changing_raw_values(so
     assert after.status == before.status == "partial"
     assert after.metrics["net_profit"] == before.metrics["net_profit"] == 120
     assert after.metrics["operating_cash_flow"] is before.metrics["operating_cash_flow"] is None  # 缺上年同期，不能把中期累计当 TTM
-    # 可核实币种支持同源单期现金流比值，但不能代替跨期修订证据。
-    assert not after.metrics["operating_trends"] and not before.metrics["operating_trends"]
+    # 本轮新增逐期 positions，已核验的同源同比可以展示；旧行仍拒绝。
+    assert len(after.metrics["operating_trends"]) == 3
+    assert not before.metrics["operating_trends"]
     assert "金额币种：CNY" in after.metrics["amount_basis"]
     assert "金额币种未核实" in before.metrics["amount_basis"]
     request.assert_called_once()

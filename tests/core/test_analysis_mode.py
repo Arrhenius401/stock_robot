@@ -40,6 +40,11 @@ class RecordingAnalyzer(AnalysisModule):
 def stock_context(enabled: bool, market: str = "a-shares") -> AnalysisContext:
     ctx = AnalysisContext(symbol="00700.HK" if market == "hk" else "600519", name="样例",
                           market=market, extra_analysis_enabled=enabled)
+    from datetime import date
+
+    from data.schemas import PriceData
+    ctx.price_data = [PriceData(symbol=ctx.symbol, trade_date=date(2026, 11, 20),
+                               open=12, high=12, low=12, close=12, volume=100)]
     for key in ("financial", "price", "valuation"):
         setattr(ctx.sufficiency, key, DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT))
     return ctx

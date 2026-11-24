@@ -70,7 +70,7 @@ class ValuationAnalyzer(AnalysisModule):
             f"{ {'pe_ttm': 'PE(TTM)', 'pb': 'PB', 'ps_ttm': 'PS(TTM)'}[key]}：{info['reason']}"
             for key, info in applicability.items() if not info["applicable"]
         ]
-        if context.market in {"hk", "us"} or (latest is not None and latest.history_source.startswith("百度")):
+        if context.market in {"hk", "us"} or (latest is not None and latest.history_source.startswith(("百度", "东财"))):
             snapshot_dates = valuation_snapshot_dates(context)
             metrics.update(pe_as_of=snapshot_dates["pe_ttm"], pb_as_of=snapshot_dates["pb"],
                            ps_as_of=snapshot_dates["ps_ttm"])

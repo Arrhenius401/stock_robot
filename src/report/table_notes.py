@@ -5,7 +5,8 @@ from typing import Any
 from report.formatter import format_metric_value, format_metrics, metric_display_name
 
 _FINANCIAL_DETAILS = {
-    "roe_basis", "amount_basis", "gross_margin_basis", "cash_flow_source", "cash_flow_period",
+    "roe_basis", "amount_basis", "amount_currency_reason", "gross_margin_basis", "net_margin_basis",
+    "dividend_yield_basis", "cash_flow_source", "cash_flow_period", "cash_flow_limitation",
     "yoy_basis", "trend_note", "annual_roe", "scoring_basis", "roe_trend", "operating_trends",
 }
 _MARKERS = {
@@ -68,6 +69,10 @@ def prepare_table(dimension: str, metrics: dict[str, Any]) -> dict[str, Any]:
                          else "¹ ROE 按本次披露口径展示。")
         if "gross_margin" in metrics or "net_margin" in metrics:
             notes.append("² 利润率按表内报告期口径；缺失不推算。")
+            if metrics.get("net_margin_basis"):
+                notes.append(str(metrics["net_margin_basis"]))
+            if metrics.get("dividend_yield_basis"):
+                notes.append(f"股息率来源：{metrics['dividend_yield_basis']}")
             gross = str(metrics.get("gross_margin_basis") or "")
             if "营运收入" in gross:
                 notes.append("毛利率为派生值，分母为营运收入，可能不同于表内营业额。")
@@ -79,6 +84,9 @@ def prepare_table(dimension: str, metrics: dict[str, Any]) -> dict[str, Any]:
                 notes.append("现金流为推算值，非直接披露。")
             elif "证据不足" in str(metrics.get("cash_flow_source", "")):
                 notes.append("现金流期间或币种证据不足。")
+            limitation = str(metrics.get("cash_flow_limitation") or "")
+            if limitation:
+                notes.append(limitation)
         if metrics.get("yoy_basis"):
             text = str(metrics["yoy_basis"])
             methods = [method for method in ("源披露", "精确金额复算") if method in text]
@@ -92,6 +100,9 @@ def prepare_table(dimension: str, metrics: dict[str, Any]) -> dict[str, Any]:
                 notes.append(f"利润表币种：{currency[1]}；其他报表币种不据此推断。")
             else:
                 notes.append(f"金额币种：{currency[1]}。" if currency else "金额沿用源币种。")
+        reason = str(metrics.get("amount_currency_reason") or "")
+        if reason:
+            notes.append(reason)
         limitation = str(metrics.get("trend_note") or "")
         if limitation:
             if "精度" in limitation or "修订" in limitation:
@@ -117,6 +128,8 @@ def valuation_window_notes(cutoff: str) -> list[str]:
         notes.append("历史估值由本次财务分母派生，仅参考。")
     elif "百度" in cutoff:
         notes.append("历史估值来自百度实测曲线。")
+    elif "东财" in cutoff:
+        notes.append("历史估值来自东财日频估值历史。")
     if "不保证覆盖上市以来完整历史" in cutoff:
         notes.append("历史区间有限，不代表上市以来完整历史。")
     return notes

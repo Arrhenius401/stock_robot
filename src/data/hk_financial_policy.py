@@ -70,12 +70,13 @@ def annotate_selection(selection: FinancialSelection) -> list[FinancialData]:
             name: selection.supplements.get(row.fiscal_quarter, {}).get(name, package.source)
             for name in NUMERIC_FIELDS if is_finite_number(getattr(row, name))
         }
-        row.field_positions = {
+        row.field_positions = {**row.field_positions, **{
             name: {
                 key: value.isoformat() if isinstance(value, date) else str(value or "")
                 for key, value in asdict(position).items()
             }
             for name, position in package.positions.get(row.fiscal_quarter, {}).items()
+        }
         }
         row.financial_selection_status = "complete" if selection.complete else "partial"
         row.financial_selection_note = note

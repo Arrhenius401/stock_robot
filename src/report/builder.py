@@ -26,8 +26,7 @@ def build_disclaimer(*, hk: bool = False, us: bool = False) -> list[str]:
     """兼容既有调用，市场文案由配置提供。"""
     baseline = profile_for("a-shares").disclaimer
     if hk and us:
-        return [*baseline[:2], *profile_for("hk").disclaimer[2:-2],
-                *profile_for("us").disclaimer[2:-2], *baseline[-2:]]
+        return list(baseline)
     return profile_disclaimer(profile_for("hk" if hk else "us" if us else "a-shares"))
 
 

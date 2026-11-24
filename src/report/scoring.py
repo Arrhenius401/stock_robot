@@ -183,6 +183,8 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
     signal = None
     if signal_cfg is not None and quality["signal_allowed"] and summary.final_score is not None:
         signal = signal_presentation(summary.final_score, signal_cfg)
+    if signal is not None and ctx.market == "us":
+        signal = {**signal, "basis": signal["basis"] + "；美股规则信号未做历史回测校准，仅研究参考。"}
 
     builder = ReportBuilder()
     from report.valuation_dates import stock_date_presentation

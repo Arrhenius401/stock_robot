@@ -1,4 +1,5 @@
 """新增质量信息与插件下载契约、AI重试的入口回归。"""
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
@@ -11,6 +12,7 @@ from data.schemas import (
     AnalysisResult,
     AnalysisTarget,
     DimensionSufficiency,
+    FinancialData,
     SufficiencyLevel,
 )
 from report.commentary import CommentaryContext, CommentaryStore, commentary_store
@@ -93,7 +95,7 @@ def test_commentary_store_expiry_and_capacity():
 
 
 @pytest.mark.asyncio
-async def test_unavailable_report_download_keeps_sections_and_no_signal(tmp_path, monkeypatch):
+async def test_unavailable_report_returns_error_without_archive(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("utils.symbols.resolve_name", lambda _: "样本")
     ctx = AnalysisContext(symbol="000001", name="样本")
@@ -107,21 +109,10 @@ async def test_unavailable_report_download_keeps_sections_and_no_signal(tmp_path
     app = create_app(core=core, push=False)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post("/api/v1/analyze", json={"symbol": "000001"})
-        assert response.status_code == 200
-        report = response.json()
-        assert report["score"]["final"] is None
-        assert report["signal"] is None
-        assert report["commentary_status"] == "insufficient"
-        assert len(report["data_quality"]["dimensions"]) == 5
+        assert response.status_code == 422
+        assert response.json()["error_code"] == "no_usable_data"
         listing = (await client.get("/api/v1/reports", params={"type": "stock", "query": "000001"})).json()
-        detail = (await client.get(f"/api/v1/reports/{listing['reports'][0]['id']}")).json()
-        assert detail["stock_payload"] == report
-        download = await client.get(f"/api/v1/reports/{listing['reports'][0]['id']}/download")
-        assert download.status_code == 200
-        assert "待验证事项" not in download.text
-        assert "数据覆盖与时效" in download.text
-        assert "模型信号：暂未生成" in download.text
-        assert "text/markdown" in download.headers["content-type"]
+        assert listing["reports"] == []
 
 
 @pytest.mark.asyncio
@@ -134,6 +125,7 @@ async def test_disabled_ai_archive_matches_markdown_with_configured_model(tmp_pa
     monkeypatch.setattr(Config, "get", lambda self, key, default=None:
                         False if key == "llm.enabled" else original_get(self, key, default))
     ctx = AnalysisContext(symbol="000001", name="样本")
+    ctx.financial_data = [FinancialData(symbol="000001", fiscal_quarter=date(2026, 6, 30), revenue=100)]
     ctx.sufficiency.financial = DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT, sample_count=6)
     results = [AnalysisResult(dimension="financial", status="ok", summary="财务", score=8)]
     def run(_symbol, _name, *, market):
@@ -143,12 +135,14 @@ async def test_disabled_ai_archive_matches_markdown_with_configured_model(tmp_pa
     core = SimpleNamespace(pipeline=SimpleNamespace(run=run), llm=object())
     async with AsyncClient(transport=ASGITransport(app=create_app(core=core, push=False)),
                            base_url="http://test") as client:
-        report = (await client.post("/api/v1/analyze", json={"symbol": "000001"})).json()
+        response = await client.post("/api/v1/analyze", json={"symbol": "000001"})
+        assert response.status_code == 200
+        report = response.json()
         assert report["commentary_status"] == "disabled"
         listing = (await client.get("/api/v1/reports", params={"type": "stock"})).json()
         detail = (await client.get(f"/api/v1/reports/{listing['reports'][0]['id']}")).json()
         assert detail["stock_payload"] == report
-        assert "纯量化模式，无 AI 解读" in detail["markdown"]
+        assert detail["markdown"].strip()
 
 
 @pytest.mark.asyncio

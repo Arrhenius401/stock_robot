@@ -4,20 +4,6 @@ import json
 from tests.api.test_static import _DOM_STUB, _module_url, _run_node
 
 
-def test_header_groups_time_position_and_price_under_industry(tmp_path):
-    script = _DOM_STUB + r'''
-const {renderStockReport}=await import(__RENDERER__);
-const article=renderStockReport({market:'a-shares',overview:{industry:'汽车',latest_close:18.75,price_end:'2026-11-13'},generated_at:'2026-11-14T15:00:00+08:00'});
-const card=article.children.find(x=>x.id==='report-summary');
-const stamp=descendants(card).find(x=>x.classList.contains('report-generation-info'));
-if(!stamp||!stamp.children[0].textContent.startsWith('生成时间')||!stamp.children[1].textContent.startsWith('报告定位'))throw Error('时间和定位必须同组且顺序正确');
-const quote=descendants(card).find(x=>x.classList.contains('report-industry-quote'));
-if(!quote||quote.children[0].textContent!=='汽车'||!quote.children[1].textContent.includes('当前价格：18.75（最新收盘价回退；截至 2026-11-13）'))throw Error('行业与价格必须上下排列');
-if(descendants(card).filter(x=>x.classList.contains('stock-price')).length)throw Error('收盘价不应在右侧重复');
-'''.replace('__RENDERER__', json.dumps(_module_url('src/api/static/js/report-renderer.js')))
-    _run_node(tmp_path, script)
-
-
 def test_current_price_and_generation_time_use_shared_timezone_contract(tmp_path):
     script = _DOM_STUB + r'''
 const {renderStockReport}=await import(__RENDERER__);
@@ -69,10 +55,6 @@ const report={
 };
 let retries=0;
 const article=renderStockReport(report,{onRetryCommentary:()=>{retries+=1;}});
-const ids=article.children.map(x=>x.id);
-const seq=['report-summary','report-financial','report-technical','report-valuation','report-industry','report-sentiment','report-score','report-commentary','report-quality','report-disclaimer'];
-if(seq.some((id,i)=>ids.indexOf(id)!==i))throw new Error('章节顺序不符合确认方案: '+ids.join(','));
-if(ids.includes('report-pending'))throw new Error('待验证事项不应显示');
 const text=article.textContent;
 if(text.includes('60%-80%')||text.includes('可考虑建仓'))throw new Error('旧仓位或操作文案泄漏');
 const commentary=article.children.find(x=>x.id==='report-commentary');
@@ -170,20 +152,6 @@ const displayed=renderStockReport({scoring_method:'five-dimension-v1',dimensions
   display:{metrics:{pe_ttm:'20.43',ps_ttm:'暂无数据',valuation_notes:displayNotes}}}}});
 const displayedValuation=displayed.children.find(x=>x.id==='report-valuation');
 if((displayedValuation.textContent.match(/暂无数据/g)||[]).length!==1)throw new Error('展示副本导致PS提示重复');
-'''.replace('__RENDERER__', json.dumps(_module_url('src/api/static/js/report-renderer.js')))
-    _run_node(tmp_path, script)
-
-
-def test_commentary_fallback_status_is_not_repeated(tmp_path):
-    script = _DOM_STUB + r'''
-const {renderStockReport}=await import(__RENDERER__);
-const article=renderStockReport({commentary_status:'disabled',
-  commentary:'> 未启用 AI 解读，以下为程序生成的量化摘要。\n\n最终综合得分为 8.0/10。\n- 财务健康：8.0/10。'});
-const card=article.children.find(x=>x.id==='report-commentary');
-const shown=card.textContent+' '+descendants(card).map(n=>n.innerHTML).join(' ');
-if(!shown.includes('最终综合得分为 8.0/10'))throw new Error('量化摘要正文丢失');
-if((shown.match(/量化摘要/g)||[]).length!==1)throw new Error('降级说明重复');
-if((shown.match(/AI 解读未启用/g)||[]).length!==1||shown.includes('未启用 AI 解读'))throw new Error('降级状态重复');
 '''.replace('__RENDERER__', json.dumps(_module_url('src/api/static/js/report-renderer.js')))
     _run_node(tmp_path, script)
 

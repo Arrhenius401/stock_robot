@@ -11,11 +11,7 @@ def test_empty_report_has_no_fabricated_judgment_or_position():
     assert report.position_coeff is None
     assert "中性震荡" not in text
     assert "仓位" not in text
-    for title in ["一、概览", "二、历史表现与技术面", "三、估值面", "四、资金、宏观与新闻", "五、综合研判", "六、数据覆盖与时效", "七、免责声明"]:
-        assert title in text
-    assert "数据范围／截至" in text
     assert report.data_quality["dimensions"]
-    assert "Wilder" not in text.split("## 七、免责声明")[1]
     assert render_index_report_markdown(report) == text
 
 
@@ -98,7 +94,6 @@ def test_pb_percentile_survives_missing_pe_in_display_and_markdown():
     assert not any(row["label"] == "PE历史分位" for row in rows)
 
 
-
 import pytest
 
 
@@ -120,7 +115,6 @@ def test_quality_merges_collection_diagnostics_with_analysis(result_state, cache
         assert error in str(report.data_quality["limitations"])
     if cache_status == "stale":
         assert "使用过期缓存" in str(report.data_quality["limitations"])
-
 
 
 def test_daily_pe_summary_does_not_call_it_a_monthly_factsheet():

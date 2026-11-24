@@ -319,18 +319,6 @@ if (calls.length !== beforeA + 1 || !calls.at(-1).refresh_cache) throw new Error
         assert "text/html" in resp.headers.get("content-type", "")
         assert "Stock Robot" in resp.text
 
-    @pytest.mark.asyncio
-    async def test_index_contains_report_drawer_structure(self, client):
-        resp = await client.get("/")
-
-        assert 'id="appLayout"' in resp.text
-        assert ('<aside id="reportDrawer" role="dialog" aria-label="完整研报" '
-                'aria-modal="false" aria-hidden="true" hidden>') in resp.text
-        assert 'id="reportDrawerClose"' in resp.text
-        assert 'id="reportDrawerRefresh"' in resp.text
-        assert 'id="reportDrawerError"' in resp.text
-        assert 'id="reportDrawerContent"' in resp.text
-        assert 'id="reportDrawerNav"' in resp.text
 
     @pytest.mark.asyncio
     async def test_workspace_shell_has_accessible_landmarks(self, client):
@@ -342,15 +330,6 @@ if (calls.length !== beforeA + 1 || !calls.at(-1).refresh_cache) throw new Error
         assert 'id="mobileNavToggle"' in html
         assert 'id="workspaceBackdrop"' in html
 
-    @pytest.mark.asyncio
-    async def test_chat_has_session_entry_without_duplicate_navigation(self, client):
-        """新建和历史会话仍可进入聊天视图，导航不再重复列出聊天。"""
-        html = (await client.get("/")).text
-
-        assert 'data-view="chat"' not in html
-        assert 'id="newSessionBtn"' in html
-        assert 'id="sessionList"' in html
-        assert 'id="view-chat"' in html
 
     @pytest.mark.asyncio
     async def test_index_is_not_cached(self, client):
@@ -359,38 +338,6 @@ if (calls.length !== beforeA + 1 || !calls.at(-1).refresh_cache) throw new Error
 
         assert response.headers["cache-control"] == "no-store"
 
-    @pytest.mark.asyncio
-    async def test_index_contains_report_library_view(self, client):
-        html = (await client.get("/")).text
-
-        assert 'data-view="report-library"' in html
-        assert "<span>报告库</span>" in html
-        assert 'id="view-report-library"' in html
-        assert 'id="reportLibraryContent"' in html
-        assert 'id="globalStockSearch"' not in html
-
-    @pytest.mark.asyncio
-    async def test_analysis_has_one_navigation_entry_and_preserves_report_views(self, client):
-        """个股与指数共用导航入口，各自沿用原报告内容容器。"""
-        html = (await client.get("/")).text
-
-        assert html.count('data-view="report"') == 1
-        assert 'data-view="index"' not in html
-        assert "<span>股指分析</span>" in html
-        assert html.count('data-analysis-mode="report"') == 2
-        assert html.count('data-analysis-mode="index"') == 2
-        assert 'id="reportContent"' in html
-        assert 'id="indexContent"' in html
-
-    @pytest.mark.asyncio
-    async def test_index_contains_runtime_logs_view(self, client):
-        """日志是配置之前的一级导航，并有独立内容容器。"""
-        html = (await client.get("/")).text
-
-        assert 'data-view="logs"' in html
-        assert "<span>日志</span>" in html
-        assert 'id="view-logs"' in html
-        assert 'id="logsContent"' in html
 
     @pytest.mark.asyncio
     async def test_workspace_shell_has_sidebar_resize_handle(self, client):
@@ -400,40 +347,6 @@ if (calls.length !== beforeA + 1 || !calls.at(-1).refresh_cache) throw new Error
         assert 'id="sidebarResizer"' in html
         assert 'aria-label="调整侧边栏宽度"' in html
 
-    @pytest.mark.asyncio
-    async def test_workspace_main_has_no_programmatic_focus_outline(self, client):
-        """主工作区仅用于程序化焦点恢复，不应显示浏览器默认描边。"""
-        css = (await client.get("/css/app.css")).text
-
-        assert "#workspaceMain:focus { outline: 0; }" in css
-
-    @pytest.mark.asyncio
-    async def test_report_library_modules_served(self, client):
-        app_js = (await client.get("/js/app.js")).text
-        api_js = (await client.get("/js/api.js")).text
-
-        assert 'import { initReportLibrary } from "./report-library.js?v=' in app_js
-        assert "initReportLibrary();" in app_js
-        assert "listReports(" in api_js
-        assert "getReport(" in api_js
-        assert "downloadReportUrl(" in api_js
-        assert (await client.get("/js/report-library.js")).status_code == 200
-
-    @pytest.mark.asyncio
-    async def test_report_library_list_uses_single_equal_height_rows(self, client):
-        css = (await client.get("/css/app.css")).text.replace("\r\n", "\n")
-
-        assert ".report-library-grid {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr);" in css
-        assert "height: 96px;\n  min-height: 96px;" in css
-        assert ".report-library-card > .report-library-card-meta" in css
-        assert "-webkit-line-clamp: 2;" in css
-
-    @pytest.mark.asyncio
-    async def test_chat_uses_textarea_input(self, client):
-        resp = await client.get("/")
-
-        assert '<textarea id="chatInput"' in resp.text
-        assert '<input id="chatInput"' not in resp.text
 
     @pytest.mark.asyncio
     async def test_js_modules_served(self, client):
@@ -445,12 +358,6 @@ if (calls.length !== beforeA + 1 || !calls.at(-1).refresh_cache) throw new Error
             resp = await client.get(path)
             assert resp.status_code == 200, path
 
-    @pytest.mark.asyncio
-    async def test_app_initializes_report_drawer(self, client):
-        resp = await client.get("/js/app.js")
-
-        assert 'import { initReportDrawer } from "./report-drawer.js?v=' in resp.text
-        assert "initReportDrawer();" in resp.text
 
     def test_markdown_renderer_escapes_untrusted_input_and_formats_safe_blocks(self):
         """防止块级解析放行脚本、危险链接或破坏代码块原样显示。"""

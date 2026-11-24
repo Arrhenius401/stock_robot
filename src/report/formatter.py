@@ -77,9 +77,7 @@ def sentiment_display_items(metrics: dict[str, Any]) -> list[dict[str, Any]]:
 
 def format_news_facts_markdown(metrics: dict[str, Any]) -> str:
     """客观新闻只披露标题、日期及原文来源，不输出情绪或评分。"""
-    notes = [metrics.get("news_disclaimer"), *(metrics.get("news_notes") or [])]
-    hidden_prefixes = ("关键词检索结果，按标题公司简称过滤", "已达到单关键词100条候选上限")
-    lines = [_news_text(note) for note in notes if note and not note.startswith(hidden_prefixes)]
+    lines: list[str] = []
     for item in (metrics.get("news_items") or [])[:STOCK_NEWS_DISPLAY_LIMIT]:
         sources = []
         links = item.get("links") or [{"url": item.get("url"), "media": item.get("media") or item.get("source")}]
@@ -98,17 +96,11 @@ def format_sentiment_risk_markdown(metrics: dict[str, Any]) -> str:
     """新舆情口径同时披露原风险、反向参与值和可追溯样本。"""
     risk, participation = metrics.get("risk_score"), metrics.get("participation_score")
     lines = ["**舆情原风险分：** " + (f"{risk:.1f}/10" if is_finite_number(risk) else "无法评估") + "（越高风险越大）",
-             "", "**综合参与分：** " + (f"{participation:.1f}/10" if is_finite_number(participation) else "暂无，暂不参与综合评分") + " · 权重5%",
+             "", "**综合参与分：** " + (f"{participation:.1f}/10" if is_finite_number(participation) else "暂无") + " · 权重5%",
              "", f"评估窗口：{_news_text(metrics.get('window_start') or '未记录')} 至 {_news_text(metrics.get('window_end') or '未记录')}；已评估{_news_text(metrics.get('evaluated_count', 0))}条。"]
     reason = metrics.get("assessment_reason")
     if reason:
         lines += ["", _news_text(reason)]
-    if risk == 0:
-        lines += ["", "本次有效样本未识别到负面，不代表全市场无风险。"]
-    disclaimer = metrics.get("news_disclaimer") or "本次限量样本，不保证完整覆盖；风险依据仅来自已取得内容。"
-    if "不作AI筛选或情绪评分" in disclaimer or "不进行模型或评分" in disclaimer:
-        disclaimer = "本次限量样本，不保证完整覆盖；风险依据仅来自已取得内容。"
-    lines += ["", _news_text(disclaimer)]
     items = sentiment_display_items(metrics)
     if items:
         lines += ["", "#### 采集样本与来源"]
@@ -141,9 +133,19 @@ METRIC_DISPLAY_NAMES = {
     "trend_note": "趋势分析限制",
     "cash_flow_source": "经营现金流来源",
     "deducted_net_profit": "扣非净利润",
+    "ps_as_of": "PS数据日期",
+    "reported_annual_roe": "年度披露 ROE（未年化）",
+    "amount_currency_reason": "金额币种核验",
+    "reported_revenue": "营业收入（SEC，不含投资损益，单季）",
+    "reported_revenue_ttm": "营业收入（SEC，不含投资损益，TTM）",
+    "reported_revenue_basis": "SEC 营业收入口径",
+    "reported_revenue_source": "SEC 营业收入来源",
+    "reported_revenue_period": "SEC 营业收入期间",
     "amount_basis": "财务金额口径",
     "revenue_basis": "营收科目口径",
     "gross_margin_basis": "毛利率计算口径",
+    "net_margin_basis": "净利率计算口径（仅展示）",
+    "cash_flow_limitation": "现金流明细限制",
     "valuation_applicability": "估值适用性",
     "historical_valuation_applicability": "独立历史分位适用性",
     "applicable": "可用于高低估判断",
@@ -277,13 +279,13 @@ _PRICE_KEYS = {"latest_close", "latest_price", "year_high", "year_low", "ma_5", 
 _MULTIPLE_KEYS = {"pe_static", "pe_lyr", "pe_ttm", "pe_snapshot", "pb", "ps_ttm", "industry_median_pe", "industry_median_pb",
                   "target_pe", "target_pb"}
 _RATIO_KEYS = {"roe", "gross_margin", "net_margin", "revenue_growth_yoy", "profit_growth_yoy",
-               "deducted_profit_growth_yoy", "cash_flow_growth_yoy", "industry_median_gross_margin"}
+               "deducted_profit_growth_yoy", "cash_flow_growth_yoy", "industry_median_gross_margin", "reported_annual_roe"}
 _PERCENT_KEYS = {"change_pct", "pe_percentile", "pb_percentile", "target_pe_premium", "dividend_yield",
                  "shibor_3m", "cpi_yoy", "shibor_percentile", "pmi_percentile",
                  "target_pe_percentile", "target_pb_percentile"}
 # 这些字段在适配层按基本货币单位记录；币种由各报告上下文披露，不由上市地推断。
 _AMOUNT_KEYS = {"revenue", "net_profit", "net_profit_ttm", "deducted_net_profit", "total_assets", "total_equity", "common_equity",
-                "operating_cash_flow", "capital_expenditure", "free_cash_flow", "market_cap"}
+                "operating_cash_flow", "capital_expenditure", "free_cash_flow", "market_cap", "reported_revenue", "reported_revenue_ttm"}
 _ONE_DIGIT_KEYS = {"score", "base_score", "final_score", "risk_deduction"}
 _THREE_DIGIT_KEYS = {"macd_dif", "macd_dea", "macd_bar"}
 _TWO_DIGIT_KEYS = {"volume_ratio", "operating_cash_flow_per_share", "basic_eps", "pmi", "usd_cny"}

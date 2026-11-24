@@ -107,14 +107,19 @@ def format_peer_comparison_markdown(comparison: dict[str, Any], scoring_method: 
         count = comparison.get("peer_count", 0)
         rank = comparison.get("market_cap_rank") or {}
         number, total = rank.get("rank"), rank.get("total")
+        pool_total, coverage = rank.get("pool_total"), rank.get("coverage")
         known = (type(number) is int and type(total) is int and 1 <= number <= total
-                 and type(count) is int and total == count + 1 and rank.get("as_of"))
-        rank_text = f"第 {number}／{total} 家" if known else "暂缺"
+                 and type(pool_total) is int and type(coverage) is str and rank.get("as_of"))
+        rank_text = (f"第 {number}／{total} 家" + ("" if total == pool_total else f"（同日有效覆盖 {coverage}）")
+                     if known else "暂缺")
         lines += ["", _table(["项目", "内容"], [
             ["同行范围", comparison.get("scope")], ["同行数量", f"{count} 家，不含本公司"],
             ["同行市值排名⁹", rank_text], ["估值数据日期", (comparison.get("valuation") or {}).get("as_of")],
-            *( [["市值数据日期", rank["as_of"]]] if known else []),
-        ]), "", "⁹ 排名含本公司；完整同日市值不足时暂缺。"]
+            *([["市值数据日期", rank["as_of"]]] if known else []),
+        ]), "", "⁹ 排名含本公司；部分同行缺少同日有效市值时按有效样本排名。"]
+        classification = comparison.get("classification_as_of")
+        if classification:
+            lines.append(f"分类快照：{str(classification)[:10]}（分类刷新失败时可能为旧快照）")
     else:
         lines += ["", f"同行范围：{_text(comparison.get('scope'))}；同行总数：{comparison.get('peer_count', 0)} 家。"]
     lines += ["", "#### 估值对比", ""]

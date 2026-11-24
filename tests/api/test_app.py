@@ -1249,7 +1249,7 @@ class TestAnalyzeEndpoint:
         assert response.status_code == 200
         payload = response.json()
         assert payload["name"] == "已确认的原名称" and payload["identity_status"] == "confirmed"
-        assert payload["report_scope"] == "facts_only" and payload["signal"] is None
+        assert payload["report_scope"] == "limited" and payload["signal"] is None
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("market", "symbol"), [("a-shares", "600519"), ("hk", "00700.HK"), ("us", "ANT")])
@@ -1318,7 +1318,7 @@ class TestAnalyzeEndpoint:
             assert payload["signal"] is None
             assert not payload["data_quality"]["signal_allowed"]
         else:
-            assert response.json()["report_scope"] == "facts_only"
+            assert response.json()["report_scope"] == "limited"
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("symbol", "refresh", "expected"), [
@@ -1345,8 +1345,8 @@ class TestAnalyzeEndpoint:
         assert data["symbol"] == "000001"
         assert data["name"] == "平安银行"
         assert data["dimensions"]["financial"]["score"] == 8.0
-        assert data["score"]["base"] is None
-        assert data["report_scope"] == "facts_only"
+        assert data["score"]["base"] == 8
+        assert data["report_scope"] == "limited"
         assert data["commentary"] == "AI 解读"
         assert "change_pct" in data["overview"]
         assert data["overview"]["change_pct"] is None  # FakePipeline 无价格数据
@@ -1404,7 +1404,7 @@ class TestAnalyzeEndpoint:
         assert resp.status_code == 200
         commentary = resp.json()["commentary"]
         assert "AI 解读当前不可用" in commentary
-        assert "暂无综合得分" in commentary
+        assert "8.0/10" in commentary
 
     @pytest.mark.asyncio
     async def test_analyze_invalid_symbol_returns_422(self, client):

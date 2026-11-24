@@ -1,4 +1,4 @@
-"""美股四核心信号门槛与五维报告回归。"""
+"""三市场三核心信号门槛与五维报告回归。"""
 from datetime import date, timedelta
 from typing import Literal
 
@@ -16,7 +16,7 @@ from data.schemas import (
 )
 from report.payload import build_stock_payload
 from report.quality import build_data_quality
-from report.scoring import build_report, compute_score_summary
+from report.scoring import compute_score_summary
 
 
 def context(market="us"):
@@ -44,17 +44,15 @@ def test_us_needs_every_core_score_and_ok_status(dimension, missing):
         item.score = None
     else:
         item.status = "partial"
-    assert not build_data_quality(context(), values)["signal_allowed"]
+    assert build_data_quality(context(), values)["signal_allowed"] == (dimension == "industry")
 
 
-def test_industry_sufficiency_is_required_only_for_us():
+def test_industry_sufficiency_does_not_block_any_market():
     for market in ("us", "a-shares", "hk"):
         ctx = context(market)
         ctx.sufficiency.industry = DimensionSufficiency(level=SufficiencyLevel.PARTIAL)
         quality = build_data_quality(ctx, results())
-        assert quality["signal_allowed"] == (market != "us")
-        if market == "us":
-            assert "行业" in quality["signal_unavailable_reason"]
+        assert quality["signal_allowed"]
 
 
 def test_us_zero_industry_score_is_valid_and_news_unscored():
@@ -76,11 +74,6 @@ def test_us_zero_industry_score_is_valid_and_news_unscored():
     payload = build_stock_payload(ctx.symbol, ctx.name, values, {}, ctx, no_llm=True)
     assert len(payload["score_rows"]) == 5
     assert payload["overview"]["industry"] == "系统软件"
-    report = build_report(ctx.symbol, ctx.name, values, {}, ctx, no_llm=True)
-    assert "不是 GICS/申万" in report
-    assert "未做美股历史回测校准" in report
-    assert "财报金额币种和会计准则以来源证据为准" in report
-    assert "本期美股不提供综合评分" not in report
 
 
 def test_complete_us_core_generates_only_rule_label_and_partial_closes_it():
@@ -90,6 +83,7 @@ def test_complete_us_core_generates_only_rule_label_and_partial_closes_it():
     values = results()
     payload = build_stock_payload(ctx.symbol, ctx.name, values, {}, ctx, no_llm=True, signal_cfg=SignalConfig())
     assert payload['signal'] is not None
+    assert '未做历史回测校准' in payload['signal']['basis']
     assert set(payload['signal']) == {'level', 'label', 'basis'}
     assert '胜率' not in payload['signal']['basis']
     values[0].status = 'partial'
@@ -120,3 +114,14 @@ def test_industry_cutoff_keeps_cached_snapshot_datetime():
     industry = next(row for row in quality["dimensions"] if row["key"] == "industry")
     cutoff = next(row["value"] for row in industry["fields"] if row["label"] == "数据截止")
     assert cutoff == "2026-11-15"
+
+
+def test_us_identity_and_short_history_do_not_block_three_core_signal():
+    ctx = context()
+    ctx.identity_status = "probable"
+    assert ctx.price_data is not None
+    ctx.price_data = ctx.price_data[:20]
+    quality = build_data_quality(ctx, results()[:3])
+    assert quality["signal_allowed"]
+    assert quality["identity_status"] == "probable"
+    assert quality["required_dimensions"] == ["financial", "technical", "valuation"]

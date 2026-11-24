@@ -59,10 +59,34 @@ class FinancialAnalyzer(AnalysisModule):
             "roe": latest.roe,
             "gross_margin": "不适用（银行/保险）" if latest.gross_margin_basis == "银行/保险不适用" else latest.gross_margin,
             "net_margin": latest.net_margin,
+            "dividend_yield": (context.valuation_data.dividend_yield
+                               if context.valuation_data is not None else None),
             "amount_basis": amount_basis,
             "annual_roe": context.financial_scoring_facts.get("annual_roe", {}),
             **template_metrics,
         }
+        if latest.net_margin is not None and latest.net_margin_basis:
+            metrics["net_margin_basis"] = (
+                f"{latest.net_margin_basis}；期间 {latest.period_start or '未记录'} 至 {latest.fiscal_quarter}；"
+                f"来源 {latest.field_sources.get('net_profit') or latest.financial_source or latest.reporting_basis or '未记录'}"
+            )
+        dividend = context.valuation_data
+        if dividend is not None and dividend.dividend_yield is not None:
+            metrics["dividend_yield_basis"] = (
+                f"{dividend.dividend_yield_source or '来源未记录'}"
+                f"（{dividend.dividend_yield_as_of or '日期未记录'}）；"
+                f"{dividend.dividend_yield_basis or '口径未记录'}"
+            )
+        metrics["amount_currency_reason"] = latest.amount_currency_reason
+        if latest.reported_revenue is not None:
+            metrics.update(
+                reported_revenue=latest.reported_revenue,
+                reported_revenue_ttm=latest.reported_revenue_ttm,
+                reported_revenue_basis=latest.reported_revenue_basis,
+                reported_revenue_source=latest.reported_revenue_source,
+                reported_revenue_period=latest.reported_revenue_period,
+            )
+
         if latest.revenue_basis:
             metrics["revenue_basis"] = latest.revenue_basis
         if latest.gross_margin_basis:
@@ -101,8 +125,21 @@ class FinancialAnalyzer(AnalysisModule):
             metrics["net_margin"] = "不适用（银行/保险）"
         for field in ("operating_cash_flow", "capital_expenditure", "free_cash_flow"):
             metrics[field] = "不适用（银行/保险）" if not_applicable else financial_ttm(financials, field, context.market, require_precision=True)
+        if (context.market == "hk" and latest.capital_expenditure is None
+                and latest.free_cash_flow is None):
+            metrics["cash_flow_limitation"] = "港股F10现金流仅提供汇总项，资本开支/自由现金流明细不可用"
+        if profit_ttm is None and latest.reported_annual_roe is not None:
+            metrics["reported_annual_roe"] = latest.reported_annual_roe
+            metrics["reported_annual_roe_period"] = (
+                latest.reported_annual_roe_period.isoformat() if latest.reported_annual_roe_period else ""
+            )
+            metrics["reported_annual_roe_source"] = latest.reported_annual_roe_source
+
         metrics["cash_flow_source"] = latest.financial_source or latest.reporting_basis or "来源未记录"
         metrics["cash_flow_period"] = f"TTM，截至 {latest.fiscal_quarter.isoformat()}；自由现金流 = 经营活动现金流 − 资本开支；缺失不填零"
+
+        if context.market == "hk" and latest.capital_expenditure is None and latest.free_cash_flow is None:
+            metrics["cash_flow_period"] = "港股F10现金流仅提供汇总项，资本开支/自由现金流明细不可用"
 
         roe_trend = []
         for d in sorted_data[:8]:

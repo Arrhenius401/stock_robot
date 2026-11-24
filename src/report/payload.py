@@ -77,6 +77,8 @@ def build_stock_payload(
         bulk = render_research(research)
     if quality["signal_allowed"] and signal_cfg is not None and summary.final_score is not None:
         signal = signal_presentation(summary.final_score, signal_cfg)
+    if signal is not None and ctx.market == "us":
+        signal = {**signal, "basis": signal["basis"] + "；美股规则信号未做历史回测校准，仅研究参考。"}
     if ctx.market == "us":
         industry = ctx.industry_data.industry if ctx.industry_data else "行业数据不足"
     elif ctx.market == "hk":

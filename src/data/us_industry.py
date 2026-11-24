@@ -300,7 +300,8 @@ def us_industry_result(symbol: str, *, cache: CacheManager | None = None, refres
                 selected = list(valid.values())
             selected = sorted(selected, key=lambda row: abs(row["market_cap"] / cap - 1))[:10]
         operating = load_operating([symbol, *[row["symbol"] for row in selected]], cache=cache, refresh=refresh)
-        reason = "经营指标独立使用F10连续单季TTM；缺失或样本不足不计分"
+        revenue_verified = bool((operating.get(symbol) or {}).get("revenue_verified"))
+        reason = "东财美股营收口径未核实，经营比较不计分" if not revenue_verified else "营收协议已通过抽样对账，非逐票SEC核对"
         if not target or len(valid) < 5:
             reason += "；已核实估值的目标或有效同行不足"
         errors = [reason, *(f"{item['source']}: {item.get('reason', '')}" for item in attempts
@@ -311,10 +312,13 @@ def us_industry_result(symbol: str, *, cache: CacheManager | None = None, refres
             comparison_ready=len(valid) >= 5,
             comparison_snapshot={
                 "source": SOURCE, "as_of": collected_at.isoformat(), "basis": "TTM",
-                "candidate_count": len(members), "revenue": None, "revenue_verified": False,
+                "candidate_count": len(members),
+                "revenue": (operating.get(symbol) or {}).get("revenue"),
+                "revenue_verified": revenue_verified,
+                "revenue_basis": (operating.get(symbol) or {}).get("revenue_basis", ""),
                 "target": target, "quotes": valid, "operating": operating,
                 "errors": errors, "attempts": [*attempts, {"source": SOURCE, "status": "ok"},
-                    {"source": "东财美股营收口径", "status": "unverified", "reason": reason}],
+                    {"source": "东财美股营收口径", "status": "ok" if revenue_verified else "unverified", "reason": reason}],
             },
         )
         value._target_mcap = target.get("market_cap")

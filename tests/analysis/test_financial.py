@@ -9,6 +9,7 @@ from data.schemas import (
     DimensionSufficiency,
     FinancialData,
     SufficiencyLevel,
+    ValuationData,
 )
 
 
@@ -104,3 +105,81 @@ class TestFinancialAnalyzer:
         assert result.metrics["revenue_growth_yoy"] == pytest.approx(594.10 / 764.63 - 1)
         assert result.metrics["operating_cash_flow_per_share"] == pytest.approx(-0.39)
         assert result.metrics["operating_cash_flow"] is None
+
+
+def test_derived_margin_evidence_reaches_report_metrics():
+    row = FinancialData(symbol="AAPL", fiscal_quarter=date(2026, 9, 30),
+                        period_start=date(2026, 6, 28), period_basis="single", report_currency="USD",
+                        revenue=100, net_profit=20, net_margin=.2,
+                        net_margin_basis="计算值：单季净利润÷营业收入；仅展示",
+                        financial_source="东方财富美股F10")
+    result = FinancialAnalyzer().analyze(make_ctx(symbol="AAPL", name="苹果", market="us", financial_data=[row]))
+    assert "仅展示" in result.metrics["net_margin_basis"]
+    assert "2026-06-28" in result.metrics["net_margin_basis"]
+    assert "东方财富美股F10" in result.metrics["net_margin_basis"]
+    from report.table_notes import prepare_table
+    assert any("仅展示" in note for note in prepare_table("financial", result.metrics)["notes"])
+
+
+def test_gross_margin_periods_group_52_53_week_fiscal_quarters():
+    from analysis.financial_scoring import gross_margin_periods
+
+    rows = [
+        FinancialData(symbol="AAPL", fiscal_quarter=date(2026, 9, 30),
+                      period_start=date(2026, 6, 28), period_basis="single",
+                      reporting_basis="东方财富美股F10-单季报（会计准则未核实）",
+                      gross_margin=.48, gross_margin_basis="毛利/营业收入（单季）",
+                      financial_source="东方财富美股F10",
+                      field_sources={"gross_margin": "东方财富美股F10"}),
+        FinancialData(symbol="AAPL", fiscal_quarter=date(2025, 9, 30),
+                      period_start=date(2025, 6, 29), period_basis="single",
+                      reporting_basis="东方财富美股F10-单季报（会计准则未核实）",
+                      gross_margin=.47, gross_margin_basis="毛利/营业收入（单季）",
+                      financial_source="东方财富美股F10",
+                      field_sources={"gross_margin": "东方财富美股F10"}),
+        FinancialData(symbol="AAPL", fiscal_quarter=date(2024, 9, 30),
+                      period_start=date(2024, 6, 30), period_basis="single",
+                      reporting_basis="东方财富美股F10-单季报（会计准则未核实）",
+                      gross_margin=.46, gross_margin_basis="毛利/营业收入（单季）",
+                      financial_source="东方财富美股F10",
+                      field_sources={"gross_margin": "东方财富美股F10"}),
+    ]
+    assert gross_margin_periods(rows) == pytest.approx([.48, .47, .46])
+
+
+def test_hk_missing_capex_flow_limitation_is_visible():
+    row = FinancialData(symbol="00700.HK", fiscal_quarter=date(2026, 9, 30),
+                        period_start=date(2026, 1, 1), period_basis="cumulative",
+                        reporting_basis="东方财富港股财报-报告期-国际会计准则",
+                        report_currency="HKD", amount_currency_verified=True,
+                        revenue=100, net_profit=20, operating_cash_flow=30,
+                        financial_source="东方财富港股财报")
+    result = FinancialAnalyzer().analyze(make_ctx(symbol="00700.HK", name="腾讯",
+                                                  market="hk", financial_data=[row]))
+    assert "汇总项" in result.metrics["cash_flow_limitation"]
+    from report.table_notes import prepare_table
+    assert any("汇总项" in note for note in prepare_table("financial", result.metrics)["notes"])
+
+
+def test_dividend_yield_follows_net_margin_with_source():
+    row = FinancialData(symbol="600519", fiscal_quarter=date(2026, 9, 30),
+                        period_start=date(2026, 1, 1), period_basis="cumulative",
+                        reporting_basis="同花顺财务摘要-按报告期", report_currency="CNY",
+                        revenue=100, net_profit=20, net_margin=.2,
+                        financial_source="同花顺财报")
+    valuation = ValuationData(
+        symbol="600519", date=date(2026, 11, 24), pe_ttm=20, pb=6,
+        dividend_yield=2.31, dividend_yield_as_of=date(2026, 6, 25),
+        dividend_yield_source="东方财富分红送配",
+        dividend_yield_basis="最近已实施现金分红方案股息率（东财，方案口径）",
+    )
+    result = FinancialAnalyzer().analyze(make_ctx(symbol="600519", name="贵州茅台",
+                                                  market="a-shares", financial_data=[row],
+                                                  valuation_data=valuation))
+    keys = list(result.metrics)
+    assert keys.index("dividend_yield") == keys.index("net_margin") + 1
+    assert result.metrics["dividend_yield"] == pytest.approx(2.31)
+    from report.table_notes import prepare_table
+    view = prepare_table("financial", result.metrics)
+    assert "股息率" in view["metrics"]
+    assert any("股息率来源" in note and "东方财富分红送配" in note for note in view["notes"])

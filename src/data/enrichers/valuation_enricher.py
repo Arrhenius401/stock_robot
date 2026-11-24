@@ -90,26 +90,37 @@ class ValuationEnricher(DataEnricher):
     @staticmethod
     def extended_history(ctx: AnalysisContext) -> dict[str, dict]:
         snapshot = ctx.valuation_data
-        if snapshot is None or snapshot.history_window_days <= 365 or not snapshot.history_source.startswith("百度"):
+        if snapshot is None or snapshot.history_window_days <= 365:
+            return {}
+        if not snapshot.history_source.startswith(("百度", "东财")):
             return {}
         cutoff = ctx.collected_at.date()
         start = cutoff - timedelta(days=snapshot.history_window_days)
-        result = {}
-        for metric, curve in (("pe", snapshot.extended_pe_history), ("pb", snapshot.extended_pb_history)):
+        source = ("东财日频估值历史" if snapshot.history_source.startswith("东财")
+                  else "百度同源实测估值")
+        result: dict[str, dict] = {}
+        for metric, curve in (("pe", snapshot.extended_pe_history),
+                              ("pb", snapshot.extended_pb_history)):
             samples = sorted((day, value) for day, value in curve.items()
                              if start <= day <= cutoff and is_positive_finite(value))
             if not samples:
                 continue
             values = [value for _, value in samples]
-            result[metric] = {"window": snapshot.history_window_label, "source": "百度同源实测估值",
-                              "start": str(samples[0][0]), "end": str(samples[-1][0]),
-                              "sample_count": len(values), "reference": values[-1],
-                              "percentile": round(sum(value < values[-1] for value in values) / len(values) * 100, 1)
-                              if len(values) >= 252 else None}
+            result[metric] = {
+                "window": snapshot.history_window_label,
+                "source": source,
+                "start": str(samples[0][0]),
+                "end": str(samples[-1][0]),
+                "sample_count": len(values),
+                "reference": values[-1],
+                "percentile": (round(sum(value < values[-1] for value in values)
+                                     / len(values) * 100, 1) if len(values) >= 252 else None),
+            }
         return result
 
     def enrich(self, ctx: AnalysisContext) -> AnalysisContext:
-        if ctx.market in {"hk", "us"} or (ctx.valuation_data is not None and ctx.valuation_data.history_source.startswith("百度")):
+        self._fill_derived_ps(ctx)
+        if ctx.market in {"hk", "us"} or (ctx.valuation_data is not None and ctx.valuation_data.history_source.startswith(("百度", "东财"))):
             return self._enrich_measured(ctx, ctx.market)
         prices = ctx.price_data or []
         financials = ctx.financial_data or []
@@ -283,7 +294,7 @@ class ValuationEnricher(DataEnricher):
         for metric in ("pe", "pb"):
             samples = [(p.trade_date, getattr(p, metric)) for p in points if getattr(p, metric) is not None]
             values = [value for _, value in samples]
-            summary = ValuationHistorySummary(source=snapshot.history_source, sample_count=len(samples))
+            summary = ValuationHistorySummary(source=snapshot.history_metric_sources.get(metric, snapshot.history_source), sample_count=len(samples))
             if samples:
                 summary.start, summary.as_of = samples[0][0], samples[-1][0]
                 summary.reference = values[-1]
@@ -302,33 +313,75 @@ class ValuationEnricher(DataEnricher):
             from data.us_stock import us_ttm
 
             revenue = us_ttm(ctx.financial_data or []).get("revenue")
+            revenue_source = "东财TTM营收"
             latest_fin = max(ctx.financial_data or [], key=lambda row: row.fiscal_quarter, default=None)
-            currency_ok = latest_fin is not None and latest_fin.amount_currency_verified and latest_fin.report_currency == "USD"
+            currency_ok = (latest_fin is not None and latest_fin.amount_currency_verified
+                           and latest_fin.report_currency == "USD")
+            if revenue is None and latest_fin is not None and latest_fin.reported_revenue_ttm is not None:
+                revenue = latest_fin.reported_revenue_ttm
+                revenue_source = latest_fin.reported_revenue_source or "SEC XBRL营业收入"
+                currency_ok = True
             if revenue is not None and is_positive_finite(revenue) and currency_ok:
                 snapshot.ps_ttm = cap / revenue
                 snapshot.ps_as_of = snapshot.market_cap_as_of
-                snapshot.ps_source = "新浪美股快照市值与东财TTM营收派生"
+                snapshot.ps_source = f"新浪美股快照市值与{revenue_source}派生"
                 snapshot.valuation_notes.append(
-                    f"PS(TTM) 派生：总市值 {cap:.0f} ÷ TTM 营收 {revenue:.0f} = {snapshot.ps_ttm:.2f}；市值日期 {snapshot.market_cap_as_of or '未记录'}；TTM 最近四个财季截至 {latest_fin.fiscal_quarter if latest_fin else '未记录'}"
-                )
+                    f"PS(TTM) 派生：总市值 {cap:.0f} ÷ TTM 营收 {revenue:.0f} = {snapshot.ps_ttm:.2f}；"
+                    f"市值日期 {snapshot.market_cap_as_of or '未记录'}；"
+                    f"TTM 最近四个财季截至 {latest_fin.fiscal_quarter if latest_fin else '未记录'}")
             elif not currency_ok:
                 snapshot.valuation_notes.append("PS(TTM) 暂不可用：财报金额币种未核实，不能与美元市值直接相除")
+            elif revenue is None:
+                snapshot.valuation_notes.append("PS(TTM) 暂不可用：TTM 营收未取得")
+
         ctx.enriched_valuation = enriched
         complete = enriched.pe_percentile is not None and enriched.pb_percentile is not None
         ctx.sufficiency.valuation = DimensionSufficiency(
             level=SufficiencyLevel.SUFFICIENT if complete else SufficiencyLevel.PARTIAL,
-            reason="近一年百度实测曲线，按各指标有效日期计样本；PE/PB 分别以同源末值计算分位" if complete else
+            reason="近一年实测曲线，按各指标对应来源及有效日期计样本；PE/PB 分别以同源末值计算分位" if complete else
                    "仅有快照或部分历史；" + "；".join(s.reason for s in
                    (enriched.pe_history_summary, enriched.pb_history_summary) if s.reason),
             sample_count=max(1, len(points)), score_weight=1.0 if complete else 0.5)
         return ctx
 
-    def _get_total_shares(self, ctx: AnalysisContext, ttm_profit: float,
-                          ttm_equity: float) -> float | None:
+    @staticmethod
+    def _fill_derived_ps(ctx: AnalysisContext) -> None:
+        """东财 PS 缺失时用已验证市值与 TTM 营收派生；仅展示。"""
+        snapshot = ctx.valuation_data
+        if snapshot is None or snapshot.ps_ttm is not None or ctx.market != "a-shares":
+            return
+        from data.financial_ttm import financial_ttm
+        revenue = financial_ttm(ctx.financial_data or [], "revenue", "a-shares", require_precision=True)
+        if revenue is None or revenue <= 0:
+            return
+        cap = snapshot.market_cap
+        as_of = snapshot.market_cap_as_of or snapshot.date
+        if cap is None:
+            prices = sorted(ctx.price_data or [], key=lambda item: item.trade_date)
+            if not prices or prices[-1].close <= 0:
+                return
+            financials = ctx.financial_data or []
+            latest = max(financials, key=lambda row: row.fiscal_quarter, default=None)
+            equity = (latest.common_equity if latest.common_equity is not None else latest.total_equity) if latest else None
+            profit = financial_ttm(financials, "net_profit", "a-shares", require_precision=True)
+            shares = ValuationEnricher()._get_total_shares(ctx, profit, equity)
+            if not shares:
+                return
+            cap = prices[-1].close * shares
+            as_of = prices[-1].trade_date
+        snapshot.ps_ttm = cap / revenue
+        snapshot.ps_as_of = as_of
+        snapshot.ps_source = "总市值 ÷ 同报告期TTM营收（派生，仅参考）"
+
+    def _get_total_shares(self, ctx: AnalysisContext, ttm_profit: float | None,
+                          ttm_equity: float | None) -> float | None:
         """总股本：实测 PE/PB 反推锚点优先，其次三级链。"""
+        snapshot = ctx.valuation_data
+        if snapshot and snapshot.total_shares_as_of and snapshot.total_shares_source and is_positive_finite(snapshot.total_shares):
+            return snapshot.total_shares
         # 实测锚定：估值数据来自腾讯快照（独立口径），锚定计算只用内存数据
         measured_pe = ctx.valuation_data.pe_ttm if ctx.valuation_data else None
-        if measured_pe is not None and is_positive_finite(measured_pe):
+        if measured_pe is not None and is_positive_finite(measured_pe) and ttm_profit is not None:
             sorted_prices = sorted(ctx.price_data or [], key=lambda x: x.trade_date)
             if sorted_prices:
                 latest_close = sorted_prices[-1].close
@@ -343,7 +396,7 @@ class ValuationEnricher(DataEnricher):
                             )
                         return anchor
         measured_pb = ctx.valuation_data.pb if ctx.valuation_data else None
-        if measured_pb is not None and is_positive_finite(measured_pb):
+        if measured_pb is not None and is_positive_finite(measured_pb) and ttm_equity is not None:
             sorted_prices = sorted(ctx.price_data or [], key=lambda x: x.trade_date)
             if sorted_prices and sorted_prices[-1].close > 0:
                 return measured_pb * ttm_equity / sorted_prices[-1].close

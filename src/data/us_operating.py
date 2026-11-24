@@ -16,6 +16,15 @@ logger = logging.getLogger(__name__)
 URL = "https://datacenter.eastmoney.com/securities/api/data/v1/get"
 GENERAL = "RPT_USF10_FN_GMAININDICATOR"
 BANK = "RPT_USF10_FN_BMAININDICATOR"
+# 2026-11-24 协议抽样：AAPL/MSFT 普通企业与 JPM 银行按指定 SEC 概念精确对账。
+REVENUE_PROTOCOL_VERIFIED_GENERAL = True
+REVENUE_PROTOCOL_VERIFIED_BANK = True
+REVENUE_PROTOCOL_VERIFIED = REVENUE_PROTOCOL_VERIFIED_GENERAL
+REVENUE_PROTOCOL_BASIS = (
+    "东财F10普通企业OPERATE_INCOME/银行TOTAL_INCOME；AAPL/MSFT与SEC合约收入、"
+    "JPM与SEC RevenuesNetOfInterestExpense协议抽样对账，非逐票SEC核对；"
+    "NVDA/COST按SEC当前期缺失/滞后例外，保留F10内部期间/币种/连续性校验"
+)
 
 
 def _date(value: Any) -> date:
@@ -116,6 +125,8 @@ def build_jpm_special(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 def build_operating(rows: list[dict[str, Any]], code: str, source: str) -> dict[str, Any] | None:
     """仅消费明确单季；四季缺失不回退到主指标或旧TTM窗口。"""
+    if source not in {GENERAL, BANK}:
+        return None
     today = datetime.now().astimezone().date()
     singles = sorted([r for r in rows if r.get("DATE_TYPE") == "单季报"],
                      key=lambda r: str(r.get("REPORT_DATE")))[-8:]
@@ -154,6 +165,7 @@ def build_operating(rows: list[dict[str, Any]], code: str, source: str) -> dict[
             "quarters": [{"start": r.get("START_DATE"), "end": r.get("REPORT_DATE"),
                           "notice": r.get("NOTICE_DATE"), "currency": r.get(currency_key), "source": source} for r in singles],
             "revenue": revenue, "net_profit": profit, "previous_revenue": previous,
+            "revenue_verified": REVENUE_PROTOCOL_VERIFIED_BANK if source == BANK else REVENUE_PROTOCOL_VERIFIED_GENERAL, "revenue_basis": REVENUE_PROTOCOL_BASIS,
             "revenue_growth_yoy": (revenue / previous - 1) * 100 if previous is not None and previous > 0 else None,
             "net_margin": profit / revenue * 100 if profit is not None else None,
             "annual": annual, "special": special}

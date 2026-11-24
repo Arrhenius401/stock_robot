@@ -1,12 +1,12 @@
 // 应用主入口：导航接线、工作台覆盖层与各视图初始化。
 import { bus, store, switchView } from "./state.js";
-import { initChat } from "./chat.js?v=20261123-report-scope";
-import { initReportView, openReport } from "./report.js?v=20261123-report-scope";
-import { initReportDrawer } from "./report-drawer.js?v=20261123-report-scope";
-import { closeReportDrawer } from "./report-drawer.js?v=20261123-report-scope";
+import { initChat } from "./chat.js?v=20261124-commentary-restore";
+import { initReportView, openReport } from "./report.js?v=20261124-commentary-restore";
+import { initReportDrawer } from "./report-drawer.js?v=20261124-commentary-restore";
+import { closeReportDrawer } from "./report-drawer.js?v=20261124-commentary-restore";
 import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js";
-import { initIndexView } from "./indexview.js?v=20261123-report-scope";
-import { initReportLibrary } from "./report-library.js?v=20261123-report-scope";
+import { initIndexView } from "./indexview.js?v=20261124-commentary-restore";
+import { initReportLibrary } from "./report-library.js?v=20261124-commentary-restore";
 import { initSessions, initSessionStartup } from "./sessions.js?v=20261116-us-c5-1";
 import { initSubscriptions } from "./subscriptions.js?v=20260928-run-notice-2";
 import { initSettings } from "./settings.js?v=20261031-analysis-mode-1";

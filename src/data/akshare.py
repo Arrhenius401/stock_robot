@@ -440,12 +440,12 @@ class AkShareAdapter(DataSource):
                 diagnostic.error_kind = "source_failed"
                 diagnostic.error_message = "；".join(failures)
             return rows
-        # 回测等场景可显式指定起止日期（YYYYMMDD）；未完整指定时保持默认近一年（days=250）行为
+        # 回测等场景可显式指定起止日期（YYYYMMDD）；未完整指定时保持默认近一年（days=365）行为
         start_date = kwargs.get("start_date")
         end_date = kwargs.get("end_date")
         today = datetime.now().astimezone().date()
         if start_date is None or end_date is None:
-            days = kwargs.get("days", 250)  # 近一年交易日，覆盖完整行情周期
+            days = kwargs.get("days", 365)  # 近一年交易日，覆盖完整行情周期
             start_date = start_date or (today - timedelta(days=days)).strftime("%Y%m%d")
             end_date = end_date or today.strftime("%Y%m%d")
         start, end = _parse_date(start_date), min(_parse_date(end_date), today)
@@ -520,7 +520,7 @@ class AkShareAdapter(DataSource):
         if kwargs.get("market") == "us":
             from data.us_stock import us_financials
 
-            return us_financials(symbol)
+            return us_financials(symbol, refresh_cache=bool(kwargs.get("refresh_cache", False)))
         from data.a_financial_policy import (
             DEPENDENCIES,
             SNAPSHOT_FIELDS,
@@ -774,49 +774,158 @@ class AkShareAdapter(DataSource):
         return results
 
     def _fetch_valuation(self, symbol: str, **kwargs) -> list[ValuationData]:
-        """估值：腾讯实时快照（含 PE/PB，独立口径）。失败返回空列表。"""
+        """估值：腾讯快照为主，东财日频最新行和百度曲线为备源。"""
         if kwargs.get("market") == "hk":
             return self._fetch_hk_valuation(symbol)
         if kwargs.get("market") == "us":
             from data.us_stock import us_valuation
-
             return us_valuation(symbol)
         import requests as _req
 
+        from data.a_valuation_history import load_history
+        from utils.numbers import is_positive_finite
+
         tx_symbol = f"sh{symbol}" if symbol.startswith("6") else f"sz{symbol}"
+        pe = pb = None
+        pe_as_of = pb_as_of = None
+        tencent_failed = False
         try:
-            resp = _req.get(f"https://qt.gtimg.cn/q={tx_symbol}", timeout=10)
-            fields = resp.text.split("~")
+            response = _req.get(f"https://qt.gtimg.cn/q={tx_symbol}", timeout=10)
+            fields = response.text.split("~")
             if len(fields) < 47:
-                logger.warning(f"腾讯快照字段数异常: {len(fields)}")
-                return []
+                raise ValueError(f"腾讯快照字段数异常: {len(fields)}")
             pe = float(fields[39]) if fields[39] else None
             pb = float(fields[46]) if fields[46] else None
-        except Exception as e:
-            logger.debug("腾讯快照获取失败，估值数据缺失")
-            self._record_collection_error("腾讯估值快照", e)
-            return []
-        period = None
-        try:
-            # 腾讯快照第 30 位为行情时间；失败只影响日期元数据，不丢弃估值。
             stamp = fields[30]
             if len(stamp) == 14 and stamp.isdigit():
                 candidate = datetime.strptime(stamp, "%Y%m%d%H%M%S").replace(
                     tzinfo=timezone(timedelta(hours=8))).date()
                 if candidate <= datetime.now(timezone(timedelta(hours=8))).date():
-                    period = candidate
-        except ValueError:
-            logger.debug("腾讯估值快照行情日期无效，保留数值并标注日期未知")
-        item = ValuationData(symbol=symbol, date=datetime.now().astimezone().date(), pe_ttm=pe, pb=pb,
-                             pe_as_of=period if pe is not None else None, pb_as_of=period if pb is not None else None)
-        for metric, field in (("市盈率(TTM)", "pe_history"), ("市净率", "pb_history")):
+                    pe_as_of = candidate if pe is not None else None
+                    pb_as_of = candidate if pb is not None else None
+        except Exception as error:  # 腾讯快照边界，继续尝试东财
+            tencent_failed = True
+            self._record_collection_error("腾讯估值快照", error)
+
+        pe_source = "腾讯估值快照" if pe is not None else ""
+        pb_source = "腾讯估值快照" if pb is not None else ""
+        history_result = load_history(symbol, refresh=bool(kwargs.get("refresh_cache", False)))
+        history = history_result.value or []
+        latest = history[-1] if history else None
+        notes: list[str] = []
+        if tencent_failed:
+            notes.append("腾讯估值快照失败，继续尝试东财日频最新行与百度曲线")
+        if history_result.record.cache_status == "stale":
+            notes.append(history_result.record.error_message)
+        if history_result.value is None:
+            notes.append(f"东财日频估值历史不可用：{history_result.record.error_message or '未取得数据'}")
+        if latest is not None:
+            if pe is None and latest.pe_ttm is not None:
+                pe, pe_as_of = latest.pe_ttm, latest.trade_date
+                pe_source = "东财日频估值历史最新行"
+            if pb is None and latest.pb is not None:
+                pb, pb_as_of = latest.pb, latest.trade_date
+                pb_source = "东财日频估值历史最新行"
+
+        # 东财历史不可用时，保留百度近一年曲线作为历史与快照末值兜底。
+        baidu_curves: dict[str, dict[date, float]] = {}
+        for metric, field in (("市盈率(TTM)", "pe"), ("市净率", "pb")):
+            recent_start = datetime.now().astimezone().date() - timedelta(days=365)
+            if (pe if field == "pe" else pb) is not None and any(row.trade_date >= recent_start and is_positive_finite(getattr(row, "pe_ttm" if field == "pe" else "pb")) for row in history):
+                continue
             try:
-                setattr(item, field, baidu_metric(symbol, metric, market="ab"))
-            except Exception as error:  # 百度网络边界，保留明确标注的派生回退
-                logger.warning("A 股百度实测 %s/%s 不可用: %s", symbol, metric, error)
-                item.valuation_notes.append(f"{metric} 百度实测不可用；派生，仅参考")
-        if item.pe_history or item.pb_history:
-            item.history_source = "百度实测估值（近一年）"
+                points = {day: value for day, value in
+                          baidu_metric(symbol, metric, market="ab").items()
+                          if day <= datetime.now().astimezone().date() and is_positive_finite(value)}
+                if not points:
+                    continue
+                baidu_curves[field] = points
+                day = max(points)
+                if field == "pe" and pe is None:
+                    pe, pe_as_of = points[day], day
+                    pe_source = "百度曲线末值（非实时快照）"
+                if field == "pb" and pb is None:
+                    pb, pb_as_of = points[day], day
+                    pb_source = "百度曲线末值（非实时快照）"
+            except Exception as error:  # 百度网络边界
+                self._record_collection_error(f"百度A股{metric}", error)
+                notes.append(f"{metric} 百度曲线不可用")
+        if pe is None and pb is None:
+            return []
+
+        cutoff = datetime.now().astimezone().date()
+        extended_pe: dict[date, float] = {}
+        extended_pb: dict[date, float] = {}
+        pe_history: dict[date, float] = {}
+        pb_history: dict[date, float] = {}
+        if history:
+            start_long = cutoff - timedelta(days=1827)
+            extended_pe = {row.trade_date: float(row.pe_ttm) for row in history
+                           if start_long <= row.trade_date <= cutoff
+                           and row.pe_ttm is not None and is_positive_finite(row.pe_ttm)}
+            extended_pb = {row.trade_date: float(row.pb) for row in history
+                           if start_long <= row.trade_date <= cutoff
+                           and row.pb is not None and is_positive_finite(row.pb)}
+            short_start = cutoff - timedelta(days=365)
+            pe_history = {day: value for day, value in extended_pe.items() if day >= short_start}
+            pb_history = {day: value for day, value in extended_pb.items() if day >= short_start}
+            notes.append("东财日频估值历史：2018 年至今，PE/PB/PS 分别标注日期；PS 仅展示")
+            if latest is not None and latest.total_shares:
+                notes.append(f"东财总股本：{latest.total_shares:.0f}")
+        else:
+            pe_history = baidu_curves.get("pe", {})
+            pb_history = baidu_curves.get("pb", {})
+            if pe_history or pb_history:
+                notes.append("百度近一年历史：各指标按自身有效日期计算")
+
+        metric_sources = {key: "东财日频估值历史" if history else "百度实测估值（近一年）"
+                          for key, curve in (("pe", pe_history), ("pb", pb_history)) if curve}
+        if not pe_history:
+            pe_history = baidu_curves.get("pe", {})
+            if pe_history:
+                metric_sources["pe"] = "百度实测估值（近一年）"
+        if not pb_history:
+            pb_history = baidu_curves.get("pb", {})
+            if pb_history:
+                metric_sources["pb"] = "百度实测估值（近一年）"
+        has_extended = bool(extended_pe or extended_pb)
+        known_dates = [day for day in (pe_as_of, pb_as_of, latest.trade_date if latest else None)
+                       if day is not None]
+        from data.dividend_yield import a_share_dividend_yield
+
+        dividend = a_share_dividend_yield(symbol)
+        if dividend.value is None:
+            notes.append(f"股息率：{dividend.reason}")
+        item = ValuationData(
+            symbol=symbol,
+            date=max(known_dates) if known_dates else datetime.now().astimezone().date(),
+            pe_ttm=pe, pb=pb,
+            pe_as_of=pe_as_of, pb_as_of=pb_as_of,
+            pe_source=pe_source, pb_source=pb_source, history_metric_sources=metric_sources,
+            ps_ttm=(latest.ps_ttm if latest and is_positive_finite(latest.ps_ttm) else None),
+            ps_as_of=(latest.trade_date if latest and is_positive_finite(latest.ps_ttm) else None),
+            ps_source="东财日频估值历史-市销率（口径未声明）" if latest and is_positive_finite(latest.ps_ttm) else "",
+            dividend_yield=dividend.value, dividend_yield_as_of=dividend.as_of,
+            dividend_yield_source=dividend.source, dividend_yield_basis=dividend.basis,
+            total_shares=latest.total_shares if latest else None,
+            total_shares_as_of=latest.trade_date if latest and latest.total_shares is not None else None,
+            total_shares_source="东财日频估值历史" if latest and latest.total_shares is not None else "",
+            market_cap=latest.market_cap if latest else None,
+            market_cap_as_of=latest.trade_date if latest else None,
+            pe_history=pe_history, pb_history=pb_history,
+            history_source=("东财日频估值历史" if has_extended else
+                            "百度实测估值（近一年）" if (pe_history or pb_history) else ""),
+            history_window_days=1827 if has_extended else 365,
+            history_window_label="近五年" if has_extended else "近一年",
+            extended_pe_history=extended_pe, extended_pb_history=extended_pb,
+            valuation_notes=notes,
+            cache_degraded=history_result.record.cache_status == "stale",
+        )
+        item._data_source = "；".join(dict.fromkeys(filter(None, [
+            "腾讯估值快照" if not tencent_failed else "",
+            "东财日频估值历史" if latest else "",
+            "百度实测估值" if baidu_curves else "",
+        ])))
         return [item]
 
     def _fetch_hk_price(self, symbol: str, **kwargs) -> list[PriceData]:
@@ -959,7 +1068,27 @@ class AkShareAdapter(DataSource):
 
         assets, cash_flows = supplement("资产负债表"), supplement("现金流量表")
         income_meta = period_metadata(income)
+        from data.hk_currency_evidence import (
+            load_indicator_periods,
+            verify_cash_flow,
+            verify_period,
+        )
+
+        try:
+            indicators = load_indicator_periods(code)
+        except Exception as error:  # 第三方指标边界，失败不阻断三表
+            indicators = {}
+            logger.warning("港股分析指标获取失败 %s: %s", code, type(error).__name__)
+            previous = self.get_collection_error()
+            self._append_collection_error("东方财富港股分析指标", error)
+            current = self.get_collection_error()
+            if previous is not None and current is not None:
+                self._collection_diagnostics.record = previous.model_copy(update={
+                    "error_message": current.error_message,
+                })
+
         cash_meta = period_metadata(statement_rows.get("现金流量表", []))
+        balance_meta = period_metadata(statement_rows.get("资产负债表", []))
         directory_meta: dict[date, tuple[date | None, str, str]] = {}
         try:
             grouped: dict[date, set[tuple[date | None, str, str]]] = {}
@@ -1024,6 +1153,17 @@ class AkShareAdapter(DataSource):
             parts = [cf.get(key) for key in ("005005", "005007")]
             capex = sum(abs(value) for value in parts if value is not None) if any(value is not None for value in parts) and not bank_template else None
             ocf = cf.get("003999")
+            indicator = indicators.get(period)
+            evidence = verify_period(period, start, income, indicator, bank=bank_template)
+            currency = evidence.currency if evidence.verified else ""
+            verified = evidence.verified
+            cf_verified = (verify_cash_flow(start, ocf, indicator, currency)[0]
+                           and (not cf_currency or cf_currency == currency))
+
+            annual_indicator = indicator if start is not None and start.month == 1 and period.month == 12 else None
+            annual_roe = finite_number(annual_indicator.get("ROE_AVG")) if annual_indicator else None
+            reported_annual_roe = annual_roe / 100 if annual_roe is not None else None
+
             result.append(FinancialData(symbol=symbol, fiscal_quarter=period,
                 revenue=row.get(revenue), net_profit=row.get(profit), basic_eps=row.get(eps),
                 total_assets=bs.get(total_assets), total_equity=bs.get(total_equity),
@@ -1032,11 +1172,42 @@ class AkShareAdapter(DataSource):
                 gross_margin=margin, gross_margin_basis="银行/保险不适用" if bank_template else GROSS_MARGIN_BASIS if margin is not None else "",
                 period_start=start, period_basis="cumulative" if start is not None else "unknown",
                 reporting_basis=reporting_basis, report_currency=currency,
-                amount_currency_verified=bool(currency), disclosure_currency=disclosure_currency,
+                amount_currency_verified=verified,
+                amount_currency_reason="逐期报表聚合与分析指标一致" if verified else evidence.reason,
+                reported_annual_roe=reported_annual_roe,
+                reported_annual_roe_period=period if reported_annual_roe is not None else None,
+                reported_annual_roe_source="东方财富港股分析指标" if reported_annual_roe is not None else "",
+                disclosure_currency=disclosure_currency,
                 revenue_basis="银行：经营收入总额" if bank_template else "",
-                cash_flow_basis="reported" if cf.get("003999") is not None and start is not None and currency
-                    and cf_start == start and cf_currency == currency else "unknown",
-                cash_flow_period_start=cf_start))
+                cash_flow_basis="reported" if cf_verified else "unknown",
+                cash_flow_period_start=start if cf_verified else cf_start))
+            row_data = result[-1]
+            if verified and start is not None:
+                accounting = ""
+                if period in directory_meta and directory_meta[period][0] == start:
+                    accounting = directory_meta[period][2]
+                if row_data.revenue is not None and row_data.revenue > 0 and row_data.net_profit is not None:
+                    row_data.net_margin = row_data.net_profit / row_data.revenue
+                    row_data.net_margin_basis = "计算值：净利润÷营业收入（报告期口径）；仅展示"
+                for name, definition in (("revenue", "revenue"), ("net_profit", "parent_net_profit"),
+                                         ("operating_cash_flow", "operating_cash_flow"),
+                                         ("total_assets", "total_assets"), ("total_equity", "total_equity")):
+                    if getattr(row_data, name) is None:
+                        continue
+                    instant = name in {"total_assets", "total_equity"}
+                    cash_field = name == "operating_cash_flow"
+                    cash_verified = cash_field and cf_verified
+                    row_data.field_positions[name] = {
+                        "definition": definition, "unit": "currency",
+                        "currency": (currency if cash_verified else "") if cash_field
+                        else balance_meta.get(period, (None, ""))[1] if instant else currency,
+                        "start": (start.isoformat() if cash_verified and start else
+                                  (cf_start.isoformat() if cf_start else "")) if cash_field
+                        else (period if instant else start).isoformat(),
+                        "end": period.isoformat(), "basis": "instant" if instant else "cumulative",
+                        "scope": "consolidated", "accounting": accounting, "revision": "当前源快照",
+                        "calculation": ("reported" if cash_verified else "unknown") if cash_field else "reported",
+                    }
             # 此接口 AMOUNT 为未缩写数值；币种/单位与跨期修订仍由独立口径证据校验。
             result[-1].field_precision = {field: "source_native" for field in (
                 "revenue", "net_profit", "basic_eps", "total_assets", "total_equity", "common_equity",
@@ -1183,9 +1354,18 @@ class AkShareAdapter(DataSource):
             item._data_source = "东方财富港股估值快照"
         item.ps_ttm, item.ps_as_of = ps, ps_date
         item.ps_source = "东方财富港股估值对比" if ps is not None else ""
+        from data.dividend_yield import hk_dividend_yield
+
+        dividend = hk_dividend_yield(code)
+        item.dividend_yield = dividend.value
+        item.dividend_yield_as_of = dividend.as_of
+        item.dividend_yield_source = dividend.source
+        item.dividend_yield_basis = dividend.basis
+        if dividend.value is None:
+            notes.append(f"股息率：{dividend.reason}")
         item.pe_history, item.pb_history = pe_curve, pb_curve
         item.history_source = "百度港股估值（近一年）" if curves else ""
-        if code == "00700" and pe is not None and pb is not None and len(curves) == 2:
+        if pe is not None and pb is not None and len(curves) == 2:
             try:
                 start = today - timedelta(days=1096)
                 last_closed = today if datetime.now(timezone(timedelta(hours=8))).hour >= 17 else today - timedelta(days=1)

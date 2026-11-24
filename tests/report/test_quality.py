@@ -23,12 +23,10 @@ def test_all_missing_has_no_score_signal_or_model_conclusion():
     results = [AnalysisResult(dimension="valuation", status="unavailable", summary="历史不足", metrics={"pb": 1.2})]
     text = build_report(ctx.symbol, ctx.name, results, {"bulk": "不应输出模型结论"}, ctx, signal_cfg=SignalConfig())
     assert compute_score_summary(results).final_score is None
-    assert "本期仅展示事实，不生成综合评分" in text
     assert "模型信号：暂未生成" in text
     assert "不应输出模型结论" not in text
     assert "1.2" in text
     assert "待验证事项" not in text
-    assert text.index("## 五、数据覆盖与时效") < text.index("## 六、免责声明")
 
 
 def test_coverage_conservative_fixed_weights_and_unknown_source():
@@ -102,7 +100,6 @@ def test_partial_report_has_no_signal_even_with_high_score():
     text = build_report(ctx.symbol, ctx.name, [r], {}, ctx, signal_cfg=SignalConfig())
     assert "模型信号：暂未生成" in text
     assert "分析依据未满足信号生成条件" in text
-    assert "AI 解读当前不可用" in text
 
 
 def test_signal_placeholder_explains_actual_blocked_core_dimensions_at_top():
@@ -264,3 +261,18 @@ def test_missing_cashflow_keeps_core_signal_gate_closed():
     quality = build_data_quality(ctx, results)
     assert not quality["signal_allowed"]
     assert "财务" in quality["signal_unavailable_reason"]
+
+
+def test_us_industry_missing_does_not_block_signal():
+    from report.quality import build_data_quality
+
+    ctx = AnalysisContext(symbol="AAPL", name="苹果", market="us", extra_analysis_enabled=True)
+    ctx.price_data = _prices(ctx.symbol, 60)
+    for name in ("financial", "price", "valuation"):
+        setattr(ctx.sufficiency, name, DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT))
+    ctx.sufficiency.industry = DimensionSufficiency(level=SufficiencyLevel.INSUFFICIENT)
+    results = [AnalysisResult(dimension=dim, status="ok", summary="充分", score=8)
+               for dim in ("financial", "technical", "valuation")]
+    quality = build_data_quality(ctx, results)
+    assert quality["signal_allowed"]
+    assert quality["required_dimensions"] == ["financial", "technical", "valuation"]

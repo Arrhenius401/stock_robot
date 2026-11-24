@@ -209,7 +209,7 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
         if weight and key in applicable:
             coverage += weight * (level / 2)
             all_complete = all_complete and level == 2 and (value is not None or not ctx.extra_analysis_enabled)
-        if key in {"financial", "technical", "valuation"} or (us and key == "industry"):
+        if key in {"financial", "technical", "valuation"}:
             sufficient = suff.level == "sufficient"
             if key == "financial" and result and result.metrics.get("scoring_basis"):
                 basis = result.metrics["scoring_basis"]
@@ -233,23 +233,20 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
             {"label": "数据来源", "value": getattr(record, "source", "") or "未记录"},
             {"label": "数据截止", "value": cutoff},
         ]
-        if key == "technical" and record and record.sources:
-            fields.append({"label": "采集限制", "value": "行情来源诊断：" + "；".join(
-                f"{item.get('source', '未记录')}：{item.get('status', 'unknown')}，"
-                f"{item.get('rows', 0)} 条，{item.get('error') or '无异常'}"
-                for item in record.sources)})
-        if key == "valuation" and ctx.market in {"hk", "us"} and ctx.valuation_data:
+        if key == "valuation" and ctx.valuation_data and (ctx.market in {"hk", "us"} or ctx.valuation_data.history_source.startswith(("东财", "百度"))):
             valuation = ctx.valuation_data
             snapshot_dates = valuation_snapshot_dates(ctx)
             source = getattr(record, "source", "") or valuation._data_source or "未记录"
             fields.append({"label": "估值字段来源", "value": "；".join(filter(None, [
-                f"PE(TTM) 快照：{source}（{snapshot_dates['pe_ttm'] or '未记录'}）" if valuation.pe_ttm is not None else "PE(TTM) 快照：未取得",
-                f"PB 快照：{source}（{snapshot_dates['pb'] or '未记录'}）" if valuation.pb is not None else "PB 快照：未取得",
+                f"PE(TTM) 快照：{valuation.pe_source or source}（{snapshot_dates['pe_ttm'] or '未记录'}）" if valuation.pe_ttm is not None else "PE(TTM) 快照：未取得",
+                f"PB 快照：{valuation.pb_source or source}（{snapshot_dates['pb'] or '未记录'}）" if valuation.pb is not None else "PB 快照：未取得",
                 f"历史分位：{valuation.history_source}，各指标日期与样本数见估值说明" if valuation.history_source else "",
                 f"PS(TTM)：{valuation.ps_source or '未记录'}（{valuation.ps_as_of or '未记录'}）" if valuation.ps_ttm is not None else "",
             ]))})
         if key == "financial" and ctx.market in {"a-shares", "hk", "us"} and ctx.financial_data:
             latest = max(ctx.financial_data, key=lambda row: row.fiscal_quarter)
+            if not latest.field_positions.get("net_profit", {}).get("accounting"):
+                fields.append({"label": "财务证据限制", "value": "会计准则未记录；双方为空仅允许现金流比较，不表示已核实准则。"})
             if latest.financial_source and not getattr(record, "source", ""):
                 fields[1]["value"] = latest.financial_source
             for name, label in (("capital_expenditure", "资本开支"), ("free_cash_flow", "自由现金流")):
@@ -293,9 +290,6 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
             fields.append({"label": "评估窗口", "value": f"{result.metrics.get('window_start') or '未记录'} 至 {result.metrics.get('window_end') or '未记录'}"})
             if result.metrics.get("assessment_reason"):
                 fields.append({"label": "评估说明", "value": str(result.metrics["assessment_reason"])})
-        if key == "sentiment" and profile.sentiment_policy == "not_collected":
-            state = dimension_state(profile, result, ctx, dimension=key)
-            fields.append({"label": "采集限制", "value": state.detail})
         if key == "industry" and profile.annual_industry_policy == "reference_only":
             comparison = ctx.enriched_industry.comparison if ctx.enriched_industry else {}
             annual = comparison.get("periods", {}).get("annual", {})
@@ -343,7 +337,6 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
         "coverage": round(coverage / applicable_weight * 100, 1),
         "signal_allowed": ctx.extra_analysis_enabled and signal_complete and has_scored,
         "signal_unavailable_reason": ("未启用额外分析。" if not ctx.extra_analysis_enabled else
-            "行业对比样本不足或经营指标未证实，未生成信号。" if us and "行业" in signal_blocked else
             f"{'、'.join(signal_blocked)}分析依据未满足信号生成条件。" if signal_blocked else ""),
         "has_scored_data": ctx.extra_analysis_enabled and has_scored,
         "has_analysis_data": analysis_available,
@@ -354,48 +347,35 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
     if ctx.market in {"hk", "us"}:
         quality.update(available_dimensions=available, applicable_dimensions=len(applicable))
     if ctx.market in {"a-shares", "hk", "us"}:
-        required = ["financial", "technical", "valuation", *(["industry"] if us else [])]
+        required = ["financial", "technical", "valuation"]
         scored = [key for key in required if participation_score(result_map.get(key)) is not None]
         identity = ctx.identity_status or (
             "confirmed" if ctx.name.strip() and ctx.name.upper() != ctx.symbol.upper()
             else "probable" if ctx.price_data or ctx.current_quote.get("status") == "ok" else "unconfirmed")
         bars = len(ctx.price_data or [])
-        # A/港股沿用现有三核心充分度门槛，不引入美股入口或四维规则。
-        complete = (bars > 0 and len(scored) == len(required) and signal_complete
-                    and (not us or (identity == "confirmed" and bars >= 60
-                         and all(getattr(ctx.sufficiency, "price" if key == "technical" else key).level == "sufficient"
-                                 for key in required))))
-        assessment = ("complete" if complete else "partial" if (not us or identity == "confirmed")
-                      and bars > 0 and len(scored) >= 2 else "facts_only")
+        complete = bars > 0 and len(scored) == len(required) and signal_complete
+        partial_available = ctx.extra_analysis_enabled and bool(scored)
+        assessment = "complete" if complete else "partial" if partial_available else "facts_only"
         scope = "full" if complete else "limited" if assessment == "partial" else "facts_only"
-        limitations = []
-        if identity != "confirmed":
-            limitations.append("身份未确认；行情或报价存在不能确认公司身份")
-        if bars == 0:
-            limitations.append("未取得历史行情；保留可用报价、财务、估值和行业事实")
-        elif bars < 60:
-            dates = [point.trade_date for point in ctx.price_data or []]
-            window = f"（{min(dates).isoformat()} 至 {max(dates).isoformat()}）" if dates else ""
-            limitations.append(f"本次仅取得 {bars} 个交易日行情{window}，无法确认是否覆盖上市以来完整历史")
-        if bars < 20:
-            limitations.append("技术指标和价格位置不可用")
-        if not complete:
-            limitations.append("未生成操作信号")
-        label = {"complete": "完整评估", "partial": "部分评估", "facts_only": "事实报告"}[assessment]
         quality.update(
             required_dimensions=required, scored_required_dimensions=scored,
             identity_status=identity, report_scope=scope, assessment_status=assessment,
-            scope_notice=f"报告范围：{label}。" + ("；".join(limitations) + "。" if limitations else ""),
             score_label="部分评估综合得分（参考）" if assessment == "partial" else "最终综合得分",
             has_scored_data=quality["has_scored_data"] and assessment != "facts_only",
             signal_allowed=quality["signal_allowed"] and complete,
         )
-        if scope == "facts_only":
-            for dimension in dimensions:
-                if dimension["key"] == "technical":
-                    for item in dimension["fields"]:
-                        if item["label"] in {"缺失原因", "分析限制"}:
-                            item["value"] = "事实报告仅保留行情来源与实际样本范围，不展示技术指标或技术评分"
+        for dimension in dimensions:
+            if dimension["key"] == "sentiment" and profile.sentiment_policy == "not_collected":
+                dimension["fields"] = [item for item in dimension["fields"]
+                                       if item["label"] not in {"采集限制", "缺失原因", "分析限制"}]
+                news = result_map.get("sentiment")
+                items = news.metrics.get("news_items") if news else None
+                reason = ("美股舆情仅展示新闻事实，不参与评分" if items
+                          else "本次无可展示新闻样本；美股舆情仅作事实展示，不参与评分")
+                failure = getattr(records.get("news"), "error_message", "")
+                if failure:
+                    reason += "；" + failure
+                dimension["fields"].append({"label": "评估说明", "value": reason})
     from report.presentation import compact_quality
 
     quality.update(compact_quality(quality))

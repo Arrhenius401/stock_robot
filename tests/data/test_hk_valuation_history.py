@@ -369,3 +369,22 @@ def test_comparison_request_includes_pe_pb_ps(mocker):
     valuation_comparison_snapshot("09888")
     columns = request.call_args.kwargs["params"]["columns"]
     assert {"PE_TTM", "PB_MQR", "PS_TTM"} <= set(columns.split(","))
+
+
+def test_non_00700_hk_gets_three_year_history(mocker):
+    mocker.patch("data.akshare.stock_snapshot", return_value={
+        "f57": "09988", "f86": 1767225600, "f164": 10, "f167": 2})
+    mocker.patch("data.akshare.valuation_comparison_snapshot", return_value={
+        "REPORT_DATE": "2025-12-31 00:00:00", "PE_TTM": 10, "PB_MQR": 2, "PS_TTM": 3})
+    mocker.patch("data.akshare.tencent_history", return_value=[["2025-12-31"]])
+    calls = []
+
+    def fake_baidu(_code, metric, **kwargs):
+        calls.append(kwargs.get("chart_select", "近一年"))
+        return {date(2025, 12, 31): 12.0}
+
+    mocker.patch("data.akshare.baidu_metric", side_effect=fake_baidu)
+    row = AkShareAdapter().fetch("09988.HK", market="hk", data_type="valuation")[0]
+    assert "近三年" in calls
+    assert row.history_window_days == 1096
+    assert row.extended_pe_history == {date(2025, 12, 31): 12.0}

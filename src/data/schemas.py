@@ -179,6 +179,15 @@ class FinancialData(BaseModel):
     reporting_basis: str = ""
     # 港股目录列报币种不能证明三表 AMOUNT 币种；旧缓存默认没有金额证据。
     amount_currency_verified: bool = False
+    amount_currency_reason: str = ""
+    reported_revenue: float | None = None
+    reported_revenue_ttm: float | None = None
+    reported_revenue_basis: str = ""
+    reported_revenue_source: str = ""
+    reported_revenue_period: str = ""
+    reported_annual_roe: float | None = None
+    reported_annual_roe_period: "date | None" = None
+    reported_annual_roe_source: str = ""
     report_currency: str = ""
     disclosure_currency: str = ""
     revenue_basis: str = ""
@@ -246,7 +255,17 @@ class ValuationData(BaseModel):
     pe_as_of: "date | None" = None
     pb_as_of: "date | None" = None
     ps_as_of: "date | None" = None
+    pe_source: str = ""
+    pb_source: str = ""
+    history_metric_sources: dict[str, str] = Field(default_factory=dict)
     ps_source: str = ""
+    dividend_yield: float | None = None
+    dividend_yield_as_of: "date | None" = None
+    dividend_yield_source: str = ""
+    dividend_yield_basis: str = ""
+    total_shares: float | None = None
+    total_shares_as_of: "date | None" = None
+    total_shares_source: str = ""
     market_cap: float | None = None
     market_cap_as_of: "date | None" = None
     pe_history: dict[DateType, float] = Field(default_factory=dict)

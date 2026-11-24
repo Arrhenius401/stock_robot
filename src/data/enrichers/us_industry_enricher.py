@@ -115,17 +115,20 @@ class UsIndustryEnricher(DataEnricher):
             for peer in selected:
                 row = operating.get(peer["symbol"]) or {}
                 try:
-                    comparable = (row.get("basis") == "TTM" and row.get("source") and row.get("start")
+                    comparable = (row.get("revenue_verified") is True and target_op.get("revenue_verified") is True
+                                  and row.get("currency") == target_op.get("currency") and bool(row.get("currency"))
+                                  and row.get("source") == target_op.get("source")
+                                  and row.get("basis") == "TTM" and row.get("source") and row.get("start")
                                   and abs((date.fromisoformat(row["end"]) - date.fromisoformat(target_op["end"])).days) <= 100)
                 except (ValueError, TypeError, KeyError):
                     comparable = False
                 value = row.get(key)
                 if comparable and isinstance(value, (int, float)) and not isinstance(value, bool):
                     values.append(value)
-            metrics.append(_metric(key, label, target_op.get(key), values, "percent"))
+            metrics.append(_metric(key, label, target_op.get(key) if target_op.get("revenue_verified") is True else None, values, "percent"))
         ready = (target_op.get("basis") == "TTM" and all(target_op.get(k) for k in ("start", "end", "source"))
                  and all(m["status"] == "ok" for m in metrics))
-        reason = "" if ready else "TTM经营期间未核实或至少两项各五家有效同行不足"
+        reason = "" if ready else ("SEC 抽样未通过，营收维持未核实、不计分" if target_op.get("revenue_verified") is not True else "TTM经营期间未核实或至少两项各五家有效同行不足")
         notes = ["东财美股 F10 行业（BELONG_INDUSTRY）；经营指标为 TTM 派生，不是年度+最新两期。",
                  "仅美股上市纯字母代码；优先目标市值0.1至5倍，不足五家放宽0.01至20倍，最多十家。",
                  "经营指标采用F10连续单季TTM；PB仅作估值比较，不派生ROE。"]
@@ -170,6 +173,7 @@ class UsIndustryEnricher(DataEnricher):
                 pe_ttm=row["pe"], pb=row["pb"], roe=None,
                 net_margin=(operating[row["symbol"]]["net_margin"] / 100
                             if isinstance(operating.get(row["symbol"]), dict)
+                            and operating[row["symbol"]].get("revenue_verified") is True
                             and is_finite_number(operating[row["symbol"]].get("net_margin")) else None)) for row in selected],
             industry_median_pe=pe_metric["median"], industry_median_pb=pb_metric["median"],
             target_pe_premium=(pe / pe_metric["median"] - 1) * 100 if pe and pe_metric["median"] else None,

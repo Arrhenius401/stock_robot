@@ -14,6 +14,16 @@ const DIMENSIONS = [
 
 // 数据层字段只在内部协议中使用；界面统一显示业务中文名称。
 const METRIC_LABELS = {
+  amount_currency_reason: "金额币种核验",
+  reported_annual_roe: "年度披露 ROE（未年化）",
+  reported_annual_roe_period: "年度 ROE 报告期", reported_annual_roe_source: "年度 ROE 来源",
+  reported_revenue: "营业收入（SEC，不含投资损益，单季）",
+  reported_revenue_ttm: "营业收入（SEC，不含投资损益，TTM）",
+  reported_revenue_basis: "SEC 营业收入口径", reported_revenue_source: "SEC 营业收入来源",
+  reported_revenue_period: "SEC 营业收入期间", ps_as_of: "PS数据日期",
+  extended_valuation_history: "长期估值历史", window: "窗口", start: "起始日期", end: "截止日期",
+  reference: "同源参照值", percentile: "历史分位（%）", pe: "PE",
+
   "net_interest_income_ratio_pct": "净利息收入占比",
   "provision_to_revenue_pct": "拨备／营收",
   "loan_to_deposit_pct": "贷存比",
@@ -195,9 +205,9 @@ function appendListMetric(grid, key, value) {
 
 const PRICE_KEYS = new Set(['latest_close','latest_price','year_high','year_low','ma_5','ma_20','ma_60']);
 const MULTIPLE_KEYS = new Set(['pe_ttm','pe_static','pe_lyr','pe_snapshot','pb','ps_ttm','industry_median_pe','industry_median_pb','target_pe','target_pb']);
-const RATIO_KEYS = new Set(['roe','gross_margin','revenue_growth_yoy','profit_growth_yoy','industry_median_gross_margin']);
+const RATIO_KEYS = new Set(['reported_annual_roe','roe','gross_margin','revenue_growth_yoy','profit_growth_yoy','industry_median_gross_margin']);
 const PERCENT_KEYS = new Set(['change_pct','pe_percentile','pb_percentile','target_pe_premium','dividend_yield','shibor_3m','cpi_yoy','shibor_percentile','pmi_percentile','target_pe_percentile','target_pb_percentile']);
-const AMOUNT_KEYS = new Set(['revenue','net_profit','deducted_net_profit','total_assets','total_equity','common_equity','operating_cash_flow','market_cap']);
+const AMOUNT_KEYS = new Set(['reported_revenue','reported_revenue_ttm','revenue','net_profit','deducted_net_profit','total_assets','total_equity','common_equity','operating_cash_flow','market_cap']);
 const ONE_DIGIT_KEYS = new Set(['score','base_score','final_score','risk_deduction']);
 const TWO_DIGIT_KEYS = new Set(['volume_ratio','operating_cash_flow_per_share','basic_eps','pmi','usd_cny']);
 
@@ -415,7 +425,6 @@ function summarySection(report, sectionIdPrefix) {
   card.appendChild(reportHeader(report));
   if (report.analysis_mode === "objective") card.appendChild(el("p", "dim-sum", "客观数据模式"));
   const quality = record(report.data_quality);
-  if (quality.scope_notice) card.appendChild(el("p", "dim-sum", quality.scope_notice));
   if (quality.status) {
     const badge = statusBadge(quality.status);
     badge.textContent = (legacyHk(report)
@@ -499,12 +508,6 @@ function scoreSection(report, sectionIdPrefix) {
   big.appendChild(rows);
   card.appendChild(big);
   if (fiveDimension(report)) {
-    card.appendChild(el("p", "report-score-detail", report.market === "us"
-      ? "五维计分 · 舆情本期未计分（N/A），权重由其余有效维度归一。风险标签仅作提示，不额外扣分。"
-      : "五维计分 · 舆情列为综合参与分（10−原风险分）。风险标签仅作提示，不额外扣分。"));
-    const available = (report.score_rows || []).filter(row => scoreText(row.score, "") !== "");
-    if (available.length < 5) card.appendChild(el("p", "report-score-detail",
-      score.final == null ? "主要分析数据不足；仅有舆情数据时不输出综合分。缺失项目不记零分。" : "缺失项目不记零分，其余项目按原比例折算。"));
     for (const row of report.score_rows || []) {
       if (row.detail) card.appendChild(el("p", "report-score-detail", `${readable(row.label)}：${compactScoreDetail(row.detail)}`));
     }
@@ -619,6 +622,16 @@ function industryComparisonSection(dimension, sectionIdPrefix, newScoring = fals
     card.appendChild(el("p", "peer-caption", "行业评分仅采用同期经营指标；估值对比在估值维度使用。"));
   }
   card.appendChild(el("p", "peer-caption", `同行范围：${readable(comparison.scope, "未记录")} · 同行总数：${comparison.peer_count ?? 0} 家`));
+  const rank = record(comparison.market_cap_rank);
+  if (Number.isInteger(rank.rank) && Number.isInteger(rank.total) && rank.rank >= 1 && rank.rank <= rank.total && rank.as_of) {
+    const coverage = rank.coverage || `${rank.total}/${rank.pool_total ?? rank.total}`;
+    card.appendChild(el("p", "peer-caption", `同行市值排名：第 ${rank.rank}／${rank.total} 家（同日有效覆盖 ${coverage}，${rank.as_of}）`));
+  } else if (rank.reason) {
+    card.appendChild(el("p", "peer-caption", `同行市值排名暂缺：${rank.reason}`));
+  }
+  if (comparison.classification_as_of) {
+    card.appendChild(el("p", "peer-caption", `分类快照：${String(comparison.classification_as_of).slice(0,10)}（刷新失败时可能为旧快照）`));
+  }
   const shownNotes = new Set();
   const addNote = text => {
     const value = readable(text, "").trim();
@@ -793,10 +806,6 @@ function safeNewsUrl(value) {
 function newsFactsSection(data, sectionIdPrefix) {
   const card = section("report-sentiment", "相关新闻", "panel", sectionIdPrefix);
   const dimension = record(data), metrics = record(dimension.metrics);
-  for (const note of [metrics.news_disclaimer, ...(metrics.news_notes || [])].filter(Boolean)) {
-    if (/^(关键词检索结果，按标题公司简称过滤|已达到单关键词100条候选上限)/.test(String(note))) continue;
-    card.appendChild(el("p", "dim-sum", String(note)));
-  }
   const list = el("ul", "report-metric-list sentiment-source-list");
   const items = Array.isArray(metrics.news_items) && metrics.news_items.length ? metrics.news_items
     : (metrics.headlines || []).map(title => ({title}));
@@ -832,12 +841,8 @@ function sentimentRiskSection(data, sectionIdPrefix) {
   appendRiskFlags(card, dimension);
   card.appendChild(el("p", "peer-caption", `评估窗口：${readable(metrics.window_start, "未记录")} 至 ${readable(metrics.window_end, "未记录")} · 已评估${metrics.evaluated_count ?? 0}条`));
   if (metrics.assessment_reason || dimension.summary) card.appendChild(el("p", "dim-sum", metrics.assessment_reason || dimension.summary));
-  if (metrics.risk_score === 0) card.appendChild(el("p", "dim-sum", "本次有效样本未识别到负面，不代表全市场无风险。"));
   const participation = scoreText(metrics.participation_score, "");
-  card.appendChild(el("p", "report-score-detail", participation ? `综合参与分 ${participation} /10 · 权重5%` : "舆情暂不参与综合评分"));
-  const disclaimer = metrics.news_disclaimer && !/不作AI筛选或情绪评分|不进行模型或评分/.test(metrics.news_disclaimer)
-    ? metrics.news_disclaimer : "本次限量样本，不保证完整覆盖；风险依据仅来自已取得内容。";
-  card.appendChild(el("p", "peer-caption", disclaimer));
+  if (participation) card.appendChild(el("p", "report-score-detail", `综合参与分 ${participation} /10 · 权重5%`));
   const assessed = Array.isArray(metrics.all_items) ? metrics.all_items.map(record) : [];
   const news = Array.isArray(metrics.news_items) ? metrics.news_items.map(record) : [];
   const identity = item => JSON.stringify([item.title || "", String(item.publish_date || item.published_at || "").slice(0, 10)]);
@@ -1265,7 +1270,6 @@ export function renderStockReport(report, options = {}) {
     }
     if (!objective && sentimentPolicy === "not_collected" && name === "sentiment") {
       const news = newsFactsSection(dimensions[name], sectionIdPrefix);
-      news.appendChild(el("p", "report-score-detail", "舆情本期未计分（N/A），权重由其余有效维度归一。"));
       article.appendChild(news);
       continue;
     }
