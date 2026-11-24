@@ -36,3 +36,33 @@ def test_unverified_revenue_never_enters_industry_score():
     UsIndustryEnricher().enrich(context)
     assert context.enriched_industry is not None
     assert score_industry_comparison(context.enriched_industry.comparison)[0] is None
+
+
+def test_revenue_protocol_flags_are_enabled():
+    from data.us_operating import (
+        REVENUE_PROTOCOL_VERIFIED_BANK,
+        REVENUE_PROTOCOL_VERIFIED_GENERAL,
+    )
+    assert REVENUE_PROTOCOL_VERIFIED_GENERAL is True
+    assert REVENUE_PROTOCOL_VERIFIED_BANK is True
+
+
+def test_operating_rows_mark_revenue_verified():
+    from data.us_operating import build_operating
+
+    def quarter(start, end, revenue, profit):
+        return {"SECURITY_CODE": "AAPL", "REPORT_DATE": end, "START_DATE": start,
+                "DATE_TYPE": "单季报", "CURRENCY_ABBR": "USD",
+                "OPERATE_INCOME": revenue, "PARENT_HOLDER_NETPROFIT": profit,
+                "NOTICE_DATE": end}
+
+    rows = [
+        quarter("2025-10-01", "2025-12-31", 100, 10),
+        quarter("2026-01-01", "2026-03-31", 110, 11),
+        quarter("2026-04-01", "2026-06-30", 120, 12),
+        quarter("2026-07-01", "2026-09-30", 130, 13),
+    ]
+    result = build_operating(rows, "AAPL", "RPT_USF10_FN_GMAININDICATOR")
+    assert result is not None
+    assert result["revenue_verified"] is True
+    assert "SEC" in result["revenue_basis"]
