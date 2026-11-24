@@ -121,6 +121,9 @@ class FinancialAnalyzer(AnalysisModule):
         metrics["cash_flow_source"] = latest.financial_source or latest.reporting_basis or "来源未记录"
         metrics["cash_flow_period"] = f"TTM，截至 {latest.fiscal_quarter.isoformat()}；自由现金流 = 经营活动现金流 − 资本开支；缺失不填零"
 
+        if context.market == "hk" and latest.capital_expenditure is None and latest.free_cash_flow is None:
+            metrics["cash_flow_period"] = "港股F10现金流仅提供汇总项，资本开支/自由现金流明细不可用"
+
         roe_trend = []
         for d in sorted_data[:8]:
             if d.roe is not None:

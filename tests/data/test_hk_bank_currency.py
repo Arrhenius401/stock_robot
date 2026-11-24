@@ -143,3 +143,29 @@ def test_indicator_evidence_sets_currency_and_ttm(mocker):
     rows = AkShareAdapter()._fetch_hk_eastmoney_financial("00700.HK")
     assert rows[-1].amount_currency_verified and rows[-1].report_currency == "HKD"
     assert financial_ttm(rows, "revenue", "hk") == 100
+
+
+def test_indicator_evidence_sets_positions_and_net_margin(mocker):
+    sample = json.loads((Path(__file__).parents[1] / "resources/hk/eastmoney-00700-financial-20261022.json").read_text(encoding="utf-8"))
+    # 裁切样本缺营运收入科目；显式添加合成的 10 元以验证完整证据路径，不视作真实金额。
+    revenue_rows = [row for row in sample["income"] if row["STD_ITEM_CODE"] == "004001001"]
+    sample["income"].extend({**row, "STD_ITEM_CODE": "004001002", "AMOUNT": 10} for row in revenue_rows)
+    for cash_row in sample["cash"]:
+        cash_row["CURRENCY"] = "HKD"  # 合成同币种现金流证据；真实样本未提供该字段
+    dates = sorted({str(row["REPORT_DATE"])[:10] for row in sample["income"]})
+    latest = dates[-1]
+    rows_for_date = [row for row in sample["income"] if str(row["REPORT_DATE"])[:10] == latest]
+    revenue = sum(row["AMOUNT"] for row in rows_for_date if row["STD_ITEM_CODE"] in {"004001001", "004001002"})
+    profit = sum(row["AMOUNT"] for row in rows_for_date if row["STD_ITEM_CODE"] == "004025002")
+    indicator = {date.fromisoformat(latest): {
+        "REPORT_DATE": latest, "START_DATE": latest[:4] + "-01-01",
+        "CURRENCY": "HKD", "IS_CNY_CODE": "0",
+        "OPERATE_INCOME": revenue, "HOLDER_PROFIT": profit,
+    }}
+    mocker.patch("data.hk_currency_evidence.load_indicator_periods", return_value=indicator)
+    mocker.patch("data.akshare.financial_statement", side_effect=[sample["income"], sample["balance"], sample["cash"]])
+    mocker.patch("data.akshare.financial_report_directory", return_value=sample["directory"])
+    row = max(AkShareAdapter()._fetch_hk_financial("00700.HK"), key=lambda item: item.fiscal_quarter)
+    assert row.amount_currency_verified is True
+    assert row.net_margin is not None
+    assert row.field_positions["operating_cash_flow"]["currency"] == "HKD"

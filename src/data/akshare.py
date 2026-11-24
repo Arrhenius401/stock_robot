@@ -1168,6 +1168,29 @@ class AkShareAdapter(DataSource):
                 cash_flow_basis="reported" if cf.get("003999") is not None and start is not None and currency
                     and cf_start == start and cf_currency == currency else "unknown",
                 cash_flow_period_start=cf_start))
+            row_data = result[-1]
+            if verified and start is not None:
+                accounting = ""
+                if period in directory_meta and directory_meta[period][0] == start:
+                    accounting = directory_meta[period][2]
+                if row_data.revenue is not None and row_data.revenue > 0 and row_data.net_profit is not None:
+                    row_data.net_margin = row_data.net_profit / row_data.revenue
+                    row_data.net_margin_basis = "计算值：净利润÷营业收入（报告期口径）；仅展示"
+                for name, definition in (("revenue", "revenue"), ("net_profit", "parent_net_profit"),
+                                         ("operating_cash_flow", "operating_cash_flow"),
+                                         ("total_assets", "total_assets"), ("total_equity", "total_equity")):
+                    if getattr(row_data, name) is None:
+                        continue
+                    instant = name in {"total_assets", "total_equity"}
+                    cash_field = name == "operating_cash_flow"
+                    row_data.field_positions[name] = {
+                        "definition": definition, "unit": "currency",
+                        "currency": cf_currency if cash_field else currency,
+                        "start": (cf_start.isoformat() if cf_start else "") if cash_field else (period if instant else start).isoformat(),
+                        "end": period.isoformat(), "basis": "instant" if instant else "cumulative",
+                        "scope": "consolidated", "accounting": accounting, "revision": "当前源快照",
+                        "calculation": "unknown" if cash_field and row_data.cash_flow_basis == "unknown" else "reported",
+                    }
             # 此接口 AMOUNT 为未缩写数值；币种/单位与跨期修订仍由独立口径证据校验。
             result[-1].field_precision = {field: "source_native" for field in (
                 "revenue", "net_profit", "basic_eps", "total_assets", "total_equity", "common_equity",
