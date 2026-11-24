@@ -313,17 +313,27 @@ class ValuationEnricher(DataEnricher):
             from data.us_stock import us_ttm
 
             revenue = us_ttm(ctx.financial_data or []).get("revenue")
+            revenue_source = "东财TTM营收"
             latest_fin = max(ctx.financial_data or [], key=lambda row: row.fiscal_quarter, default=None)
-            currency_ok = latest_fin is not None and latest_fin.amount_currency_verified and latest_fin.report_currency == "USD"
+            currency_ok = (latest_fin is not None and latest_fin.amount_currency_verified
+                           and latest_fin.report_currency == "USD")
+            if revenue is None and latest_fin is not None and latest_fin.reported_revenue_ttm is not None:
+                revenue = latest_fin.reported_revenue_ttm
+                revenue_source = latest_fin.reported_revenue_source or "SEC XBRL营业收入"
+                currency_ok = True
             if revenue is not None and is_positive_finite(revenue) and currency_ok:
                 snapshot.ps_ttm = cap / revenue
                 snapshot.ps_as_of = snapshot.market_cap_as_of
-                snapshot.ps_source = "新浪美股快照市值与东财TTM营收派生"
+                snapshot.ps_source = f"新浪美股快照市值与{revenue_source}派生"
                 snapshot.valuation_notes.append(
-                    f"PS(TTM) 派生：总市值 {cap:.0f} ÷ TTM 营收 {revenue:.0f} = {snapshot.ps_ttm:.2f}；市值日期 {snapshot.market_cap_as_of or '未记录'}；TTM 最近四个财季截至 {latest_fin.fiscal_quarter if latest_fin else '未记录'}"
-                )
+                    f"PS(TTM) 派生：总市值 {cap:.0f} ÷ TTM 营收 {revenue:.0f} = {snapshot.ps_ttm:.2f}；"
+                    f"市值日期 {snapshot.market_cap_as_of or '未记录'}；"
+                    f"TTM 最近四个财季截至 {latest_fin.fiscal_quarter if latest_fin else '未记录'}")
             elif not currency_ok:
                 snapshot.valuation_notes.append("PS(TTM) 暂不可用：财报金额币种未核实，不能与美元市值直接相除")
+            elif revenue is None:
+                snapshot.valuation_notes.append("PS(TTM) 暂不可用：TTM 营收未取得")
+
         ctx.enriched_valuation = enriched
         complete = enriched.pe_percentile is not None and enriched.pb_percentile is not None
         ctx.sufficiency.valuation = DimensionSufficiency(

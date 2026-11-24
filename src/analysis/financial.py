@@ -64,6 +64,15 @@ class FinancialAnalyzer(AnalysisModule):
             **template_metrics,
         }
         metrics["amount_currency_reason"] = latest.amount_currency_reason
+        if latest.reported_revenue is not None:
+            metrics.update(
+                reported_revenue=latest.reported_revenue,
+                reported_revenue_ttm=latest.reported_revenue_ttm,
+                reported_revenue_basis=latest.reported_revenue_basis,
+                reported_revenue_source=latest.reported_revenue_source,
+                reported_revenue_period=latest.reported_revenue_period,
+            )
+
         if latest.revenue_basis:
             metrics["revenue_basis"] = latest.revenue_basis
         if latest.gross_margin_basis:

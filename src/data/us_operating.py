@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 URL = "https://datacenter.eastmoney.com/securities/api/data/v1/get"
 GENERAL = "RPT_USF10_FN_GMAININDICATOR"
 BANK = "RPT_USF10_FN_BMAININDICATOR"
+# 2026-11-24 SEC 抽样：AAPL/MSFT 一致，NVDA/COST 期间未对齐，JPM 指定概念缺失。
+REVENUE_PROTOCOL_VERIFIED = False
+REVENUE_PROTOCOL_BASIS = "东财F10 OPERATE_INCOME（SEC抽样未通过，未核实）"
 
 
 def _date(value: Any) -> date:
@@ -154,6 +157,7 @@ def build_operating(rows: list[dict[str, Any]], code: str, source: str) -> dict[
             "quarters": [{"start": r.get("START_DATE"), "end": r.get("REPORT_DATE"),
                           "notice": r.get("NOTICE_DATE"), "currency": r.get(currency_key), "source": source} for r in singles],
             "revenue": revenue, "net_profit": profit, "previous_revenue": previous,
+            "revenue_verified": REVENUE_PROTOCOL_VERIFIED, "revenue_basis": REVENUE_PROTOCOL_BASIS,
             "revenue_growth_yoy": (revenue / previous - 1) * 100 if previous is not None and previous > 0 else None,
             "net_margin": profit / revenue * 100 if profit is not None else None,
             "annual": annual, "special": special}

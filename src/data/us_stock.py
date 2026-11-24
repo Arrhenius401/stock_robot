@@ -623,6 +623,29 @@ def us_financials(ticker: str, max_periods: int = 8) -> list[FinancialData]:
         latest.financial_selection_note += f"；{latest.field_sources['total_assets']}"
     else:
         latest.financial_selection_note += "。"
+    if ticker == "BRK.B":
+        from data.us_sec import load_brk_revenue
+        try:
+            facts = load_brk_revenue()
+        except Exception as error:  # noqa: BLE001 — SEC 展示事实边界
+            logger.warning("BRK.B SEC 营业收入失败: %s", type(error).__name__)
+            facts = []
+            rows[-1].financial_selection_note += "；SEC 营业收入未取得或未对账通过（" + type(error).__name__ + "）"
+        by_period = {fact.end: fact for fact in facts}
+        for row in rows:
+            fact = by_period.get(row.fiscal_quarter)
+            if fact is None:
+                continue
+            row.reported_revenue = fact.value
+            row.reported_revenue_period = f"{fact.start.isoformat()} 至 {fact.end.isoformat()}"
+            row.reported_revenue_source = f"SEC XBRL {fact.concept}（{fact.form}，filed {fact.filed.isoformat()}）"
+            row.reported_revenue_basis = "营业收入（不含投资损益）"
+        last4 = [by_period.get(row.fiscal_quarter) for row in rows[-4:]]
+        if (len(last4) == 4 and all(item is not None for item in last4)
+                and all(b.start == a.end + timedelta(days=1) for a, b in pairwise(last4)
+                        if a is not None and b is not None)):
+            rows[-1].reported_revenue_ttm = sum(item.value for item in last4 if item is not None)
+
     return rows
 
 
@@ -732,28 +755,27 @@ def us_valuation(ticker: str) -> list[ValuationData]:
         cache_degraded=bool(failed),
         failed_components=list(failed),  # type: ignore[arg-type]
     )
-    if ticker == "AAPL":
-        now = datetime.now(US_TZ)
-        cutoff = now.date()
-        if now.time() < (_EARLY_CLOSE if cutoff in us_market_early_closes(cutoff.year) else _REGULAR_CLOSE):
-            cutoff -= timedelta(days=1)
-        for metric, key in BAIDU_METRICS.items():
-            try:
-                points = _baidu_metric(ticker, metric, "近五年")
-                eligible = {day: value for day, value in points.items() if day <= cutoff
-                            and day.weekday() < 5 and day not in us_market_holidays(day.year)}
-                baseline = curves.get(key, {})
-                if any(eligible[day] != baseline[day] for day in eligible.keys() & baseline.keys() if day < now.date()):
-                    raise ValueError("百度长窗与短窗共同历史日估值不同")
-                if eligible:
-                    setattr(item, f"extended_{key}_history", eligible)
-            except (requests.RequestException, TypeError, ValueError) as error:
-                logger.warning("百度美股长窗估值失败 %s/%s: %s", ticker, metric, error)
-        if item.extended_pe_history or item.extended_pb_history:
-            item.history_window_days = 1827
-            item.history_window_label = "近五年"
-        else:
-            item.valuation_notes.append("百度五年估值暂不可用，保留原近一年数据")
+    now = datetime.now(US_TZ)
+    cutoff = now.date()
+    if now.time() < (_EARLY_CLOSE if cutoff in us_market_early_closes(cutoff.year) else _REGULAR_CLOSE):
+        cutoff -= timedelta(days=1)
+    for metric, key in BAIDU_METRICS.items():
+        try:
+            points = _baidu_metric(ticker, metric, "近五年")
+            eligible = {day: value for day, value in points.items() if day <= cutoff
+                        and day.weekday() < 5 and day not in us_market_holidays(day.year)}
+            baseline = curves.get(key, {})
+            if any(eligible[day] != baseline[day] for day in eligible.keys() & baseline.keys() if day < now.date()):
+                raise ValueError("百度长窗与短窗共同历史日估值不同")
+            if eligible:
+                setattr(item, f"extended_{key}_history", eligible)
+        except (requests.RequestException, TypeError, ValueError) as error:
+            logger.warning("百度美股长窗估值失败 %s/%s: %s", ticker, metric, error)
+    if item.extended_pe_history or item.extended_pb_history:
+        item.history_window_days = 1827
+        item.history_window_label = "近五年"
+    else:
+        item.valuation_notes.append("百度五年估值暂不可用，保留原近一年数据")
     item._data_source = "百度美股估值"
     return [item]
 

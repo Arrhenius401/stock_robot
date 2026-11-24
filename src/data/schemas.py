@@ -180,6 +180,11 @@ class FinancialData(BaseModel):
     # 港股目录列报币种不能证明三表 AMOUNT 币种；旧缓存默认没有金额证据。
     amount_currency_verified: bool = False
     amount_currency_reason: str = ""
+    reported_revenue: float | None = None
+    reported_revenue_ttm: float | None = None
+    reported_revenue_basis: str = ""
+    reported_revenue_source: str = ""
+    reported_revenue_period: str = ""
     reported_annual_roe: float | None = None
     reported_annual_roe_period: "date | None" = None
     reported_annual_roe_source: str = ""
