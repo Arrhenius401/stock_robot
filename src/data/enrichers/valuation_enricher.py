@@ -90,26 +90,37 @@ class ValuationEnricher(DataEnricher):
     @staticmethod
     def extended_history(ctx: AnalysisContext) -> dict[str, dict]:
         snapshot = ctx.valuation_data
-        if snapshot is None or snapshot.history_window_days <= 365 or not snapshot.history_source.startswith("百度"):
+        if snapshot is None or snapshot.history_window_days <= 365:
+            return {}
+        if not snapshot.history_source.startswith(("百度", "东财")):
             return {}
         cutoff = ctx.collected_at.date()
         start = cutoff - timedelta(days=snapshot.history_window_days)
-        result = {}
-        for metric, curve in (("pe", snapshot.extended_pe_history), ("pb", snapshot.extended_pb_history)):
+        source = ("东财日频估值历史" if snapshot.history_source.startswith("东财")
+                  else "百度同源实测估值")
+        result: dict[str, dict] = {}
+        for metric, curve in (("pe", snapshot.extended_pe_history),
+                              ("pb", snapshot.extended_pb_history)):
             samples = sorted((day, value) for day, value in curve.items()
                              if start <= day <= cutoff and is_positive_finite(value))
             if not samples:
                 continue
             values = [value for _, value in samples]
-            result[metric] = {"window": snapshot.history_window_label, "source": "百度同源实测估值",
-                              "start": str(samples[0][0]), "end": str(samples[-1][0]),
-                              "sample_count": len(values), "reference": values[-1],
-                              "percentile": round(sum(value < values[-1] for value in values) / len(values) * 100, 1)
-                              if len(values) >= 252 else None}
+            result[metric] = {
+                "window": snapshot.history_window_label,
+                "source": source,
+                "start": str(samples[0][0]),
+                "end": str(samples[-1][0]),
+                "sample_count": len(values),
+                "reference": values[-1],
+                "percentile": (round(sum(value < values[-1] for value in values)
+                                     / len(values) * 100, 1) if len(values) >= 252 else None),
+            }
         return result
 
     def enrich(self, ctx: AnalysisContext) -> AnalysisContext:
-        if ctx.market in {"hk", "us"} or (ctx.valuation_data is not None and ctx.valuation_data.history_source.startswith("百度")):
+        self._fill_derived_ps(ctx)
+        if ctx.market in {"hk", "us"} or (ctx.valuation_data is not None and ctx.valuation_data.history_source.startswith(("百度", "东财"))):
             return self._enrich_measured(ctx, ctx.market)
         prices = ctx.price_data or []
         financials = ctx.financial_data or []
@@ -322,6 +333,29 @@ class ValuationEnricher(DataEnricher):
                    (enriched.pe_history_summary, enriched.pb_history_summary) if s.reason),
             sample_count=max(1, len(points)), score_weight=1.0 if complete else 0.5)
         return ctx
+
+    @staticmethod
+    def _fill_derived_ps(ctx: AnalysisContext) -> None:
+        """东财 PS 缺失时用已验证市值与 TTM 营收派生；仅展示。"""
+        snapshot = ctx.valuation_data
+        if snapshot is None or snapshot.ps_ttm is not None or ctx.market != "a-shares":
+            return
+        from data.financial_ttm import financial_ttm
+        revenue = financial_ttm(ctx.financial_data or [], "revenue", "a-shares", require_precision=True)
+        if revenue is None or revenue <= 0:
+            return
+        cap = snapshot.market_cap
+        as_of = snapshot.market_cap_as_of or snapshot.date
+        if cap is None:
+            prices = sorted(ctx.price_data or [], key=lambda item: item.trade_date)
+            shares = get_total_shares_result(ctx.symbol, ctx.financial_data).value
+            if not prices or not shares or prices[-1].close <= 0:
+                return
+            cap = prices[-1].close * shares
+            as_of = prices[-1].trade_date
+        snapshot.ps_ttm = cap / revenue
+        snapshot.ps_as_of = as_of
+        snapshot.ps_source = "总市值 ÷ 同报告期TTM营收（派生，仅参考）"
 
     def _get_total_shares(self, ctx: AnalysisContext, ttm_profit: float,
                           ttm_equity: float) -> float | None:

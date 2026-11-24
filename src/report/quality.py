@@ -233,7 +233,7 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
             {"label": "数据来源", "value": getattr(record, "source", "") or "未记录"},
             {"label": "数据截止", "value": cutoff},
         ]
-        if key == "valuation" and ctx.market in {"hk", "us"} and ctx.valuation_data:
+        if key == "valuation" and ctx.valuation_data and (ctx.market in {"hk", "us"} or ctx.valuation_data.history_source.startswith(("东财", "百度"))):
             valuation = ctx.valuation_data
             snapshot_dates = valuation_snapshot_dates(ctx)
             source = getattr(record, "source", "") or valuation._data_source or "未记录"
