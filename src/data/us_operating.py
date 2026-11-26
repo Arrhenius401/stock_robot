@@ -10,6 +10,7 @@ from typing import Any
 import requests
 
 from data.cache import CacheManager
+from data.us_industry import _code, normalize_us_code
 from utils.numbers import is_finite_number
 
 logger = logging.getLogger(__name__)
@@ -172,7 +173,8 @@ def build_operating(rows: list[dict[str, Any]], code: str, source: str) -> dict[
 
 
 def fetch_operating(code: str) -> dict[str, Any] | None:
-    if code in {"BRK.B", "BRK_B"}:
+    code = _code(code)
+    if normalize_us_code(code) == "BRK.B":
         return None
     for source in (GENERAL, BANK):
         response = requests.get(URL, params={"reportName": source, "columns": "ALL",
@@ -197,6 +199,7 @@ def fetch_operating(code: str) -> dict[str, Any] | None:
 
 def load_operating(codes: list[str], *, cache: CacheManager | None = None, refresh: bool = False) -> dict[str, Any]:
     """每代码每日缓存，空结果亦缓存None；请求失败隔离，刷新显式绕过。"""
+    codes = list(dict.fromkeys(normalize_us_code(code) for code in codes))
     day = datetime.now().astimezone().date().isoformat()
 
     def load(code: str) -> tuple[str, Any]:

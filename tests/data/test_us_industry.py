@@ -17,7 +17,7 @@ def row(code="MSFT", suffix="O", industry="系统软件", name="微软"):
 def test_members_exclude_self_foreign_invalid_and_other_industry():
     rows = [row(), row("AAPL"), row("FOREIGN", "F"), row("EMPTY", name=" "),
             row("OTHER", industry="其他"), row("BRK_B"), row("MSFT", "N")]
-    assert filter_members(rows, "系统软件", "AAPL") == {"MSFT": "微软"}
+    assert filter_members(rows, "系统软件", "AAPL") == {"MSFT": "微软", "BRK.B": "微软"}
 
 
 def test_unverified_quotes_never_become_comparison(mocker):
@@ -248,3 +248,9 @@ def test_reviewed_push2_success_does_not_call_f10(mocker):
     quotes, _ = _quotes(["105.AAPL"])
     assert quotes["AAPL"]["pe"] == 39.17
     fallback.assert_not_called()
+def test_filter_members_accepts_class_shares():
+    from data.us_industry import filter_members
+
+    rows = [{"SECURITY_CODE": code, "SECUCODE": code + ".N", "ORG_NAME": code,
+             "BELONG_INDUSTRY": "测试"} for code in ("BRK.B", "BF_B", "MOG-A", "AAPL")]
+    assert set(filter_members(rows, "测试", "AAPL")) == {"BRK.B", "BF.B", "MOG.A"}

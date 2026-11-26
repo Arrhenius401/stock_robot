@@ -276,3 +276,26 @@ def test_us_industry_missing_does_not_block_signal():
     quality = build_data_quality(ctx, results)
     assert quality["signal_allowed"]
     assert quality["required_dimensions"] == ["financial", "technical", "valuation"]
+
+
+def test_us_quality_cashflow_matches_financial_ttm():
+    from analysis.financial import FinancialAnalyzer
+    from data.schemas import FinancialData
+    from report.quality import build_data_quality
+
+    ctx = AnalysisContext(symbol="MSFT", name="微软", market="us")
+    ctx.financial_data = [FinancialData(
+        symbol="MSFT", fiscal_quarter=end, period_basis="single",
+        capital_expenditure=10, free_cash_flow=20, operating_cash_flow=30,
+        field_precision={field: "source_native" for field in
+                         ("capital_expenditure", "free_cash_flow", "operating_cash_flow")},
+    ) for end in (date(2025, 12, 31), date(2026, 3, 31), date(2026, 6, 30), date(2026, 9, 30))]
+    result = FinancialAnalyzer().analyze(ctx)
+    assert result.metrics["capital_expenditure"] == 40
+    assert result.metrics["free_cash_flow"] == 80
+    quality = build_data_quality(ctx, [result])
+    financial = quality["dimensions"][0]
+    from report.formatter import format_metric_value
+    for field, label in (("capital_expenditure", "资本开支"), ("free_cash_flow", "自由现金流")):
+        entry = next(item for item in financial["fields"] if item["label"].startswith(label))
+        assert entry["value"] == str(format_metric_value(field, result.metrics[field]))

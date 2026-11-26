@@ -5,6 +5,7 @@ from typing import Any
 from report.formatter import format_metric_value, format_metrics, metric_display_name
 
 _FINANCIAL_DETAILS = {
+    "revenue_period", "net_profit_period",
     "roe_basis", "amount_basis", "amount_currency_reason", "gross_margin_basis", "net_margin_basis",
     "dividend_yield_basis", "cash_flow_source", "cash_flow_period", "cash_flow_limitation",
     "yoy_basis", "trend_note", "annual_roe", "scoring_basis", "roe_trend", "operating_trends",
@@ -63,6 +64,8 @@ def prepare_table(dimension: str, metrics: dict[str, Any]) -> dict[str, Any]:
         label = metric_display_name(key) + _MARKERS.get(key, "")
         shown[label] = format_metric_value(key, value)
     if dimension == "financial":
+        if metrics.get("revenue_period"):
+            notes.append(f"营收/净利为单季（{metrics['revenue_period']}）；现金流为 TTM。")
         if metrics.get("common_equity") is not None:
             notes.append("普通权益用于 PB/ROE 口径；总权益可能含少数股东权益。")
         if "营业额" in str(metrics.get("revenue_basis", "")):

@@ -54,6 +54,8 @@ class FinancialAnalyzer(AnalysisModule):
             "latest_quarter": latest.fiscal_quarter.isoformat(),
             "revenue": latest.revenue,
             "net_profit": latest.net_profit,
+            "revenue_period": latest.fiscal_quarter.isoformat() if latest.period_basis == "single" else "",
+            "net_profit_period": latest.fiscal_quarter.isoformat() if latest.period_basis == "single" else "",
             "total_assets": latest.total_assets,
             "total_equity": latest.total_equity,
             "basic_eps": latest.basic_eps,

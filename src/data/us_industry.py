@@ -48,9 +48,14 @@ def _object(payload: Any) -> dict[str, Any]:
 
 
 
+def normalize_us_code(code: str | None) -> str:
+    """统一应用内类别股身份，交易所后缀由调用者单独处理。"""
+    return str(code or "").strip().upper().replace("_", ".").replace("-", ".")
+
+
 def _code(symbol: str) -> str:
-    """只转换已核实的东财类别股别名。"""
-    return "BRK_B" if symbol == "BRK.B" else symbol
+    """东财请求边界使用下划线类别股代码。"""
+    return normalize_us_code(symbol).replace(".", "_")
 
 
 def _profiles(expression: str) -> list[dict[str, Any]]:
@@ -82,17 +87,17 @@ def _profiles(expression: str) -> list[dict[str, Any]]:
 
 
 def filter_members(rows: list[dict[str, Any]], industry: str, target: str) -> dict[str, str]:
-    """仅保留同分类、名称完整、上市后缀有效的纯字母同行代码。"""
+    """仅保留同分类、名称完整、上市后缀有效的同行代码。"""
     members: dict[str, str] = {}
     for row in rows:
         code, secucode = row.get("SECURITY_CODE"), row.get("SECUCODE")
         name = row.get("ORG_NAME")
-        if (not isinstance(code, str) or re.fullmatch(r"[A-Z]+", code) is None
-                or code == _code(target) or not isinstance(name, str) or not name.strip()
+        if (not isinstance(code, str) or re.fullmatch(r"[A-Z]+(?:\.[A-Z])?", normalize_us_code(code)) is None
+                or normalize_us_code(code) == normalize_us_code(target) or not isinstance(name, str) or not name.strip()
                 or row.get("BELONG_INDUSTRY") != industry
                 or secucode not in {f"{code}.O", f"{code}.N", f"{code}.A"}):
             continue
-        members[code] = name.strip()
+        members[normalize_us_code(code)] = name.strip()
     return members
 
 
@@ -114,7 +119,7 @@ def _single_quote(secid: str) -> dict[str, Any]:
     data = _object(response.json()).get("data")
     if not isinstance(data, dict) or data.get("f57") != secid.split(".", 1)[1]:
         raise ValueError("同行单标的行情身份无效")
-    return {"symbol": data["f57"], "name": data.get("f58"),
+    return {"symbol": data["f57"], "name": data.get("f58"), "as_of": datetime.now().astimezone().date().isoformat(),
             "market_cap": _positive(data.get("f116")), "pe": _positive(data.get("f164")),
             "pb": _positive(data.get("f167")), "sector": data.get("f127") or "",
             "basis_verified": _basis_verified("stock/get", "f116,f164,f167"), "revenue": None, "revenue_verified": False, "source": QUOTE_SOURCE}
@@ -161,6 +166,7 @@ def _f10_metrics(codes: list[str]) -> tuple[dict[str, dict[str, Any]], list[dict
                                      "reason": "身份记录缺失或 PE/PB/市值非正、缺失或无效"})
                     continue
                 quotes[code] = {"symbol": code, "name": row.get("SECURITY_NAME_ABBR"), **metrics,
+                    "as_of": datetime.now().astimezone().date().isoformat(),
                     "source": F10_SOURCE, "basis": dict(_F10_BASIS), "basis_verified": True,
                     "pb_source": row.get("PB_SOURCE"), "report_date": row.get("REPORT_DATE"), "revenue": None, "net_margin": None,
                     "revenue_verified": False}
@@ -190,6 +196,7 @@ def _quotes(secids: list[str]) -> tuple[dict[str, dict[str, Any]], list[dict[str
                 raise ValueError("批量行情身份不匹配")
             for row in rows:
                 quotes[row["f12"]] = {"symbol": row["f12"], "name": row.get("f14"),
+                    "as_of": datetime.now().astimezone().date().isoformat(),
                     "market_cap": _positive(row.get("f20")), "pe": _positive(row.get("f9")),
                     "pb": _positive(row.get("f23")), "sector": row.get("f100") or "",
                     "basis_verified": _basis_verified("ulist.np/get", "f20,f9,f23"), "revenue": None, "revenue_verified": False, "source": QUOTE_SOURCE}
@@ -230,6 +237,7 @@ def us_industry_result(symbol: str, *, cache: CacheManager | None = None, refres
     collected_at = stamp
     cache_status = "live"
     try:
+        symbol = normalize_us_code(symbol)
         if re.fullmatch(r"[A-Z]+(?:\.[A-Z])?", symbol) is None:
             raise ValueError("美股代码格式无效")
         ticker = _code(symbol)
@@ -251,8 +259,8 @@ def us_industry_result(symbol: str, *, cache: CacheManager | None = None, refres
             raise ValueError("目标 F10 身份不唯一")
         profile = profiles[0]
         industry = profile.get("BELONG_INDUSTRY")
-        if (profile.get("SECURITY_CODE") != ticker
-                or profile.get("SECUCODE") not in {f"{ticker}.O", f"{ticker}.N", f"{ticker}.A"}
+        if (normalize_us_code(profile.get("SECURITY_CODE")) != symbol
+                or normalize_us_code(profile.get("SECUCODE")) not in {f"{symbol}.O", f"{symbol}.N", f"{symbol}.A"}
                 or not isinstance(profile.get("ORG_NAME"), str)
                 or not profile["ORG_NAME"].strip()
                 or not isinstance(industry, str) or not industry.strip()):
@@ -261,7 +269,7 @@ def us_industry_result(symbol: str, *, cache: CacheManager | None = None, refres
         members = filter_members(rows, industry, symbol)
         market = {"O": "105", "N": "106", "A": "107"}
         securities = {row["SECURITY_CODE"]: market[row["SECUCODE"].rsplit(".", 1)[1]] + "." + row["SECURITY_CODE"]
-                      for row in [profile, *rows] if row.get("SECURITY_CODE") in {*members, ticker}
+                      for row in [profile, *rows] if normalize_us_code(row.get("SECURITY_CODE")) in {*members, symbol}
                       and isinstance(row.get("SECUCODE"), str) and row["SECUCODE"].rsplit(".", 1)[-1] in market}
         quote_key = f"us_industry::v4::{symbol}::{industry}"
         saved = cache.get("us_industry_quotes", quote_key, "snapshot") if cache and not refresh else None
@@ -280,7 +288,9 @@ def us_industry_result(symbol: str, *, cache: CacheManager | None = None, refres
             quotes, attempts = _quotes(list(securities.values()))
             if cache and quotes:
                 cache.put("us_industry_quotes", quote_key, "snapshot", json.dumps({"version": 4, "quotes": quotes, "attempts": attempts, "collected_at": stamp.isoformat()}), ttl_seconds=600)
-        target = quotes.get(ticker, {})
+        quotes = {normalize_us_code(code): {**row, "symbol": normalize_us_code(code)}
+                  for code, row in quotes.items() if isinstance(row, dict)}
+        target = quotes.get(symbol, {})
         if not isinstance(target, dict) or target.get("basis_verified") is not True:
             target = {}
         valid = {code: quote for code, quote in quotes.items() if code in members

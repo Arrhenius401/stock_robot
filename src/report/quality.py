@@ -250,7 +250,11 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
             if latest.financial_source and not getattr(record, "source", ""):
                 fields[1]["value"] = latest.financial_source
             for name, label in (("capital_expenditure", "资本开支"), ("free_cash_flow", "自由现金流")):
-                fields.append({"label": label + "（不改变覆盖率）", "value": str(format_metric_value(name, getattr(latest, name)))})
+                from data.financial_ttm import financial_ttm
+
+                value = (result.metrics[name] if result is not None and name in result.metrics
+                         else financial_ttm(ctx.financial_data, name, ctx.market, require_precision=True))
+                fields.append({"label": label + "（TTM，不改变覆盖率）", "value": str(format_metric_value(name, value))})
             if latest.financial_selection_note:
                 fields.append({"label": "财务包说明", "value": latest.financial_selection_note})
             if (len(set(latest.field_sources.values())) > 1

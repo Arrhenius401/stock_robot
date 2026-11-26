@@ -335,3 +335,44 @@ def test_aapl_five_year_window_is_separate_from_legacy_scoring_input(mocker):
     assert item.history_window_label == "近五年"
     assert len(item.extended_pe_history) > 252
     assert len(item.pe_history) == 1
+
+
+def test_us_financial_positions_match_shared_contract(mocker):
+    frames = _statement_frames()
+    for rows in frames.values():
+        for values in rows.values():
+            values["_meta"] = {"currency": "USD", "start": "2026-07-01", "accounting": "US GAAP"}
+    mocker.patch("data.us_stock._statement", side_effect=lambda _ticker, name: frames[name])
+    row = us_financials("MSFT")[-1]
+    for field, definition in (("revenue", "revenue"), ("net_profit", "parent_net_profit"),
+                              ("operating_cash_flow", "operating_cash_flow"),
+                              ("total_assets", "total_assets"), ("common_equity", "common_equity")):
+        position = row.field_positions[field]
+        assert position["definition"] == definition
+        assert position["unit"] == "currency"
+        assert position["scope"] == "consolidated"
+        assert position["calculation"] == "reported"
+    assert row.field_positions["revenue"]["basis"] == "single"
+    assert row.field_positions["total_assets"]["basis"] == "instant"
+    assert row.field_positions["total_assets"]["start"] == ""
+    assert row.field_positions["total_assets"]["end"] == "2026-06-26"
+
+
+def test_us_source_positions_restore_yoy(mocker):
+    from analysis.financial_trends import build_financial_trends
+
+    frames = _statement_frames()
+    for rows in frames.values():
+        for period, values in rows.items():
+            end = date.fromisoformat(period)
+            values["_meta"] = {"currency": "USD", "start": date(end.year, 7 if end.month == 9 else max(1, end.month - 2), 1).isoformat(), "accounting": "US GAAP"}
+    mocker.patch("data.us_stock._statement", side_effect=lambda _ticker, name: frames[name])
+    trends = build_financial_trends(us_financials("MSFT"), "MSFT")
+    assert trends["latest_yoy"]["revenue_growth_yoy"] == pytest.approx(0.4)
+
+
+def test_us_reported_revenue_yoy_is_percentage(mocker):
+    frames = _statement_frames()
+    frames["综合损益表"]["2026-09-25"]["YOY_RATIO"] = 15
+    mocker.patch("data.us_stock._statement", side_effect=lambda _ticker, name: frames[name])
+    assert us_financials("MSFT")[-1].reported_metrics["revenue_growth_yoy"] == pytest.approx(0.15)

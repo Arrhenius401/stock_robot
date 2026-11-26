@@ -69,6 +69,19 @@ def _reference_periods(target: dict, peers: list[dict]) -> tuple[dict, dict, dic
                              "reference_only": True}
 
 
+def attach_market_cap_rank(comparison: dict[str, Any], target: str, as_of: str) -> dict[str, Any]:
+    """按独立行情快照日期排名，不借用财报日期。"""
+    from data.peer_rank import market_cap_rank
+
+    valuation = comparison.get("valuation", {})
+    target_row = comparison.get("target") or valuation.get("target", {})
+    peers = valuation.get("peers", [])
+    snapshot = {"target": {**target_row, "as_of": target_row.get("as_of") or as_of},
+                "peers": [{**row, "as_of": row.get("as_of") or as_of} for row in peers], "as_of": as_of}
+    comparison["market_cap_rank"] = market_cap_rank(snapshot, [row["symbol"] for row in peers], target)
+    return comparison
+
+
 class UsIndustryEnricher(DataEnricher):
     def enrich(self, ctx: AnalysisContext) -> AnalysisContext:
         if ctx.market != "us":
@@ -130,7 +143,7 @@ class UsIndustryEnricher(DataEnricher):
                  and all(m["status"] == "ok" for m in metrics))
         reason = "" if ready else ("SEC 抽样未通过，营收维持未核实、不计分" if target_op.get("revenue_verified") is not True else "TTM经营期间未核实或至少两项各五家有效同行不足")
         notes = ["东财美股 F10 行业（BELONG_INDUSTRY）；经营指标为 TTM 派生，不是年度+最新两期。",
-                 "仅美股上市纯字母代码；优先目标市值0.1至5倍，不足五家放宽0.01至20倍，最多十家。",
+                 "美股上市代码（含类别股）；优先目标市值0.1至5倍，不足五家放宽0.01至20倍，最多十家。",
                  "经营指标采用F10连续单季TTM；PB仅作估值比较，不派生ROE。"]
         if relaxed:
             notes.append("市值分层不足，已放宽到全部有效同行，按距目标市值最近选取，最多十家。")
@@ -145,6 +158,7 @@ class UsIndustryEnricher(DataEnricher):
                          "basis": "TTM", "label": "TTM最新期", "source": target_op.get("source"),
                          "metrics": metrics, "reason": reason}},
             "notes": notes, "errors": [reason] if reason else []}
+        attach_market_cap_rank(comparison, ctx.symbol, target.get("as_of") or "")
         annual, special, special_comparison = _reference_periods(
             target_op, [operating.get(peer["symbol"]) or {} for peer in selected])
         latest_bank = target_op.get("latest_bank_special")
