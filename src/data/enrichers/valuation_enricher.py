@@ -348,9 +348,30 @@ class ValuationEnricher(DataEnricher):
     def _fill_derived_ps(ctx: AnalysisContext) -> None:
         """东财 PS 缺失时用已验证市值与 TTM 营收派生；仅展示。"""
         snapshot = ctx.valuation_data
-        if snapshot is None or snapshot.ps_ttm is not None or ctx.market != "a-shares":
+        if snapshot is None or snapshot.ps_ttm is not None:
             return
         from data.financial_ttm import financial_ttm
+
+        if ctx.market == "hk":
+            rows = ctx.financial_data or []
+            latest = max(rows, key=lambda row: row.fiscal_quarter, default=None)
+            revenue = financial_ttm(rows, "revenue", "hk", require_precision=True)
+            # 港股市值快照以港元计价；未核实换汇时不与人民币营收混算。
+            if latest is None or latest.report_currency != "HKD" or revenue is None:
+                snapshot.valuation_notes.append("PS 暂不可用：TTM 营收或与港元市值可比的币种未核实")
+                return
+            cap = snapshot.market_cap
+            if cap is None or not is_positive_finite(cap) or not snapshot.market_cap_as_of or not is_positive_finite(revenue):
+                return
+            snapshot.ps_ttm = cap / revenue
+            snapshot.ps_as_of = snapshot.market_cap_as_of
+            snapshot.ps_source = "总市值 ÷ 同报告期TTM营收（派生，仅展示）"
+            snapshot.valuation_notes.append(
+                f"PS 由已核实港元市值与 TTM 营收派生，仅展示，不计分；市值日期 {snapshot.market_cap_as_of}；"
+                f"TTM 截至 {latest.fiscal_quarter}")
+            return
+        if ctx.market != "a-shares":
+            return
         revenue = financial_ttm(ctx.financial_data or [], "revenue", "a-shares", require_precision=True)
         if revenue is None or revenue <= 0:
             return

@@ -45,6 +45,20 @@ logger = logging.getLogger(__name__)
 _THS_GROSS_MARGIN_BASIS = "同花顺财务摘要-销售毛利率（摘要口径，未重算）"
 
 
+def _hk_history_window(fetch, code: str, metric: str) -> tuple[dict[date, float], int, str]:
+    """百度长窗优先五年，失败或空值回退三年，均失败保留短窗。"""
+    from utils.numbers import is_positive_finite
+
+    for label, days in (("近五年", 1827), ("近三年", 1096)):
+        try:
+            points = fetch(code, metric, chart_select=label)
+            if points and any(is_positive_finite(value) for value in points.values()):
+                return points, days, label
+        except Exception as error:
+            logger.warning("百度港股%s %s不可用: %s", label, metric, error)
+    return {}, 365, "近一年"
+
+
 def _resolve_eastmoney_to_sw(industry: str) -> tuple[str, str] | None:
     """仅解析本地人工核验的高置信东财→申万唯一映射。"""
     from utils.paths import resource_root
@@ -1377,7 +1391,7 @@ class AkShareAdapter(DataSource):
         item.history_source = "百度港股估值（近一年）" if curves else ""
         if pe is not None and pb is not None and len(curves) == 2:
             try:
-                start = today - timedelta(days=1096)
+                start = today - timedelta(days=1827)
                 last_closed = today if datetime.now(timezone(timedelta(hours=8))).hour >= 17 else today - timedelta(days=1)
                 trading_days = {
                     _parse_date(quote[0])
@@ -1385,20 +1399,30 @@ class AkShareAdapter(DataSource):
                     for quote in tencent_history(code, str(max(start, date(year, 1, 1))),
                                                  str(min(last_closed, date(year, 12, 31))), 400)
                 }
+                windows = []
                 for metric, attribute in (("市盈率(TTM)", "extended_pe_history"), ("市净率", "extended_pb_history")):
-                    points = baidu_metric(code, metric, chart_select="近三年")
                     baseline = curves.get(metric, {})
-                    if any(points[day] != baseline[day] for day in points.keys() & baseline.keys()
-                           if day < today and day in trading_days):
-                        raise ValueError("百度长窗与短窗共同历史日估值不同")
-                    setattr(item, attribute, {day: value for day, value in points.items()
-                                              if start <= day <= last_closed and day in trading_days})
+
+                    def verified_curve(code, metric, *, chart_select, baseline=baseline):
+                        points = baidu_metric(code, metric, chart_select=chart_select)
+                        if any(points[day] != baseline[day] for day in points.keys() & baseline.keys()
+                               if day < today and day in trading_days):
+                            raise ValueError("百度长窗与短窗共同历史日估值不同")
+                        return {day: value for day, value in points.items()
+                                if start <= day <= last_closed and day in trading_days}
+
+                    points, days, label = _hk_history_window(verified_curve, code, metric)
+                    setattr(item, attribute, points)
+                    if getattr(item, attribute):
+                        windows.append((days, label))
                 if item.extended_pe_history or item.extended_pb_history:
-                    item.history_window_days = 1096
-                    item.history_window_label = "近三年"
+                    item.history_window_days, item.history_window_label = min(windows)
+                    start = today - timedelta(days=item.history_window_days)
+                    item.extended_pe_history = {d: v for d, v in item.extended_pe_history.items() if d >= start}
+                    item.extended_pb_history = {d: v for d, v in item.extended_pb_history.items() if d >= start}
             except Exception as error:
                 logger.warning("百度港股长窗估值未验证，保留近一年数据: %s", error)
-                notes.append("百度三年估值暂不可用，保留原近一年数据")
+                notes.append("百度长窗估值暂不可用，保留原近一年数据")
                 item.extended_pe_history = {}
                 item.extended_pb_history = {}
         item.valuation_notes = notes

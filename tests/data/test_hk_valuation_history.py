@@ -98,7 +98,7 @@ def test_collection_retains_ps_date_when_tencent_uses_separate_long_curves(mocke
     mocker.patch("data.akshare.tencent_history", return_value=[["2025-12-31"]])
     row = AkShareAdapter().fetch("00700.HK", market="hk", data_type="valuation")[0]
     assert curves.call_count == 4
-    assert row.history_window_label == "近三年"
+    assert row.history_window_label == "近五年"
     assert row.extended_pe_history == {date(2025, 12, 31): 12}
     assert row.pe_history == {date(2025, 12, 31): 12}
     assert row.ps_ttm == 3.8
@@ -371,7 +371,9 @@ def test_comparison_request_includes_pe_pb_ps(mocker):
     assert {"PE_TTM", "PB_MQR", "PS_TTM"} <= set(columns.split(","))
 
 
-def test_non_00700_hk_gets_three_year_history(mocker):
+@pytest.mark.parametrize("pb_long_unavailable", [False, True])
+@pytest.mark.parametrize("invalid_five", [False, True])
+def test_non_00700_hk_gets_five_year_history(mocker, pb_long_unavailable, invalid_five):
     mocker.patch("data.akshare.stock_snapshot", return_value={
         "f57": "09988", "f86": 1767225600, "f164": 10, "f167": 2})
     mocker.patch("data.akshare.valuation_comparison_snapshot", return_value={
@@ -381,10 +383,49 @@ def test_non_00700_hk_gets_three_year_history(mocker):
 
     def fake_baidu(_code, metric, **kwargs):
         calls.append(kwargs.get("chart_select", "近一年"))
+        if pb_long_unavailable and metric == "市净率" and kwargs.get("chart_select"):
+            raise ValueError("PB 长窗不可用")
+        if invalid_five and kwargs.get("chart_select") == "近五年":
+            return {date(2025, 12, 31): 99.0}
         return {date(2025, 12, 31): 12.0}
 
     mocker.patch("data.akshare.baidu_metric", side_effect=fake_baidu)
     row = AkShareAdapter().fetch("09988.HK", market="hk", data_type="valuation")[0]
-    assert "近三年" in calls
-    assert row.history_window_days == 1096
+    assert "近五年" in calls
+    assert row.history_window_days == (1096 if invalid_five else 1827)
     assert row.extended_pe_history == {date(2025, 12, 31): 12.0}
+    assert bool(row.extended_pb_history) is not pb_long_unavailable
+
+
+@pytest.mark.parametrize("failed,expected", [(0, "近五年"), (1, "近三年"), (2, "近一年")])
+def test_hk_history_window_fallback(failed, expected):
+    from data.akshare import _hk_history_window
+
+    calls = []
+    def fetch(code, metric, *, chart_select):
+        calls.append(chart_select)
+        if len(calls) <= failed:
+            raise ValueError("不可用")
+        return {date(2026, 1, 2): 10.0}
+
+    points, days, label = _hk_history_window(fetch, "00700", "市盈率")
+    assert label == expected
+    assert days == {"近五年": 1827, "近三年": 1096, "近一年": 365}[label]
+    assert len(calls) == min(failed + 1, 2)
+    assert bool(points) == (failed < 2)
+
+
+@pytest.mark.parametrize("currency,verified,expected", [("HKD", True, 5), ("CNY", True, None), ("HKD", False, None)])
+def test_hk_ps_requires_comparable_verified_currency(currency, verified, expected):
+    from data.schemas import FinancialData
+
+    ctx = AnalysisContext(symbol="00700.HK", name="腾讯", market="hk")
+    ctx.valuation_data = ValuationData(symbol=ctx.symbol, date=date(2026, 11, 24),
+        market_cap=3000, market_cap_as_of=date(2026, 11, 24))
+    ctx.financial_data = [FinancialData(symbol=ctx.symbol, fiscal_quarter=date(2025, 12, 31),
+        revenue=600, report_currency=currency, amount_currency_verified=verified,
+        period_basis="cumulative", period_start=date(2025, 1, 1),
+        field_precision={"revenue": "source_native"})]
+    ValuationEnricher()._fill_derived_ps(ctx)
+    assert ctx.valuation_data.ps_ttm == expected
+    assert ctx.enriched_valuation is None
