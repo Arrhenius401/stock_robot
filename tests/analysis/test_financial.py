@@ -1,5 +1,17 @@
 from datetime import date
 
+
+def test_financial_metrics_expose_eps_and_common_equity():
+    ctx = AnalysisContext(symbol="600519", name="贵州茅台", market="a-shares")
+    ctx.financial_data = [FinancialData(
+        symbol="600519", fiscal_quarter=date(2026, 3, 31), revenue=100,
+        net_profit=20, total_equity=250, common_equity=240,
+        operating_cash_flow=30, basic_eps=2.5, roe=0.1, gross_margin=0.8,
+    )]
+    result = FinancialAnalyzer().analyze(ctx)
+    assert result.metrics["basic_eps"] == 2.5
+    assert result.metrics["common_equity"] == 240
+
 import pytest
 
 from analysis.financial import FinancialAnalyzer

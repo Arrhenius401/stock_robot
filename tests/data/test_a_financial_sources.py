@@ -8,9 +8,33 @@ from pathlib import Path
 import pytest
 import requests
 
-from data.a_financial_sources import fetch_eastmoney_financial, fetch_sina_financial
+from data.a_financial_sources import (
+    _cash_metrics,
+    _model,
+    fetch_eastmoney_financial,
+    fetch_sina_financial,
+)
 
 RESOURCES = Path(__file__).parents[1] / "resources" / "data"
+
+
+def test_backup_cash_metrics_require_ocf_and_capex():
+    assert _cash_metrics({"NETCASH_OPERATE": 100.0, "CONSTRUCT_LONG_ASSET": -30.0}) == (30.0, 70.0)
+    assert _cash_metrics({"NETCASH_OPERATE": 100.0}) == (None, None)
+    assert _cash_metrics({"CONSTRUCT_LONG_ASSET": 30.0}) == (None, None)
+
+
+def test_backup_model_derives_net_margin_and_keeps_capex():
+    row = _model(
+        "600519", date(2026, 6, 30), "东方财富财报",
+        revenue=100.0, net_profit=20.0, deducted=18.0, assets=500.0,
+        equity=250.0, ocf=30.0, ocfps=1.0, eps=2.0, roe=10.0, gross=80.0,
+        capex=10.0, fcf=20.0,
+    )
+    assert row.net_margin == pytest.approx(0.2)
+    assert row.net_margin_basis.startswith("计算值")
+    assert row.capital_expenditure == 10.0
+    assert row.free_cash_flow == 20.0
 
 
 def load(provider, symbol):

@@ -56,6 +56,8 @@ class FinancialAnalyzer(AnalysisModule):
             "net_profit": latest.net_profit,
             "total_assets": latest.total_assets,
             "total_equity": latest.total_equity,
+            "basic_eps": latest.basic_eps,
+            "common_equity": latest.common_equity,
             "roe": latest.roe,
             "gross_margin": "不适用（银行/保险）" if latest.gross_margin_basis == "银行/保险不适用" else latest.gross_margin,
             "net_margin": latest.net_margin,

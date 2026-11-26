@@ -63,6 +63,12 @@ def prepare_table(dimension: str, metrics: dict[str, Any]) -> dict[str, Any]:
         label = metric_display_name(key) + _MARKERS.get(key, "")
         shown[label] = format_metric_value(key, value)
     if dimension == "financial":
+        if metrics.get("common_equity") is not None:
+            notes.append("普通权益用于 PB/ROE 口径；总权益可能含少数股东权益。")
+        if "营业额" in str(metrics.get("revenue_basis", "")):
+            notes.append("表内营业收入为源披露营业额口径；不与其他口径混算。")
+        if metrics.get("dividend_yield") is not None:
+            notes.append("股息率为源披露报告期口径；未声明 TTM，不与当前快照混算。")
         if "roe" in metrics:
             notes.append("¹ TTM 归母净利润／期末权益，非加权 ROE。"
                          if "TTM" in str(metrics.get("roe_basis", ""))

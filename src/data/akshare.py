@@ -1497,6 +1497,16 @@ class AkShareAdapter(DataSource):
             if notice_df is not None and not notice_df.empty:
                 for _, row in notice_df.head(20).iterrows():
                     add_item(row, "announcement")
+                from data.a_announcements import extract_art_code, fetch_notice_content
+
+                # 串行请求满足并发不超过三条；失败保留已有标题和链接。
+                for item in [entry for entry in items if entry.source == "announcement"][:10]:
+                    art_code = extract_art_code(item.url)
+                    if art_code:
+                        try:
+                            item.content = fetch_notice_content(art_code)[:1000]
+                        except Exception as error:
+                            logger.debug("公告正文获取失败 %s：%s", art_code, error)
         except Exception as error:
             logger.warning("公告数据获取失败：%s", error)
             self._record_collection_error("东方财富公告", error)
