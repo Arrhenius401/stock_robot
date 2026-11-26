@@ -1,4 +1,5 @@
 """美股同分类、市值分层的 TTM 比较；未证实营收不派生净利率。"""
+import logging
 import statistics
 from datetime import date
 from typing import Any
@@ -11,8 +12,8 @@ from data.schemas import (
     PeerComparison,
     SufficiencyLevel,
 )
-from data.us_industry import SOURCE, _positive
-from data.us_operating import BANK
+from data.us_industry import SOURCE, _positive, metric_values
+from data.us_operating import BANK, ttm_roe
 from utils.numbers import is_finite_number
 
 
@@ -101,24 +102,26 @@ class UsIndustryEnricher(DataEnricher):
         raw_quotes = snapshot.get("quotes", {})
         candidates = list(raw_quotes.values()) if isinstance(raw_quotes, dict) else []
         candidates = [row for row in candidates if isinstance(row, dict) and row.get("symbol") in data.peers and row.get("symbol") != ctx.symbol
-                      and row.get("basis_verified") is True and all(_positive(row.get(key)) is not None for key in ("market_cap", "pe", "pb"))]
+                      and row.get("basis_verified") is True and any(_positive(row.get(key)) is not None for key in ("market_cap", "pe", "pb"))]
         # 缓存中的数字字符串必须规范化后再比较，不能通过校验后仍按字符串计算。
-        candidates = [{**row, **{key: _positive(row[key]) for key in ("market_cap", "pe", "pb")}}
+        candidates = [{**row, **{key: _positive(row.get(key)) for key in ("market_cap", "pe", "pb")}}
                       for row in candidates]
         selected = []
         relaxed = False
         if cap is not None:
             for low, high in ((.1, 5), (.01, 20)):
-                selected = [row for row in candidates if low * cap <= row["market_cap"] <= high * cap]
+                selected = [row for row in candidates if row["market_cap"] is not None and low * cap <= row["market_cap"] <= high * cap]
                 if len(selected) >= 5:
                     break
             if len(selected) < 5:
                 selected = candidates
                 relaxed = True
-            selected = sorted(selected, key=lambda row: abs(row["market_cap"] / cap - 1))[:10]
+            selected = sorted(selected, key=lambda row: abs(row["market_cap"] / cap - 1) if row["market_cap"] is not None else float("inf"))[:10]
+        if cap is None:
+            selected = candidates[:10]
         pe, pb = _positive(target.get("pe")), _positive(target.get("pb"))
-        pe_metric = _metric("pe_ttm", "PE(TTM)", pe, [row["pe"] for row in selected])
-        pb_metric = _metric("pb", "PB", pb, [row["pb"] for row in selected])
+        pe_metric = _metric("pe_ttm", "PE(TTM)", pe, metric_values(selected, "pe"))
+        pb_metric = _metric("pb", "PB", pb, metric_values(selected, "pb"))
         operating = snapshot.get("operating", {})
         operating = operating if isinstance(operating, dict) else {}
         target_op = operating.get(ctx.symbol) or {}
@@ -139,12 +142,38 @@ class UsIndustryEnricher(DataEnricher):
                 if comparable and isinstance(value, (int, float)) and not isinstance(value, bool):
                     values.append(value)
             metrics.append(_metric(key, label, target_op.get(key) if target_op.get("revenue_verified") is True else None, values, "percent"))
+        # 仅为最终选中的目标和同行补权益，单家失败隔离。
+        from data.us_stock import _statement
+
+        roes = {}
+        for code in [ctx.symbol, *[row["symbol"] for row in selected]]:
+            row = operating.get(code) or {}
+            roes[code] = None
+            try:
+                balance = _statement(code, "资产负债表")
+                end = row.get("end")
+                if row.get("basis") != "TTM" or not end or end not in balance:
+                    continue
+                equity_row = balance[end]
+                if not row.get("currency") or equity_row.get("_meta", {}).get("currency") != row["currency"]:
+                    continue
+                if code != ctx.symbol and (row.get("currency") != target_op.get("currency")
+                        or abs((date.fromisoformat(end) - date.fromisoformat(target_op["end"])).days) > 100):
+                    continue
+                equity = next((equity_row[key] for key in ("004013999", "001005999", "002005999")
+                               if is_finite_number(equity_row.get(key))), None)
+                roes[code] = ttm_roe(row.get("net_profits", []), equity)
+            except Exception as error:  # noqa: BLE001 — 第三方数据源单家公司隔离
+                logging.getLogger(__name__).warning("美股同行权益失败 %s: %s", code, error)
+        target_roe = roes.get(ctx.symbol)
+        metrics.append(_metric("roe", "TTM ROE", target_roe * 100 if target_roe is not None else None,
+                               [value * 100 for code, value in roes.items() if code != ctx.symbol and value is not None], "percent"))
         ready = (target_op.get("basis") == "TTM" and all(target_op.get(k) for k in ("start", "end", "source"))
-                 and all(m["status"] == "ok" for m in metrics))
+                 and sum(m["status"] == "ok" for m in metrics) >= 2)
         reason = "" if ready else ("SEC 抽样未通过，营收维持未核实、不计分" if target_op.get("revenue_verified") is not True else "TTM经营期间未核实或至少两项各五家有效同行不足")
         notes = ["东财美股 F10 行业（BELONG_INDUSTRY）；经营指标为 TTM 派生，不是年度+最新两期。",
                  "美股上市代码（含类别股）；优先目标市值0.1至5倍，不足五家放宽0.01至20倍，最多十家。",
-                 "经营指标采用F10连续单季TTM；PB仅作估值比较，不派生ROE。"]
+                 "经营指标采用F10连续单季TTM；ROE采用四季归母净利与同期普通权益，PB仅作估值比较。"]
         if relaxed:
             notes.append("市值分层不足，已放宽到全部有效同行，按距目标市值最近选取，最多十家。")
         sources = sorted({row.get("source") or "来源未记录" for row in [target, *selected]})
@@ -184,7 +213,7 @@ class UsIndustryEnricher(DataEnricher):
         data.comparison_ready = enough
         ctx.enriched_industry = EnrichedIndustry(peer_count=len(selected),
             top_peers=[PeerComparison(symbol=row["symbol"], name=row.get("name") or "", market_cap=row["market_cap"],
-                pe_ttm=row["pe"], pb=row["pb"], roe=None,
+                pe_ttm=row["pe"], pb=row["pb"], roe=roes.get(row["symbol"]),
                 net_margin=(operating[row["symbol"]]["net_margin"] / 100
                             if isinstance(operating.get(row["symbol"]), dict)
                             and operating[row["symbol"]].get("revenue_verified") is True
@@ -192,7 +221,7 @@ class UsIndustryEnricher(DataEnricher):
             industry_median_pe=pe_metric["median"], industry_median_pb=pb_metric["median"],
             target_pe_premium=(pe / pe_metric["median"] - 1) * 100 if pe and pe_metric["median"] else None,
             target_pe_percentile=pe_metric["percentile"], target_pb_percentile=pb_metric["percentile"],
-            peer_pe_sample=len(selected), peer_pb_sample=len(selected), comparison=comparison)
+            peer_pe_sample=pe_metric["sample_count"], peer_pb_sample=pb_metric["sample_count"], comparison=comparison)
         ctx.sufficiency.industry = DimensionSufficiency(
             level=SufficiencyLevel.SUFFICIENT if ready else SufficiencyLevel.PARTIAL if len(selected) >= 3 else SufficiencyLevel.INSUFFICIENT,
             reason=reason if enough else "行业对比样本不足；" + reason,

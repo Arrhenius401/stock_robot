@@ -126,8 +126,13 @@ def _single_quote(secid: str) -> dict[str, Any]:
 
 
 def _usable(row: dict[str, Any]) -> bool:
-    return row.get("basis_verified") is True and all(
+    return row.get("basis_verified") is True and any(
         _positive(row.get(key)) is not None for key in ("market_cap", "pe", "pb"))
+
+
+def metric_values(rows: list[dict[str, Any]], key: str) -> list[float]:
+    """各指标独立取有效正值，不受其他字段缺失影响。"""
+    return [value for row in rows if (value := _positive(row.get(key))) is not None]
 
 
 def _f10_metrics(codes: list[str]) -> tuple[dict[str, dict[str, Any]], list[dict[str, str]]]:
@@ -161,7 +166,7 @@ def _f10_metrics(codes: list[str]) -> tuple[dict[str, dict[str, Any]], list[dict
                 row = by_code.get(code, {})
                 metrics = {key: _positive(row.get(field)) for key, field in
                            (("pe", "PE_TTM"), ("pb", "PB"), ("market_cap", "TOTAL_MARKET_CAP"))}
-                if any(value is None for value in metrics.values()):
+                if all(value is None for value in metrics.values()):
                     attempts.append({"source": F10_SOURCE, "symbol": code, "status": "failed",
                                      "reason": "身份记录缺失或 PE/PB/市值非正、缺失或无效"})
                     continue
@@ -295,7 +300,10 @@ def us_industry_result(symbol: str, *, cache: CacheManager | None = None, refres
             target = {}
         valid = {code: quote for code, quote in quotes.items() if code in members
                  and isinstance(quote, dict) and quote.get("basis_verified") is True
-                 and all(_positive(quote.get(key)) is not None for key in ("market_cap", "pe", "pb"))}
+                 and any(_positive(quote.get(key)) is not None for key in ("market_cap", "pe", "pb"))}
+
+        valid = {code: {**row, **{key: _positive(row.get(key)) for key in ("market_cap", "pe", "pb")}}
+                 for code, row in valid.items()}
 
         from data.us_operating import load_operating
 
@@ -303,12 +311,14 @@ def us_industry_result(symbol: str, *, cache: CacheManager | None = None, refres
         selected = []
         if cap is not None:
             for low, high in ((.1, 5), (.01, 20)):
-                selected = [row for row in valid.values() if low * cap <= row["market_cap"] <= high * cap]
+                selected = [row for row in valid.values() if row["market_cap"] is not None and low * cap <= row["market_cap"] <= high * cap]
                 if len(selected) >= 5:
                     break
             if len(selected) < 5:
                 selected = list(valid.values())
-            selected = sorted(selected, key=lambda row: abs(row["market_cap"] / cap - 1))[:10]
+            selected = sorted(selected, key=lambda row: abs(row["market_cap"] / cap - 1) if row["market_cap"] is not None else float("inf"))[:10]
+        if cap is None:
+            selected = list(valid.values())[:10]
         operating = load_operating([symbol, *[row["symbol"] for row in selected]], cache=cache, refresh=refresh)
         revenue_verified = bool((operating.get(symbol) or {}).get("revenue_verified"))
         reason = "东财美股营收口径未核实，经营比较不计分" if not revenue_verified else "营收协议已通过抽样对账，非逐票SEC核对"

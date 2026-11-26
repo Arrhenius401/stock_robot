@@ -125,3 +125,12 @@ def test_us_identity_and_short_history_do_not_block_three_core_signal():
     assert quality["signal_allowed"]
     assert quality["identity_status"] == "probable"
     assert quality["required_dimensions"] == ["financial", "technical", "valuation"]
+
+
+def test_us_industry_ttm_roe_uses_four_quarters_and_equity():
+    from data.us_operating import ttm_roe
+
+    assert ttm_roe([10, 10, 10, 10], 100) == .4
+    for profits, equity in [([10, None, 10, 10], 100), ([10]*4, None),
+                            ([10]*4, 0), ([10]*4, float("inf")), ([True]*4, 100)]:
+        assert ttm_roe(profits, equity) is None

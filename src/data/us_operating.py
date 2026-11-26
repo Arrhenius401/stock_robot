@@ -124,6 +124,15 @@ def build_jpm_special(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "start": _date(row["START_DATE"]).isoformat(), "end": end.isoformat(), "source": BANK, "currency": "USD"}
 
 
+def ttm_roe(net_profits: list[float | None], equity: float | None) -> float | None:
+    """四个连续单季归母净利除以期末普通权益，返回比例。"""
+    if equity is None or not is_finite_number(equity) or isinstance(equity, bool) or equity <= 0 or len(net_profits) != 4:
+        return None
+    if not all(is_finite_number(value) and not isinstance(value, bool) for value in net_profits):
+        return None
+    return _finite(sum(float(value) for value in net_profits if value is not None) / equity)
+
+
 def build_operating(rows: list[dict[str, Any]], code: str, source: str) -> dict[str, Any] | None:
     """仅消费明确单季；四季缺失不回退到主指标或旧TTM窗口。"""
     if source not in {GENERAL, BANK}:
@@ -165,7 +174,7 @@ def build_operating(rows: list[dict[str, Any]], code: str, source: str) -> dict[
             "notice_dates": [r.get("NOTICE_DATE") for r in recent],
             "quarters": [{"start": r.get("START_DATE"), "end": r.get("REPORT_DATE"),
                           "notice": r.get("NOTICE_DATE"), "currency": r.get(currency_key), "source": source} for r in singles],
-            "revenue": revenue, "net_profit": profit, "previous_revenue": previous,
+            "revenue": revenue, "net_profit": profit, "net_profits": profit_values, "previous_revenue": previous,
             "revenue_verified": REVENUE_PROTOCOL_VERIFIED_BANK if source == BANK else REVENUE_PROTOCOL_VERIFIED_GENERAL, "revenue_basis": REVENUE_PROTOCOL_BASIS,
             "revenue_growth_yoy": (revenue / previous - 1) * 100 if previous is not None and previous > 0 else None,
             "net_margin": profit / revenue * 100 if profit is not None else None,
@@ -203,7 +212,7 @@ def load_operating(codes: list[str], *, cache: CacheManager | None = None, refre
     day = datetime.now().astimezone().date().isoformat()
 
     def load(code: str) -> tuple[str, Any]:
-        key = f"us_operating::v{3 if code == 'JPM' else 2}::{code}"
+        key = f"us_operating::v{4 if code == 'JPM' else 3}::{code}"
         try:
             saved = cache.get("us_operating", key, day) if cache and not refresh else None
             if saved is not None:
