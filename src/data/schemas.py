@@ -350,6 +350,7 @@ class NewsData(BaseModel):
     date: date
     headlines: list[str] = Field(default_factory=list)
     index_items: list[dict[str, Any]] = Field(default_factory=list)
+    announcement_items: list[dict[str, Any]] = Field(default_factory=list)
     hk_news: HKNewsSnapshot | None = None
     _raw_sentiment: RawSentimentData | None = PrivateAttr(default=None)
     _from_stale_cache: bool = PrivateAttr(default=False)

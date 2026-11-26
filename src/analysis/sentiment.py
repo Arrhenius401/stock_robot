@@ -89,6 +89,12 @@ class SentimentAnalyzer(AnalysisModule):
             if notes:
                 metrics["news_notes"] = notes
             if context.market == "us":
+                announcements = context.news_data.announcement_items if context.news_data else []
+                inputs[0:0] = [{**item, "publish_date": item.get("filingDate", ""),
+                               "published_at": item.get("filingDate", ""),
+                               "links": [{"url": item["url"], "media": "SEC EDGAR"}]}
+                              for item in announcements]
+                metrics["used_in_score"] = False
                 metrics["news_disclaimer"] = "关键词检索结果，可能包含同名或间接报道；仅作新闻参考，不作情绪评分。"
             elif context.market == "a-shares":
                 metrics["news_disclaimer"] = "个股新闻与公告接口结果，可能包含间接报道；仅作新闻参考，不作情绪评分。"

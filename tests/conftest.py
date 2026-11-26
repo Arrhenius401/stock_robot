@@ -15,6 +15,7 @@ def _test_defaults(mocker, tmp_path_factory):
     mocker.patch("data.latest_quote.load_latest_quote", return_value={"status": "unavailable"})
     mocker.patch("data.latest_quote.load_hk_quote", return_value={"status": "unavailable"})
     mocker.patch("data.us_stock.us_quote", return_value={"price": None})
+    mocker.patch("data.us_filings.fetch_filings", return_value=[])
     # 东财个股信息接口（含行业/总股本字段）全局 mock，行业判定与总股本反推不依赖网络
     mocker.patch("akshare.stock_individual_info_em",
                  return_value=pd.DataFrame({"item": ["行业", "总股本"],

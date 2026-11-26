@@ -898,7 +898,14 @@ def us_news(ticker: str, name: str = "") -> list[NewsData]:
         except Exception as error:  # noqa: BLE001 — 单关键词检索边界，保留部分成功
             logger.warning("美股新闻查询失败 %s/%s: %s", ticker, query, type(error).__name__)
             errors.append(query)
-    if not succeeded:
+    from data.us_filings import fetch_filings
+
+    announcements = []
+    try:
+        announcements = fetch_filings(ticker)
+    except Exception as error:  # noqa: BLE001 — SEC 独立来源边界，保留新闻结果
+        logger.warning("SEC 公告失败 %s: %s", ticker, type(error).__name__)
+    if not succeeded and not announcements:
         raise RuntimeError("美股新闻暂时获取失败")
 
     items: list[RawSentimentItem] = []
@@ -942,6 +949,7 @@ def us_news(ticker: str, name: str = "") -> list[NewsData]:
     items.sort(key=lambda item: item.publish_date, reverse=True)
     items = items[:20]
     result = NewsData(symbol=ticker, date=today, headlines=[item.title for item in items])
+    result.announcement_items = announcements
     result._raw_sentiment = RawSentimentData(symbol=ticker, fetch_date=today, items=items)
     result._data_source = "东方财富关键词新闻检索"
     if errors:

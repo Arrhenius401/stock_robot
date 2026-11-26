@@ -183,6 +183,7 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
     applicable_weight = sum(DIM_WEIGHTS[key] for key in applicable) or 1.0
     available = sum(participation_score(result_map.get(key)) is not None for key in DIM_WEIGHTS)
     for key, title, suff_key, source_key, weight in _DIMENSIONS:
+        pending_start = len(pending)
         suff = getattr(ctx.sufficiency, suff_key)
         result = result_map.get(key)
         level = min(_LEVEL.get(suff.level, 0), _RESULT_LEVEL.get(result.status, 0) if result else 0)
@@ -326,6 +327,12 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
         if reference is not None and reference.data_type == source_key:
             fields.extend(_reference_fields(reference))
         display_status = _STATUS[level]
+        state = dimension_state(profile, result, ctx, dimension=key)
+        if us and not state.applicable:
+            display_status = state.status
+            del pending[pending_start:]
+            fields = [field for field in fields if field["label"] not in {"缺失原因", "分析限制"}]
+            fields.append({"label": "评估说明", "value": state.detail})
         if profile.business_profile != "ths" and ctx.commentary_version == 2:
             state = dimension_state(profile, result, ctx, dimension=key)
             if not state.applicable:

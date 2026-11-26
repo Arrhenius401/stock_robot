@@ -82,6 +82,8 @@ class FinancialAnalyzer(AnalysisModule):
                 f"{dividend.dividend_yield_basis or '口径未记录'}"
             )
         metrics["amount_currency_reason"] = latest.amount_currency_reason
+        if context.market == "us" and latest.gross_margin_basis == "银行/保险不适用":
+            metrics["used_in_score"] = False
         if latest.reported_revenue is not None:
             metrics.update(
                 reported_revenue=latest.reported_revenue,
@@ -183,6 +185,10 @@ class FinancialAnalyzer(AnalysisModule):
             and context.sufficiency.financial.level == SufficiencyLevel.SUFFICIENT
         ) else "partial"
         summary = self._build_summary(metrics, status)
+        if metrics.get("used_in_score") is False:
+            return AnalysisResult(dimension=self.dimension, status="partial",
+                                  summary="美股银行/保险专项仅展示，财务未计分", metrics=metrics,
+                                  score=None, score_detail="美股银行/保险专项仅展示，财务未计分")
 
         # 数据充足性检查
         if (context.sufficiency and context.sufficiency.financial.level == SufficiencyLevel.INSUFFICIENT

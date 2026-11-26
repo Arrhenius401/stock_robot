@@ -48,7 +48,7 @@ class GeneralScorer(BaseScorer):
         if not cfg.get("enabled", True):
             return None, "财务维度已禁用", []
         if ctx.market == "us" and any(r.gross_margin_basis == "银行/保险不适用" for r in ctx.financial_data or []):
-            return None, "美股银行/保险财务专项指标尚未接入，财务维度 N/A", []
+            return None, "美股银行/保险专项仅展示，财务未计分", []
         rows = trusted_rows(ctx)
         if not rows:
             return None, "财务数据不可用或期间冲突", []
