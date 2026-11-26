@@ -774,7 +774,8 @@ def us_valuation(ticker: str) -> list[ValuationData]:
         quote = us_quote(ticker)
         raw_cap = quote.get("market_cap")
         market_cap = raw_cap if is_finite_number(raw_cap) else None
-        market_cap_as_of = _parse_date(str(quote.get("quoted_at") or "")[:10])
+        market_cap_as_of = (_parse_date(str(quote.get("close_time") or "")[:10])
+                            or _parse_date(str(quote.get("quoted_at") or "")[:10]))
     except Exception as error:  # noqa: BLE001 — 快照边界，PS 派生失败不影响 PE/PB
         logger.warning("美股总市值快照失败 %s: %s", ticker, type(error).__name__)
     dates = [value for value in (pe_as_of, pb_as_of) if value is not None]
@@ -856,7 +857,7 @@ def us_valuation(ticker: str) -> list[ValuationData]:
                     item.valuation_notes.append("腾讯美股快照PB；无同源历史，不计算历史分位")
             except Exception as error:  # noqa: BLE001 — 第三方快照边界
                 logger.warning("腾讯美股PB失败 %s: %s", ticker, error)
-    if item.pe_ttm is None and item.pb is None:
+    if item.pe_ttm is None and item.pb is None and not (item.market_cap is not None and is_finite_number(item.market_cap) and item.market_cap > 0):
         raise ValueError("美股估值不可用")
     snapshot_dates = [day for day in (item.pe_as_of, item.pb_as_of) if day is not None]
     if snapshot_dates:
