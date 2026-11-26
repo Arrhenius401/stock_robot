@@ -67,3 +67,40 @@ def test_hk_quote_rejects_invalid_price(mocker):
 
 def test_hk_quote_rejects_invalid_symbol():
     assert load_hk_quote("0070.HK", now=NOW)["status"] == "unavailable"
+
+
+def test_parse_tencent_hk_batch_keeps_quote_date_and_market_cap():
+    from data.hk_eastmoney import parse_tencent_hk_quotes
+
+    fields = ['0'] * 46
+    fields[1], fields[2], fields[30] = '腾讯控股', '00700', '2026/11/26 16:08:11'
+    fields[44] = '31005.9189'
+    rows = parse_tencent_hk_quotes('v_hk00700="' + '~'.join(fields) + '";')
+    assert rows['00700.HK']['as_of'] == '2026-11-26'
+    assert rows['00700.HK']['market_cap'] == pytest.approx(3_100_591_890_000)
+
+
+def test_batch_failure_falls_back_to_dated_eastmoney_quotes(mocker):
+    import requests
+
+    from data.hk_hsics_peers import fetch_market_quotes
+
+    mocker.patch('data.hk_hsics_peers.requests.get', side_effect=requests.ConnectionError('离线失败'))
+    mocker.patch('data.hk_eastmoney.stock_snapshot', return_value={
+        'f116': 3e12, 'f86': 1795680000})
+    rows = fetch_market_quotes(['00700.HK', '00268.HK'])
+    assert set(rows) == {'00700.HK', '00268.HK'}
+    assert rows['00700.HK']['market_cap'] == 3e12
+    assert rows['00700.HK']['as_of'] == '2026-11-26'
+    assert rows['00700.HK']['source'] == '东方财富港股快照'
+
+
+def test_batch_empty_and_fallback_failure_returns_no_fabricated_quotes(mocker):
+    import requests
+
+    from data.hk_hsics_peers import fetch_market_quotes
+
+    response = mocker.Mock(text='')
+    mocker.patch('data.hk_hsics_peers.requests.get', return_value=response)
+    mocker.patch('data.hk_eastmoney.stock_snapshot', side_effect=requests.Timeout('离线失败'))
+    assert fetch_market_quotes(['00700.HK']) == {}

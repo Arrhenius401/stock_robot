@@ -409,3 +409,32 @@ def test_adapter_fetch_result_explicitly_uses_same_collection(monkeypatch, mocke
     assert result.record is None
     legacy = adapter.fetch("00700.HK", comparison_cache=CacheManager(tmp_path / "other.db"))
     assert [row.model_dump() for row in result.rows] == [row.model_dump() for row in legacy]
+
+
+def test_build_industry_data_uses_separate_market_cap_date():
+    rows = [pool_row('00700.HK', '腾讯', 13.15, 2.68),
+            pool_row('00268.HK', '金蝶', 30.0, 4.0)]
+    quotes = {'00700.HK': {'market_cap': 3.1e12, 'as_of': '2026-11-26'},
+              '00268.HK': {'market_cap': 5e10, 'as_of': '2026-11-26'}}
+    data = peers.build_industry_data('00700.HK', rows, MEMBERS, CONNECT, market_quotes=quotes)
+    assert data is not None
+    assert data._peer_valuations['00268.HK'].market_cap == 5e10
+    assert data.comparison_snapshot['market_cap_as_of'] == '2026-11-26'
+    assert data.comparison_snapshot['market_cap_rank']['as_of'] == '2026-11-26'
+    assert data.comparison_snapshot['as_of'] == '2026-10-23'
+
+
+@pytest.fixture(autouse=True)
+def offline_market_quotes(monkeypatch):
+    monkeypatch.setattr(peers, 'fetch_market_quotes', lambda *args, **kwargs: {})
+
+
+def test_market_cap_rank_excludes_other_quote_day():
+    rows = [pool_row('00700.HK', '腾讯', 13, 2)]
+    quotes = {'00700.HK': {'market_cap': 100, 'as_of': '2026-11-26'},
+              '00268.HK': {'market_cap': 200, 'as_of': '2026-11-25'},
+              '00909.HK': {'market_cap': 50, 'as_of': '2026-11-26'}}
+    data = peers.build_industry_data('00700.HK', rows, MEMBERS, CONNECT, market_quotes=quotes)
+    assert data is not None
+    rank = data.comparison_snapshot['market_cap_rank']
+    assert rank['rank'] == 1 and rank['coverage'] == '2/3'

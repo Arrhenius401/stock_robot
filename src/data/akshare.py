@@ -1226,6 +1226,8 @@ class AkShareAdapter(DataSource):
         pb: float | None = None
         pe_as_of: date | None = None
         pb_as_of: date | None = None
+        market_cap = total_shares = None
+        quote_date: date | None = None
         primary_failed = False
         try:
             snapshot = stock_snapshot(code)
@@ -1241,6 +1243,11 @@ class AkShareAdapter(DataSource):
             if snapshot_date > today:
                 raise ValueError("东方财富港股估值日期晚于采集日期")
             # 全部校验通过后才接受快照，否则保持 None 以允许估值对比或曲线兜底。
+            quote_date = snapshot_date
+            market_cap = finite_number(snapshot.get("f116"))
+            total_shares = finite_number(snapshot.get("f84"))
+            market_cap = market_cap if market_cap is not None and market_cap > 0 else None
+            total_shares = total_shares if total_shares is not None and total_shares > 0 else None
             pe, pb = snapshot_pe, snapshot_pb
             pe_as_of = snapshot_date if pe is not None else None
             pb_as_of = snapshot_date if pb is not None else None
@@ -1334,7 +1341,10 @@ class AkShareAdapter(DataSource):
                 item_date = period
 
         item = ValuationData(symbol=symbol, date=item_date, pe_ttm=pe, pb=pb,
-                             pe_as_of=pe_as_of, pb_as_of=pb_as_of)
+                             pe_as_of=pe_as_of, pb_as_of=pb_as_of,
+                             market_cap=market_cap, market_cap_as_of=quote_date if market_cap else None,
+                             total_shares=total_shares, total_shares_as_of=quote_date if total_shares else None,
+                             total_shares_source="东方财富港股快照" if total_shares else "")
         if curve_fallback:
             # 两个东财入口都未取得 PE/PB 时，才允许百度曲线末值兜底。
             item.pe_ttm = pe_curve.get(period)

@@ -61,3 +61,11 @@ def test_snapshot_date_mismatch_has_no_rank():
     data = snapshot()
     data["as_of"] = "2026-11-19"
     assert market_cap_rank(data, ["B", "C"], "A")["rank"] is None
+
+
+def test_rank_uses_independent_market_cap_snapshot():
+    caps = snapshot()
+    data = {'as_of': '2026-10-23', 'market_cap_snapshot': caps}
+    rank = market_cap_rank(data, ['B', 'C'], 'A')
+    assert rank['as_of'] == '2026-11-20'
+    assert rank['rank'] == 2

@@ -1,5 +1,6 @@
 """港股东财单标的请求；不扫描全市场，明确限时、限量与不复权口径。"""
 import math
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -78,10 +79,10 @@ def financial_report_directory(code: str) -> list[dict[str, Any]]:
     return records
 
 
-def stock_snapshot(code: str) -> dict[str, Any]:
+def stock_snapshot(code: str, *, timeout: float = 10) -> dict[str, Any]:
     response = requests.get("https://push2.eastmoney.com/api/qt/stock/get", params={
-        "secid": f"116.{code}", "fields": "f43,f57,f58,f86,f164,f167", "fltt": "2", "invt": "2",
-    }, timeout=10)
+        "secid": f"116.{code}", "fields": "f43,f57,f58,f84,f85,f86,f116,f117,f164,f167", "fltt": "2", "invt": "2",
+    }, timeout=timeout)
     response.raise_for_status()
     data = response.json().get("data")
     if not isinstance(data, dict) or str(data.get("f57", "")) != code:
@@ -126,3 +127,26 @@ def daily_history(code: str, start: str, end: str, limit: int) -> list[str]:
         return []
     rows = data.get("klines")
     return rows if isinstance(rows, list) else []
+
+
+
+def parse_tencent_hk_quotes(text: str) -> dict[str, dict[str, Any]]:
+    """腾讯市值单位为亿港元；保留实际行情日期。"""
+    output = {}
+    today = datetime.now(timezone(timedelta(hours=8))).date()
+    for code, body in re.findall(r'v_hk(\d{5})="([^"]*)"', text):
+        fields = body.split("~")
+        if len(fields) < 46 or fields[2] != code:
+            continue
+        try:
+            day = datetime.strptime(fields[30][:10], "%Y/%m/%d").replace(
+                tzinfo=timezone(timedelta(hours=8))).date()
+        except ValueError:
+            continue
+        cap = next((v for i in (44, 45) if (v := finite_number(fields[i])) is not None and v > 0), None)
+        if cap is None or day > today:
+            continue
+        symbol = f"{code}.HK"
+        output[symbol] = {"symbol": symbol, "name": fields[1], "as_of": day.isoformat(),
+                          "market_cap": cap * 1e8, "source": "腾讯港股快照"}
+    return output
