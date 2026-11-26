@@ -1,6 +1,6 @@
 // 结构化股票报告共享渲染器：不读取业务状态，也不发起网络请求。
 import { renderMarkdown } from "./markdown.js?v=20261029-index-news-quality";
-import { el, kv, priceBar, statusBadge } from "./components.js";
+import { el, kv, priceBar, statusBadge } from "./components.js?v=20261126-data-gaps-status";
 
 export const STOCK_NEWS_DISPLAY_LIMIT = 10;
 
@@ -431,6 +431,9 @@ function summarySection(report, sectionIdPrefix) {
       ? {ok: "分析数据可用 · 评分不适用", partial: "部分分析数据可用 · 评分不适用", unavailable: "数据不可用 · 暂无结论"}
       : {ok: "数据完整", partial: "数据不完整", unavailable: "数据不可用 · 暂无结论"})[quality.status] || "数据状态未记录";
     if (report.report_scope === "facts_only") badge.textContent = "事实报告 · 不形成综合评估";
+    const assessment = report.assessment_status || quality.assessment_status;
+    if (assessment === "partial") badge.textContent = quality.score_label || "部分评估（参考）";
+    if (assessment === "facts_only") badge.textContent = "事实报告 · 不形成综合评估";
     card.appendChild(badge);
   }
   const overview = record(report.overview);
@@ -1174,6 +1177,10 @@ export function renderIndexReport(report, options = {}) {
   };
   const overview = make("index-overview", "概览");
   overview.appendChild(reportHeader(report));
+    const indexQuality = record(report.data_quality);
+    if (indexQuality.status) overview.appendChild(statusBadge(indexQuality.status));
+    if (indexQuality.assessment_status) overview.appendChild(el("p", "dim-sum",
+      {complete:"完整评估", partial:"部分评估（参考）", facts_only:"事实报告"}[indexQuality.assessment_status] || "评估状态未记录"));
   if (report.analysis_mode === "objective") overview.appendChild(el("p", "dim-sum", "客观数据模式"));
   if (report.generated_at) overview.appendChild(el("p", "dim-sum", `生成时间：${reportTime(report.generated_at)}`));
   addRows(overview, report.overview?.display_rows);

@@ -12,7 +12,7 @@ export function esc(s) {
 }
 
 export function statusBadge(status) {
-  const map = { ok: ["正常", "ok"], partial: ["部分数据", "part"], unavailable: ["不可用", "na"] };
+  const map = { not_collected: ["未采集", "na"], not_applicable: ["不适用", "na"], collection_failed: ["采集失败", "na"], insufficient_sample: ["样本不足", "part"], ok: ["正常", "ok"], partial: ["部分数据", "part"], unavailable: ["不可用", "na"] };
   const [text, cls] = map[status] || [String(status || "未知"), "na"];
   return el("span", `badge ${cls}`, text);
 }

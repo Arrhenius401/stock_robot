@@ -1,13 +1,13 @@
 // 应用主入口：导航接线、工作台覆盖层与各视图初始化。
 import { bus, store, switchView } from "./state.js";
-import { initChat } from "./chat.js?v=20261126-data-gaps";
-import { initReportView, openReport } from "./report.js?v=20261126-data-gaps";
-import { initReportDrawer } from "./report-drawer.js?v=20261126-data-gaps";
-import { closeReportDrawer } from "./report-drawer.js?v=20261126-data-gaps";
+import { initChat } from "./chat.js?v=20261126-data-gaps-status";
+import { initReportView, openReport } from "./report.js?v=20261126-data-gaps-status";
+import { initReportDrawer } from "./report-drawer.js?v=20261126-data-gaps-status";
+import { closeReportDrawer } from "./report-drawer.js?v=20261126-data-gaps-status";
 import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js";
-import { initIndexView } from "./indexview.js?v=20261126-data-gaps";
-import { initReportLibrary } from "./report-library.js?v=20261126-data-gaps";
-import { initSessions, initSessionStartup } from "./sessions.js?v=20261126-data-gaps";
+import { initIndexView } from "./indexview.js?v=20261126-data-gaps-status";
+import { initReportLibrary } from "./report-library.js?v=20261126-data-gaps-status";
+import { initSessions, initSessionStartup } from "./sessions.js?v=20261126-data-gaps-status";
 import { initSubscriptions } from "./subscriptions.js?v=20260928-run-notice-2";
 import { initSettings } from "./settings.js?v=20261031-analysis-mode-1";
 import { initLogs } from "./logs.js?v=20260927-page-heading-1";

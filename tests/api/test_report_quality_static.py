@@ -96,3 +96,19 @@ if (original.payload.name !== "新批次" || !content.textContent.includes("新�
 """.replace("__DRAWER_URL__", drawer_url)
     script = script.replace("__API_URL__", api_url).replace("__STATE_URL__", state_url)
     _run_node(tmp_path, script)
+
+def test_capability_badges_and_assessment_summary(tmp_path):
+    renderer_url = json.dumps(_module_url("src/api/static/js/report-renderer.js"))
+    components_url = json.dumps(_module_url("src/api/static/js/components.js"))
+    script = _DOM_STUB + r"""
+const {statusBadge} = await import(__COMPONENTS__);
+for (const state of ["not_collected", "not_applicable", "collection_failed", "insufficient_sample"]) {
+  if (statusBadge(state).textContent === state) throw new Error("未翻译能力状态 " + state);
+}
+const {renderStockReport} = await import(__RENDERER__);
+const article = renderStockReport({name:"样本", assessment_status:"partial", report_scope:"limited",
+ data_quality:{status:"ok",score_label:"部分评估综合得分（参考）"}, dimensions:{}});
+const summary = article.children.find(node=>node.id === "report-summary");
+if (!summary.textContent.includes("部分评估")) throw new Error("概览忽略评估状态");
+""".replace("__COMPONENTS__", components_url).replace("__RENDERER__", renderer_url)
+    _run_node(tmp_path, script)

@@ -12,6 +12,7 @@ from data.validation import (
 from report.capability import dimension_state
 from report.formatter import format_metric_value
 from report.market_profile import MarketProfile, profile_for
+from report.presentation import assessment_fields
 from report.scoring import DIM_WEIGHTS, participation_score
 from utils.numbers import is_finite_number
 
@@ -164,6 +165,26 @@ def _reference_fields(reference: DataReference) -> list[dict[str, Any]]:
     return [{"label": label, "value": value, "plain_text": True, "reference_only": True} for label, value in values]
 
 
+def dedupe_pending(items: list[str]) -> list[str]:
+    """去除重复核验原因与政策说明。"""
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if "美股舆情" in item and "未采集" in item:
+            continue
+        clauses = []
+        for clause in str(item).split("；"):
+            clause = clause.strip()
+            if any(term in clause for term in ("资本开支", "自由现金流", "FCF", "市值排名")):
+                continue
+            if clause and clause not in seen:
+                seen.add(clause)
+                clauses.append(clause)
+        if clauses:
+            result.append("；".join(clauses))
+    return result
+
+
 def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
                        include_references: bool = True, profile: MarketProfile | None = None) -> dict[str, Any]:
     """五维按原权重表达数据覆盖，A 股交易信号保持原三核心门槛。"""
@@ -209,7 +230,9 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
                     level = min(level, 1)
         if weight and key in applicable:
             coverage += weight * (level / 2)
-            all_complete = all_complete and level == 2 and (value is not None or not ctx.extra_analysis_enabled)
+            if (key in {"financial", "technical", "valuation"} or value is not None
+                    or (not ctx.extra_analysis_enabled and key != "sentiment")):
+                all_complete = all_complete and level == 2 and (value is not None or not ctx.extra_analysis_enabled)
         if key in {"financial", "technical", "valuation"}:
             sufficient = suff.level == "sufficient"
             if key == "financial" and result and result.metrics.get("scoring_basis"):
@@ -236,6 +259,7 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
         ]
         if key == "valuation" and ctx.valuation_data and (ctx.market in {"hk", "us"} or ctx.valuation_data.history_source.startswith(("东财", "百度"))):
             valuation = ctx.valuation_data
+            fields.append({"label": "分位窗口", "value": valuation.history_window_label})
             snapshot_dates = valuation_snapshot_dates(ctx)
             source = getattr(record, "source", "") or valuation._data_source or "未记录"
             fields.append({"label": "估值字段来源", "value": "；".join(filter(None, [
@@ -256,6 +280,16 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
                 value = (result.metrics[name] if result is not None and name in result.metrics
                          else financial_ttm(ctx.financial_data, name, ctx.market, require_precision=True))
                 fields.append({"label": label + "（TTM，不改变覆盖率）", "value": str(format_metric_value(name, value))})
+            if result:
+                for name, label in (("capital_expenditure_latest", "最近完整年度资本开支（非 TTM）"),
+                                    ("free_cash_flow_latest", "最近完整年度自由现金流（非 TTM）")):
+                    if result.metrics.get(name) is not None:
+                        fields.append({"label": label, "value": str(format_metric_value(name, result.metrics[name]))})
+                for name, label in (("cash_flow_period", "现金流期间"),
+                                    ("cash_flow_latest_period", "最近完整年度现金流期间"),
+                                    ("cash_flow_limitation", "分析限制")):
+                    if result.metrics.get(name):
+                        fields.append({"label": label, "value": str(result.metrics[name])})
             if latest.financial_selection_note:
                 fields.append({"label": "财务包说明", "value": latest.financial_selection_note})
             if (len(set(latest.field_sources.values())) > 1
@@ -352,7 +386,7 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
         "has_scored_data": ctx.extra_analysis_enabled and has_scored,
         "has_analysis_data": analysis_available,
         "dimensions": dimensions,
-        "pending_verifications": list(dict.fromkeys(pending)),
+        "pending_verifications": dedupe_pending(pending),
         "coverage_basis": profile.coverage_basis(ctx.extra_analysis_enabled),
     }
     if ctx.market in {"hk", "us"}:
@@ -364,16 +398,16 @@ def build_data_quality(ctx: AnalysisContext, results: list[AnalysisResult], *,
             "confirmed" if ctx.name.strip() and ctx.name.upper() != ctx.symbol.upper()
             else "probable" if ctx.price_data or ctx.current_quote.get("status") == "ok" else "unconfirmed")
         bars = len(ctx.price_data or [])
-        complete = bars > 0 and len(scored) == len(required) and signal_complete
+        core_complete = bars > 0 and len(scored) == len(required) and signal_complete
+        complete = core_complete and all_complete
         partial_available = ctx.extra_analysis_enabled and bool(scored)
-        assessment = "complete" if complete else "partial" if partial_available else "facts_only"
-        scope = "full" if complete else "limited" if assessment == "partial" else "facts_only"
+        assessment_view = assessment_fields(complete=complete, available=partial_available)
+        assessment = assessment_view["assessment_status"]
         quality.update(
             required_dimensions=required, scored_required_dimensions=scored,
-            identity_status=identity, report_scope=scope, assessment_status=assessment,
-            score_label="部分评估综合得分（参考）" if assessment == "partial" else "最终综合得分",
+            identity_status=identity, **assessment_view,
             has_scored_data=quality["has_scored_data"] and assessment != "facts_only",
-            signal_allowed=quality["signal_allowed"] and complete,
+            signal_allowed=quality["signal_allowed"] and core_complete,
         )
         for dimension in dimensions:
             if dimension["key"] == "sentiment" and profile.sentiment_policy == "not_collected":

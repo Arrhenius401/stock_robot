@@ -7,6 +7,10 @@
 # 指数分析报告：{{ name }}（{{ code }}）
 
 > 生成时间：{{ generated_at }}
+{% if report.data_quality.status %}
+> 数据状态：{{ report.data_quality.status }}
+> {{ {"complete":"完整评估", "partial":"部分评估（参考）", "facts_only":"事实报告"}.get(report.data_quality.assessment_status, "评估状态未记录") }}
+{% endif %}
 {% if report.analysis_mode == "objective" %}
 > 客观数据模式
 {% endif %}

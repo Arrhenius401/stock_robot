@@ -140,3 +140,24 @@ def test_adx_atr_display_rounds_without_changing_original_metrics():
     assert values["ADX(14)"] == "52.41"
     assert values["ATR(20)（点）"] == "68.64"
     assert report.section_technical["metrics"]["adx_14"] == metrics["adx_14"]
+
+def test_index_quality_uses_shared_assessment_fields():
+    ctx = IndexAnalysisContext(target=AnalysisTarget(target_type="index", symbol="000300", name="沪深300", index_style="broad"))
+    quality = IndexReportBuilder().build(ctx, []).data_quality
+    assert quality["status"] == "unavailable"
+    assert quality["assessment_status"] == "facts_only"
+    assert quality["report_scope"] == "facts_only"
+    assert quality["pending_verifications"] == list(dict.fromkeys(quality["pending_verifications"]))
+
+
+def test_objective_index_does_not_claim_scoring():
+    from index.presentation import build_quality
+
+    ctx = IndexAnalysisContext(target=AnalysisTarget(target_type="index", symbol="000300", name="沪深300", index_style="broad"), extra_analysis_enabled=False)
+    quality = build_quality(ctx, {key: {"status": "ok"} for key in ("technical", "valuation", "capital", "macro")})
+    assert quality["assessment_status"] == "facts_only"
+    assert "综合得分" not in quality["score_label"]
+    report = IndexReportBuilder().build(ctx, [])
+    text = render_index_report_markdown(report)
+    assert "数据状态：unavailable" in text
+    assert "事实报告" in text

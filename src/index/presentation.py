@@ -108,7 +108,21 @@ def build_quality(
             if note and status != "ok":
                 fields.append({"label": "分析限制", "value": str(note)})
         dimensions.append({"key": key, "title": title, "status": status, "fields": fields})
-    quality = {"dimensions": dimensions}
+    from report.presentation import assessment_fields
+    from report.quality import dedupe_pending
+
+    applicable = [item for item in dimensions if item["status"] not in {"not_applicable", "not_collected"}
+                  and item["key"] != "sentiment"]
+    available = any(item["status"] in {"ok", "partial"} for item in applicable)
+    complete = bool(applicable) and all(item["status"] == "ok" for item in applicable)
+    quality = {"dimensions": dimensions,
+               "status": "ok" if complete else "partial" if available else "unavailable",
+               **assessment_fields(complete=complete and ctx.extra_analysis_enabled,
+                                   available=available and ctx.extra_analysis_enabled, scored=False),
+               "pending_verifications": dedupe_pending([
+                   f"{item['title']}：{field['value']}" for item in applicable
+                   for field in item["fields"] if field["label"] == "分析限制"
+               ])}
     quality.update(compact_quality(quality))
     return quality
 
