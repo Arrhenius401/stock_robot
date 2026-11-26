@@ -60,6 +60,9 @@
 
 {{ section_valuation.summary or "估值数据不可用。" }}
 {{ rows(section_valuation) }}
+{% for detail in section_valuation.display.details or [] %}
+- {{ detail }}
+{% endfor %}
 {% for note in section_valuation.metrics.valuation_notes or [] %}
 - {{ note }}
 {% endfor %}

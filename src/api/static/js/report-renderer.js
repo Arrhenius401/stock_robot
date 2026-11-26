@@ -1177,8 +1177,13 @@ export function renderIndexReport(report, options = {}) {
   if (report.analysis_mode === "objective") overview.appendChild(el("p", "dim-sum", "客观数据模式"));
   if (report.generated_at) overview.appendChild(el("p", "dim-sum", `生成时间：${reportTime(report.generated_at)}`));
   addRows(overview, report.overview?.display_rows);
+  const instrument = report.requested_instrument;
+  if (instrument) overview.appendChild(el("p", "dim-sum", `输入为ETF ${readable(instrument.name)}（${readable(instrument.symbol)}），本报告分析跟踪指数；ETF自身表现单独披露。`));
   article.appendChild(overview);
   const technical = make("index-technical", "历史表现与技术面");
+  const indexTags = {bull:"多头",shake:"震荡",bear:"空头",undervalued:"低估",neutral:"中性",overvalued:"高估",invalid:"无效"};
+  const indexTagClass = tag => `tag ${{bull:"good",shake:"mid",bear:"bad",undervalued:"good",neutral:"mid",overvalued:"bad",invalid:"gray"}[tag] || "gray"}`;
+  if (report.tag_technical) technical.appendChild(el("span", indexTagClass(report.tag_technical), indexTags[report.tag_technical] || report.tag_technical));
   for (const part of [report.section_performance, report.section_technical, report.section_strategy]) {
     if (!part) continue;
     if (part.summary) technical.appendChild(el("p", "dim-sum", part.summary));
@@ -1200,6 +1205,9 @@ export function renderIndexReport(report, options = {}) {
   const valuation = make("index-valuation", "估值面");
   if (report.section_valuation?.summary) valuation.appendChild(el("p", "dim-sum", report.section_valuation.summary));
   addRows(valuation, report.section_valuation?.display?.rows);
+  if (report.tag_valuation) valuation.appendChild(el("span", indexTagClass(report.tag_valuation), indexTags[report.tag_valuation] || report.tag_valuation));
+  for (const detail of report.section_valuation?.display?.details || []) valuation.appendChild(el("p", "dim-sum", detail));
+  for (const note of report.section_valuation?.metrics?.valuation_notes || []) valuation.appendChild(el("p", "dim-sum", note));
   article.appendChild(valuation);
   const background = make("index-background", "资金、宏观与新闻");
   for (const [key, title, part] of [["capital", "资金流向", report.section_capital], ["macro", "宏观环境", report.section_macro], ["sentiment", "相关新闻", report.section_sentiment]]) {
@@ -1242,6 +1250,11 @@ export function renderIndexReport(report, options = {}) {
     commentary.appendChild(indexResearchBody(report.index_research, report.commentary_status));
   } else if (report.commentary) commentary.appendChild(markdownBlock(report.commentary, "md dim-sum"));
   if (report.analysis_mode !== "objective") article.appendChild(commentary);
+  if (report.risk_list?.length) {
+    const risks = make("index-risks", "风险提示");
+    for (const risk of report.risk_list) risks.appendChild(el("p", "dim-sum", riskText(risk)));
+    article.appendChild(risks);
+  }
   article.appendChild(qualitySection(report, prefix));
   const disclaimer = make("report-disclaimer", "免责声明");
   for (const paragraph of report.disclaimer || []) disclaimer.appendChild(el("p", "dim-sum", paragraph));

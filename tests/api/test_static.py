@@ -188,7 +188,7 @@ def _module_url(path: str) -> str:
     url = Path(path).resolve().as_uri()
     # 与聊天模块的正式导入保持同一 URL，避免产生两份抽屉状态单例。
     if path.endswith("/report-drawer.js"):
-        url += "?v=20261116-us-c5-1"
+        url += "?v=20261126-data-gaps"
     return url
 
 
@@ -2184,7 +2184,7 @@ if (document.getElementById("settings-llm-api_key").value === "late-after-leave"
         assert 'id="subChannel"' not in html
         assert "企业微信" not in html
         assert 'href="/css/app.css?v=20261114-stock-shared-4"' in html
-        assert 'src="/js/app.js?v=' in html
+        assert 'src="/js/app.js?v=20261126-data-gaps"' in html
         script = (await client.get("/js/subscriptions.js")).text
         assert "searchPushSymbols" in script
         assert "批量添加" not in script
