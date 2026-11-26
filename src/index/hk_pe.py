@@ -16,6 +16,7 @@ from utils.numbers import is_positive_finite
 
 logger = logging.getLogger(__name__)
 SOURCES = {"00001.00": ("hsi", "HSI", "Hang Seng Index"),
+           "00014.00": ("hscei", "HSCEI", "Hang Seng China Enterprises Index"),
            "02083.00": ("hstech", "HSTECH", "Hang Seng TECH Index")}
 
 

@@ -1705,19 +1705,9 @@ class AkShareAdapter(DataSource):
     @retry_on_network_error()
     def _fetch_index_valuation(self, symbol: str) -> list[IndexValuationData]:
         from data.index_mapping import IndexMapping
-        from index.valuation_data import CURRENT_NAMES, StrategyValuationProvider
+        from index.valuation_data import StrategyValuationProvider
 
         entry = IndexMapping().lookup(symbol)
-        if symbol in CURRENT_NAMES:
-            source = "中证指数官方当前估值"
-            try:
-                value = StrategyValuationProvider(timeout=10, request_timeout=(5, 10)).fetch_current(symbol)
-            except Exception as exc:
-                self._record_collection_error(source, exc)
-                return []
-            self._collection_diagnostics.record = make_record(source, "partial" if value else "failed",
-                error_kind="" if value else "empty", error_message="" if value else "未取得有效官方估值快照")
-            return [value] if value else []
         if entry is not None and entry.index_style == "overseas":
             self._collection_diagnostics.record = make_record(
                 "指数估值", "failed", error_kind="not_supported", error_message="指数官方估值来源尚未核实",
@@ -1727,7 +1717,7 @@ class AkShareAdapter(DataSource):
             self._record_collection_error("指数估值", ValueError("指数官方估值来源尚未核实"))
             return []
         provider = StrategyValuationProvider(timeout=10, request_timeout=(5, 10))
-        value = provider.fetch(symbol, provider=entry.provider, include_daily_pe=False)
+        value = provider.fetch(symbol, provider=entry.provider, include_daily_pe=entry.provider in {"csi", "sse"})
         return [value] if value is not None else []
 
     @retry_on_network_error()

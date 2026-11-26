@@ -72,6 +72,7 @@ class StrategyValuationProvider(StrategyDataProvider):
                 if sampled is not None and 0 <= (end - sampled).days <= 14:
                     return {"symbol": symbol, "as_of": sampled, "pb": row.get("pb"),
                             "pe": row.get("pe"), "dp": row.get("dp"),
+                            "pe_snapshot": row.get("pe"), "pe_basis": CURRENT_PE_BASIS,
                             "pb_basis": "官方每日估值", "source_url": CURRENT_URL}
         return {}
 
@@ -132,7 +133,7 @@ class StrategyValuationProvider(StrategyDataProvider):
         end = end or datetime.now().astimezone().date()
         notes = ["公开官方数据未提供可验证的 PB 日频历史，PB 历史分位不可用"]
         history: dict[date, float | None] = {}
-        if provider != "cni" and include_daily_pe:
+        if provider in {"csi", "sse"} and include_daily_pe:
             try:
                 for row in self.fetch_official_history(symbol, end):
                     sampled = _date(row.get("tradeDate"))
@@ -148,6 +149,8 @@ class StrategyValuationProvider(StrategyDataProvider):
                 notes.append(f"官方日频PE请求失败：{type(exc).__name__}: {exc}")
         elif provider == "cni":
             notes.append("国证公开单张 PE 未声明 TTM，不能计算滚动 PE 历史分位")
+        elif provider not in {"csi", "sse"}:
+            notes.append("申万指数估值源不可用，无公开历史分位")
         snapshots = []
         for source in (self._factsheet,):
             try:
@@ -159,7 +162,7 @@ class StrategyValuationProvider(StrategyDataProvider):
             except Exception as exc:  # noqa: BLE001 — 单张网络和 PDF 边界独立降级
                 logger.warning("策略估值单张失败 %s: %s", symbol, exc)
                 notes.append(f"官方月度估值单张请求失败：{type(exc).__name__}: {exc}")
-        if symbol in {"000015", "000922"}:
+        if symbol in CURRENT_NAMES and provider in {"csi", "sse"}:
             try:
                 snapshot = self._source_snapshot("valuation_daily_pb", symbol, provider, end, lambda: self._current_pb(symbol, end))
                 if snapshot:
@@ -171,16 +174,16 @@ class StrategyValuationProvider(StrategyDataProvider):
         samples = sorted((d, value) for d, value in history.items() if value is not None)
         dates = [latest] if latest else []
         values: dict[str, Any] = {"pe_ttm": pe, "pe_as_of": latest if pe is not None else None,
-            "pe_sample_count": len(samples), "pe_basis": "滚动市盈率（官方日频 peg）" if history else "",
+            "pe_sample_count": len(samples), "pe_basis": "官方滚动PE（计算用股本，已与官方单张核对）" if history else "",
             "pe_source_url": HISTORY_URL if history else "", "valuation_valid": False,
             "percentile_sample_start": samples[0][0] if samples else None,
             "percentile_sample_end": samples[-1][0] if samples else None}
-        # 官方peg未完成计算口径核验，所有指数类型都只披露为独立PE字段。
-        values.update(pe_ttm=None, pe_as_of=None, pe_basis="官方日频PE计算口径待核实" if history else "")
-        if pe is not None:
-            values.update(pe_snapshot=pe, pe_snapshot_as_of=latest,
-                          pe_snapshot_basis="官方日频PE，计算口径待核实", pe_snapshot_source_url=HISTORY_URL)
-            notes.append("官方日频PE计算口径待核实，不作为TTM或高低估判断")
+        # 分位统一在提供器内按五年有效交易日计算；缺值或过期不作当前判断。
+        if pe is not None and latest and (end - latest).days <= 14 and len(samples) >= 252:
+            values.update(pe_percentile=round(sum(v <= pe for _, v in samples) / len(samples) * 100, 1),
+                          valuation_valid=True)
+        elif history:
+            notes.append("滚动PE历史样本不足或最新值不可用，不计算当前历史分位")
         if latest and (end - latest).days > 14:
             notes.append(f"官方日频PE过期，最新日期{latest}，仅作历史参考")
         for snapshot in snapshots:
@@ -189,6 +192,9 @@ class StrategyValuationProvider(StrategyDataProvider):
                 notes.append("官方快照代码、日期无效或已过期，已拒绝使用")
                 continue
             pb = _positive(snapshot.get("pb"))
+            dividend = finite_number(str(snapshot.get("dp")).removesuffix("%"))
+            if dividend is not None and dividend >= 0:
+                values["dividend_yield"] = dividend
             if pb is None:
                 notes.append("官方单张未披露 PB 或布局不可解析")
             if pb is not None and (values.get("pb_as_of") is None or sampled >= values["pb_as_of"]):

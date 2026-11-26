@@ -22,3 +22,12 @@ class TestMacroAnalyzer:
         ctx.macro = MacroContext(symbol="801080", fetch_date=datetime.now().astimezone().astimezone().date())
         result = MacroAnalyzer().analyze(ctx)
         assert result.metrics["tag"] == "na"
+
+
+def test_overseas_macro_is_not_adapted():
+    from data.schemas import AnalysisTarget, IndexAnalysisContext
+    from index.analysis.macro import MacroAnalyzer
+    target = AnalysisTarget(target_type="index", symbol="DAX", name="DAX", market="a-shares", index_style="overseas")
+    result = MacroAnalyzer().analyze(IndexAnalysisContext(target=target))
+    assert result.status == "unavailable"
+    assert "尚未适配" in result.summary

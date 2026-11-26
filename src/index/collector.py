@@ -3,6 +3,7 @@ import logging
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from core.pipeline import ProgressCallback
 from core.registry import Registry
@@ -29,6 +30,19 @@ INDEX_COLLECT_LABELS = {
     "index_macro": "采集宏观数据",
     "index_sentiment": "采集舆情数据",
 }
+
+
+def collect_etf_prices(ctx: IndexAnalysisContext, provider: Any) -> None:
+    """采集输入 ETF 的独立前复权行情，失败不阻断指数分析。"""
+    symbol = str((ctx.requested_instrument or {}).get("symbol", ""))
+    if not symbol:
+        return
+    try:
+        ctx.etf_prices = provider.fetch_etf_prices(symbol)
+    except Exception as exc:  # noqa: BLE001 — 独立数据源隔离
+        logger.warning("ETF %s 独立前复权行情采集失败: %s", symbol, exc)
+    if not ctx.etf_prices:
+        ctx.risk_flags.append("ETF自身前复权行情不可用；指数价格表现不能替代ETF表现")
 
 
 class IndexDataCollector:
@@ -149,7 +163,7 @@ class IndexDataCollector:
 
         def _fetch_valuation():
             if target.market == "hk":
-                code = target.official_index_code or {"HSI": "00001.00", "HSTECH": "02083.00"}.get(target.symbol, "")
+                code = target.official_index_code or {"HSI": "00001.00", "HSCEI": "00014.00", "HSTECH": "02083.00"}.get(target.symbol, "")
                 result = self._fetch_hk_pe(target.symbol, code, refresh=True) if refresh_cache else self._fetch_hk_pe(target.symbol, code)
                 ctx.collection_records["index_valuation"] = result.record
                 ctx.valuation_data = result.value
@@ -257,13 +271,21 @@ class IndexDataCollector:
             if on_progress:
                 on_progress("collect", i + 1, total, label)
 
+        if target.market != "hk" and target.index_style != "strategy" and ctx.requested_instrument:
+            from index.strategy_data import StrategyDataProvider
+
+            provider = StrategyDataProvider()
+            provider.refresh_cache = refresh_cache
+            collect_etf_prices(ctx, provider)
+            ctx.risk_flags.extend(provider.refresh_notes)
+            self._checkpoint(ctx)
         return ctx
 
 
     def _collect_strategy(self, ctx: IndexAnalysisContext, on_progress: ProgressCallback, *, refresh_cache: bool = False) -> IndexAnalysisContext:
         """策略仅访问适配的真实数据源，不走旧宽基估值或资金流接口。"""
         from data.index_mapping import IndexMapping
-        from index.valuation_data import CURRENT_NAMES, StrategyValuationProvider
+        from index.valuation_data import StrategyValuationProvider
 
         provider = StrategyValuationProvider()
         provider.refresh_cache = refresh_cache
@@ -299,11 +321,7 @@ class IndexDataCollector:
             ctx.risk_flags.append("官方与独立回退行情源均未取得真实价格")
             return ctx
         try:
-            current_only = price_provider == "csi" and ctx.target.symbol in CURRENT_NAMES
-            if current_only:
-                ctx.valuation_data = provider.fetch_current(ctx.target.symbol)
-            else:
-                ctx.valuation_data = provider.fetch(ctx.target.symbol, provider=price_provider)
+            ctx.valuation_data = provider.fetch(ctx.target.symbol, provider=price_provider)
             valuation = ctx.valuation_data
             available = valuation is not None and any(
                 is_positive_finite(value) for value in (valuation.pe_ttm, valuation.pb, valuation.pe_snapshot, valuation.dividend_yield))
@@ -311,8 +329,6 @@ class IndexDataCollector:
                 note for note in valuation.valuation_notes
                 if any(marker in note for marker in ("失败", "不可用", "过期", "缺失", "未披露", "拒绝", "不足", "未提供估值"))
             ]
-            if available and current_only:
-                degradation.append("当前官方估值只有快照，不含历史分位")
             strategy_record("index_valuation", available, degradation)
         except Exception as exc:  # noqa: BLE001 — 估值数据源隔离，保留专项与行情分析
             logger.warning("策略指数 %s 官方估值采集失败: %s", ctx.target.symbol, exc)
