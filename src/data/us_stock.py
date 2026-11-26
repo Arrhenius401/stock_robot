@@ -510,8 +510,8 @@ def us_financials(ticker: str, max_periods: int = 8, *, refresh_cache: bool = Fa
         balance = {}
     cash = _statement(ticker, "现金流量表")
     periods = sorted(set(income) & (set(balance) | set(cash)))[-max_periods:]
-    if len(periods) < 4:
-        raise ValueError("美股单季报不足四期")
+    if not periods:
+        raise ValueError("美股单季报没有可用报告期")
 
     rows: list[FinancialData] = []
     balance_keys = sorted(balance)
@@ -626,6 +626,12 @@ def us_financials(ticker: str, max_periods: int = 8, *, refresh_cache: bool = Fa
         f"报告期按财季月末展示（源报告日 {date.fromisoformat(periods[-1]).isoformat()}）；"
         "最近四个财季合计为 TTM；期间/币种按源三表逐行保留，缺失不推断；不推断换汇或 ADR 每股比例"
     )
+    if len(rows) < 4:
+        latest.financial_selection_status = "partial"
+        latest.financial_selection_note = (
+            f"仅有 {len(rows)} 个财季；TTM/ROE/PS 需四个财季，暂不计算；"
+            "期间/币种按源三表逐行保留，缺失不推断"
+        )
     if ticker == "BRK.B":
         latest.financial_selection_note += "；F10 代码变体 BRK_B，伯克希尔哈撒韦-B 公司整体报表"
     if latest.field_sources.get("total_assets"):
@@ -704,6 +710,22 @@ def _baidu_metric(ticker: str, metric: str, chart_select: str = "近一年") -> 
         raise ValueError("百度美股估值响应结构异常") from error
 
 
+def _tencent_pb(ticker: str) -> tuple[float | None, date | None]:
+    """腾讯字段 51 仅作为 PB 第二快照，校验代码与源日期。"""
+    response = requests.get(f"https://qt.gtimg.cn/q=us{ticker}", timeout=10)
+    response.raise_for_status()
+    matched = re.search(r'v_us([^=]+)="([^"]*)"', response.content.decode("gbk", errors="replace"))
+    if matched is None or matched[1].upper() != ticker.upper():
+        raise ValueError("腾讯美股快照代码不匹配")
+    fields = matched[2].split("~")
+    raw_date = _field(fields, 30)
+    stamp = _parse_date(raw_date)
+    if stamp is None and len(raw_date) >= 8:
+        stamp = _parse_date(f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}")
+    value = _number(_field(fields, 51))
+    return (value, stamp) if value is not None and stamp is not None else (None, None)
+
+
 def us_valuation(ticker: str) -> list[ValuationData]:
     """百度 PE(TTM)/PB 近一年曲线；快照取各自末值与日期，不伪造 PS。"""
     curves: dict[str, dict[date, float]] = {}
@@ -715,8 +737,6 @@ def us_valuation(ticker: str) -> list[ValuationData]:
         except Exception as error:  # noqa: BLE001 — 第三方估值边界，保留另一指标
             logger.warning("百度美股%s获取失败 %s: %s", metric, ticker, type(error).__name__)
             failed.append(f"{key}_history")
-    if not curves:
-        raise ValueError("百度美股估值不可用")
 
     def latest(key: str) -> tuple[float | None, date | None]:
         points = curves.get(key) or {}
@@ -757,6 +777,7 @@ def us_valuation(ticker: str) -> list[ValuationData]:
         pb=pb,
         pe_as_of=pe_as_of,
         pb_as_of=pb_as_of,
+        pb_source="百度美股估值" if pb is not None else "",
         market_cap=market_cap,
         market_cap_as_of=market_cap_as_of,
         pe_history=curves.get("pe", {}),
@@ -796,6 +817,29 @@ def us_valuation(ticker: str) -> list[ValuationData]:
         item.history_window_label = "近五年"
     else:
         item.valuation_notes.append("百度五年估值暂不可用，保留原近一年数据")
+    if not item.pb_history:
+        start = now.date() - timedelta(days=365)
+        item.pb_history = {day: value for day, value in item.extended_pb_history.items() if day >= start}
+        if item.pb_history:
+            item.pb_as_of = max(item.pb_history)
+            item.pb = item.pb_history[item.pb_as_of]
+            item.pb_source = "百度美股估值"
+            item.failed_components = [key for key in item.failed_components if key != "pb_history"]
+            item.cache_degraded = bool(item.failed_components)
+            item.valuation_notes.append("近一年PB失败，使用同源五年曲线最近一年切片")
+        elif not item.extended_pb_history:
+            try:
+                item.pb, item.pb_as_of = _tencent_pb(ticker)
+                if item.pb is not None:
+                    item.pb_source = "腾讯美股快照PB"
+                    item.valuation_notes.append("腾讯美股快照PB；无同源历史，不计算历史分位")
+            except Exception as error:  # noqa: BLE001 — 第三方快照边界
+                logger.warning("腾讯美股PB失败 %s: %s", ticker, error)
+    if item.pe_ttm is None and item.pb is None:
+        raise ValueError("美股估值不可用")
+    snapshot_dates = [day for day in (item.pe_as_of, item.pb_as_of) if day is not None]
+    if snapshot_dates:
+        item.date = max(snapshot_dates)
     item._data_source = "百度美股估值"
     return [item]
 
