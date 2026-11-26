@@ -107,3 +107,10 @@ def test_latest_period_reason_is_visible_above_empty_metric_summary():
     assert "2026-06-30" in latest_section
     assert "旧期参考·年报" in latest_section
     assert "最新一期·年报" not in latest_section
+
+
+def test_classification_staleness():
+    from report.peer_comparison import format_peer_comparison_markdown
+    text = format_peer_comparison_markdown({"classification_as_of": "2020-01-01"})
+    assert "分类快照：2020-01-01" in text
+    assert "分类快照陈旧，成分可能已变更" in text

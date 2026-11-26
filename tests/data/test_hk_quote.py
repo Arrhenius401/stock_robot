@@ -104,3 +104,34 @@ def test_batch_empty_and_fallback_failure_returns_no_fabricated_quotes(mocker):
     mocker.patch('data.hk_hsics_peers.requests.get', return_value=response)
     mocker.patch('data.hk_eastmoney.stock_snapshot', side_effect=requests.Timeout('离线失败'))
     assert fetch_market_quotes(['00700.HK']) == {}
+
+
+def test_fetch_industry_label_uses_f10_identity(monkeypatch):
+    from data.hk_eastmoney import fetch_industry_label
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"result": {"data": [{"SECUCODE": "00700.HK",
+                                         "BELONG_INDUSTRY": "软件服务"}]}}
+
+    monkeypatch.setattr("data.hk_eastmoney.requests.get", lambda *a, **k: Response())
+    assert fetch_industry_label("00700") == "软件服务"
+
+
+def test_fetch_industry_label_rejects_identity_mismatch(monkeypatch):
+    from data.hk_eastmoney import fetch_industry_label
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"result": {"data": [{"SECUCODE": "09988.HK",
+                                         "BELONG_INDUSTRY": "软件服务"}]}}
+
+    monkeypatch.setattr("data.hk_eastmoney.requests.get", lambda *a, **k: Response())
+    with pytest.raises(ValueError, match="代码不匹配"):
+        fetch_industry_label("00700")

@@ -326,6 +326,8 @@ class HKNewsLink(BaseModel):
 class HKNewsItem(BaseModel):
     """不附带情绪标签的港股新闻候选。"""
     title: str
+    source: str = "news"
+    type: str = ""
     published_at: datetime
     links: list[HKNewsLink] = Field(default_factory=list)
     content: str = ""

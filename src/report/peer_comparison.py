@@ -1,6 +1,7 @@
 """同行对比 Markdown：只格式化共享证据，不重新计算样本或排名。"""
 import html
 import re
+from datetime import date, datetime
 from typing import Any
 
 from utils.numbers import is_finite_number
@@ -117,11 +118,16 @@ def format_peer_comparison_markdown(comparison: dict[str, Any], scoring_method: 
             ["同行市值排名⁹", rank_text], ["估值数据日期", (comparison.get("valuation") or {}).get("as_of")],
             *([["市值数据日期", rank["as_of"]]] if known else []),
         ]), "", "⁹ 排名含本公司；部分同行缺少同日有效市值时按有效样本排名。"]
-        classification = comparison.get("classification_as_of")
-        if classification:
-            lines.append(f"分类快照：{str(classification)[:10]}（分类刷新失败时可能为旧快照）")
     else:
         lines += ["", f"同行范围：{_text(comparison.get('scope'))}；同行总数：{comparison.get('peer_count', 0)} 家。"]
+    classification = comparison.get("classification_as_of")
+    if classification:
+        lines.append(f"分类快照：{_text(classification)}")
+        try:
+            if (datetime.now().astimezone().date() - date.fromisoformat(str(classification))).days > 30:
+                lines.append("分类快照陈旧，成分可能已变更")
+        except ValueError:
+            lines.append("分类快照日期无效")
     lines += ["", "#### 估值对比", ""]
     lines += _block(comparison.get("valuation") or {}, compact=compact)
     periods = comparison.get("periods") or {}

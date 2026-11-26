@@ -81,7 +81,7 @@ def financial_report_directory(code: str) -> list[dict[str, Any]]:
 
 def stock_snapshot(code: str, *, timeout: float = 10) -> dict[str, Any]:
     response = requests.get("https://push2.eastmoney.com/api/qt/stock/get", params={
-        "secid": f"116.{code}", "fields": "f43,f57,f58,f84,f85,f86,f116,f117,f164,f167", "fltt": "2", "invt": "2",
+        "secid": f"116.{code}", "fields": "f43,f57,f58,f84,f85,f86,f100,f116,f117,f164,f167", "fltt": "2", "invt": "2",
     }, timeout=timeout)
     response.raise_for_status()
     data = response.json().get("data")
@@ -150,3 +150,26 @@ def parse_tencent_hk_quotes(text: str) -> dict[str, dict[str, Any]]:
         output[symbol] = {"symbol": symbol, "name": fields[1], "as_of": day.isoformat(),
                           "market_cap": cap * 1e8, "source": "腾讯港股快照"}
     return output
+
+
+def fetch_industry_label(code: str, *, timeout: float = 10) -> str:
+    """东财 F10 公司资料的行业标签；只作非港股通回退，不冒充 HSICS。"""
+    response = requests.get("https://datacenter.eastmoney.com/securities/api/data/v1/get", params={
+        "reportName": "RPT_HKF10_INFO_ORGPROFILE",
+        "columns": "SECUCODE,SECURITY_CODE,BELONG_INDUSTRY,INDUSTRY_TYPE",
+        "filter": f'(SECUCODE="{code}.HK")', "pageNumber": "1", "pageSize": "1",
+        "source": "F10", "client": "PC",
+    }, timeout=timeout)
+    response.raise_for_status()
+    payload = response.json()
+    result = payload.get("result") if isinstance(payload, dict) else None
+    rows = result.get("data") if isinstance(result, dict) else None
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+        raise ValueError("东财港股行业资料缺失或行数异常")
+    row = rows[0]
+    if row.get("SECUCODE") != f"{code}.HK":
+        raise ValueError("东财港股行业资料代码不匹配")
+    label = str(row.get("BELONG_INDUSTRY") or row.get("INDUSTRY_TYPE") or "").strip()
+    if not label or label in {"-", "--", "N/A", "暂无数据"}:
+        raise ValueError("东财港股行业资料没有有效行业")
+    return label

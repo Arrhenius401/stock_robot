@@ -1480,9 +1480,28 @@ class AkShareAdapter(DataSource):
 
             return us_news(symbol, str(kwargs.get("name") or ""))
         if kwargs.get("market") == "hk":
+            from data.hk_announcements import fetch_announcements
             from data.hk_news import fetch_news
+            from data.schemas import HKNewsItem, HKNewsLink, HKNewsSnapshot
 
-            snapshot = fetch_news(symbol, kwargs.get("name", ""))
+            try:
+                snapshot = fetch_news(symbol, kwargs.get("name", ""))
+            except Exception as exc:
+                logger.warning("港股新闻获取失败：%s", exc)
+                from data.hk_news import HK_TZ
+                snapshot = HKNewsSnapshot(fetched_at=datetime.now(HK_TZ), query_errors=["新闻查询失败"])
+            try:
+                announcements = fetch_announcements(symbol)
+                snapshot.items.extend(HKNewsItem(
+                    title=item["title"], type=item["type"], source="announcement",
+                    published_at=item["published_at"], content=item.get("content", ""),
+                    links=[HKNewsLink(media="HKEXnews", url=item["url"])]) for item in announcements)
+                snapshot.items.sort(key=lambda item: item.published_at, reverse=True)
+            except Exception as exc:
+                logger.warning("HKEXnews 公告查询失败：%s", exc)
+                snapshot.query_errors.append("HKEXnews公告查询失败")
+                if not snapshot.items and "新闻查询失败" in snapshot.query_errors:
+                    raise RuntimeError("港股新闻与公告均获取失败") from exc
             return [NewsData(symbol=symbol, date=snapshot.fetched_at.date(), hk_news=snapshot,
                              headlines=[item.title for item in snapshot.items])]
         from data.hk_news import HK_TZ

@@ -96,8 +96,8 @@ class SentimentAnalyzer(AnalysisModule):
                                   summary=f"本次取得新闻 {len(titles)} 条",
                                   metrics=metrics)
         es = context.enriched_sentiment
-        if (es is None and assessment_inputs(context)) or (
-                es is not None and es.assessment_status in {"failed", "unavailable"}):
+        if context.market != "hk" and ((es is None and assessment_inputs(context)) or (
+                es is not None and es.assessment_status in {"failed", "unavailable"})):
             inputs = mark_related(assessment_inputs(context), name=context.name, symbol=context.symbol)
             return AnalysisResult(dimension=self.dimension, status="partial", score=None,
                 summary="未获得有效模型评估，相关性仅按名称/代码匹配",

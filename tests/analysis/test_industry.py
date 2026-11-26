@@ -23,6 +23,16 @@ def make_ctx(**kwargs) -> AnalysisContext:
 
 
 class TestIndustryAnalyzer:
+    def test_hk_fallback_is_partial_without_score(self):
+        from data.hk_hsics_peers import fallback_industry
+
+        ctx = make_ctx(symbol="01234.HK", name="测试", market="hk",
+                       industry_data=fallback_industry("01234.HK", {"f100": "软件服务"}))
+        result = IndustryAnalyzer().analyze(ctx)
+        assert result.status == "partial"
+        assert result.score is None
+        assert "东财行业（非恒生HSICS）" in result.summary
+
     def test_dimension_is_industry(self):
         assert IndustryAnalyzer().dimension == "industry"
 

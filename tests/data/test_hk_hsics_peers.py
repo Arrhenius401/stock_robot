@@ -438,3 +438,20 @@ def test_market_cap_rank_excludes_other_quote_day():
     assert data is not None
     rank = data.comparison_snapshot['market_cap_rank']
     assert rank['rank'] == 1 and rank['coverage'] == '2/3'
+
+
+def test_classification_date_and_fallback(monkeypatch):
+    data = peers.build_industry_data("00700.HK", [], MEMBERS, CONNECT,
+                                     classification_as_of="2026-10-23")
+    assert data is not None
+    assert data.comparison_snapshot["classification_as_of"] == "2026-10-23"
+    fallback = peers.fallback_industry("01234.HK", {"f100": "软件服务"})
+    assert fallback is not None
+    assert fallback.industry == "软件服务"
+    assert not fallback.comparison_ready
+    assert fallback.peers == []
+    monkeypatch.setattr("data.hk_eastmoney.fetch_industry_label", lambda _code: "软件服务")
+    assert peers.fallback_industry("01234.HK", {}).industry == "软件服务"
+    monkeypatch.setattr("data.hk_eastmoney.fetch_industry_label",
+                        lambda _code: (_ for _ in ()).throw(ValueError("无行业")))
+    assert peers.fallback_industry("01234.HK", {}) is None

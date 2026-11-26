@@ -23,6 +23,12 @@ class IndustryAnalyzer(AnalysisModule):
         )
 
     def _analyze_hk(self, context: AnalysisContext) -> AnalysisResult:
+        data = context.industry_data
+        if data is not None and data.peer_scope == "东财行业（非恒生HSICS）":
+            return AnalysisResult(dimension=self.dimension, status="partial", score=None,
+                                  summary=f"东财行业（非恒生HSICS）：{data.industry}",
+                                  metrics={"industry": data.industry, "peer_scope": data.peer_scope},
+                                  score_detail="非港股通/未映射HSICS，不做同行对比")
         try:
             connect = load_connect_symbols()
             members = load_hsics_members()
