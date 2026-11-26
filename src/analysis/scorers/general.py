@@ -105,7 +105,7 @@ class GeneralScorer(BaseScorer):
                     if value > item.get("extra_config", {}).get("extreme_threshold", 90):
                         risks.append("high_debt")
                 else:
-                    reason = "最新资产/权益来源或同口径证据不足"
+                    reason = "最新资产/权益来源、币种核验或同口径证据不足"
             elif key == "cashflow_match":
                 if cashflow_compatible(latest):
                     profit, cash = latest.net_profit, latest.operating_cash_flow

@@ -33,6 +33,8 @@ def debt_ratio(row: FinancialData) -> float | None:
     if (left or right) and (not left or not right or any(
             left.get(k) != right.get(k) for k in ("currency", "unit", "scope", "basis", "revision"))):
         return None
+    if row.symbol.endswith(".HK") and (not left.get("currency") or not right.get("currency")):
+        return None
     value = (1 - equity / assets) * 100
     return value if is_finite_number(value) else None
 

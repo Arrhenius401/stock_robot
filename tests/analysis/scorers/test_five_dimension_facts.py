@@ -65,7 +65,8 @@ def test_real_yaml_roe_ratio_and_missing_items_scale_to_ten():
 
 def test_valid_zero_roe_remains_in_denominator():
     scoring, ctx = scorer(0, total_assets=100, total_equity=50)
-    assert scoring.score_financial(ctx)[0] == 4
+    assert scoring.score_financial(ctx)[0] == 0
+    assert "币种核验" in scoring.score_financial(ctx)[1]
 
 
 def test_missing_annual_and_single_gross_margin_have_no_score():
@@ -183,12 +184,13 @@ def test_financial_status_uses_applicable_scoring_coverage():
                                  gross_margin=.41, gross_margin_basis="披露毛利"))
     ctx.sufficiency.financial = DimensionSufficiency(level=SufficiencyLevel.PARTIAL)
     result = FinancialAnalyzer().analyze(ctx, scoring.config)
-    assert result.status == "ok"
-    assert result.metrics["scoring_basis"] == {"available_max": 10, "eligible_max": 10, "reasons": []}
+    assert result.status == "partial"
+    assert result.metrics["scoring_basis"]["available_max"] == 8
+    assert "币种核验" in result.score_detail
     financials(ctx).pop()
     result = FinancialAnalyzer().analyze(ctx, scoring.config)
     assert result.status == "partial"
-    assert result.metrics["scoring_basis"]["available_max"] == 8
+    assert result.metrics["scoring_basis"]["available_max"] == 6
 
 
 def test_hk_nonconnect_uses_local_hsics_without_gaining_peers(mocker):

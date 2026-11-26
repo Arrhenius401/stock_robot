@@ -105,7 +105,9 @@ class FinancialAnalyzer(AnalysisModule):
         equity = (equity_row.common_equity if equity_row.common_equity is not None else equity_row.total_equity) if equity_row else None
         if equity_row is not None:
             equity_field = "common_equity" if equity_row.common_equity is not None else "total_equity"
-            if equity_row.field_precision.get(equity_field) != "source_native":
+            if (equity_row.field_precision.get(equity_field) != "source_native"
+                    or context.market == "hk" and (not equity_row.field_positions.get(equity_field, {}).get("currency")
+                        or equity_row.field_positions[equity_field]["currency"] != latest.report_currency)):
                 equity = None
         if equity is not None and equity <= 0:
             metrics["roe"] = "净资产为负，ROE 不适用" if equity < 0 else "净资产为零，ROE 不适用"
@@ -141,7 +143,24 @@ class FinancialAnalyzer(AnalysisModule):
         metrics["cash_flow_period"] = f"TTM，截至 {latest.fiscal_quarter.isoformat()}；自由现金流 = 经营活动现金流 − 资本开支；缺失不填零"
 
         if context.market == "hk" and latest.capital_expenditure is None and latest.free_cash_flow is None:
-            metrics["cash_flow_period"] = "港股F10现金流仅提供汇总项，资本开支/自由现金流明细不可用"
+            metrics["cash_flow_period"] = "港股最新报告期无完整资本开支明细；TTM 不可用"
+
+        if context.market == "hk" and not not_applicable:
+            if equity is None:
+                metrics["roe_basis"] += "；权益金额或币种未核实，跳过 ROE"
+            if metrics.get("capital_expenditure") is None:
+                annual = next((row for row in sorted_data
+                               if row.period_start is not None
+                               and 330 <= (row.fiscal_quarter - row.period_start).days <= 370
+                               and row.capital_expenditure is not None
+                               and row.amount_currency_verified and row.report_currency
+                               and row.field_precision.get("capital_expenditure") == "source_native"), None)
+                if annual is not None:
+                    metrics["capital_expenditure_latest"] = annual.capital_expenditure
+                    metrics["free_cash_flow_latest"] = annual.free_cash_flow
+                    metrics["cash_flow_latest_period"] = f"{annual.fiscal_quarter}，最近完整年度，非 TTM；{annual.report_currency}"
+                    metrics["cash_flow_period"] = f"TTM 不可用；最近完整年度 {annual.fiscal_quarter.isoformat()}，非 TTM"
+                    metrics["cash_flow_limitation"] = "最新期间资本开支不完整，展示最近完整年度，非 TTM"
 
         roe_trend = []
         for d in sorted_data[:8]:

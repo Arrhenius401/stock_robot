@@ -74,3 +74,15 @@ def test_compact_peer_table_shows_partial_coverage_rank():
     md = format_peer_comparison_markdown(comparison, compact=True)
     assert "第 1／5 家（同日有效覆盖 5/17）" in md
     assert "暂缺" not in md
+
+
+def test_annual_cashflow_fallback_is_distinguished_from_ttm():
+    view = prepare_table('financial', {
+        'capital_expenditure': None, 'capital_expenditure_latest': 100000000,
+        'free_cash_flow_latest': 200000000,
+        'cash_flow_latest_period': '2025-12-31，最近完整年度，非 TTM；HKD',
+    })
+    text = str(view)
+    assert '均为 TTM' not in text
+    assert 'capital_expenditure_latest' not in text
+    assert '1.00 亿' in text and '非 TTM' in text

@@ -45,6 +45,12 @@ logger = logging.getLogger(__name__)
 _THS_GROSS_MARGIN_BASIS = "同花顺财务摘要-销售毛利率（摘要口径，未重算）"
 
 
+def _hk_capex(cash: dict[str, Any]) -> float | None:
+    """两项购建支出均存在才计算完整资本开支；零值有效。"""
+    fixed, other = (finite_number(cash.get(code)) for code in ("005005", "005007"))
+    return abs(fixed) + abs(other) if fixed is not None and other is not None else None
+
+
 def _hk_history_window(fetch, code: str, metric: str) -> tuple[dict[date, float], int, str]:
     """百度长窗优先五年，失败或空值回退三年，均失败保留短窗。"""
     from utils.numbers import is_positive_finite
@@ -1083,7 +1089,9 @@ class AkShareAdapter(DataSource):
         assets, cash_flows = supplement("资产负债表"), supplement("现金流量表")
         income_meta = period_metadata(income)
         from data.hk_currency_evidence import (
+            _close,
             load_indicator_periods,
+            verify_balance,
             verify_cash_flow,
             verify_period,
         )
@@ -1102,7 +1110,6 @@ class AkShareAdapter(DataSource):
                 })
 
         cash_meta = period_metadata(statement_rows.get("现金流量表", []))
-        balance_meta = period_metadata(statement_rows.get("资产负债表", []))
         directory_meta: dict[date, tuple[date | None, str, str]] = {}
         try:
             grouped: dict[date, set[tuple[date | None, str, str]]] = {}
@@ -1164,10 +1171,17 @@ class AkShareAdapter(DataSource):
                 total_assets, total_equity, common_equity = "004009999", "004036999", "004030999"
             # 营业额不是营运收入；归母权益不是包含少数股东的总权益，分别保留。
             margin = margins.get(period) if start is not None and not bank_template else None
-            parts = [cf.get(key) for key in ("005005", "005007")]
-            capex = sum(abs(value) for value in parts if value is not None) if any(value is not None for value in parts) and not bank_template else None
+            capex = _hk_capex(cf) if not bank_template else None
             ocf = cf.get("003999")
             indicator = indicators.get(period)
+            bs_verified, bs_currency, _bs_reason = verify_balance(
+                period, statement_rows.get("资产负债表", []), indicator)
+            bs_currency = bs_currency if bs_verified else ""
+            balance_assets, balance_equity = bs.get(total_assets), bs.get(total_equity)
+            equity_verified = bool(bs_verified and indicator and _close(
+                balance_assets - balance_equity
+                if balance_assets is not None and balance_equity is not None else None,
+                indicator.get("TOTAL_LIABILITIES")))
             evidence = verify_period(period, start, income, indicator, bank=bank_template)
             currency = evidence.currency if evidence.verified else ""
             verified = evidence.verified
@@ -1205,16 +1219,17 @@ class AkShareAdapter(DataSource):
                     row_data.net_margin_basis = "计算值：净利润÷营业收入（报告期口径）；仅展示"
                 for name, definition in (("revenue", "revenue"), ("net_profit", "parent_net_profit"),
                                          ("operating_cash_flow", "operating_cash_flow"),
-                                         ("total_assets", "total_assets"), ("total_equity", "total_equity")):
+                                         ("total_assets", "total_assets"), ("total_equity", "total_equity"),
+                                         ("common_equity", "parent_equity")):
                     if getattr(row_data, name) is None:
                         continue
-                    instant = name in {"total_assets", "total_equity"}
+                    instant = name in {"total_assets", "total_equity", "common_equity"}
                     cash_field = name == "operating_cash_flow"
                     cash_verified = cash_field and cf_verified
                     row_data.field_positions[name] = {
                         "definition": definition, "unit": "currency",
                         "currency": (currency if cash_verified else "") if cash_field
-                        else balance_meta.get(period, (None, ""))[1] if instant else currency,
+                        else (bs_currency if name != "total_equity" or equity_verified else "") if instant else currency,
                         "start": (start.isoformat() if cash_verified and start else
                                   (cf_start.isoformat() if cf_start else "")) if cash_field
                         else (period if instant else start).isoformat(),

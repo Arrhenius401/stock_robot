@@ -43,3 +43,11 @@ def test_hk_net_margin_is_derived_with_basis():
     row = hk_row(net_margin=0.2, net_margin_basis="计算值：净利润÷营业收入（报告期口径）")
     assert row.net_margin == 0.2
     assert "计算值" in row.net_margin_basis
+
+
+def test_hk_capex_requires_both_annual_components():
+    from data.akshare import _hk_capex
+    assert _hk_capex({'005005': -100, '005007': 50}) == 150
+    assert _hk_capex({'005005': 100}) is None
+    assert _hk_capex({'005007': 50}) is None
+    assert _hk_capex({'005005': 0, '005007': 0}) == 0

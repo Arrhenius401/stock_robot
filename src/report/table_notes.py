@@ -85,7 +85,9 @@ def prepare_table(dimension: str, metrics: dict[str, Any]) -> dict[str, Any]:
             elif "毛利/" in gross or "毛利／" in gross or "派生" in gross:
                 notes.append("毛利率由毛利／收入计算，非直接披露。")
         if any(key in metrics for key in ("operating_cash_flow", "capital_expenditure", "free_cash_flow")):
-            notes.append("³ 均为 TTM；自由现金流已扣资本开支。")
+            notes.append("³ 常规现金流字段为 TTM，缺失不补零；最近完整年度字段为非 TTM；自由现金流已扣资本开支。"
+                         if metrics.get("cash_flow_latest_period")
+                         else "³ 均为 TTM；自由现金流已扣资本开支。")
             if "推算" in str(metrics.get("cash_flow_source", "")):
                 notes.append("现金流为推算值，非直接披露。")
             elif "证据不足" in str(metrics.get("cash_flow_source", "")):

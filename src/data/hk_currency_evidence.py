@@ -124,3 +124,28 @@ def verify_cash_flow(start: date | None, cash_flow: Any,
     if not math.isclose(float(cash_flow), derived, rel_tol=1e-4, abs_tol=1.0):
         return False, "经营现金流与指标 OCF_SALES 反推值不一致"
     return True, ""
+
+
+def verify_balance(period: date, balance_rows: list[dict[str, Any]],
+                   indicator: dict[str, Any] | None) -> tuple[bool, str, str]:
+    """总资产与归母权益同时匹配，才接受资产负债表金额币种。"""
+    if indicator is None or _date(indicator.get("REPORT_DATE")) != period:
+        return False, "", "分析指标与资产负债表报告期不一致"
+    currency = FinancialData.normalize_report_currency(indicator.get("CURRENCY"))
+    if not currency:
+        return False, "", "分析指标未提供有效币种"
+    selected = [row for row in balance_rows if _date(row.get("REPORT_DATE")) == period]
+    identities = {str(row.get("SECUCODE", "")) for row in selected}
+    if len(identities) != 1 or not next(iter(identities), "").endswith(".HK"):
+        return False, currency, "资产负债表身份缺失或冲突"
+    amounts: dict[str, float | None] = {}
+    for row in selected:
+        explicit = FinancialData.normalize_report_currency(row.get("CURRENCY_CODE") or row.get("CURRENCY"))
+        code, value = str(row.get("STD_ITEM_CODE")), finite_number(row.get("AMOUNT"))
+        if explicit and explicit != currency or code in amounts and amounts[code] != value:
+            return False, currency, "资产负债表金额或币种不一致"
+        amounts[code] = value
+    if not all(_close(amounts.get(code), indicator.get(key)) for code, key in (
+        ("004009999", "TOTAL_ASSETS"), ("004030999", "TOTAL_PARENT_EQUITY"))):
+        return False, currency, "资产负债表核验科目缺失或金额与指标接口不一致"
+    return True, currency, ""
