@@ -51,6 +51,48 @@ def _hk_capex(cash: dict[str, Any]) -> float | None:
     return abs(fixed) + abs(other) if fixed is not None and other is not None else None
 
 
+def _hk_trading_days(code: str, start: date, end: date) -> tuple[set[date], str]:
+    """日线只提供长窗校验日期；不提供或派生任何估值数值。"""
+    def dates(lines, *, eastmoney=False) -> set[date]:
+        result = set()
+        for line in lines:
+            try:
+                fields = line.split(",") if eastmoney else line
+                day = _parse_date(fields[0])
+                if start <= day <= end and day.weekday() < 5:
+                    result.add(day)
+            except (ValueError, TypeError, IndexError, AttributeError) as error:
+                logger.debug("跳过交易日历异常日期：%s", error)
+        return result
+
+    try:
+        lines = []
+        for year in range(start.year, end.year + 1):
+            rows = tencent_history(code, str(max(start, date(year, 1, 1))),
+                                   str(min(end, date(year, 12, 31))), 400)
+            if not rows:
+                raise ValueError(f"{year} 年腾讯日线为空")
+            lines.extend(rows)
+        days = dates(lines)
+        if not days:
+            raise ValueError("腾讯日线无有效交易日期")
+        return days, f"长窗交易日历：腾讯港股日线，{start} 至 {end}，{len(days)} 个日期；估值数值仍来自百度"
+    except Exception as error:  # 第三方日历边界；失败才使用独立备用源
+        reason = f"腾讯日历失败（{type(error).__name__}：{str(error)[:180]}）"
+        logger.warning("%s", reason)
+    try:
+        days = dates(daily_history(code, start.strftime("%Y%m%d"), end.strftime("%Y%m%d"),
+                                   (end - start).days + 1), eastmoney=True)
+        if not days:
+            raise ValueError("东财日线无有效交易日期")
+        return days, (f"长窗交易日历回退成功：东方财富港股日线，{start} 至 {end}，{len(days)} 个日期；"
+                      f"{reason}；仅用于日历校验，估值数值仍来自百度")
+    except Exception as error:  # 第三方日历边界；双源失败不接受百度周末采样
+        message = f"长窗交易日历不可用：{reason}；东财日历失败（{type(error).__name__}：{str(error)[:180]}）"
+        logger.warning("%s", message)
+        return set(), message
+
+
 def _hk_history_window(fetch, code: str, metric: str) -> tuple[dict[date, float], int, str]:
     """百度长窗优先五年，失败或空值回退三年，均失败保留短窗。"""
     from utils.numbers import is_positive_finite
@@ -1431,15 +1473,14 @@ class AkShareAdapter(DataSource):
         item.pe_history, item.pb_history = pe_curve, pb_curve
         item.history_source = "百度港股估值（近一年）" if curves else ""
         if pe is not None and pb is not None and len(curves) == 2:
+            trading_days: set[date] = set()
             try:
                 start = today - timedelta(days=1827)
                 last_closed = today if datetime.now(timezone(timedelta(hours=8))).hour >= 17 else today - timedelta(days=1)
-                trading_days = {
-                    _parse_date(quote[0])
-                    for year in range(start.year, last_closed.year + 1)
-                    for quote in tencent_history(code, str(max(start, date(year, 1, 1))),
-                                                 str(min(last_closed, date(year, 12, 31))), 400)
-                }
+                trading_days, calendar_note = _hk_trading_days(code, start, last_closed)
+                notes.append(calendar_note)
+                if not trading_days:
+                    raise ValueError("双源交易日历均不可用，未使用百度日期充当交易日")
                 windows = []
                 for metric, attribute in (("市盈率(TTM)", "extended_pe_history"), ("市净率", "extended_pb_history")):
                     baseline = curves.get(metric, {})
@@ -1456,14 +1497,17 @@ class AkShareAdapter(DataSource):
                     setattr(item, attribute, points)
                     if getattr(item, attribute):
                         windows.append((days, label))
+                    else:
+                        notes.append(f"百度{metric}五年/三年估值源未取得通过校验的采样点；日历可用，详见取数/校验日志")
                 if item.extended_pe_history or item.extended_pb_history:
                     item.history_window_days, item.history_window_label = min(windows)
                     start = today - timedelta(days=item.history_window_days)
                     item.extended_pe_history = {d: v for d, v in item.extended_pe_history.items() if d >= start}
                     item.extended_pb_history = {d: v for d, v in item.extended_pb_history.items() if d >= start}
             except Exception as error:
-                logger.warning("百度港股长窗估值未验证，保留近一年数据: %s", error)
-                notes.append("百度长窗估值暂不可用，保留原近一年数据")
+                logger.warning("港股长窗未验证，保留近一年数据: %s", error)
+                notes.append(("长窗交易日历不可用" if not trading_days else "百度长窗估值源或校验失败")
+                             + f"：{error}；保留原近一年数据")
                 item.extended_pe_history = {}
                 item.extended_pb_history = {}
         item.valuation_notes = notes
