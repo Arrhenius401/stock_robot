@@ -231,3 +231,18 @@ if(box.textContent.includes("515300")) throw new Error("未知市场显示A股ET
     script = script.replace("__API__", json.dumps(_module_url("src/api/static/js/api.js")))
     script = script.replace("__INDEX__", json.dumps(_module_url("src/api/static/js/indexview.js")))
     _run_node(tmp_path, script)
+
+
+def test_index_news_without_publish_date_omits_placeholder(tmp_path):
+    script = _DOM_STUB + r"""
+const {renderIndexReport}=await import(__RENDERER__);
+const article=renderIndexReport({market:'a-shares',code:'000300',name:'沪深300',overview:{},
+  data_quality:{status:'partial'},visible_sections:['sentiment'],
+  section_sentiment:{status:'ok',summary:'',display:{items:[
+    {title:'标题',source:'未记录',url:'https://example.com/a'}]}}});
+const text=article.textContent;
+if(!text.includes('标题')||!text.includes('来源'))throw Error('新闻标题或来源缺失');
+if(text.includes('（日期未记录）')||text.includes('（未记录）'))throw Error('缺失日期或来源仍显示占位');
+"""
+    script = script.replace("__RENDERER__", json.dumps(_module_url("src/api/static/js/report-renderer.js")))
+    _run_node(tmp_path, script)

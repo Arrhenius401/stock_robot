@@ -80,7 +80,10 @@ def test_missing_fx_exposes_reason_and_never_mixes_currencies():
 
 
 def test_markdown_json_web_contract_and_push_share_fact(fx):
-    ctx = cny_context(context("00700.HK", "CNY"))
+    raw = context("00700.HK", "CNY")
+    raw.current_quote = {"status": "ok", "symbol": "00700.HK", "price": 11,
+                         "quoted_at": "2025-12-31T14:16:55+08:00", "source": "腾讯港股快照"}
+    ctx = cny_context(raw)
     results = [FinancialAnalyzer().analyze(ctx), ValuationAnalyzer().analyze(ctx)]
     payload = build_stock_payload(ctx.symbol, ctx.name, results, {}, ctx, no_llm=True)
     markdown = build_report(ctx.symbol, ctx.name, results, {}, ctx, no_llm=True)
@@ -89,8 +92,20 @@ def test_markdown_json_web_contract_and_push_share_fact(fx):
     assert payload["dimensions"]["financial"]["metrics"]["basic_eps"] == 2
     assert payload["currency_conversion"]["financial"][0]["source"]["report_currency"] == "CNY"
     assert "8.80" in markdown and "8.8" in push
-    for text in (markdown, push, payload["overview"]["current_price"]["note"]):
-        assert "展示 CNY" in text and "源币种 HKD" in text and "2025-12-31" in text
+    assert "人民币折算 HKD→CNY 0.8（2025-12-31，ECB）" in markdown
+    assert "展示 CNY" in push and "源币种 HKD" in push and "2025-12-31" in push
+    note = payload["overview"]["current_price"]["note"]
+    assert note == "交易中；2025-12-31 14:16 UTC+8；人民币折算 HKD→CNY 0.8（2025-12-31，ECB）"
+    for internal in ("currency_conversion", "行情价格及区间高低价", "当前报价：", "展示 CNY", "源币种 HKD"):
+        assert internal not in note
+    assert "| 行情来源 | 腾讯港股快照 |" in markdown
+
+
+def test_markdown_hides_duplicate_source_row_for_close_fallback(fx):
+    ctx = cny_context(context("00700.HK", "CNY"))
+    markdown = build_report(ctx.symbol, ctx.name, [], {}, ctx, no_llm=True)
+    assert "报价暂不可用，回退日线收盘价；截至 2025-12-31" in markdown
+    assert "| 行情来源 |" not in markdown
 
 
 def test_unknown_source_currency_and_missing_period_are_not_converted():

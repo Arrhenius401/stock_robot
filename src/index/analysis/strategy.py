@@ -14,6 +14,17 @@ def _fcf(record: AnnualFinancialSnapshot) -> float | None:
     return cash - capex if cash is not None and capex is not None and capex >= 0 else None
 
 
+def strategy_methodology(kind: str) -> str:
+    """只解释该策略实际展示的指标，避免通用长文掺入无关口径。"""
+    if kind == "free_cash_flow":
+        return ("自由现金流=年度经营现金流−购建长期资产现金支出；参考企业价值=同日总市值+最新公开总负债−货币资金。"
+                "指标按数据齐全成分股的权重加权，覆盖率不足80%时标为样本估算，缺失不填零。"
+                "仅使用采样日前已公开的数据；不代表官方计算结果或历史回测。")
+    return ("股息率=同年度已实施中期及末期每股派息÷采样股价，非TTM；连续分红与变异系数按最近三个完整财报年度计算。"
+            "指标按数据齐全成分股的权重加权，覆盖率不足80%时标为样本估算，缺失不填零。"
+            "仅使用采样日前已公开的数据；不代表官方计算结果或历史回测；分红金额不调整历史送转股。")
+
+
 class IndexStrategyAnalyzer(AnalysisModule):
     @property
     def dimension(self) -> Literal["index_strategy"]:
@@ -106,7 +117,7 @@ class IndexStrategyAnalyzer(AnalysisModule):
             "industry_coverage_pct": round(sum(industries.values()), 4),
             "industry_weights": [{"industry": k, "weight_pct": round(v, 4)} for k, v in sorted(industries.items(), key=lambda kv: kv[1], reverse=True)],
             "financial_years": years, "market_cap_dates": sorted(dates), "indicators": indicators, "errors": snapshot.errors,
-            "methodology": "自由现金流=年度经营现金流-购建固定/无形等长期资产现金支出；参考企业价值=同日总市值+最新公开总负债-货币资金。股息率采用同年度中期及末期已实施每股派息/采样股价，非TTM。所有财报公告/修订及实施日期不晚于采样日；权重日期、财报年度、市值日期独立展示。指标按覆盖样本权重加权平均；低于80%称已覆盖样本估算，缺失不填零。不构成官方因子复现或历史回测；分红金额不调整历史送转股。",
+            "methodology": strategy_methodology(snapshot.strategy_kind),
         }
         sufficient = all(i["coverage_pct"] >= 80 for i in indicators) and 99 <= total_weight <= 100.5
         summary = f"官方权重覆盖 {total_weight:.2f}%，前十大集中度 {metrics['top10_weight_pct']:.2f}%；各指标按独立覆盖率展示"

@@ -1046,7 +1046,8 @@ function commentarySection(report, sectionIdPrefix, options) {
 function qualitySection(report, sectionIdPrefix) {
   const card = section("report-quality", "数据覆盖与时效", "panel", sectionIdPrefix);
   const quality = record(report.data_quality);
-  const currentPriceSource = record(record(report.overview).current_price).source;
+  const currentPrice = record(record(report.overview).current_price);
+  const currentPriceSource = currentPrice.kind === "close_fallback" ? "" : currentPrice.source;
   if (currentPriceSource) card.appendChild(el("p", "dim-sum", `当前价格来源：${naturalText(currentPriceSource)}`));
   const dimensions = Array.isArray(quality.dimensions) ? quality.dimensions.map(record) : [];
   const fallbackRows = dimensions.map(d => {
@@ -1278,11 +1279,13 @@ export function renderIndexReport(report, options = {}) {
       const list = el("ul", "report-metric-list sentiment-source-list");
       for (const item of items) {
         const li = el("li");
-        li.appendChild(el("span", "", `${readable(item.title, "未记录标题")}（${readable(item.published_at, "日期未记录")}）`));
+        const published = readable(item.published_at, "");
+        li.appendChild(el("span", "", `${readable(item.title, "未记录标题")}${published ? `（${published}）` : ""}`));
         const url = safeNewsUrl(item.url);
-        const source = readable(item.source, "来源未标注");
-        if (url) { const link = el("a", "sentiment-source-link", source); link.setAttribute("href", url); link.setAttribute("target", "_blank"); link.setAttribute("rel", "noopener noreferrer"); li.appendChild(link); }
-        else li.appendChild(el("span", "peer-caption", ` · ${source}`));
+        const rawSource = readable(item.source, "");
+        const source = rawSource && rawSource !== "未记录" ? rawSource : "";
+        if (url) { const link = el("a", "sentiment-source-link", source || "来源"); link.setAttribute("href", url); link.setAttribute("target", "_blank"); link.setAttribute("rel", "noopener noreferrer"); li.appendChild(link); }
+        else if (source) li.appendChild(el("span", "peer-caption", ` · ${source}`));
         list.appendChild(li);
       }
       const details = el("details", "sentiment-sources");

@@ -93,8 +93,8 @@ def test_quality_labels_snapshot_without_daily_samples():
     quality = build_quality(ctx, {"valuation": {"status": "partial", "metrics": {}}})
     fields = {field["label"]: field["value"] for dimension in quality["dimensions"]
               if dimension["key"] == "valuation" for field in dimension["fields"]}
-    assert "PE日频样本0个" in fields["样本范围"]
-    assert "PE快照13.04" in fields["样本范围"]
+    assert "PE 无日频样本" in fields["样本范围"]
+    assert "PE 快照 13.04" in fields["样本范围"]
 
 
 def test_cache_fallback_keeps_original_collection_time(monkeypatch):

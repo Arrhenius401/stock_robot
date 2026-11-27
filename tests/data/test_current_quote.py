@@ -44,19 +44,25 @@ def test_weekend_quote_keeps_actual_date(mocker):
     quote = collect_current_quote("a-shares", "002714", daily_end="2026-11-20",
                                   now=datetime.fromisoformat("2026-11-21T10:00:00+08:00"))
     display = price_presentation(quote, 46.3, "2026-11-20")
-    assert "休市" in display["note"] and "2026-11-20" in display["note"]
+    assert quote["market_state"] == "休市"
+    assert display["note"] == "休市；2026-11-20 15:00 UTC+8"
 
 
 @pytest.mark.parametrize("market,symbol,path", [
     ("a-shares", "002714", "data.latest_quote.load_latest_quote"),
     ("hk", "00700.HK", "data.latest_quote.load_hk_quote"),
 ])
-def test_weekday_old_snapshot_does_not_claim_intraday_quote(mocker, market, symbol, path):
+@pytest.mark.parametrize("now,expected", [
+    ("2026-11-17T08:00:00+08:00", "未开盘"),
+    ("2026-11-17T10:00:00+08:00", "行情未更新（最近报价）"),
+    ("2026-11-17T18:00:00+08:00", "休市（最近报价）"),
+])
+def test_weekday_old_snapshot_does_not_claim_intraday_quote(mocker, market, symbol, path, now, expected):
     mocker.patch(path, return_value={"status": "ok", "price": 1,
                                     "quoted_at": "2026-11-16T16:00:00+08:00"})
-    quote = collect_current_quote(market, symbol, now=datetime.fromisoformat("2026-11-17T10:00:00+08:00"))
+    quote = collect_current_quote(market, symbol, now=datetime.fromisoformat(now))
     assert quote["status"] == "ok"
-    assert quote["market_state"] == "休市或行情未更新，最近报价"
+    assert quote["market_state"] == expected
 
 
 @pytest.mark.parametrize("now,close,expected", [

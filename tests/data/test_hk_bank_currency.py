@@ -45,7 +45,7 @@ def test_real_directory_defines_source_currency_and_missing_fx_is_visible(mocker
     assert ("汇率未核实" if code == "00005" else "展示 CNY") in result.metrics["amount_basis"]
     assert "未换汇" not in result.metrics["amount_basis"]
     text = build_report(ctx.symbol, ctx.name, [result], {}, ctx, no_llm=True)
-    assert ("汇率未核实" if code == "00005" else "展示 CNY") in text
+    assert ("汇率未核实" if code == "00005" else "人民币") in text
     assert "财务金额保持原始财报原币口径" not in text
     assert "未换汇" not in text
 

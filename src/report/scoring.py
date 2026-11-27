@@ -74,6 +74,25 @@ def compute_score_summary(results: list[AnalysisResult]) -> ScoreSummary:
                         risk_deduction=0, risk_flags=list(dict.fromkeys(flags)))
 
 
+def _quote_fx_note(conversion: dict) -> str:
+    """当前报价只附一句汇率依据，完整证据保留在 currency_conversion。"""
+    evidence = next((row for row in conversion.get("market") or []
+                     if row.get("label") == "当前报价"), None)
+    if not evidence:
+        return ""
+    rate = evidence.get("rate")
+    if rate is None:
+        return ""
+    currency = str(evidence.get("currency") or "源币种")
+    target = str(evidence.get("target") or "CNY")
+    if currency == target:
+        return f"{target}计价"
+    dates = [str(day) for day in evidence.get("dates") or [] if day]
+    source = str(evidence.get("source") or "")
+    source = "ECB" if source.startswith("ECB") else source or "来源未记录"
+    return f"人民币折算 {currency}→{target} {float(rate):.8g}（{dates[-1] if dates else '日期未记录'}，{source}）"
+
+
 def compute_price_info(ctx: AnalysisContext) -> dict:
     """从实际采集区间计算高低点与当前位置。"""
     from data.hk_cny import cny_context
@@ -87,8 +106,9 @@ def compute_price_info(ctx: AnalysisContext) -> dict:
 
     current = price_presentation(ctx.current_quote, latest_price, price_data[-1].trade_date.isoformat() if price_data else None)
     if ctx.market == "hk":
-        current["note"] += "；" + ctx.currency_conversion["note"] + "；" + "；".join(
-            note for note in ctx.currency_conversion["notes"] if "价格" in note or "报价" in note)
+        fx_note = _quote_fx_note(ctx.currency_conversion)
+        if fx_note:
+            current["note"] = f"{current['note']}；{fx_note}" if current["note"] else fx_note
     change_pct = price_data[-1].change_pct if price_data else None
     if len(price_data) < 20:
         price_position = f"样本不足（{len(price_data)} 个交易日），不计算"

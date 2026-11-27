@@ -87,9 +87,19 @@ def test_monthly_window_and_reverse_percentile_are_explained():
     data = sample()
     data["observations"].append({"key": "china_reserves", "name": "中国储备", "main": {"window": 6, "change": 2}, "marginal": {"window": 3, "change": 1}})
     text = render_gold_markdown(data)
-    assert "6 个月变化" in text and "3 个月变化" in text
+    assert "主窗口（6 个月）变化 2" in text and "边际窗口（3 个月）变化 1" in text
     assert "数据覆盖与时效" in text
     assert "国内金条、国内黄金 ETF 参考国内价格" in text
+
+
+def test_short_sentences_and_disclaimers_are_not_repeated():
+    text = render_gold_markdown(sample())
+    assert "**国内 Au99.99**：趋势偏空。收盘价 861.41；" in text
+    assert "国内 Au99.99：RSI 进入超卖区间" in text
+    assert "边际窗口：数据缺失" in text and "状态 有效" in text
+    assert text.count("全球央行数据缺失时不作推断") == 1
+    assert text.count("国际 XAU 为 CFD 参考行情") == 1
+    assert "2026-10-27 12:00 UTC+8" in text and "Asia/Shanghai" not in text
 
 
 def test_coverage_table_uses_current_source_facts_and_marks_missing():

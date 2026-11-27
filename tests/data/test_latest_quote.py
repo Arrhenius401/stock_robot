@@ -118,11 +118,14 @@ def test_quote_display_never_changes_daily_indicators():
     assert payload["overview"]["current_price"]["value"] == 19.15
     assert payload["overview"]["latest_close"] == 18.75
     assert payload["overview"]["change_pct"] == -3.28
-    assert "19.15" in report and "新浪行情" in report and "10:00:00" in report
+    assert "19.15" in report and "新浪行情" in report and "10:00 UTC+8" in report
+    assert "19.15（交易中；2026-11-16 10:00 UTC+8）" in report
+    assert "| 行情来源 | 新浪行情 |" in report
     ctx.current_quote = {"status": "unavailable"}
     fallback = build_stock_payload(ctx.symbol, ctx.name, [], {}, ctx)
     assert fallback["overview"]["current_price"]["value"] == 18.75
     assert "回退" in fallback["overview"]["current_price"]["note"]
+    assert "| 行情来源 |" not in build_report(ctx.symbol, ctx.name, [], {}, ctx)
 
 
 def test_us_market_closed_prefers_latest_close():
@@ -146,7 +149,7 @@ def test_us_intraday_quote_displays_quote_time_instead_of_capture_note():
     }, 523.88, "2026-11-13")
     assert display["value"] == 524.1
     assert display["kind"] == "quote"
-    assert display["note"] == "交易中；2026-11-13 10:01:00 UTC-5"
+    assert display["note"] == "交易中；2026-11-13 10:01 UTC-5"
 
 
 def test_us_intraday_quote_failure_falls_back_with_reason():

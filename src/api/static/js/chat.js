@@ -7,8 +7,8 @@ import {
 import { api } from "./api.js?v=20261127-task19-final";
 import { renderMarkdown } from "./markdown.js?v=20261127-task19-final";
 import { el } from "./components.js?v=20261127-task19-final";
-import { openReportDrawer, closeReportDrawer } from "./report-drawer.js?v=20261127-table-notes";
-import { renderReportSummary } from "./report-renderer.js?v=20261127-table-notes";
+import { openReportDrawer, closeReportDrawer } from "./report-drawer.js?v=20261127-price-note";
+import { renderReportSummary } from "./report-renderer.js?v=20261127-price-note";
 
 const scrollEl = () => document.getElementById("chatScroll");
 

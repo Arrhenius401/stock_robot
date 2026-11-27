@@ -33,7 +33,10 @@ class IndexReportBuilder:
         if not ctx.extra_analysis_enabled:
             from analysis.mode import objective_results
 
-            results = objective_results(results)
+            results = [
+                result.model_copy(update={"summary": ""}) if result.summary == "已取得可用数据" else result
+                for result in objective_results(results)
+            ]
         results_map = {r.dimension: r for r in results}
 
         tags = self._extract_tags(results_map)
@@ -108,11 +111,14 @@ class IndexReportBuilder:
             strategy["display"]["rows"].append({"label": industry.get("industry", "未记录行业"), "value": f"{industry.get('weight_pct', '未记录')}%", "note": "占完整指数的原始官方权重"})
         technical["display"] = index_method_table(technical)
         strategy["display"] = index_method_table(strategy)
-        overview["display_rows"] = display_rows(overview, ("latest_close", "change_pct")) + valuation_rows(ctx)
-        for row in overview["display_rows"][:2]:
+        price_rows = display_rows(overview, ("latest_close", "change_pct"))
+        for row in price_rows:
             row["note"] = overview["price_date"]
+        overview["display_rows"] = price_rows + valuation_rows(ctx)
         sections = {"performance": performance, "technical": technical, "valuation": valuation, "capital": capital, "macro": macro, "sentiment": sentiment, "strategy": strategy}
         quality = build_quality(ctx, sections, profile)
+        limitation_values = {str(item.get("value") or "") for item in quality.get("limitations") or []}
+        risk_list = [risk for risk in ctx.risk_flags if str(risk) not in limitation_values]
         sample_count = len({p.trade_date for p in ctx.price_data if p.symbol == ctx.target.symbol and p.close > 0})
         comment = "主要行情数据不可用，暂不作整体方向判断。" if not sample_count else "以下仅按可用事实说明，不生成方向评级。"
         if not ctx.extra_analysis_enabled:
@@ -145,8 +151,8 @@ class IndexReportBuilder:
             tag_sentiment=tags.get("index_sentiment", "neutral") if ctx.extra_analysis_enabled else None,
             composite_comment=comment,
             position_coeff=None,
-            # 此处全部为采集与数据覆盖诊断，客观模式也必须保留。
-            risk_list=ctx.risk_flags,
+            # 此处全部为采集与数据覆盖诊断，客观模式也必须保留；与限制重复的条目不再重复展示。
+            risk_list=risk_list,
             visible_sections=visible,
             market=profile.market,
             index_style=profile.style,

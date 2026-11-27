@@ -51,7 +51,8 @@ class IndexValuationAnalyzer(AnalysisModule):
 
         status = "ok"
         summary = (f"PE-TTM {format_metric_value('pe_ttm', val.pe_ttm)}，"
-                   f"历史分位 {format_metric_value('pe_percentile', pe_pct)}，估值：{index_tag_label(vtag)}")
+                   f"历史分位 {format_metric_value('pe_percentile', pe_pct)}"
+                   + (f"，估值：{index_tag_label(vtag)}" if context.extra_analysis_enabled else ""))
         return AnalysisResult(dimension=self.dimension, status=status,
                               summary=summary, metrics=metrics)
 
@@ -98,7 +99,8 @@ class IndexValuationAnalyzer(AnalysisModule):
             })
             parts.append(f"近{val.percentile_lookback_years}年窗口内实际可用样本 {val.pe_sample_count} 个交易日，"
                          f"PE历史分位 {format_metric_value('pe_percentile', val.pe_percentile)}")
-            parts.append(f"PE估值：{index_tag_label(metrics['tag'])}")
+            if extra:
+                parts.append(f"PE估值：{index_tag_label(metrics['tag'])}")
         else:
             metrics.pop("pe_percentile", None)
             parts.append("没有有效PE历史分位，不判断高低估")

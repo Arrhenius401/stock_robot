@@ -2,7 +2,7 @@
 import { store, switchView } from "./state.js?v=20261127-task19-final";
 import { api } from "./api.js?v=20261127-task19-final";
 import { renderMarkdown } from "./markdown.js?v=20261127-task19-final";
-import { appendReadableMetric, riskText, formatMetricValue, renderIndexReport } from "./report-renderer.js?v=20261127-table-notes";
+import { appendReadableMetric, riskText, formatMetricValue, renderIndexReport } from "./report-renderer.js?v=20261127-price-note";
 import { el, kv, tagChip, priceBar, errorCard, skeleton,
          showEntryError, clearEntryError } from "./components.js?v=20261127-task19-final";
 
