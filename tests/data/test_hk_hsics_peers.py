@@ -184,11 +184,18 @@ def test_hk_cache_rechecks_current_connect_qualification(monkeypatch, mocker, tm
 
 
 def test_hk_unqualified_target_does_not_request_pool(monkeypatch, mocker):
+    from data.schemas import IndustryData
+
     monkeypatch.setattr(peers, "load_hsics_members", lambda: MEMBERS)
     monkeypatch.setattr(peers, "load_connect_symbols", set)
     fetch = mocker.patch.object(peers, "fetch_sector_pool")
-    assert peers.HKIndustryAdapter().fetch("00700.HK") == []
+    fallback = mocker.patch.object(peers, "fallback_industry", return_value=IndustryData(
+        symbol="00700.HK", industry="软件服务", sector="",
+        peer_scope="东财行业（非恒生HSICS）", comparison_ready=False))
+    rows = peers.HKIndustryAdapter().fetch("00700.HK")
+    assert len(rows) == 1 and rows[0].industry == "软件服务"
     fetch.assert_not_called()
+    fallback.assert_called_once()
 
 
 def test_hk_deadline_stops_before_network(mocker):
@@ -451,7 +458,8 @@ def test_classification_date_and_fallback(monkeypatch):
     assert not fallback.comparison_ready
     assert fallback.peers == []
     monkeypatch.setattr("data.hk_eastmoney.fetch_industry_label", lambda _code: "软件服务")
-    assert peers.fallback_industry("01234.HK", {}).industry == "软件服务"
+    f10_fallback = peers.fallback_industry("01234.HK", {})
+    assert f10_fallback is not None and f10_fallback.industry == "软件服务"
     monkeypatch.setattr("data.hk_eastmoney.fetch_industry_label",
                         lambda _code: (_ for _ in ()).throw(ValueError("无行业")))
     assert peers.fallback_industry("01234.HK", {}) is None

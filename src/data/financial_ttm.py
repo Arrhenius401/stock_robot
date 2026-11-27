@@ -5,10 +5,13 @@ from data.schemas import FinancialData
 from utils.numbers import is_finite_number
 
 
-def _hk_verified(rows: list[FinancialData]) -> bool:
+def _hk_verified(rows: list[FinancialData], field: str) -> bool:
     return bool(rows) and all(
         row.amount_currency_verified and row.report_currency for row in rows
-    ) and len({row.report_currency for row in rows}) == 1
+    ) and len({row.display_currency or row.report_currency for row in rows}) == 1 and all(
+        row.field_positions.get(field, {}).get("unit", row.amount_unit) in {"", "currency"}
+        and (not row.display_currency or row.amount_unit == "currency") for row in rows
+    )
 
 
 def financial_ttm(rows: list[FinancialData], field: str, market: str, *,
@@ -32,7 +35,7 @@ def financial_ttm(rows: list[FinancialData], field: str, market: str, *,
 
         if is_annual(latest):
             value = getattr(latest, field)
-            return value if _hk_verified([latest]) and usable([latest]) and is_finite_number(value) else None
+            return value if _hk_verified([latest], field) and usable([latest]) and is_finite_number(value) else None
         annual_row = next((row for row in reversed(ordered) if is_annual(row)
                            and row.fiscal_quarter + timedelta(days=1) == latest.period_start), None)
         previous_row = next((row for row in reversed(ordered)
@@ -47,10 +50,10 @@ def financial_ttm(rows: list[FinancialData], field: str, market: str, *,
             return None
         selected = [latest, annual_row, previous_row]
         values = [getattr(row, field) for row in selected]
-        return (values[0] + values[1] - values[2] if _hk_verified(selected) and usable(selected)
+        return (values[0] + values[1] - values[2] if _hk_verified(selected, field) and usable(selected)
                 and all(is_finite_number(value) for value in values) else None)
     if end.month == 12:
-        if market == "hk" and not _hk_verified([latest]):
+        if market == "hk" and not _hk_verified([latest], field):
             return None
         return getattr(latest, field) if usable([latest]) else None
     annual = next((row for row in reversed(ordered)
@@ -60,7 +63,7 @@ def financial_ttm(rows: list[FinancialData], field: str, market: str, *,
     if annual is None or previous is None:
         return None
     selected = [latest, annual, previous]
-    if market == "hk" and not _hk_verified(selected):
+    if market == "hk" and not _hk_verified(selected, field):
         return None
     values = [getattr(row, field) for row in selected]
     return values[0] + values[1] - values[2] if usable(selected) and all(is_finite_number(value) for value in values) else None

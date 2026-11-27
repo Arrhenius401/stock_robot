@@ -2,7 +2,23 @@ import json
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 from data.hk_currency_evidence import verify_cash_flow, verify_period
+
+
+@pytest.mark.parametrize("directory,indicator,expected", [
+    ("CNY", "HKD", "CNY"), ("USD", "HKD", "USD"), ("HKD", "HKD", "HKD"),
+    ("", "USD", "USD"), ("", "", "")])
+def test_period_directory_currency_has_priority(directory, indicator, expected):
+    from data.hk_currency_evidence import source_currency
+
+    currency, reason = source_currency(directory, {"CURRENCY": indicator})
+    assert currency == expected
+    if directory and indicator != directory:
+        assert "冲突" in reason and "目录优先" in reason
+    if not expected:
+        assert "未核实" in reason
 
 
 def indicator(code):

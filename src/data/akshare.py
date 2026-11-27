@@ -1133,6 +1133,7 @@ class AkShareAdapter(DataSource):
         from data.hk_currency_evidence import (
             _close,
             load_indicator_periods,
+            source_currency,
             verify_balance,
             verify_cash_flow,
             verify_period,
@@ -1192,13 +1193,11 @@ class AkShareAdapter(DataSource):
             disclosure_currency = ""
             if period in directory_meta:
                 directory_start, directory_currency, standard = directory_meta[period]
-                if start is not None and start == directory_start and standard:
-                    # 目录列报币种只作披露元信息，不为 AMOUNT 作币种或未换汇背书。
-                    disclosure_currency = directory_currency
+                disclosure_currency = directory_currency
+                if start is None:
+                    start = directory_start
+                if standard:
                     reporting_basis += f"-{standard}"
-                else:
-                    # 冲突目录不能覆盖源字段，也不能悄悄回退为可比较口径。
-                    currency, reporting_basis = "", ""
             # 银行与普通企业的科目位置不同，按整期模板选择，不逐字段跨模板补值。
             standard_template = any(key.startswith("004") for key in row)
             bank_template = any(key.startswith("001") for key in row)
@@ -1229,10 +1228,29 @@ class AkShareAdapter(DataSource):
                 if balance_assets is not None and balance_equity is not None else None,
                 indicator.get("TOTAL_LIABILITIES")))
             evidence = verify_period(period, start, income, indicator, bank=bank_template)
-            currency = evidence.currency if evidence.verified else ""
-            verified = evidence.verified
+            statement_currency = currency
+            currency, currency_reason = source_currency(disclosure_currency, indicator)
+            if statement_currency and currency and statement_currency != currency:
+                currency_reason += f"；利润表源币种 {statement_currency} 与目录/指标 {currency} 冲突，目录优先"
+            verified = bool(currency)
+            # 外币目录不能把已匹配的另一外币金额直接改标签；缺原币金额时拒绝换汇。
+            foreign_conflict = bool(disclosure_currency in {"USD", "HKD"}
+                                    and evidence.verified and evidence.currency
+                                    and evidence.currency != disclosure_currency)
+            if foreign_conflict or (statement_currency and currency and statement_currency != currency):
+                verified = False
+                currency_reason += "；金额币种冲突，未取得目录币种的原始金额/单位，禁止折算及 TTM"
+            if not evidence.verified:
+                currency_reason += f"；金额交叉核验限制：{evidence.reason}"
+            if disclosure_currency:
+                bs_currency = currency
+                equity_verified = True
             cf_verified = (verify_cash_flow(start, ocf, indicator, currency)[0]
                            and (not cf_currency or cf_currency == currency))
+            if disclosure_currency and start is not None:
+                cf_verified = cf_start == start or cf_start is None
+                if cf_currency and cf_currency != currency:
+                    currency_reason += f"；现金流源币种 {cf_currency} 与目录 {currency} 冲突，目录优先"
 
             annual_indicator = indicator if start is not None and start.month == 1 and period.month == 12 else None
             annual_roe = finite_number(annual_indicator.get("ROE_AVG")) if annual_indicator else None
@@ -1246,8 +1264,8 @@ class AkShareAdapter(DataSource):
                 gross_margin=margin, gross_margin_basis="银行/保险不适用" if bank_template else GROSS_MARGIN_BASIS if margin is not None else "",
                 period_start=start, period_basis="cumulative" if start is not None else "unknown",
                 reporting_basis=reporting_basis, report_currency=currency,
-                amount_currency_verified=verified,
-                amount_currency_reason="逐期报表聚合与分析指标一致" if verified else evidence.reason,
+                amount_currency_verified=verified, amount_unit="currency",
+                amount_currency_reason=currency_reason,
                 reported_annual_roe=reported_annual_roe,
                 reported_annual_roe_period=period if reported_annual_roe is not None else None,
                 reported_annual_roe_source="东方财富港股分析指标" if reported_annual_roe is not None else "",

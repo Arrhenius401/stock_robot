@@ -105,7 +105,9 @@ def prepare_table(dimension: str, metrics: dict[str, Any]) -> dict[str, Any]:
         amount = str(metrics.get("amount_basis", ""))
         if amount:
             currency = re.search(r"(?<![A-Z])(CNY|HKD|USD|EUR|JPY|GBP)(?![A-Z])", amount)
-            if "未核实" in amount or "未记录" in amount:
+            if "展示 CNY" in amount or "汇率未核实" in amount:
+                notes.append(amount)
+            elif "未核实" in amount or "未记录" in amount:
                 notes.append("金额币种未核实，目录币种不作金额依据。")
             elif currency and ("利润表" in amount or "不代表其他报表" in amount):
                 notes.append(f"利润表币种：{currency[1]}；其他报表币种不据此推断。")

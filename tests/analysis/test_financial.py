@@ -197,14 +197,15 @@ def test_dividend_yield_follows_net_margin_with_source():
     assert any("股息率来源" in note and "东方财富分红送配" in note for note in view["notes"])
 
 
-def test_hk_cashflow_annual_fallback_and_unverified_balance():
+def test_hk_cashflow_annual_fallback_and_unverified_balance(verified_fx):
     from analysis.financial_scoring import debt_ratio
     annual = FinancialData(
         symbol='00700.HK', fiscal_quarter=date(2025, 12, 31),
         period_start=date(2025, 1, 1), period_basis='cumulative',
-        report_currency='HKD', amount_currency_verified=True,
+        report_currency='HKD', amount_currency_verified=True, amount_unit='currency',
         net_profit=20, total_assets=500, total_equity=300, common_equity=250,
         capital_expenditure=30, free_cash_flow=50,
+        cash_flow_basis='reported', cash_flow_period_start=date(2025, 1, 1),
         field_precision={key: 'source_native' for key in
                          ('net_profit', 'total_assets', 'total_equity', 'common_equity',
                           'capital_expenditure', 'free_cash_flow')},
@@ -213,6 +214,7 @@ def test_hk_cashflow_annual_fallback_and_unverified_balance():
     ctx = make_ctx(symbol='00700.HK', name='腾讯', market='hk')
     ctx.financial_data = [annual, annual.model_copy(update={
         'fiscal_quarter': date(2026, 6, 30), 'period_start': date(2026, 1, 1),
+        'cash_flow_period_start': date(2026, 1, 1),
         'capital_expenditure': None, 'free_cash_flow': None})]
     metrics = FinancialAnalyzer().analyze(ctx).metrics
     assert metrics['capital_expenditure_latest'] == 30
@@ -222,19 +224,19 @@ def test_hk_cashflow_annual_fallback_and_unverified_balance():
     assert debt_ratio(annual) is None
 
 
-def test_hk_verified_balance_allows_ratios():
+def test_hk_verified_balance_allows_ratios(verified_fx):
     from analysis.financial_scoring import debt_ratio
     annual = FinancialData(
-        symbol='00700.HK', fiscal_quarter=date(2025, 12, 31),
+        symbol='00388.HK', fiscal_quarter=date(2025, 12, 31),
         period_start=date(2025, 1, 1), period_basis='cumulative',
-        report_currency='HKD', amount_currency_verified=True,
+        report_currency='HKD', amount_currency_verified=True, amount_unit='currency',
         net_profit=20, total_assets=500, total_equity=300, common_equity=250,
         field_precision={key: 'source_native' for key in ('net_profit', 'common_equity')},
         field_sources={'total_assets': '测试源', 'total_equity': '测试源'},
         field_positions={key: {'currency': 'HKD', 'basis': 'instant'}
                          for key in ('total_assets', 'total_equity', 'common_equity')},
     )
-    ctx = make_ctx(symbol='00700.HK', name='腾讯', market='hk', financial_data=[annual])
+    ctx = make_ctx(symbol='00388.HK', name='香港交易所', market='hk', financial_data=[annual])
     assert FinancialAnalyzer().analyze(ctx).metrics['roe'] == pytest.approx(.08)
     assert debt_ratio(annual) == pytest.approx(40)
     annual.field_positions['common_equity']['currency'] = 'USD'

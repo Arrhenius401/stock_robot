@@ -1,4 +1,4 @@
-"""港股逐期币种/单位交叉核验；不把目录币种当作金额证据。"""
+"""港股逐期币种/单位交叉核验；目录币种优先，冲突显式记录。"""
 import logging
 import math
 from dataclasses import dataclass
@@ -14,6 +14,16 @@ logger = logging.getLogger(__name__)
 SOURCE = "东方财富港股分析指标"
 _STANDARD = {"revenue": ("004001001", "004001002"), "profit": ("004025002",)}
 _BANK = {"revenue": ("001003999",), "profit": ("001025002",)}
+def source_currency(directory: str, indicator: dict[str, Any] | None) -> tuple[str, str]:
+    """调用方已按标的及报告期匹配目录；目录缺币种才采用同期指标。"""
+    declared = FinancialData.normalize_report_currency(directory)
+    observed = FinancialData.normalize_report_currency((indicator or {}).get("CURRENCY"))
+    if declared:
+        conflict = f"；币种冲突：Eastmoney 指标 CURRENCY={observed}，目录优先" if observed and observed != declared else ""
+        return declared, f"HKEX 报告目录 disclosure_currency={declared}（按报告期）{conflict}"
+    if observed:
+        return observed, f"目录币种缺失，采用同期 Eastmoney 指标 CURRENCY={observed}"
+    return "", "目录及同期指标币种均缺失，源币种未核实，不折算"
 
 
 @dataclass(frozen=True)

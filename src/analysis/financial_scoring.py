@@ -63,7 +63,7 @@ def cashflow_compatible(row: FinancialData) -> bool:
                 return False
         if profit.get("end") != cash.get("end"):
             return False
-        if (profit["currency"] != row.report_currency or profit["start"] != row.period_start.isoformat()
+        if (profit["currency"] != (row.display_currency or row.report_currency) or profit["start"] != row.period_start.isoformat()
                 or profit["basis"] != row.period_basis):
             return False
     return _source(row, "net_profit") == _source(row, "operating_cash_flow")

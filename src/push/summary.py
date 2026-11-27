@@ -12,6 +12,10 @@ def _stock_key_facts(symbol, name, results, ctx, signal_cfg) -> list[str]:
     payload = build_stock_payload(symbol, name, results, {}, ctx, signal_cfg=signal_cfg)
     financial = payload.get("dimensions", {}).get("financial", {}).get("metrics", {})
     facts = []
+    conversion = payload.get("currency_conversion", {})
+    if conversion:
+        facts.append("- " + conversion["note"])
+        facts.extend("- " + note for note in conversion["notes"])
     values = []
     for key in ("basic_eps", "common_equity", "net_margin"):
         value = format_metric_value(key, financial.get(key))

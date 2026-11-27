@@ -124,7 +124,7 @@ def test_signal_placeholder_explains_actual_blocked_core_dimensions_at_top():
     assert "模型信号：进攻" not in text
 
 
-def test_real_signal_has_no_placeholder_and_hk_uses_same_evidence_gate():
+def test_real_signal_has_no_placeholder_and_hk_uses_same_evidence_gate(verified_fx):
     from report.quality import build_data_quality
 
     ctx = AnalysisContext(symbol="000001", name="测试")

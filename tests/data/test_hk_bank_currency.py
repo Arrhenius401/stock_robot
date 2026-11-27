@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 from analysis.financial import FinancialAnalyzer
-from analysis.financial_trends import build_financial_trends
 from data.akshare import AkShareAdapter
 from data.enrichers.financial_enricher import FinancialEnricher
 from data.schemas import AnalysisContext, FinancialData
@@ -34,25 +33,21 @@ def replay(mocker, code, *, explicit_currency="", directory_currency=None, indic
 
 
 @pytest.mark.parametrize("code", ["00700", "09988", "00005"])
-def test_real_directory_currency_is_not_amount_evidence(mocker, code):
+def test_real_directory_defines_source_currency_and_missing_fx_is_visible(mocker, code):
     rows = replay(mocker, code)
     latest = max(rows, key=lambda row: row.fiscal_quarter)
-    assert latest.report_currency == ""
-    assert latest.amount_currency_verified is False
+    assert latest.report_currency == ("USD" if code == "00005" else "CNY")
+    assert latest.amount_currency_verified is True
     assert latest.disclosure_currency == ("USD" if code == "00005" else "CNY")
     assert latest.financial_selection_status == "complete"
-    assert build_financial_trends(rows, f"{code}.HK")["latest_yoy"] == {}
     ctx = FinancialEnricher().enrich(AnalysisContext(symbol=f"{code}.HK", name="验收", market="hk", financial_data=rows))
     result = FinancialAnalyzer().analyze(ctx)
-    assert "未核实" in result.metrics["amount_basis"]
+    assert ("汇率未核实" if code == "00005" else "展示 CNY") in result.metrics["amount_basis"]
     assert "未换汇" not in result.metrics["amount_basis"]
-    assert "revenue_growth_yoy" not in result.metrics
-    assert "profit_growth_yoy" not in result.metrics
     text = build_report(ctx.symbol, ctx.name, [result], {}, ctx, no_llm=True)
-    assert "币种未核实" in text
+    assert ("汇率未核实" if code == "00005" else "展示 CNY") in text
     assert "财务金额保持原始财报原币口径" not in text
     assert "未换汇" not in text
-    assert "现金流同比" not in text
 
 
 def test_bank_uses_its_own_codes_and_preserves_raw_amounts(mocker):
@@ -78,14 +73,30 @@ def test_general_company_values_and_periods_unchanged(mocker, code, revenue, pro
     assert (latest.revenue, latest.net_profit, latest.period_start) == (revenue, profit, start)
 
 
-def test_explicit_statement_currency_is_not_replaced_by_disclosure_currency(mocker):
+def test_directory_currency_takes_priority_and_source_amounts_remain(mocker):
     rows = replay(mocker, "00005", explicit_currency="CNY", directory_currency="USD")
-    assert all(row.report_currency == "" and not row.amount_currency_verified for row in rows)
+    assert all(not row.amount_currency_verified for row in rows)
     assert all(row.disclosure_currency == "USD" for row in rows)
-    # 显式币种证据不能替代跨期修订和指标定义证据。
-    assert not build_financial_trends(rows, "00005.HK")["latest_yoy"]
+    assert rows[-1].revenue is not None
     restored = FinancialData.model_validate_json(rows[-1].model_dump_json())
-    assert restored.report_currency == "" and not restored.amount_currency_verified
+    assert restored.disclosure_currency == "USD" and not restored.amount_currency_verified
+
+
+def test_real_hsbc_usd_directory_cannot_relabel_verified_hkd_amounts(mocker):
+    from data.financial_ttm import financial_ttm
+    from data.hk_cny import cny_context
+
+    source = Path(__file__).parents[1] / "resources/hk/eastmoney-00005-indicator-20261124.json"
+    indicators = {date.fromisoformat(row["REPORT_DATE"][:10]): row
+                  for row in json.loads(source.read_text(encoding="utf-8"))["rows"]}
+    rows = replay(mocker, "00005", indicators=indicators)
+    annual = next(row for row in rows if row.fiscal_quarter == date(2026, 6, 30))
+    assert annual.disclosure_currency == "USD" and annual.revenue == 241030940100
+    assert not annual.amount_currency_verified
+    converted = cny_context(AnalysisContext(symbol="00005.HK", name="汇丰", market="hk", financial_data=rows))
+    assert converted.financial_data is not None
+    assert financial_ttm(converted.financial_data, "revenue", "hk", require_precision=True) is None
+    assert "禁止折算及 TTM" in annual.amount_currency_reason
 
 
 def test_legacy_hk_cache_does_not_restore_unverified_currency():
@@ -169,6 +180,7 @@ def test_indicator_evidence_sets_positions_and_net_margin(mocker):
     row = max(AkShareAdapter()._fetch_hk_financial("00700.HK"), key=lambda item: item.fiscal_quarter)
     assert row.amount_currency_verified is True
     assert row.net_margin is not None
-    assert row.field_positions["total_assets"]["currency"] == ""
-    assert row.field_positions["total_equity"]["currency"] == ""
-    assert row.field_positions["operating_cash_flow"]["currency"] == "HKD"
+    assert row.field_positions["total_assets"]["currency"] == "CNY"
+    assert row.field_positions["total_equity"]["currency"] == "CNY"
+    assert row.field_positions["operating_cash_flow"]["currency"] == "CNY"
+    assert "币种冲突" in row.amount_currency_reason

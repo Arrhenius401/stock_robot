@@ -25,6 +25,9 @@ def build_stock_payload(
     signal_cfg: SignalConfig | None = None, llm_available: bool = True,
 ) -> dict[str, Any]:
     """质量门槛只组装一次，所有入口共享相同事实。"""
+    from data.hk_cny import cny_context
+
+    ctx = cny_context(ctx)
     if not ctx.extra_analysis_enabled:
         from analysis.mode import objective_results
 
@@ -90,6 +93,7 @@ def build_stock_payload(
         **({key: quality[key] for key in ("report_scope", "assessment_status", "identity_status")}
            if ctx.market in {"a-shares", "hk", "us"} else {}),
         "analysis_mode": "extra" if ctx.extra_analysis_enabled else "objective",
+        **({"currency_conversion": ctx.currency_conversion} if ctx.market == "hk" else {}),
         "scoring_method": SCORING_METHOD,
         "symbol": symbol, "code": symbol, "name": name, "market": ctx.market,
         "market_profile": profile.payload(),

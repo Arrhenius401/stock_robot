@@ -17,6 +17,9 @@ class ValuationAnalyzer(AnalysisModule):
 
     def analyze(self, context: AnalysisContext,
                 config: dict[str, Any] | None = None) -> AnalysisResult:
+        from data.hk_cny import cny_context
+
+        context = cny_context(context)
         val_data = context.valuation_data
         scoring_context = context
         if context.market not in {"hk", "us"} and context.sufficiency.valuation.level == SufficiencyLevel.INSUFFICIENT:
@@ -70,6 +73,11 @@ class ValuationAnalyzer(AnalysisModule):
             f"{ {'pe_ttm': 'PE(TTM)', 'pb': 'PB', 'ps_ttm': 'PS(TTM)'}[key]}：{info['reason']}"
             for key, info in applicability.items() if not info["applicable"]
         ]
+        if context.market == "hk":
+            metrics["market_cap"] = latest.market_cap if latest else None
+            metrics["display_currency"] = "CNY"
+            metrics["valuation_notes"].extend([context.currency_conversion["note"],
+                                               *context.currency_conversion["notes"]])
         if context.market in {"hk", "us"} or (latest is not None and latest.history_source.startswith(("百度", "东财"))):
             snapshot_dates = valuation_snapshot_dates(context)
             metrics.update(pe_as_of=snapshot_dates["pe_ttm"], pb_as_of=snapshot_dates["pb"],

@@ -15,6 +15,9 @@ class FinancialAnalyzer(AnalysisModule):
 
     def analyze(self, context: AnalysisContext,
                 config: dict[str, Any] | None = None) -> AnalysisResult:
+        from data.hk_cny import cny_context
+
+        context = cny_context(context)
         meta = config.get("meta", {}) if config else {}
         template_note = ""
         template_metrics: dict[str, Any] = {}
@@ -38,11 +41,7 @@ class FinancialAnalyzer(AnalysisModule):
         latest = sorted_data[0]
 
         if context.market == "hk":
-            amount_basis = (f"金额币种：{latest.report_currency}（仅代表已核实的利润表金额）"
-                            if latest.report_currency else "金额币种未核实；仅保留数据源数值，不作金额趋势比较")
-            if latest.disclosure_currency:
-                amount_basis += f"；目录列报币种：{latest.disclosure_currency}（不等同于金额币种）"
-            amount_basis += "；展示缩写为万/亿，不推断上游换汇情况"
+            amount_basis = context.currency_conversion["note"] + "；" + latest.amount_currency_reason
         elif context.market == "us":
             amount_basis = (f"金额币种：{latest.report_currency}" if latest.amount_currency_verified and latest.report_currency
                             else "金额币种未核实") + "；财季报，金额展示为万/亿；不推断换汇、会计准则或 ADR 每股比例；报告期按财季月末展示"
@@ -111,7 +110,7 @@ class FinancialAnalyzer(AnalysisModule):
             equity_field = "common_equity" if equity_row.common_equity is not None else "total_equity"
             if (equity_row.field_precision.get(equity_field) != "source_native"
                     or context.market == "hk" and (not equity_row.field_positions.get(equity_field, {}).get("currency")
-                        or equity_row.field_positions[equity_field]["currency"] != latest.report_currency)):
+                        or equity_row.field_positions[equity_field]["currency"] != (latest.display_currency or latest.report_currency))):
                 equity = None
         if equity is not None and equity <= 0:
             metrics["roe"] = "净资产为负，ROE 不适用" if equity < 0 else "净资产为零，ROE 不适用"
@@ -162,7 +161,9 @@ class FinancialAnalyzer(AnalysisModule):
                 if annual is not None:
                     metrics["capital_expenditure_latest"] = annual.capital_expenditure
                     metrics["free_cash_flow_latest"] = annual.free_cash_flow
-                    metrics["cash_flow_latest_period"] = f"{annual.fiscal_quarter}，最近完整年度，非 TTM；{annual.report_currency}"
+                    metrics["cash_flow_latest_period"] = (f"{annual.fiscal_quarter}，最近完整年度，非 TTM；"
+                                                          f"展示 {annual.display_currency or annual.report_currency}；"
+                                                          f"源币种 {annual.report_currency}；{annual.amount_currency_reason}")
                     metrics["cash_flow_period"] = f"TTM 不可用；最近完整年度 {annual.fiscal_quarter.isoformat()}，非 TTM"
                     metrics["cash_flow_limitation"] = "最新期间资本开支不完整，展示最近完整年度，非 TTM"
 

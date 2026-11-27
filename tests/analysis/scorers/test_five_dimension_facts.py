@@ -28,7 +28,7 @@ def row(**values):
                     "period_start": date(2025, 1, 1), "period_basis": "cumulative",
                     "reporting_basis": "同源合并财报", "financial_source": "同源财报",
                     "report_currency": "CNY", "amount_currency_verified": True, "cash_flow_period_start": date(2025, 1, 1),
-                    "cash_flow_basis": "reported"}
+                    "cash_flow_basis": "reported", "amount_unit": "currency"}
     item = FinancialData.model_validate(defaults | values)
     item.field_precision = {key: "source_native" for key in (
         "net_profit", "revenue", "operating_cash_flow", "total_assets", "total_equity", "gross_margin")
@@ -157,7 +157,7 @@ def test_hk_valuation_uses_curve_and_same_comparison_premium():
     assert valuation_evidence(ctx)[2] is None
 
 
-def test_hk_technical_enabled_and_missing_macd_is_renormalized():
+def test_hk_technical_enabled_and_missing_macd_is_renormalized(verified_fx):
     ctx = context()
     ctx.price_data = [PriceData(symbol=ctx.symbol, trade_date=date(2026, 8, 1) + timedelta(days=i),
                      open=10+i, high=11+i, low=9+i, close=10+i, volume=100) for i in range(20)]

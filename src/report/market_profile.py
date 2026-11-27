@@ -62,7 +62,7 @@ _PROFILES = {
         industry_note="分类口径：恒生HSICS二级（东财F10转载；HSCI PDF校验）",
         period_basis="report_period", currency_guard=True, sentiment_policy="news_or_assessed",
         business_profile="f10_hk", annual_industry_policy="scored", financial_special_policy="none",
-        disclaimer=_disclaimer(hk=True), prompt_rules='港股规则：行业使用恒生HSICS，不套用申万分类；只解读程序已计算的行业分和综合分。财务金额按数据源返回值展示，目录列报币种不能证明金额币种，不得声称上游未换汇。金额币种未核实时明确说明，不作金额同比、现金流趋势或与港币行情混算。按报告期分析，不能把半年度/年度数据当季度或推导未经验证的 TTM、历史分位。',
+        disclaimer=_disclaimer(hk=True), prompt_rules='港股规则：行业使用恒生HSICS，不套用申万分类；只解读程序已计算的行业分和综合分。金额/价格/市值由程序统一展示 CNY，源财报币种按同期目录优先，源金额与折算证据分别保存。利润表/现金流按期间平均汇率、资产负债表按期末汇率；行情按行情日参考汇率。汇率未核实则不得声称已统一 CNY，也不得自行换汇。PE/PB源比率保持原值。按报告期分析，不能把半年度/年度数据当季度或推导未经验证的 TTM、历史分位。',
         limitation=_LIMITATION + "财报按报告期解读，金额币种未核实时不作金额比较。",
     ),
     "us": MarketProfile(

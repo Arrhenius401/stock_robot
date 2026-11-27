@@ -13,6 +13,9 @@ class TechnicalAnalyzer(AnalysisModule):
 
     def analyze(self, context: AnalysisContext,
                 config: dict[str, Any] | None = None) -> AnalysisResult:
+        from data.hk_cny import cny_context
+
+        context = cny_context(context)
         prices = context.price_data or []
         if not prices:
             return AnalysisResult(dimension=self.dimension, status="unavailable",

@@ -76,6 +76,9 @@ def compute_score_summary(results: list[AnalysisResult]) -> ScoreSummary:
 
 def compute_price_info(ctx: AnalysisContext) -> dict:
     """从实际采集区间计算高低点与当前位置。"""
+    from data.hk_cny import cny_context
+
+    ctx = cny_context(ctx)
     price_data = sorted(ctx.price_data or [], key=lambda point: point.trade_date)
     year_high = max(p.high for p in price_data) if price_data else None
     year_low = min(p.low for p in price_data) if price_data else None
@@ -83,6 +86,9 @@ def compute_price_info(ctx: AnalysisContext) -> dict:
     from data.latest_quote import price_presentation
 
     current = price_presentation(ctx.current_quote, latest_price, price_data[-1].trade_date.isoformat() if price_data else None)
+    if ctx.market == "hk":
+        current["note"] += "；" + ctx.currency_conversion["note"] + "；" + "；".join(
+            note for note in ctx.currency_conversion["notes"] if "价格" in note or "报价" in note)
     change_pct = price_data[-1].change_pct if price_data else None
     if len(price_data) < 20:
         price_position = f"样本不足（{len(price_data)} 个交易日），不计算"
@@ -133,6 +139,9 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
                  no_llm: bool = False, market_env: dict | None = None,
                  signal_cfg: SignalConfig | None = None) -> str:
     """组装完整报告文本（ReportBuilder 渲染）"""
+    from data.hk_cny import cny_context
+
+    ctx = cny_context(ctx)
     from report.builder import ReportBuilder
     from report.market_profile import profile_for
     from report.quality import build_data_quality, hk_industry_label

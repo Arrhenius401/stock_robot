@@ -107,7 +107,7 @@ def test_hk_financial_source_and_selection_note_are_visible():
     assert fields["财务包说明"] == "完整来源包"
 
 
-def test_hk_valid_scores_enable_total_and_model_signal_without_position():
+def test_hk_valid_scores_enable_total_and_model_signal_without_position(verified_fx):
     ctx = hk_context()
     ctx.price_data = [PriceData(symbol=ctx.symbol, trade_date=date(2026, 1, 1) + timedelta(days=i),
                                open=10, high=12, low=8, close=11, volume=100) for i in range(60)]

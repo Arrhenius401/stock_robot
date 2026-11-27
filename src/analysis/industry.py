@@ -120,6 +120,9 @@ class IndustryAnalyzer(AnalysisModule):
 
     def analyze(self, context: AnalysisContext,
                 config: dict[str, Any] | None = None) -> AnalysisResult:
+        from data.hk_cny import cny_context
+
+        context = cny_context(context)
         if context.market == "hk":
             return self._analyze_hk(context)
         ind_data = context.industry_data

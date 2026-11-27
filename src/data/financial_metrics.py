@@ -59,7 +59,7 @@ def _position_matches(row: FinancialData, pos: Position | None) -> bool:
     return bool(pos is not None and row.period_start is not None
                 and pos.start == row.period_start <= row.fiscal_quarter
                 and pos.basis == row.period_basis and pos.basis in {"cumulative", "single"}
-                and pos.currency == row.report_currency and pos.currency
+                and pos.currency == (row.display_currency or row.report_currency) and pos.currency
                 and pos.scope == "consolidated")
 
 

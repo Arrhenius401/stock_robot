@@ -561,6 +561,14 @@ class Pipeline:
                            if self._extra_analysis_enabled else None)
 
         results = []
+        if ctx.market == "hk":
+            from data.current_quote import collect_current_quote
+            from data.hk_cny import cny_context
+
+            daily_end = max((p.trade_date.isoformat() for p in ctx.price_data or []
+                             if p.symbol == symbol), default=None)
+            ctx.current_quote = collect_current_quote(ctx.market, symbol, daily_end=daily_end)
+            ctx = cny_context(ctx)
         total = len(analysis_modules)
         completed = 0
         with ThreadPoolExecutor(max_workers=5) as executor:
@@ -582,7 +590,7 @@ class Pipeline:
                     on_progress("analyze", completed, total,
                                DIMENSION_LABELS.get(mod.dimension, mod.dimension))
 
-        if ctx.market in {"a-shares", "hk", "us"}:
+        if ctx.market in {"a-shares", "us"}:
             from data.current_quote import collect_current_quote
 
             daily_end = max((p.trade_date.isoformat() for p in ctx.price_data or []
