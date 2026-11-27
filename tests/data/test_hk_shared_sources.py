@@ -180,3 +180,10 @@ def test_tencent_request_timeout_is_single_call(mocker):
     with pytest.raises(TimeoutError):
         tencent_history("00700", "20260701", "20261019", 111)
     request.assert_called_once()
+
+
+@pytest.fixture(autouse=True)
+def isolate_capital_network(mocker, request):
+    """旧估值回归不意外访问新增股本接口；专用回退用例自行注入来源。"""
+    if not request.node.name.startswith("test_capital_fallback"):
+        mocker.patch("data.hk_eastmoney.capital_fallback", return_value={})

@@ -4,6 +4,48 @@ from report.quality import build_data_quality
 from report.scoring import compute_price_info, compute_score_summary
 
 
+def _stock_key_facts(symbol, name, results, ctx, signal_cfg) -> list[str]:
+    """消费与 Markdown/Web 相同的 payload；只选关键事实，不重新计算。"""
+    from report.formatter import format_metric_value, metric_display_name
+    from report.payload import build_stock_payload
+
+    payload = build_stock_payload(symbol, name, results, {}, ctx, signal_cfg=signal_cfg)
+    financial = payload.get("dimensions", {}).get("financial", {}).get("metrics", {})
+    facts = []
+    values = []
+    for key in ("basic_eps", "common_equity", "net_margin"):
+        value = format_metric_value(key, financial.get(key))
+        if financial.get(key) is None:
+            value = ("源未提供可核验的普通股东权益，不以总权益替代" if key == "common_equity"
+                     else "源未提供可核验值；不作推算")
+        values.append(f"{metric_display_name(key)}：{value}")
+    facts.append("- 关键财务：" + "；".join(values))
+    source = next((row for row in payload.get("data_quality", {}).get("summary_rows", [])
+                   if row.get("key") == "financial"), {})
+    facts.append(f"- 财务来源：{source.get('source', '未记录')}；截至 {source.get('cutoff', '未记录')}")
+    if financial.get("amount_basis"):
+        facts.append("- 金额口径：" + financial["amount_basis"])
+    flow = []
+    for key in ("capital_expenditure", "free_cash_flow"):
+        value = financial.get(key)
+        text = str(format_metric_value(key, value)) if value is not None else "不可用（" + (
+            financial.get("cash_flow_limitation") or "源未提供可核验值") + "）"
+        flow.append(f"{metric_display_name(key)}：{text}")
+    facts.append("- 现金流：" + "；".join(flow) + "；" + (
+        financial.get("cash_flow_period") or "期间未记录，不宣称 TTM"))
+    if financial.get("capital_expenditure_latest") is not None or financial.get("free_cash_flow_latest") is not None:
+        facts.append("- 最近完整年度（非 TTM）：" + "；".join(
+            f"{metric_display_name(key)}：{format_metric_value(key, financial.get(key))}"
+            for key in ("capital_expenditure_latest", "free_cash_flow_latest"))
+            + "；" + financial.get("cash_flow_latest_period", "期间未记录"))
+    rank = payload.get("dimensions", {}).get("industry", {}).get("metrics", {}).get("comparison", {}).get("market_cap_rank", {})
+    if rank.get("rank") is not None:
+        facts.append(f"- 同行市值排名：{rank['rank']}/{rank['total']}；截至 {rank.get('as_of') or '未记录'}；覆盖 {rank.get('coverage') or '未记录'}")
+    else:
+        facts.append("- 同行市值排名：" + (rank.get("reason") or "源未提供可核验排名"))
+    return facts
+
+
 def build_stock_summary(symbol: str, name: str, results, ctx,
                         signal_cfg) -> str:
     """微信摘要：核心指标 + 操作信号 + 维度评分 + 风险"""
@@ -20,6 +62,7 @@ def build_stock_summary(symbol: str, name: str, results, ctx,
         lines.append(f"> 最新收盘：{price['latest_price']} {pct_txt}")
     quality = build_data_quality(ctx, results)
     lines.append(f"> 数据状态：{quality['status']}")
+    lines.extend(_stock_key_facts(symbol, name, results, ctx, signal_cfg))
     for limitation in quality.get("limitations", []):
         lines.append(f"- {limitation['dimension']}：{limitation['value']}")
     if not ctx.extra_analysis_enabled:

@@ -1,12 +1,14 @@
 """港股东财单标的请求；不扫描全市场，明确限时、限量与不复权口径。"""
+import logging
 import math
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import requests
 from numpy import bool_
 
+logger = logging.getLogger(__name__)
 
 def finite_number(value: Any) -> float | None:
     """上游空值、NaN 和无穷数均不作为财务或行情事实。"""
@@ -173,3 +175,40 @@ def fetch_industry_label(code: str, *, timeout: float = 10) -> str:
     if not label or label in {"-", "--", "N/A", "暂无数据"}:
         raise ValueError("东财港股行业资料没有有效行业")
     return label
+
+
+def capital_fallback(code: str) -> dict[str, Any]:
+    """市值与股本独立取证；报告期股数不冒充行情日股数，不用市值反推。"""
+    from data.hk_hsics_peers import fetch_market_quotes
+
+    result: dict[str, Any] = {}
+    quote = fetch_market_quotes([code + ".HK"]).get(code + ".HK", {})
+    if quote:
+        result.update(market_cap=quote["market_cap"], market_cap_as_of=quote["as_of"],
+                      market_cap_source=quote["source"], market_cap_currency="HKD")
+    try:
+        response = requests.get("https://datacenter.eastmoney.com/securities/api/data/v1/get", params={
+            "reportName": "RPT_HKF10_FN_MAININDICATOR", "columns": "ALL",
+            "filter": f'(SECUCODE="{code}.HK")', "pageSize": 1, "pageNumber": 1,
+            "sortColumns": "REPORT_DATE", "sortTypes": -1,
+        }, timeout=10)
+        response.raise_for_status()
+        payload = response.json()
+        if payload.get("success") is not True:
+            raise ValueError("东财股本响应失败")
+        rows = (payload.get("result") or {}).get("data") or []
+        for row in rows:
+            if row.get("SECUCODE") != code + ".HK":
+                continue
+            day = date.fromisoformat(str(row.get("REPORT_DATE"))[:10])
+            if day > datetime.now(timezone(timedelta(hours=8))).date():
+                continue
+            for field in ("ISSUED_COMMON_SHARES", "HK_COMMON_SHARES"):
+                value = finite_number(row.get(field))
+                if value is not None and value > 0:
+                    result.update(total_shares=value, total_shares_as_of=day.isoformat(),
+                                  total_shares_source="东方财富F10 " + field + "（报告期普通股数，股）")
+                    break
+    except (requests.RequestException, ValueError, TypeError, KeyError, AttributeError) as error:
+        logger.warning("港股股本回退采集失败 %s：%s", code, error)
+    return result

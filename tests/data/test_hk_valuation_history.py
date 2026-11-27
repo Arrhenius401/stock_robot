@@ -429,3 +429,10 @@ def test_hk_ps_requires_comparable_verified_currency(currency, verified, expecte
     ValuationEnricher()._fill_derived_ps(ctx)
     assert ctx.valuation_data.ps_ttm == expected
     assert ctx.enriched_valuation is None
+
+
+@pytest.fixture(autouse=True)
+def isolate_capital_network(mocker, request):
+    """旧估值回归不意外访问新增股本接口；专用回退用例自行注入来源。"""
+    if not request.node.name.startswith("test_capital_fallback"):
+        mocker.patch("data.hk_eastmoney.capital_fallback", return_value={})

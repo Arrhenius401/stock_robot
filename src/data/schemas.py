@@ -268,6 +268,8 @@ class ValuationData(BaseModel):
     total_shares_source: str = ""
     market_cap: float | None = None
     market_cap_as_of: "date | None" = None
+    market_cap_source: str = ""
+    market_cap_currency: str = ""
     pe_history: dict[DateType, float] = Field(default_factory=dict)
     pb_history: dict[DateType, float] = Field(default_factory=dict)
     history_source: str = ""

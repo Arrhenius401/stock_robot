@@ -1379,6 +1379,27 @@ class AkShareAdapter(DataSource):
                              market_cap=market_cap, market_cap_as_of=quote_date if market_cap else None,
                              total_shares=total_shares, total_shares_as_of=quote_date if total_shares else None,
                              total_shares_source="东方财富港股快照" if total_shares else "")
+        if item.market_cap is not None:
+            item.market_cap_source = "东方财富港股快照"
+            item.market_cap_currency = "HKD"
+        if item.market_cap is None or item.total_shares is None:
+            from data.hk_eastmoney import capital_fallback
+
+            capital = capital_fallback(code)
+            for field in ("market_cap", "total_shares"):
+                if getattr(item, field) is None and capital.get(field) is not None:
+                    setattr(item, field, capital[field])
+                    setattr(item, field + "_as_of", date.fromisoformat(capital[field + "_as_of"]))
+                    setattr(item, field + "_source", capital[field + "_source"])
+            if item.market_cap is not None and not item.market_cap_currency:
+                item.market_cap_currency = capital.get("market_cap_currency", "")
+        for field, label in (("market_cap", "总市值"), ("total_shares", "总股本")):
+            value = getattr(item, field)
+            if value is None:
+                notes.append(f"{label}：源采集失败，未取得可核验数值")
+            else:
+                unit = item.market_cap_currency if field == "market_cap" else "股"
+                notes.append(f"{label}：{value:,.2f} {unit}；{getattr(item, field + '_source')}；截至 {getattr(item, field + '_as_of')}")
         if curve_fallback:
             # 两个东财入口都未取得 PE/PB 时，才允许百度曲线末值兜底。
             item.pe_ttm = pe_curve.get(period)
