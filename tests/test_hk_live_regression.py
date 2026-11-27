@@ -25,7 +25,13 @@ RESOURCES = Path(__file__).parent / "resources"
 
 @pytest.mark.parametrize("cash_flow_failure", [False, True])
 def test_real_financial_rows_survive_price_outage_through_saved_report(tmp_path, monkeypatch, cash_flow_failure):
+    from data.fx_rates import FxRate
+
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("data.fx_rates.rate_on",
+                        lambda c, target="CNY", *, day: FxRate(c, target, 1.0, (day,)))
+    monkeypatch.setattr("data.fx_rates.average_rate",
+                        lambda c, s, e, target="CNY": FxRate(c, target, 1.0, (s, e)))
     monkeypatch.setattr("data.akshare.financial_report_directory", lambda code: [])
     snapshot = json.loads((RESOURCES / "data/eastmoney-00700-valuation-snapshot.json").read_text(encoding="utf-8"))
 
@@ -42,7 +48,10 @@ def test_real_financial_rows_survive_price_outage_through_saved_report(tmp_path,
     def get(url, **kwargs):
         if "/securities/api/data/" in url:
             statements = {"RPT_HKF10_FN_INCOME_PC": "income", "RPT_HKF10_FN_BALANCE_PC": "balance", "RPT_HKF10_FN_CASHFLOW_PC": "cash-flow"}
-            kind = statements[kwargs["params"]["reportName"]]
+            report_name = kwargs["params"]["reportName"]
+            if report_name == "RPT_HKF10_FN_MAININDICATOR":
+                return Response({"success": True, "result": {"data": [], "count": 0, "pages": 1}})
+            kind = statements[report_name]
             if cash_flow_failure and kind == "cash-flow":
                 raise requests.Timeout("复现云端现金流量表超时")
             path = RESOURCES / "data" / f"eastmoney-00700-{kind}-report.json"
@@ -69,7 +78,8 @@ def test_real_financial_rows_survive_price_outage_through_saved_report(tmp_path,
     results, commentary, context = pipeline.run(symbol, name, market=symbol_market(symbol))
     assert context.market == "hk"
     assert context.price_data is None
-    assert context.financial_data is not None and len(context.financial_data) == 5
+    assert context.financial_data is not None and len(context.financial_data) == 4
+    assert any(item.get("status") == "excluded" for item in context.currency_conversion["financial"])
     latest = max(context.financial_data, key=lambda item: item.fiscal_quarter)
     assert latest.revenue == 396431000000
     assert latest.net_profit == 114115000000

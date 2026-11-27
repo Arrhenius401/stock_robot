@@ -182,7 +182,11 @@ def capital_fallback(code: str) -> dict[str, Any]:
     from data.hk_hsics_peers import fetch_market_quotes
 
     result: dict[str, Any] = {}
-    quote = fetch_market_quotes([code + ".HK"]).get(code + ".HK", {})
+    try:
+        quote = fetch_market_quotes([code + ".HK"]).get(code + ".HK", {})
+    except (requests.RequestException, ValueError, TypeError, KeyError, AttributeError) as error:
+        logger.warning("港股行情市值回退失败 %s：%s", code, error)
+        quote = {}
     if quote:
         result.update(market_cap=quote["market_cap"], market_cap_as_of=quote["as_of"],
                       market_cap_source=quote["source"], market_cap_currency="HKD")

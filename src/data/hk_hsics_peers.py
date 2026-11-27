@@ -221,9 +221,8 @@ class HKIndustryAdapter(DataSource):
         if target is None or target.status != "mapped" or symbol not in connect:
             if cache_only:
                 return []
-            from data.hk_eastmoney import stock_snapshot
             try:
-                data = fallback_industry(symbol, stock_snapshot(symbol.removesuffix(".HK")))
+                data = fallback_industry(symbol)
                 return [data] if data is not None else []
             except (requests.RequestException, ValueError, TypeError) as exc:
                 logger.warning("港股行业标签获取失败：%s", exc)

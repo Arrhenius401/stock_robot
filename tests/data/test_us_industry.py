@@ -300,6 +300,7 @@ def test_selected_peers_keep_partial_metrics_and_isolate_balance_failure(mocker)
     ctx.industry_data = result.value
     UsIndustryEnricher().enrich(ctx)
     enriched = ctx.enriched_industry
+    assert enriched is not None
     assert enriched.peer_count == 6
     assert enriched.peer_pe_sample == enriched.peer_pb_sample == 5
     metrics = enriched.comparison["periods"]["latest"]["metrics"]
