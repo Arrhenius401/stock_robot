@@ -175,6 +175,11 @@ function initWorkspaceShell() {
     updateWorkspaceBackdrop();
   });
   backdrop?.addEventListener("click", () => resetWorkspaceOverlays());
+  document.getElementById("sidebarClose")?.addEventListener("click", () => {
+    closeMobileNavigation(toggle);
+    updateWorkspaceBackdrop();
+    toggle?.focus();
+  });
   window.addEventListener("resize", updateWorkspaceBackdrop);
   window.addEventListener("resize", syncWorkspaceModal);
   if (layout && typeof MutationObserver !== "undefined") {
