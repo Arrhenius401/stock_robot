@@ -1271,7 +1271,7 @@ class AkShareAdapter(DataSource):
                 reported_annual_roe_source="东方财富港股分析指标" if reported_annual_roe is not None else "",
                 disclosure_currency=disclosure_currency,
                 revenue_basis=("其他金融：经营收入（不含其他收入）" if other_financial_template
-                               else "银行：经营收入总额" if bank_template else ""),
+                               else "银行：经营收入总额" if bank_template else "营业额（不含其他营业收入）"),
                 cash_flow_basis="reported" if cf_verified else "unknown",
                 cash_flow_period_start=start if cf_verified else cf_start))
             row_data = result[-1]

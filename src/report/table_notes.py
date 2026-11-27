@@ -68,8 +68,11 @@ def prepare_table(dimension: str, metrics: dict[str, Any]) -> dict[str, Any]:
             notes.append(f"营收/净利为单季（{metrics['revenue_period']}）；现金流为 TTM。")
         if metrics.get("common_equity") is not None:
             notes.append("普通权益用于 PB/ROE 口径；总权益可能含少数股东权益。")
-        if "营业额" in str(metrics.get("revenue_basis", "")):
+        revenue_basis = str(metrics.get("revenue_basis", ""))
+        if "营业额" in revenue_basis:
             notes.append("表内营业收入为源披露营业额口径；不与其他口径混算。")
+        elif revenue_basis:
+            notes.append(f"营业收入为源披露{revenue_basis}口径；不与其他口径混算。")
         if metrics.get("dividend_yield") is not None:
             notes.append("股息率为源披露报告期口径；未声明 TTM，不与当前快照混算。")
         if "roe" in metrics:

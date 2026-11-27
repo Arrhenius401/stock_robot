@@ -21,7 +21,8 @@ GROWTH = {
     "profit_growth_yoy": "calculate_parent_holder_net_profit_yoy_growth_ratio",
     "deducted_profit_growth_yoy": "deduct_net_profit_yoy_growth_ratio",
 }
-BALANCE = {"total_assets": "assets_total", "total_equity": "holder_equity_total"}
+BALANCE = {"total_assets": "assets_total", "total_equity": "holder_equity_total",
+           "common_equity": "parent_holder_equity_total"}
 
 
 def source_precision(raw: object) -> Literal["source_native", "rounded", "unknown"]:
@@ -97,10 +98,11 @@ def fetch_ths_native(symbol: str) -> list[FinancialData]:
         for field, value in values.items():
             setattr(row, field, value)
         row.net_margin_basis = "同花顺源披露销售净利率" if row.net_margin is not None else "未取得源披露净利率"
+        row.revenue_basis = "营业总收入" if row.revenue is not None else ""
         if row.total_equity is not None:
             other = _value(balance.get(day, {}), "other_equity_tools")
             preferred = _value(balance.get(day, {}), "preferred_stock")
-            if other is not None and preferred is not None:
+            if row.common_equity is None and other is not None and preferred is not None:
                 row.common_equity = row.total_equity - other - preferred
         row.operating_cash_flow = _value(cash.get(day, {}), "act_cash_flow_net")
         row.capital_expenditure = _value(cash.get(day, {}), "pay_fixed_assets_etc_cash")
