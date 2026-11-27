@@ -19,6 +19,17 @@ from report.signal import SignalConfig
 from report.valuation_dates import stock_date_presentation
 
 
+def dimension_table_view(result: AnalysisResult, display: dict | None = None, *,
+                         currency_conversion: dict | None = None) -> dict[str, Any]:
+    """将报告展示契约随快照保存，网页无需再实现一份表注规则。"""
+    from report.peer_comparison import format_peer_comparison_markdown
+    from report.table_notes import stock_table_view
+
+    if result.dimension == "industry" and result.metrics.get("comparison"):
+        return {"markdown": format_peer_comparison_markdown(result.metrics["comparison"], SCORING_METHOD, compact=True)}
+    return stock_table_view(result.dimension, result.metrics, display, currency_conversion=currency_conversion)
+
+
 def build_stock_payload(
     symbol: str, name: str, results: list[AnalysisResult], commentary: dict[str, str],
     ctx: AnalysisContext, *, no_llm: bool = False,
@@ -89,6 +100,16 @@ def build_stock_payload(
     else:
         industry = ctx.sw_industry or (
             ctx.industry_data.industry if ctx.industry_data else "未知")
+    dimensions = {}
+    for result in results:
+        if facts_only and result.dimension == "technical":
+            continue
+        display = stock_date_presentation(ctx, result.metrics, result.summary) if result.dimension == "valuation" else None
+        dimensions[result.dimension] = {
+            **result.model_dump(mode="json", exclude={"dimension", "charts"}),
+            **({"display": display} if display else {}),
+            "table_view": dimension_table_view(result, display, currency_conversion=ctx.currency_conversion),
+        }
     return {
         **({key: quality[key] for key in ("report_scope", "assessment_status", "identity_status")}
            if ctx.market in {"a-shares", "hk", "us"} else {}),
@@ -113,9 +134,7 @@ def build_stock_payload(
                   "final": summary.final_score if quality["has_scored_data"] else None,
                   "risk_deduction": summary.risk_deduction},
         "score_rows": summary.score_rows if ctx.extra_analysis_enabled else [],
-        "dimensions": {r.dimension: {**r.model_dump(mode="json", exclude={"dimension", "charts"}),
-                       **({"display": stock_date_presentation(ctx, r.metrics, r.summary)} if r.dimension == "valuation" else {})}
-                       for r in results if not (facts_only and r.dimension == "technical")},
+        "dimensions": dimensions,
         "commentary": bulk, "comments": [bulk] if bulk else [],
         **({"research_commentary": research} if research else {}),
         "commentary_status": status, "signal": signal, "data_quality": quality,

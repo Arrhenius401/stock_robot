@@ -227,4 +227,5 @@ def build_report(symbol: str, name: str, results: list[AnalysisResult],
         price_end=price_info["price_end"],
         price_bars=price_info["price_bars"],
         valuation_display=stock_date_presentation(ctx, valuation.metrics, valuation.summary) if valuation else None,
+        currency_conversion=ctx.currency_conversion,
     )

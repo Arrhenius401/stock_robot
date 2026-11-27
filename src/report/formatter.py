@@ -129,6 +129,9 @@ _STOCK_SYMBOL_PATTERN = r"(?:\d{6}|\d{5}\.HK|[A-Z][A-Z0-9]{0,9}(?:[.-][A-Z0-9]{1
 _SEP_RE = re.compile(r'^\|[-\s:|]+\|$')
 
 METRIC_DISPLAY_NAMES = {
+    "market_cap": "总市值",
+    "total_shares": "总股本",
+    "display_currency": "展示币种",
     "operating_trends": "经营趋势",
     "trend_note": "趋势分析限制",
     "cash_flow_source": "经营现金流来源",

@@ -725,6 +725,30 @@ function industryComparisonSection(dimension, sectionIdPrefix, newScoring = fals
 }
 
 function dimensionSection(name, label, data, sectionIdPrefix, unscored = false, applicable = true, newScoring = false, objective = false) {
+  // 新快照由服务端统一生成表格与表注；旧快照继续使用兼容展示。
+  const tableView = record(record(data).table_view);
+  if (Object.keys(tableView).length && applicable) {
+    const card = section(`report-${name}`, label, "panel", sectionIdPrefix);
+    const dimension = record(data);
+    card.appendChild(statusBadge(dimension.status));
+    if (!objective) card.appendChild(el("span", "dim-score", name === "industry" && !newScoring ? "不计分" : unscored ? "评分不适用" : scoreText(dimension.score, "暂无评分")));
+    if (dimension.status !== "ok" && dimension.summary) card.appendChild(el("p", "dim-sum", naturalText(dimension.summary)));
+    if (tableView.markdown) card.appendChild(markdownBlock(tableView.markdown, "md"));
+    else {
+      const rows = Object.entries(record(tableView.metrics)).map(([key, value]) => [key, readable(value)]);
+      if (rows.length) card.appendChild(comparisonTable(["指标", "数值"], rows, "report-metrics", label));
+      for (const note of tableView.notes || []) card.appendChild(el("p", "dim-sum report-table-note", String(note)));
+      const trends = record(dimension.metrics).operating_trends;
+      if (Array.isArray(trends) && trends.length) {
+        card.appendChild(el("h3", "", "经营趋势"));
+        const list = el("ul");
+        for (const trend of trends) list.appendChild(el("li", "", String(trend)));
+        card.appendChild(list);
+      }
+    }
+    appendRiskFlags(card, dimension);
+    return card;
+  }
   if (name === "industry" && Object.keys(record(record(record(data).metrics).comparison)).length) {
     const comparison = industryComparisonSection(record(data), sectionIdPrefix, newScoring && !objective);
     if (objective) comparison.querySelectorAll(".dim-score").forEach(node => node.remove());
@@ -1188,9 +1212,9 @@ export function renderIndexReport(report, options = {}) {
   const profile = report.index_profile;
   const visibleSections = profile?.sections ?? report.visible_sections;
   const make = (id, title) => section(id, title, "panel", prefix);
-  const addRows = (card, rows) => {
+  const addRows = (card, rows, marker = "") => {
     if (!Array.isArray(rows) || !rows.length) return;
-    card.appendChild(comparisonTable(["指标", "数值", "说明"], rows.map(row => [
+    card.appendChild(comparisonTable([`指标${marker}`, "数值", "说明"], rows.map(row => [
       readable(row.label), readable(row.value), readable(row.note, "")]), "index-metrics", "指数指标"));
   };
   const overview = make("index-overview", "概览");
@@ -1212,7 +1236,7 @@ export function renderIndexReport(report, options = {}) {
   for (const part of [report.section_performance, report.section_technical, report.section_strategy]) {
     if (!part) continue;
     if (part.summary) technical.appendChild(el("p", "dim-sum", part.summary));
-    addRows(technical, part.display?.rows);
+    addRows(technical, part.display?.rows, part.display?.table_note_marker || "");
     const windows = part.display?.windows;
     if (Array.isArray(windows) && windows.length) {
       technical.appendChild(comparisonTable(["区间", "起始", "截止", "交易日", "收益", "最大回撤", "年化波动"], windows.map(w => [
@@ -1223,16 +1247,22 @@ export function renderIndexReport(report, options = {}) {
     addRows(technical, part.display?.benchmark_rows);
     if (part.metrics?.benchmark_sample_count >= 2) technical.appendChild(el("p", "dim-sum", `基准 ${readable(part.metrics.benchmark_symbol)}；共同交易日 ${readable(part.metrics.benchmark_start_date)} 至 ${readable(part.metrics.benchmark_end_date)}，${part.metrics.benchmark_sample_count} 日。`));
     addRows(technical, part.display?.etf_rows);
-    if (part.metrics?.methodology) technical.appendChild(el("p", "dim-sum", part.metrics.methodology));
-    for (const note of part.metrics?.errors || []) technical.appendChild(el("p", "dim-sum", note));
+    if (Array.isArray(part.display?.table_notes)) {
+      for (const note of part.display.table_notes) technical.appendChild(el("p", "dim-sum report-table-note", note));
+    } else {
+      if (part.metrics?.methodology) technical.appendChild(el("p", "dim-sum", part.metrics.methodology));
+      for (const note of part.metrics?.errors || []) technical.appendChild(el("p", "dim-sum", note));
+    }
   }
   article.appendChild(technical);
   const valuation = make("index-valuation", "估值面");
   if (report.section_valuation?.summary) valuation.appendChild(el("p", "dim-sum", report.section_valuation.summary));
-  addRows(valuation, report.section_valuation?.display?.rows);
+  addRows(valuation, report.section_valuation?.display?.rows, report.section_valuation?.display?.table_note_marker || "");
   if (report.tag_valuation) valuation.appendChild(el("span", indexTagClass(report.tag_valuation), indexTags[report.tag_valuation] || report.tag_valuation));
-  for (const detail of report.section_valuation?.display?.details || []) valuation.appendChild(el("p", "dim-sum", detail));
-  for (const note of report.section_valuation?.metrics?.valuation_notes || []) valuation.appendChild(el("p", "dim-sum", note));
+  const valuationDisplay = record(report.section_valuation?.display);
+  const valuationNotes = Array.isArray(valuationDisplay.table_notes) ? valuationDisplay.table_notes
+    : [...(valuationDisplay.details || []), ...(report.section_valuation?.metrics?.valuation_notes || [])];
+  for (const note of valuationNotes) valuation.appendChild(el("p", "dim-sum report-table-note", note));
   article.appendChild(valuation);
   const background = make("index-background", "资金、宏观与新闻");
   for (const [key, title, part] of [["capital", "资金流向", report.section_capital], ["macro", "宏观环境", report.section_macro], ["sentiment", "相关新闻", report.section_sentiment]]) {

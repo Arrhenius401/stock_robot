@@ -95,7 +95,7 @@ def missing_latest_comparison():
     return comparison
 
 
-def test_latest_period_reason_is_visible_above_empty_metric_summary():
+def test_latest_period_reason_is_visible_with_empty_metric_summary():
     comparison = missing_latest_comparison()
     block = comparison["periods"]["latest"]
     assert len(block["metrics"]) == 3
@@ -103,7 +103,7 @@ def test_latest_period_reason_is_visible_above_empty_metric_summary():
     result = AnalysisResult(dimension="industry", status="partial", summary="", metrics={"comparison": comparison})
     markdown = ReportBuilder().build("600519", "目标公司", [result], {})
     latest_section = markdown.split("#### 经营表现 · 最新一期", 1)[1].split("#### 数据来源", 1)[0]
-    assert block["reason"] in latest_section.split("| 指标", 1)[0]
+    assert block["reason"] in latest_section
     assert "2026-06-30" in latest_section
     assert "旧期参考·年报" in latest_section
     assert "最新一期·年报" not in latest_section

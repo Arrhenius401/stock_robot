@@ -1,13 +1,13 @@
 // 应用主入口：导航接线、工作台覆盖层与各视图初始化。
 import { bus, store, switchView } from "./state.js?v=20261127-task19-final";
-import { initChat } from "./chat.js?v=20261127-task19-final";
-import { initReportView, openReport } from "./report.js?v=20261127-task19-final";
-import { initReportDrawer } from "./report-drawer.js?v=20261127-task19-final";
-import { closeReportDrawer } from "./report-drawer.js?v=20261127-task19-final";
+import { initChat } from "./chat.js?v=20261127-table-notes";
+import { initReportView, openReport } from "./report.js?v=20261127-table-notes";
+import { initReportDrawer } from "./report-drawer.js?v=20261127-table-notes";
+import { closeReportDrawer } from "./report-drawer.js?v=20261127-table-notes";
 import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js?v=20261127-task19-final";
-import { initIndexView } from "./indexview.js?v=20261127-task19-final";
-import { initReportLibrary } from "./report-library.js?v=20261127-task19-final";
-import { initSessions, initSessionStartup } from "./sessions.js?v=20261127-task19-final";
+import { initIndexView } from "./indexview.js?v=20261127-table-notes";
+import { initReportLibrary } from "./report-library.js?v=20261127-table-notes";
+import { initSessions, initSessionStartup } from "./sessions.js?v=20261127-table-notes";
 import { initSubscriptions } from "./subscriptions.js?v=20261127-task19-final";
 import { initSettings } from "./settings.js?v=20261127-task19-final";
 import { initLogs } from "./logs.js?v=20261127-task19-final";

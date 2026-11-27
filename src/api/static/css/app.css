@@ -1538,6 +1538,7 @@ body.subs-modal-open { overflow: hidden; }
 .stock-report .report-dimension-heading { gap: 12px; align-items: baseline; margin-bottom: 8px; }
 .stock-report .report-dimension-heading .panel-title { margin: 0; }
 .stock-report .dim-score { font-size: 16px; }
+.stock-report .report-table-note { overflow-wrap: anywhere; }
 .stock-report .report-score-detail { font-size: 13px; color: var(--text-4); padding-top: 8px; overflow-wrap: anywhere; }
 .stock-report .report-archive-body { font-size: 15px; }
 .report-library-stock-panel { background: transparent; border: 0; padding: 0; }

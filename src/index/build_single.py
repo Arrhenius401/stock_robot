@@ -62,6 +62,9 @@ class IndexReportBuilder:
         strategy = self._build_section(results_map, "index_strategy")
         technical["display"] = {"rows": display_rows(technical["metrics"], ("ma_5", "ma_20", "ma_60", "adx_14", "atr_20", "atr_pct", "year_high", "year_low", "price_position_pct"))}
         valuation["display"]["rows"] = valuation_rows(ctx)
+        from report.table_notes import index_method_table, index_valuation_table
+
+        valuation["display"] = index_valuation_table(valuation["display"], valuation["metrics"].get("valuation_notes", []))
         if margin_background:
             capital_keys = ("margin_balance", "margin_change")
         elif profile.capital_kind == "southbound_background":
@@ -103,6 +106,8 @@ class IndexReportBuilder:
             strategy["display"]["rows"].append({"label": indicator.get("label", "专项指标"), "value": text, "note": f"官方权重覆盖率 {indicator.get('coverage_pct', '未记录')}%；{indicator.get('scope', '')}；{indicator.get('reason', '')}"})
         for industry in strategy_metrics.get("industry_weights") or []:
             strategy["display"]["rows"].append({"label": industry.get("industry", "未记录行业"), "value": f"{industry.get('weight_pct', '未记录')}%", "note": "占完整指数的原始官方权重"})
+        technical["display"] = index_method_table(technical)
+        strategy["display"] = index_method_table(strategy)
         overview["display_rows"] = display_rows(overview, ("latest_close", "change_pct")) + valuation_rows(ctx)
         for row in overview["display_rows"][:2]:
             row["note"] = overview["price_date"]
@@ -202,6 +207,16 @@ class IndexReportBuilder:
 
 def render_index_report_markdown(report: IndexReport) -> str:
     """将指数结构化报告渲染为可保存、可下载的 Markdown。"""
+    from report.table_notes import index_method_table, index_valuation_table
+
+    # 兼容重渲染旧快照：不依赖新 builder 才能保留原有方法与失败原因。
+    report = report.model_copy(deep=True)
+    for section in (report.section_technical, report.section_strategy):
+        if section and "table_notes" not in (section.get("display") or {}):
+            section["display"] = index_method_table(section)
+    valuation = report.section_valuation
+    if "table_notes" not in (valuation.get("display") or {}):
+        valuation["display"] = index_valuation_table(valuation.get("display") or {}, valuation.get("metrics", {}).get("valuation_notes", []))
     template_dir = Path(__file__).parent.parent / "report" / "templates"
     env = Environment(
         loader=FileSystemLoader(str(template_dir)),

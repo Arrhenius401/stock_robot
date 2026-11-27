@@ -1,7 +1,10 @@
 {# 指数报告与网页共用的展示副本，原始metrics保留追溯。 #}
 {% macro rows(section) -%}
 {% if section and section.display and section.display.rows %}
-{{ section.display.rows | md_table({"指标":"label", "数值":"value", "解读标注":"note"}) }}
+{{ section.display.rows | md_table({("指标" ~ (section.display.table_note_marker or "")):"label", "数值":"value", "解读标注":"note"}) }}
+{% for note in section.display.table_notes or [] %}
+{{ note }}
+{% endfor %}
 {% endif %}
 {%- endmacro %}
 # 指数分析报告：{{ name }}（{{ code }}）
@@ -45,31 +48,18 @@
 
 {{ section_technical.summary or "行情数据不可用，暂不判断技术状态。" }}
 {{ rows(section_technical) }}
-{% if section_technical.metrics.methodology %}
-> {{ section_technical.metrics.methodology }}
-{% endif %}
 
 {% if section_strategy %}
 ### 策略专项分析
 
 {{ section_strategy.summary }}
 {{ rows(section_strategy) }}
-> {{ section_strategy.metrics.methodology or "" }}
-{% for error in section_strategy.metrics.errors or [] %}
-- {{ error }}
-{% endfor %}
 {% endif %}
 
 ## 三、估值面
 
 {{ section_valuation.summary or "估值数据不可用。" }}
 {{ rows(section_valuation) }}
-{% for detail in section_valuation.display.details or [] %}
-- {{ detail }}
-{% endfor %}
-{% for note in section_valuation.metrics.valuation_notes or [] %}
-- {{ note }}
-{% endfor %}
 
 ## 四、资金、宏观与新闻
 {% set placeholders = (report.index_profile or {}).get("placeholders", {}) %}

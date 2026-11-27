@@ -193,7 +193,7 @@ def test_dividend_yield_follows_net_margin_with_source():
     assert result.metrics["dividend_yield"] == pytest.approx(2.31)
     from report.table_notes import prepare_table
     view = prepare_table("financial", result.metrics)
-    assert "股息率" in view["metrics"]
+    assert any(label.startswith("股息率") for label in view["metrics"])
     assert any("股息率来源" in note and "东方财富分红送配" in note for note in view["notes"])
 
 
