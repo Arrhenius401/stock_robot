@@ -25,6 +25,7 @@ from data.schemas import (
     RawSentimentItem,
     ValuationData,
 )
+from data.us_industry import _code, normalize_us_code
 from utils.numbers import is_finite_number, parse_cn_number
 
 logger = logging.getLogger(__name__)
@@ -175,6 +176,7 @@ def us_quote(ticker: str) -> dict[str, Any]:
 
     只读公开快照，不把盘后价当作收盘价；调用方决定使用哪些字段。
     """
+    ticker = normalize_us_code(ticker)
     response = requests.get(
         SINA_QUOTE_URL.format(ticker=ticker.lower()), headers=SINA_HEADERS, timeout=10,
     )
@@ -314,6 +316,7 @@ def _eastmoney_history(ticker: str, start: date, end: date) -> list[PriceData]:
 def us_history(ticker: str, start: date | None = None, end: date | None = None,
                *, diagnostics: list[dict[str, Any]] | None = None) -> list[PriceData]:
     """近一年前复权日线；新浪为主源，东财为不拼接的备用整份。"""
+    ticker = normalize_us_code(ticker)
     today = datetime.now(HK_TZ).date()
     end_date = min(end or today, today)
     start_date = start or (end_date - timedelta(days=365))
@@ -347,7 +350,7 @@ def us_history(ticker: str, start: date | None = None, end: date | None = None,
 
 
 def _balance_statement(ticker: str) -> dict[str, dict[str, Any]]:
-    code = "BRK_B" if ticker == "BRK.B" else ticker
+    code = _code(ticker)
     response = requests.get("https://datacenter.eastmoney.com/securities/api/data/v1/get", params={
         "reportName": "RPT_USF10_FN_BALANCE", "columns": "ALL", "source": "SECURITIES", "client": "PC",
         "filter": f'(SECURITY_CODE="{code}")', "pageSize": 500, "pageNumber": 1,
@@ -396,7 +399,7 @@ def _statement(ticker: str, statement: str) -> dict[str, dict[str, Any]]:
     import akshare as ak
 
     frame: Any = ak.stock_financial_us_report_em(
-        stock="BRK_B" if ticker == "BRK.B" else ticker, symbol=statement, indicator="单季报",
+        stock=_code(ticker), symbol=statement, indicator="单季报",
     )
     if frame is None or frame.empty:
         raise ValueError(f"美股{statement}为空")
@@ -404,7 +407,7 @@ def _statement(ticker: str, statement: str) -> dict[str, dict[str, Any]]:
     for _, row in frame.iterrows():
         code = str(row.get("SECURITY_CODE") or "").strip().upper()
         secucode = str(row.get("SECUCODE") or "").strip().upper()
-        expected = "BRK_B" if ticker == "BRK.B" else ticker
+        expected = _code(ticker)
         if (code and code != expected) or (secucode and secucode.rsplit(".", 1)[0] != expected):
             raise ValueError(f"美股{statement}代码不匹配")
         period = _parse_date(row.get("REPORT_DATE"))
@@ -424,12 +427,19 @@ def _statement(ticker: str, statement: str) -> dict[str, dict[str, Any]]:
         if any(metadata.values()):
             entry["_meta"] = metadata
         entry[item] = amount
+        if statement == "综合损益表" and item == "004001999":
+            yoy = _number(row.get("YOY_RATIO"))
+            if yoy is not None:
+                entry["YOY_RATIO"] = yoy
     if not periods:
         raise ValueError(f"美股{statement}没有可解析的报告期")
     metadata = _statement_metadata(ticker, statement, min(periods))
     for period, entry in periods.items():
         if period in metadata:
             entry["_meta"] = metadata[period]
+            yoy = _number(metadata[period].get("revenue_yoy"))
+            if yoy is not None:
+                entry["YOY_RATIO"] = yoy
     return periods
 
 
@@ -437,7 +447,7 @@ def _statement_metadata(ticker: str, statement: str, start: str) -> dict[str, di
     """包装器未请求期间和币种，向同一F10端点补取原字段，不按季度猜测。"""
     report = {"综合损益表": "RPT_USF10_FN_INCOME", "资产负债表": "RPT_USF10_FN_BALANCE",
               "现金流量表": "RPT_USSK_FN_CASHFLOW"}[statement]
-    code = "BRK_B" if ticker == "BRK.B" else ticker
+    code = _code(ticker)
     try:
         response = requests.get("https://datacenter.eastmoney.com/securities/api/data/v1/get", params={
             "reportName": report, "columns": "ALL", "source": "SECURITIES", "client": "PC",
@@ -452,6 +462,7 @@ def _statement_metadata(ticker: str, statement: str, start: str) -> dict[str, di
         rows = result.get("data") or []
         metadata: dict[str, dict[str, str]] = {}
         conflicts: set[str] = set()
+        revenue_yoy: dict[str, str] = {}
         for row in rows:
             if row.get("SECURITY_CODE") != code:
                 raise ValueError("三表元信息身份不匹配")
@@ -465,6 +476,12 @@ def _statement_metadata(ticker: str, statement: str, start: str) -> dict[str, di
             if period in metadata and metadata[period] != item:
                 conflicts.add(period)
             metadata[period] = item
+            if statement == "综合损益表" and row.get("STD_ITEM_CODE") == "004001999":
+                yoy = _number(row.get("YOY_RATIO"))
+                if yoy is not None:
+                    revenue_yoy[period] = str(yoy)
+        for period, yoy in revenue_yoy.items():
+            metadata[period]["revenue_yoy"] = yoy
         return {key: value for key, value in metadata.items() if key not in conflicts}
     except (requests.RequestException, ValueError, TypeError, KeyError) as error:
         logger.warning("美股三表期间币种补取失败 %s/%s: %s", ticker, statement, error)
@@ -502,6 +519,7 @@ def _annual_roe(ticker: str) -> tuple[float | None, date | None]:
 
 def us_financials(ticker: str, max_periods: int = 8, *, refresh_cache: bool = False) -> list[FinancialData]:
     """东财美股 F10 单季报：最近八个财季，报告期按财季月末归一。"""
+    ticker = normalize_us_code(ticker)
     income = _statement(ticker, "综合损益表")
     try:
         balance = _statement(ticker, "资产负债表")
@@ -510,8 +528,8 @@ def us_financials(ticker: str, max_periods: int = 8, *, refresh_cache: bool = Fa
         balance = {}
     cash = _statement(ticker, "现金流量表")
     periods = sorted(set(income) & (set(balance) | set(cash)))[-max_periods:]
-    if len(periods) < 4:
-        raise ValueError("美股单季报不足四期")
+    if not periods:
+        raise ValueError("美股单季报没有可用报告期")
 
     rows: list[FinancialData] = []
     balance_keys = sorted(balance)
@@ -590,20 +608,39 @@ def us_financials(ticker: str, max_periods: int = 8, *, refresh_cache: bool = Fa
         )
         for field in ("revenue", "net_profit", "total_assets", "total_equity", "common_equity", "operating_cash_flow", "capital_expenditure", "free_cash_flow"):
             source_period = balance_key if field in {"total_assets", "total_equity", "common_equity"} else period_key
-            row.field_sources.setdefault(field, f"东方财富美股F10，源报告日 {source_period or '未知'}；" + ("未披露/不适用" if getattr(row, field) is None else "源科目映射/已披露现金支出派生"))
+            period_note = f"，源报告日 {source_period or '未知'}" if field in {"total_assets", "total_equity", "common_equity"} else ""
+            row.field_sources.setdefault(field, "东方财富美股F10" + period_note + "；" + ("未披露/不适用" if getattr(row, field) is None else "源科目映射/已披露现金支出派生"))
         for field in ("net_profit", "revenue", "operating_cash_flow", "total_assets", "common_equity", "total_equity"):
             meta = cash_meta if field == "operating_cash_flow" else balance_meta if field in {"total_assets", "common_equity", "total_equity"} else income_meta
-            row.field_positions[field] = {"start": meta.get("start", ""), "end": balance_key if field in {"total_assets", "common_equity", "total_equity"} else period_key,
-                "currency": meta.get("currency", ""), "unit": "元", "basis": "single", "scope": "公司整体",
-                "accounting": meta.get("accounting", ""), "revision": "当前源快照", "notice": meta.get("notice", "")}
+            instant = field in {"total_assets", "common_equity", "total_equity"}
+            row.field_positions[field] = {
+                "definition": "parent_net_profit" if field == "net_profit" else field,
+                "start": "" if instant else meta.get("start", ""),
+                "end": balance_key if instant else period_key,
+                "currency": meta.get("currency", ""), "unit": "currency",
+                "basis": "instant" if instant else "single", "scope": "consolidated",
+                "calculation": "reported", "accounting": meta.get("accounting", ""),
+                "revision": "当前源快照", "notice": meta.get("notice", ""),
+            }
         if row.revenue is not None and row.revenue > 0 and row.net_profit is not None and start is not None:
             row.net_margin = row.net_profit / row.revenue
             row.net_margin_basis = "计算值：单季净利润÷营业收入；仅展示"
         row.precision_version = 1
+        # F10 的 YOY_RATIO 以百分数披露；缺失时由金额可比契约决定能否复算。
+        reported_yoy = _number(income_row.get("YOY_RATIO"))
+        if reported_yoy is not None:
+            row.reported_metrics["revenue_growth_yoy"] = reported_yoy / 100
         row.field_precision = {field: "source_native" for field in (
             "revenue", "net_profit", "total_assets", "total_equity", "common_equity",
             "operating_cash_flow", "capital_expenditure", "free_cash_flow", "gross_margin", "basic_eps")
             if is_finite_number(getattr(row, field))}
+        if reported_yoy is not None:
+            metric = "revenue_growth_yoy"
+            row.field_precision[metric] = "source_native"
+            row.field_sources[metric] = "东方财富美股F10 YOY_RATIO（百分数）"
+            row.field_positions[metric] = {
+                **row.field_positions["revenue"], "definition": metric, "unit": "ratio",
+            }
         rows.append(row)
 
     # ROE 按最近四个财季净利润 / 期末归母权益派生；资产负债表期不一致时不混算。
@@ -626,6 +663,12 @@ def us_financials(ticker: str, max_periods: int = 8, *, refresh_cache: bool = Fa
         f"报告期按财季月末展示（源报告日 {date.fromisoformat(periods[-1]).isoformat()}）；"
         "最近四个财季合计为 TTM；期间/币种按源三表逐行保留，缺失不推断；不推断换汇或 ADR 每股比例"
     )
+    if len(rows) < 4:
+        latest.financial_selection_status = "partial"
+        latest.financial_selection_note = (
+            f"仅有 {len(rows)} 个财季；TTM/ROE/PS 需四个财季，暂不计算；"
+            "期间/币种按源三表逐行保留，缺失不推断"
+        )
     if ticker == "BRK.B":
         latest.financial_selection_note += "；F10 代码变体 BRK_B，伯克希尔哈撒韦-B 公司整体报表"
     if latest.field_sources.get("total_assets"):
@@ -704,8 +747,25 @@ def _baidu_metric(ticker: str, metric: str, chart_select: str = "近一年") -> 
         raise ValueError("百度美股估值响应结构异常") from error
 
 
+def _tencent_pb(ticker: str) -> tuple[float | None, date | None]:
+    """腾讯字段 51 仅作为 PB 第二快照，校验代码与源日期。"""
+    response = requests.get(f"https://qt.gtimg.cn/q=us{ticker}", timeout=10)
+    response.raise_for_status()
+    matched = re.search(r'v_us([^=]+)="([^"]*)"', response.content.decode("gbk", errors="replace"))
+    if matched is None or matched[1].upper() != ticker.upper():
+        raise ValueError("腾讯美股快照代码不匹配")
+    fields = matched[2].split("~")
+    raw_date = _field(fields, 30)
+    stamp = _parse_date(raw_date)
+    if stamp is None and len(raw_date) >= 8:
+        stamp = _parse_date(f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}")
+    value = _number(_field(fields, 51))
+    return (value, stamp) if value is not None and stamp is not None else (None, None)
+
+
 def us_valuation(ticker: str) -> list[ValuationData]:
     """百度 PE(TTM)/PB 近一年曲线；快照取各自末值与日期，不伪造 PS。"""
+    ticker = normalize_us_code(ticker)
     curves: dict[str, dict[date, float]] = {}
     failed: list[str] = []
     for metric, key in BAIDU_METRICS.items():
@@ -715,8 +775,6 @@ def us_valuation(ticker: str) -> list[ValuationData]:
         except Exception as error:  # noqa: BLE001 — 第三方估值边界，保留另一指标
             logger.warning("百度美股%s获取失败 %s: %s", metric, ticker, type(error).__name__)
             failed.append(f"{key}_history")
-    if not curves:
-        raise ValueError("百度美股估值不可用")
 
     def latest(key: str) -> tuple[float | None, date | None]:
         points = curves.get(key) or {}
@@ -733,7 +791,8 @@ def us_valuation(ticker: str) -> list[ValuationData]:
         quote = us_quote(ticker)
         raw_cap = quote.get("market_cap")
         market_cap = raw_cap if is_finite_number(raw_cap) else None
-        market_cap_as_of = _parse_date(str(quote.get("quoted_at") or "")[:10])
+        market_cap_as_of = (_parse_date(str(quote.get("close_time") or "")[:10])
+                            or _parse_date(str(quote.get("quoted_at") or "")[:10]))
     except Exception as error:  # noqa: BLE001 — 快照边界，PS 派生失败不影响 PE/PB
         logger.warning("美股总市值快照失败 %s: %s", ticker, type(error).__name__)
     dates = [value for value in (pe_as_of, pb_as_of) if value is not None]
@@ -757,6 +816,7 @@ def us_valuation(ticker: str) -> list[ValuationData]:
         pb=pb,
         pe_as_of=pe_as_of,
         pb_as_of=pb_as_of,
+        pb_source="百度美股估值" if pb is not None else "",
         market_cap=market_cap,
         market_cap_as_of=market_cap_as_of,
         pe_history=curves.get("pe", {}),
@@ -796,6 +856,29 @@ def us_valuation(ticker: str) -> list[ValuationData]:
         item.history_window_label = "近五年"
     else:
         item.valuation_notes.append("百度五年估值暂不可用，保留原近一年数据")
+    if not item.pb_history:
+        start = now.date() - timedelta(days=365)
+        item.pb_history = {day: value for day, value in item.extended_pb_history.items() if day >= start}
+        if item.pb_history:
+            item.pb_as_of = max(item.pb_history)
+            item.pb = item.pb_history[item.pb_as_of]
+            item.pb_source = "百度美股估值"
+            item.failed_components = [key for key in item.failed_components if key != "pb_history"]
+            item.cache_degraded = bool(item.failed_components)
+            item.valuation_notes.append("近一年PB失败，使用同源五年曲线最近一年切片")
+        elif not item.extended_pb_history:
+            try:
+                item.pb, item.pb_as_of = _tencent_pb(ticker)
+                if item.pb is not None:
+                    item.pb_source = "腾讯美股快照PB"
+                    item.valuation_notes.append("腾讯美股快照PB；无同源历史，不计算历史分位")
+            except Exception as error:  # noqa: BLE001 — 第三方快照边界
+                logger.warning("腾讯美股PB失败 %s: %s", ticker, error)
+    if item.pe_ttm is None and item.pb is None and not (item.market_cap is not None and is_finite_number(item.market_cap) and item.market_cap > 0):
+        raise ValueError("美股估值不可用")
+    snapshot_dates = [day for day in (item.pe_as_of, item.pb_as_of) if day is not None]
+    if snapshot_dates:
+        item.date = max(snapshot_dates)
     item._data_source = "百度美股估值"
     return [item]
 
@@ -832,7 +915,14 @@ def us_news(ticker: str, name: str = "") -> list[NewsData]:
         except Exception as error:  # noqa: BLE001 — 单关键词检索边界，保留部分成功
             logger.warning("美股新闻查询失败 %s/%s: %s", ticker, query, type(error).__name__)
             errors.append(query)
-    if not succeeded:
+    from data.us_filings import fetch_filings
+
+    announcements = []
+    try:
+        announcements = fetch_filings(ticker)
+    except Exception as error:  # noqa: BLE001 — SEC 独立来源边界，保留新闻结果
+        logger.warning("SEC 公告失败 %s: %s", ticker, type(error).__name__)
+    if not succeeded and not announcements:
         raise RuntimeError("美股新闻暂时获取失败")
 
     items: list[RawSentimentItem] = []
@@ -876,6 +966,7 @@ def us_news(ticker: str, name: str = "") -> list[NewsData]:
     items.sort(key=lambda item: item.publish_date, reverse=True)
     items = items[:20]
     result = NewsData(symbol=ticker, date=today, headlines=[item.title for item in items])
+    result.announcement_items = announcements
     result._raw_sentiment = RawSentimentData(symbol=ticker, fetch_date=today, items=items)
     result._data_source = "东方财富关键词新闻检索"
     if errors:

@@ -51,7 +51,8 @@ def test_failure_and_brk_are_missing(mocker):
 
 
 @pytest.mark.parametrize('count,scored', [(5, True), (4, False), (2, False)])
-def test_two_operating_metrics_each_need_five_peers(count, scored):
+def test_two_operating_metrics_each_need_five_peers(count, scored, mocker):
+    mocker.patch("data.us_stock._statement", return_value={})
     operating = build_operating(rows(), 'TEST', GENERAL)
     assert operating is not None
     operating['revenue_verified'] = True  # 明确已审核的合成协议样例，用于独立验证样本门槛

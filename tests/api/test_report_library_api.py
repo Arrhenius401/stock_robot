@@ -49,3 +49,23 @@ async def test_report_errors_are_http_statuses(client):
 
     assert missing.status_code == 404
     assert missing.json()["detail"] == "报告不存在"
+
+def test_chat_artifact_preserves_assessment_contract():
+    from api.app import _extract_stock_reports
+
+    report = {"symbol": "600519", "report_scope": "limited", "assessment_status": "partial",
+              "identity_status": "confirmed", "market_profile": {"market": "a-shares"},
+              "price": {"status": "ok"}}
+    payload = _extract_stock_reports([{"tool": "analyze_stock", "status": "success", "content": report}])[0][1]
+    for key, value in report.items():
+        assert payload[key] == value
+
+
+@pytest.mark.asyncio
+async def test_legacy_report_retains_original_without_invented_snapshot(client):
+    reports = (await client.get("/api/v1/reports")).json()["reports"]
+    legacy = next(report for report in reports if report["legacy"])
+    detail = (await client.get(f"/api/v1/reports/{legacy['id']}")).json()
+    assert detail["report"]["legacy"] is True
+    assert detail["markdown"].replace("\r\n", "\n") == "# 贵州茅台\n\n旧版个股正文"
+    assert detail.get("stock_payload") is None

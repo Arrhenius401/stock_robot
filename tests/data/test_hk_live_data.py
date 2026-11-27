@@ -62,10 +62,18 @@ def test_long_statements_skip_bad_dates_and_keep_valid_duplicate(mocker):
 
 
 def test_snapshot_uses_ttm_and_actual_timestamp(mocker):
+    mocker.patch("data.hk_eastmoney.capital_fallback", return_value={
+        "market_cap": 3000000000000, "market_cap_as_of": "2026-11-27",
+        "market_cap_source": "腾讯港股快照", "market_cap_currency": "HKD",
+        "total_shares": 9092644829, "total_shares_as_of": "2026-09-30",
+        "total_shares_source": "东方财富F10 ISSUED_COMMON_SHARES"})
     response = mocker.patch("requests.get").return_value
     response.json.return_value = sample("valuation-snapshot")
     rows = AkShareAdapter().fetch("00700.HK", market="hk", data_type="valuation")
     assert len(rows) == 1
+    assert rows[0].market_cap == 3000000000000
+    assert rows[0].total_shares_as_of == date(2026, 9, 30)
+    assert rows[0].market_cap_as_of == date(2026, 11, 27)
     assert rows[0].pe_ttm == 14.23
     assert rows[0].pb == 2.9
     assert rows[0].date == datetime.fromtimestamp(1792138094, tz=UTC).astimezone(timezone(timedelta(hours=8))).date()
@@ -259,3 +267,46 @@ def test_financial_request_timeout_is_diagnosed_without_sdk_retry(mocker):
     assert record is not None
     assert record.source == "东方财富港股财报"
     assert record.error_kind == "timeout"
+
+
+def test_other_financial_template_preserves_actual_period_without_cash_borrowing(mocker):
+    # 2026-11-27 东财 PC 实测：00388 使用 003 模板；现金流只有中报。
+    frames = json.loads((RESOURCES / "eastmoney-00388-financial-template.json").read_text(encoding="utf-8"))
+    mocker.patch("data.akshare.financial_statement", side_effect=lambda _code, name: frames[name])
+    mocker.patch("data.hk_currency_evidence.load_indicator_periods", return_value={})
+    rows = AkShareAdapter()._fetch_hk_eastmoney_financial("00388.HK")
+    latest = max(rows, key=lambda row: row.fiscal_quarter)
+    assert latest.fiscal_quarter == date(2026, 9, 30)
+    assert latest.revenue == 17861144940
+    assert latest.net_profit == 13242845340
+    assert latest.basic_eps == 10.472724
+    assert latest.total_assets == 406968337800
+    assert latest.common_equity is None  # 归母权益不能无条件冒充普通权益
+    assert latest.operating_cash_flow is None
+    assert not latest.amount_currency_verified
+
+
+def test_capital_fallback_keeps_independent_dates_and_never_derives_shares(mocker):
+    from data.hk_eastmoney import capital_fallback
+    mocker.patch("data.hk_hsics_peers.fetch_market_quotes", return_value={"00700.HK": {
+        "market_cap": 3142418050000, "as_of": "2026-11-27", "source": "腾讯港股快照"}})
+    response = mocker.patch("data.hk_eastmoney.requests.get").return_value
+    response.json.return_value = {"success": True, "result": {"data": [{
+        "SECUCODE": "00700.HK", "REPORT_DATE": "2026-09-30", "ISSUED_COMMON_SHARES": 9092644829}]}}
+    value = capital_fallback("00700")
+    assert value["market_cap_as_of"] == "2026-11-27"
+    assert value["market_cap_currency"] == "HKD"
+    assert value["total_shares_as_of"] == "2026-09-30"
+    assert value["total_shares"] == 9092644829
+    response.json.return_value["result"]["data"][0]["ISSUED_COMMON_SHARES"] = None
+    assert "total_shares" not in capital_fallback("00700")
+    response.json.return_value["result"]["data"][0]["ISSUED_COMMON_SHARES"] = 10
+    response.json.return_value["result"]["data"][0]["SECUCODE"] = "00005.HK"
+    assert "total_shares" not in capital_fallback("00700")
+
+
+@pytest.fixture(autouse=True)
+def isolate_capital_network(mocker, request):
+    """旧估值回归不意外访问新增股本接口；专用回退用例自行注入来源。"""
+    if not request.node.name.startswith("test_capital_fallback"):
+        mocker.patch("data.hk_eastmoney.capital_fallback", return_value={})

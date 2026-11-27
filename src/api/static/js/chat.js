@@ -3,12 +3,12 @@ import {
   store, bus, adoptPersistedSession, isDraftSessionId, invalidateSessionDetail,
   markSessionListMutation, reviveSession, invalidateSessionRuns, sessionRunEpoch,
   markSessionDetailStale,
-} from "./state.js";
-import { api } from "./api.js";
-import { renderMarkdown } from "./markdown.js?v=20261029-index-news-quality";
-import { el } from "./components.js";
-import { openReportDrawer, closeReportDrawer } from "./report-drawer.js?v=20261116-us-c5-1";
-import { renderReportSummary } from "./report-renderer.js?v=20261124-stock-data-gaps";
+} from "./state.js?v=20261127-task19-final";
+import { api } from "./api.js?v=20261127-task19-final";
+import { renderMarkdown } from "./markdown.js?v=20261127-task19-final";
+import { el } from "./components.js?v=20261127-task19-final";
+import { openReportDrawer, closeReportDrawer } from "./report-drawer.js?v=20261127-price-note";
+import { renderReportSummary } from "./report-renderer.js?v=20261127-price-note";
 
 const scrollEl = () => document.getElementById("chatScroll");
 

@@ -17,7 +17,7 @@ def row(code="MSFT", suffix="O", industry="系统软件", name="微软"):
 def test_members_exclude_self_foreign_invalid_and_other_industry():
     rows = [row(), row("AAPL"), row("FOREIGN", "F"), row("EMPTY", name=" "),
             row("OTHER", industry="其他"), row("BRK_B"), row("MSFT", "N")]
-    assert filter_members(rows, "系统软件", "AAPL") == {"MSFT": "微软"}
+    assert filter_members(rows, "系统软件", "AAPL") == {"MSFT": "微软", "BRK.B": "微软"}
 
 
 def test_unverified_quotes_never_become_comparison(mocker):
@@ -198,8 +198,12 @@ def test_f10_rejects_mismatched_identity_or_missing_positive_fields(mocker, row_
     response.json.return_value = {"success": True, "result": {"pages": 1, "data": [row_data]}}
     mocker.patch("data.us_industry.requests.get", return_value=response)
     quotes, attempts = _f10_metrics(["AAPL"])
-    assert quotes == {}
-    assert any(x["status"] == "failed" for x in attempts)
+    if row_data["SECURITY_CODE"] == "WRONG":
+        assert quotes == {}
+        assert any(x["status"] == "failed" for x in attempts)
+    else:
+        assert "AAPL" in quotes
+        assert any(value is not None for value in (quotes["AAPL"]["pe"], quotes["AAPL"]["pb"]))
 
 
 def test_f10_only_fills_missing_reviewed_rows_and_records_unreviewed_push2(mocker):
@@ -248,3 +252,59 @@ def test_reviewed_push2_success_does_not_call_f10(mocker):
     quotes, _ = _quotes(["105.AAPL"])
     assert quotes["AAPL"]["pe"] == 39.17
     fallback.assert_not_called()
+def test_filter_members_accepts_class_shares():
+    from data.us_industry import filter_members
+
+    rows = [{"SECURITY_CODE": code, "SECUCODE": code + ".N", "ORG_NAME": code,
+             "BELONG_INDUSTRY": "测试"} for code in ("BRK.B", "BF_B", "MOG-A", "AAPL")]
+    assert set(filter_members(rows, "测试", "AAPL")) == {"BRK.B", "BF.B", "MOG.A"}
+
+
+def test_pe_pb_samples_are_independent():
+    from data.us_industry import metric_values
+
+    rows = [{"pe": 10, "pb": None, "market_cap": 100},
+            {"pe": None, "pb": 2, "market_cap": 90},
+            {"pe": 12, "pb": 3, "market_cap": None}]
+    assert metric_values(rows, "pe") == [10, 12]
+    assert metric_values(rows, "pb") == [2, 3]
+    assert metric_values(rows, "market_cap") == [100, 90]
+
+
+def test_selected_peers_keep_partial_metrics_and_isolate_balance_failure(mocker):
+    from data.enrichers.us_industry_enricher import UsIndustryEnricher
+    from data.schemas import AnalysisContext, IndustryData
+
+    peers = ["AAA", "BBB", "CCC", "DDD", "EEE", "FFF"]
+    quotes = {code: {"symbol": code, "basis_verified": True, "market_cap": 100,
+                     "pe": None if code == "AAA" else 10, "pb": None if code == "BBB" else 2}
+              for code in ["AAPL", *peers]}
+    op = {code: {"basis": "TTM", "end": "2026-09-30", "currency": "USD",
+                 "net_profits": [10, 10, 10, 10]} for code in quotes}
+    def balance(code, statement):
+        assert statement == "资产负债表"
+        if code == "AAA":
+            raise ValueError("balance failed")
+        return {"2026-09-30": {"004013999": 100, "_meta": {"currency": "USD"}}}
+    mocker.patch("data.us_stock._statement", side_effect=balance)
+    ctx = AnalysisContext(symbol="AAPL", market="us", name="Apple")
+    ctx.industry_data = IndustryData(symbol="AAPL", industry="test", sector="", peers=peers,
+        comparison_snapshot={"target": quotes["AAPL"], "quotes": quotes, "operating": op})
+    mocker.patch("data.us_industry._profiles", side_effect=[
+        [row("AAPL")], [row(code) for code in peers]])
+    mocker.patch("data.us_industry._quotes", return_value=(quotes, []))
+    mocker.patch("data.us_operating.load_operating", return_value=op)
+    result = us_industry_result("AAPL")
+    assert result.value is not None
+    assert set(result.value.peers) == set(peers)
+    ctx.industry_data = result.value
+    UsIndustryEnricher().enrich(ctx)
+    enriched = ctx.enriched_industry
+    assert enriched is not None
+    assert enriched.peer_count == 6
+    assert enriched.peer_pe_sample == enriched.peer_pb_sample == 5
+    metrics = enriched.comparison["periods"]["latest"]["metrics"]
+    roe = next(metric for metric in metrics if metric["key"] == "roe")
+    assert roe["target"] == 40
+    assert roe["sample_count"] == 5
+    assert enriched.top_peers[0].roe is None

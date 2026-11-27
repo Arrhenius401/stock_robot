@@ -39,7 +39,7 @@ class TestStockSummary:
         assert "600519" in text
         assert "1500.0" in text
         assert "+2.35%" in text
-        assert "操作信号" in text
+        assert "模型信号" in text
         assert "综合得分" in text
         assert "财务健康" in text
 
@@ -93,11 +93,35 @@ class TestStockFull:
 def test_incomplete_push_withholds_signal():
     text = build_stock_summary("600519", "贵州茅台", _results(), _ctx(), _signal_cfg())
     assert "操作信号：" not in text
-    assert "暂无操作信号和仓位建议" in text
+    assert "模型信号：暂未生成" in text
 
 
 def test_unavailable_push_has_no_zero_score():
     ctx = AnalysisContext(symbol="000001", name="测试")
     text = build_stock_summary(ctx.symbol, ctx.name, [], ctx, _signal_cfg())
-    assert "综合得分：暂无" in text
+    assert "不计分" in text
+    assert "：暂无" in text
     assert "防御" not in text
+
+def test_push_summary_keeps_model_signal_without_position():
+    results = [AnalysisResult(dimension=dim, status="ok", score=9, summary="事实")
+               for dim in ("financial", "technical", "valuation", "industry")]
+    text = build_stock_summary("600519", "贵州茅台", results, _ctx(), _signal_cfg())
+    assert "模型信号" in text
+    assert all(word not in text for word in ("建仓", "加仓", "仓位"))
+
+
+def test_summary_key_facts_share_payload_values_and_annual_boundary():
+    ctx = _ctx()
+    ctx.extra_analysis_enabled = False
+    results = [AnalysisResult(dimension="financial", status="partial", summary="财务部分可用", metrics={
+        "basic_eps": 2.11, "common_equity": None, "net_margin": 0.268272229,
+        "capital_expenditure": None, "free_cash_flow": None,
+        "capital_expenditure_latest": 9041000000,
+        "cash_flow_period": "TTM 不可用", "cash_flow_latest_period": "2025年度，非 TTM"})]
+    text = build_stock_summary("AAPL", "苹果", results, ctx, _signal_cfg())
+    assert "2.11" in text and "26.83%" in text
+    assert "源未提供可核验的普通股东权益" in text
+    assert "TTM 不可用" in text and "2025年度，非 TTM" in text
+    assert "90.41 亿" in text
+    assert "源未提供可核验排名" in text

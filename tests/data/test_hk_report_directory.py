@@ -1,4 +1,4 @@
-"""财报目录只补明确元信息，不替换金额、推断币种或扩大采集。"""
+"""按报告期采用目录币种；不替换源金额，不从缺失元信息补造期间。"""
 from datetime import date
 
 import pytest
@@ -86,18 +86,18 @@ def test_directory_rejects_invalid_or_wrong_symbol_response(mocker, payload):
         hk_eastmoney.financial_report_directory("00700")
 
 
-def test_directory_fills_disclosure_metadata_not_amount_currency(source):
+def test_directory_defines_source_currency_without_changing_amounts(source):
     _, request = source
     rows = AkShareAdapter()._fetch_hk_financial("00700.HK")
     request.assert_called_once_with("00700")
     assert [r.revenue for r in rows] == [100, 120]
     assert [r.net_profit for r in rows] == [100, 120]
     assert all(r.total_assets == 500 for r in rows)
-    assert all(r.report_currency == "" and r.disclosure_currency == "CNY"
+    assert all(r.report_currency == "CNY" and r.disclosure_currency == "CNY"
                and "国际会计准则" in r.reporting_basis for r in rows)
-    assert all(r.cash_flow_basis == "unknown" for r in rows)
+    assert all(r.cash_flow_basis == "reported" for r in rows)
     assert rows[-1].period_start == date(2026, 1, 1)
-    assert build_financial_trends(rows, "00700.HK")["highlights"] == []
+    assert len(build_financial_trends(rows, "00700.HK")["highlights"]) == 3
 
 
 @pytest.mark.parametrize("extra", [
@@ -112,8 +112,12 @@ def test_directory_does_not_fill_ambiguous_or_nonmatching_period(source, extra):
     _, request = source
     request.return_value = [directory_row(2025), directory_row(**extra)]
     rows = AkShareAdapter()._fetch_hk_financial("00700.HK")
-    assert rows[-1].revenue == 120 and rows[-1].report_currency == ""
-    assert build_financial_trends(rows, "00700.HK")["highlights"] == []
+    assert rows[-1].revenue == 120
+    # 币种按标的/报告期匹配；期间起点或准则缺失不抹掉明确列报币种。
+    matched = "REPORT_DATE" not in extra and "SECUCODE" not in extra
+    expected = "CNY" if matched and extra.get("CURRENCY", "人民币") == "人民币" else ""
+    assert rows[-1].report_currency == expected
+    assert rows[-1].period_start == date(2026, 1, 1)
 
 
 @pytest.mark.parametrize("extra", [{"CURRENCY": "港币"}, {"START_DATE": "2026-04-01"},
@@ -136,32 +140,34 @@ def test_currency_aliases_and_identical_duplicates_are_not_conflicts(source, moc
     assert rows[-1].report_currency == "CNY" and rows[-1].cash_flow_basis == "reported"
 
 
-def test_statement_currency_conflict_is_not_overwritten_by_directory(source, mocker):
+def test_explicit_statement_currency_conflict_preserves_directory_but_blocks_amounts(source, mocker):
     frames, _ = source
     for row in frames[0]:
         if row["REPORT_DATE"] == "2026-06-30":
             row["CURRENCY"] = "HKD"
     verified_indicators(mocker, frames, "HKD")
     rows = AkShareAdapter()._fetch_hk_financial("00700.HK")
-    assert rows[-1].revenue == 120 and rows[-1].report_currency == "HKD"
+    assert rows[-1].revenue == 120 and not rows[-1].amount_currency_verified
     assert rows[-1].disclosure_currency == "CNY"
-    # 逐期金额与 OCF 已独立核验，目录披露币种不覆盖金额证据。
-    assert len(build_financial_trends(rows, "00700.HK")["highlights"]) == 3
+    assert "币种冲突" in rows[-1].amount_currency_reason
+    assert "CURRENCY=HKD" in rows[-1].amount_currency_reason
+    assert "禁止折算及 TTM" in rows[-1].amount_currency_reason
+    assert build_financial_trends(rows, "00700.HK")["highlights"] == []
 
 
-def test_cashflow_conflict_only_disables_cashflow_comparison(source, mocker):
+def test_cashflow_currency_conflict_uses_directory_and_records_source(source, mocker):
     frames, _ = source
     for row in frames[0] + frames[2]:
         row["CURRENCY"] = "CNY"
     frames[2][-1]["CURRENCY"] = "HKD"
     verified_indicators(mocker, frames, "CNY")
     rows = AkShareAdapter()._fetch_hk_financial("00700.HK")
-    assert rows[-1].report_currency == "CNY" and rows[-1].cash_flow_basis == "unknown"
+    assert rows[-1].report_currency == "CNY" and rows[-1].cash_flow_basis == "reported"
+    assert "现金流源币种 HKD 与目录 CNY 冲突" in rows[-1].amount_currency_reason
     assert rows[-1].operating_cash_flow == 120
     ctx = AnalysisContext(symbol="00700.HK", name="腾讯控股", market="hk", financial_data=rows)
     metric = FinancialAnalyzer().analyze(ctx).metrics["amount_basis"]
-    assert "金额币种：CNY" in metric
-    assert "仅代表已核实的利润表金额" in metric
+    assert "展示 CNY" in metric and "源币种 CNY" in metric
 
 
 def test_changed_accounting_standard_is_not_joined_into_a_trend(source, mocker):
@@ -191,11 +197,13 @@ def test_metadata_enables_verified_cashflow_score_without_changing_raw_values(so
     for row in frames[0] + frames[2]:
         row["CURRENCY_CODE"] = "CNY"
     verified_indicators(mocker, frames, "CNY")
-    rows = AkShareAdapter()._fetch_hk_financial("00700.HK")
-    known = FinancialEnricher().enrich(AnalysisContext(symbol="00700.HK", name="腾讯控股", market="hk",
+    rows = [r.model_copy(update={"symbol": "00388.HK"})
+            for r in AkShareAdapter()._fetch_hk_financial("00700.HK")]
+    known = FinancialEnricher().enrich(AnalysisContext(symbol="00388.HK", name="香港交易所", market="hk",
                                                     financial_data=rows))
     unknown = known.model_copy(deep=True)
     unknown.financial_data = [r.model_copy(update={"report_currency": "",
+                             "disclosure_currency": "", "amount_currency_verified": False,
                              "reporting_basis": "东方财富港股财报-报告期", "field_positions": {}}) for r in rows]
     analyzer = FinancialAnalyzer()
     config = ConfigLoader().load("机械设备")
@@ -206,11 +214,12 @@ def test_metadata_enables_verified_cashflow_score_without_changing_raw_values(so
     assert "经营现金流/净利润 1.00" in after.score_detail
     assert after.risk_flags == before.risk_flags == []
     assert after.status == before.status == "partial"
-    assert after.metrics["net_profit"] == before.metrics["net_profit"] == 120
+    assert after.metrics["net_profit"] == 120
+    assert before.metrics["net_profit"] is None
     assert after.metrics["operating_cash_flow"] is before.metrics["operating_cash_flow"] is None  # 缺上年同期，不能把中期累计当 TTM
     # 本轮新增逐期 positions，已核验的同源同比可以展示；旧行仍拒绝。
     assert len(after.metrics["operating_trends"]) == 3
     assert not before.metrics["operating_trends"]
-    assert "金额币种：CNY" in after.metrics["amount_basis"]
-    assert "金额币种未核实" in before.metrics["amount_basis"]
+    assert "展示 CNY" in after.metrics["amount_basis"]
+    assert "汇率未核实" in before.metrics["amount_basis"]
     request.assert_called_once()

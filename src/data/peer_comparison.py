@@ -100,7 +100,7 @@ class PeerComparisonService:
             for peer in period["peers"]:
                 if not peer.get("name"):
                     peer["name"] = data.peer_names.get(peer["symbol"], "")
-        comparison = {"version": 1, "scope": data.peer_scope + "·" + data.peer_industry,
+        comparison = {"classification_as_of": snapshot.get("classification_as_of", ""), "version": 1, "scope": data.peer_scope + "·" + data.peer_industry,
                       "peer_count": len(symbols), "valuation": valuation, "periods": periods,
                       "errors": list(dict.fromkeys([*snapshot.get("errors", []), *errors,
                                                      *([target_reason] if target_reason else [])])),

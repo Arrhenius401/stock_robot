@@ -391,3 +391,13 @@ def test_financial_result_empty_is_failed(monkeypatch):
     assert result.record is not None
     assert result.record.result_state == "failed"
     assert result.record.error_kind == "empty"
+def test_a_industry_failure_says_no_second_sw3_source(monkeypatch):
+    from data.peer_comparison_fetch import fetch_a_industry
+
+    def failed(*args, **kwargs):
+        raise ValueError("down")
+
+    monkeypatch.setattr("data.peer_comparison_fetch._response", failed)
+    result = fetch_a_industry("600519")
+    assert result[0].industry == "未知"
+    assert any("第二申万三级源" in error for error in result[0].comparison_snapshot["errors"])

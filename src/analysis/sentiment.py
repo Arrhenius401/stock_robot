@@ -5,7 +5,7 @@ from analysis.base import AnalysisModule
 from analysis.sentiment_rules import score_sentiment
 from data.news_relevance import name_aliases
 from data.schemas import AnalysisContext, AnalysisResult, SufficiencyLevel
-from data.sentiment_rules import assessment_inputs
+from data.sentiment_rules import assessment_inputs, mark_related
 
 
 def _hk_news_result(context: AnalysisContext) -> AnalysisResult:
@@ -89,6 +89,12 @@ class SentimentAnalyzer(AnalysisModule):
             if notes:
                 metrics["news_notes"] = notes
             if context.market == "us":
+                announcements = context.news_data.announcement_items if context.news_data else []
+                inputs[0:0] = [{**item, "publish_date": item.get("filingDate", ""),
+                               "published_at": item.get("filingDate", ""),
+                               "links": [{"url": item["url"], "media": "SEC EDGAR"}]}
+                              for item in announcements]
+                metrics["used_in_score"] = False
                 metrics["news_disclaimer"] = "关键词检索结果，可能包含同名或间接报道；仅作新闻参考，不作情绪评分。"
             elif context.market == "a-shares":
                 metrics["news_disclaimer"] = "个股新闻与公告接口结果，可能包含间接报道；仅作新闻参考，不作情绪评分。"
@@ -96,6 +102,13 @@ class SentimentAnalyzer(AnalysisModule):
                                   summary=f"本次取得新闻 {len(titles)} 条",
                                   metrics=metrics)
         es = context.enriched_sentiment
+        if context.market != "hk" and ((es is None and assessment_inputs(context)) or (
+                es is not None and es.assessment_status in {"failed", "unavailable"})):
+            inputs = mark_related(assessment_inputs(context), name=context.name, symbol=context.symbol)
+            return AnalysisResult(dimension=self.dimension, status="partial", score=None,
+                summary="未获得有效模型评估，相关性仅按名称/代码匹配",
+                metrics={"news_items": inputs, "all_items": inputs,
+                         "headline_count": len(inputs), "headlines": [item["title"] for item in inputs]})
         if es is not None and es.assessment_status != "legacy":
             inputs = assessment_inputs(context)
             originals = {item["item_id"]: item for item in inputs}

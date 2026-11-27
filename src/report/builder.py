@@ -163,6 +163,7 @@ class ReportBuilder:
         )
         self._env.filters["md_table"] = _md_table
         self._env.filters["plain_text"] = _news_text
+        self._env.filters["table_note"] = lambda text: _news_text(text).replace("&#45;", "-")
         self._env.filters["compact_score_detail"] = compact_score_detail
         self._env.filters["quality_table"] = _quality_table
         self._env.filters["hk_news_markdown"] = format_hk_news_markdown
@@ -198,7 +199,7 @@ class ReportBuilder:
               market: str = "A 股", valuation_display: dict | None = None,
               scoring_method: str | None = None, extra_analysis_enabled: bool = True,
               latest_close: float | None = None, current_price: dict | None = None,
-              profile: MarketProfile | None = None) -> str:
+              profile: MarketProfile | None = None, currency_conversion: dict | None = None) -> str:
         profile = profile or profile_for_label(market)
         results_map = {r.dimension: r for r in results}
         if profile.period_basis == "report_period" and "financial" in results_map:
@@ -209,25 +210,11 @@ class ReportBuilder:
             results_map["financial"] = financial.model_copy(update={"metrics": metrics})
         if data_quality and "summary_rows" not in data_quality:
             data_quality = {**data_quality, **compact_quality(data_quality)}
-        from report.table_notes import (
-            compact_valuation_notes,
-            prepare_table,
-            valuation_window_notes,
-        )
+        from report.table_notes import stock_table_view
 
-        tables = {dim: prepare_table(dim, result.metrics) for dim, result in results_map.items()}
-        if valuation_display and "valuation" in results_map:
-            view = prepare_table("valuation", valuation_display["metrics"])
-            view["notes"] = compact_valuation_notes([
-                *valuation_display.get("details", []),
-                *results_map["valuation"].metrics.get("valuation_notes", []),
-                *view["notes"],
-                *valuation_window_notes(valuation_display.get("cutoff", "")),
-            ])
-            if any("⁷" in key for key in view["metrics"]) and not any(
-                    note.startswith("⁷") for note in view["notes"]):
-                view["notes"].append("⁷ 分位表示历史数值位置，不直接代表高低估。")
-            tables["valuation"] = view
+        tables = {dim: stock_table_view(dim, result.metrics, valuation_display if dim == "valuation" else None,
+                                       currency_conversion=currency_conversion)
+                  for dim, result in results_map.items()}
         template = self._env.get_template("report_v2.jinja2")
         return template.render(
             extra_analysis_enabled=extra_analysis_enabled,

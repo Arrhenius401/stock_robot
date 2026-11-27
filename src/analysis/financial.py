@@ -15,6 +15,9 @@ class FinancialAnalyzer(AnalysisModule):
 
     def analyze(self, context: AnalysisContext,
                 config: dict[str, Any] | None = None) -> AnalysisResult:
+        from data.hk_cny import cny_context
+
+        context = cny_context(context)
         meta = config.get("meta", {}) if config else {}
         template_note = ""
         template_metrics: dict[str, Any] = {}
@@ -38,11 +41,7 @@ class FinancialAnalyzer(AnalysisModule):
         latest = sorted_data[0]
 
         if context.market == "hk":
-            amount_basis = (f"金额币种：{latest.report_currency}（仅代表已核实的利润表金额）"
-                            if latest.report_currency else "金额币种未核实；仅保留数据源数值，不作金额趋势比较")
-            if latest.disclosure_currency:
-                amount_basis += f"；目录列报币种：{latest.disclosure_currency}（不等同于金额币种）"
-            amount_basis += "；展示缩写为万/亿，不推断上游换汇情况"
+            amount_basis = context.currency_conversion["note"] + "；" + latest.amount_currency_reason
         elif context.market == "us":
             amount_basis = (f"金额币种：{latest.report_currency}" if latest.amount_currency_verified and latest.report_currency
                             else "金额币种未核实") + "；财季报，金额展示为万/亿；不推断换汇、会计准则或 ADR 每股比例；报告期按财季月末展示"
@@ -54,8 +53,12 @@ class FinancialAnalyzer(AnalysisModule):
             "latest_quarter": latest.fiscal_quarter.isoformat(),
             "revenue": latest.revenue,
             "net_profit": latest.net_profit,
+            "revenue_period": latest.fiscal_quarter.isoformat() if latest.period_basis == "single" else "",
+            "net_profit_period": latest.fiscal_quarter.isoformat() if latest.period_basis == "single" else "",
             "total_assets": latest.total_assets,
             "total_equity": latest.total_equity,
+            "basic_eps": latest.basic_eps,
+            "common_equity": latest.common_equity,
             "roe": latest.roe,
             "gross_margin": "不适用（银行/保险）" if latest.gross_margin_basis == "银行/保险不适用" else latest.gross_margin,
             "net_margin": latest.net_margin,
@@ -78,6 +81,8 @@ class FinancialAnalyzer(AnalysisModule):
                 f"{dividend.dividend_yield_basis or '口径未记录'}"
             )
         metrics["amount_currency_reason"] = latest.amount_currency_reason
+        if context.market == "us" and latest.gross_margin_basis == "银行/保险不适用":
+            metrics["used_in_score"] = False
         if latest.reported_revenue is not None:
             metrics.update(
                 reported_revenue=latest.reported_revenue,
@@ -103,7 +108,9 @@ class FinancialAnalyzer(AnalysisModule):
         equity = (equity_row.common_equity if equity_row.common_equity is not None else equity_row.total_equity) if equity_row else None
         if equity_row is not None:
             equity_field = "common_equity" if equity_row.common_equity is not None else "total_equity"
-            if equity_row.field_precision.get(equity_field) != "source_native":
+            if (equity_row.field_precision.get(equity_field) != "source_native"
+                    or context.market == "hk" and (not equity_row.field_positions.get(equity_field, {}).get("currency")
+                        or equity_row.field_positions[equity_field]["currency"] != (latest.display_currency or latest.report_currency))):
                 equity = None
         if equity is not None and equity <= 0:
             metrics["roe"] = "净资产为负，ROE 不适用" if equity < 0 else "净资产为零，ROE 不适用"
@@ -139,7 +146,26 @@ class FinancialAnalyzer(AnalysisModule):
         metrics["cash_flow_period"] = f"TTM，截至 {latest.fiscal_quarter.isoformat()}；自由现金流 = 经营活动现金流 − 资本开支；缺失不填零"
 
         if context.market == "hk" and latest.capital_expenditure is None and latest.free_cash_flow is None:
-            metrics["cash_flow_period"] = "港股F10现金流仅提供汇总项，资本开支/自由现金流明细不可用"
+            metrics["cash_flow_period"] = "港股最新报告期无完整资本开支明细；TTM 不可用"
+
+        if context.market == "hk" and not not_applicable:
+            if equity is None:
+                metrics["roe_basis"] += "；权益金额或币种未核实，跳过 ROE"
+            if metrics.get("capital_expenditure") is None:
+                annual = next((row for row in sorted_data
+                               if row.period_start is not None
+                               and 330 <= (row.fiscal_quarter - row.period_start).days <= 370
+                               and row.capital_expenditure is not None
+                               and row.amount_currency_verified and row.report_currency
+                               and row.field_precision.get("capital_expenditure") == "source_native"), None)
+                if annual is not None:
+                    metrics["capital_expenditure_latest"] = annual.capital_expenditure
+                    metrics["free_cash_flow_latest"] = annual.free_cash_flow
+                    metrics["cash_flow_latest_period"] = (f"{annual.fiscal_quarter}，最近完整年度，非 TTM；"
+                                                          f"展示 {annual.display_currency or annual.report_currency}；"
+                                                          f"源币种 {annual.report_currency}；{annual.amount_currency_reason}")
+                    metrics["cash_flow_period"] = f"TTM 不可用；最近完整年度 {annual.fiscal_quarter.isoformat()}，非 TTM"
+                    metrics["cash_flow_limitation"] = "最新期间资本开支不完整，展示最近完整年度，非 TTM"
 
         roe_trend = []
         for d in sorted_data[:8]:
@@ -160,6 +186,10 @@ class FinancialAnalyzer(AnalysisModule):
             and context.sufficiency.financial.level == SufficiencyLevel.SUFFICIENT
         ) else "partial"
         summary = self._build_summary(metrics, status)
+        if metrics.get("used_in_score") is False:
+            return AnalysisResult(dimension=self.dimension, status="partial",
+                                  summary="美股银行/保险专项仅展示，财务未计分", metrics=metrics,
+                                  score=None, score_detail="美股银行/保险专项仅展示，财务未计分")
 
         # 数据充足性检查
         if (context.sufficiency and context.sufficiency.financial.level == SufficiencyLevel.INSUFFICIENT

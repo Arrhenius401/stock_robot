@@ -1,16 +1,16 @@
 // 应用主入口：导航接线、工作台覆盖层与各视图初始化。
-import { bus, store, switchView } from "./state.js";
-import { initChat } from "./chat.js?v=20261124-commentary-restore";
-import { initReportView, openReport } from "./report.js?v=20261124-commentary-restore";
-import { initReportDrawer } from "./report-drawer.js?v=20261124-commentary-restore";
-import { closeReportDrawer } from "./report-drawer.js?v=20261124-commentary-restore";
-import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js";
-import { initIndexView } from "./indexview.js?v=20261124-commentary-restore";
-import { initReportLibrary } from "./report-library.js?v=20261124-commentary-restore";
-import { initSessions, initSessionStartup } from "./sessions.js?v=20261116-us-c5-1";
-import { initSubscriptions } from "./subscriptions.js?v=20260928-run-notice-2";
-import { initSettings } from "./settings.js?v=20261031-analysis-mode-1";
-import { initLogs } from "./logs.js?v=20260927-page-heading-1";
+import { bus, store, switchView } from "./state.js?v=20261127-task19-final";
+import { initChat } from "./chat.js?v=20261127-price-note";
+import { initReportView, openReport } from "./report.js?v=20261127-price-note";
+import { initReportDrawer } from "./report-drawer.js?v=20261127-price-note";
+import { closeReportDrawer } from "./report-drawer.js?v=20261127-price-note";
+import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js?v=20261127-task19-final";
+import { initIndexView } from "./indexview.js?v=20261127-price-note";
+import { initReportLibrary } from "./report-library.js?v=20261127-price-note";
+import { initSessions, initSessionStartup } from "./sessions.js?v=20261127-price-note";
+import { initSubscriptions } from "./subscriptions.js?v=20261127-task19-final";
+import { initSettings } from "./settings.js?v=20261127-task19-final";
+import { initLogs } from "./logs.js?v=20261127-task19-final";
 
 const SIDEBAR_WIDTH_KEY = "stockRobot.sidebarWidth";
 const SIDEBAR_MIN_WIDTH = 210;
@@ -175,6 +175,11 @@ function initWorkspaceShell() {
     updateWorkspaceBackdrop();
   });
   backdrop?.addEventListener("click", () => resetWorkspaceOverlays());
+  document.getElementById("sidebarClose")?.addEventListener("click", () => {
+    closeMobileNavigation(toggle);
+    updateWorkspaceBackdrop();
+    toggle?.focus();
+  });
   window.addEventListener("resize", updateWorkspaceBackdrop);
   window.addEventListener("resize", syncWorkspaceModal);
   if (layout && typeof MutationObserver !== "undefined") {
@@ -239,7 +244,7 @@ function init() {
   window.addEventListener("hashchange", syncViewFromHash);
   initSessionStartup()
     .catch((error) => console.error("会话初始化失败:", error))
-    .finally(() => import("./allocation-view.js?v=20261114-stock-shared-4")
+    .finally(() => import("./allocation-view.js?v=20261127-task19-final")
       .then(({ initRadar: initializeRadar }) => initializeRadar())
       .catch((error) => {
         console.error("配置雷达初始化失败:", error);

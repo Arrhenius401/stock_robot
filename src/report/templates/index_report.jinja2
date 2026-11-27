@@ -1,12 +1,19 @@
 {# 指数报告与网页共用的展示副本，原始metrics保留追溯。 #}
 {% macro rows(section) -%}
 {% if section and section.display and section.display.rows %}
-{{ section.display.rows | md_table({"指标":"label", "数值":"value", "解读标注":"note"}) }}
+{{ section.display.rows | md_table({("指标" ~ (section.display.table_note_marker or "")):"label", "数值":"value", "解读标注":"note"}) }}
+{% for note in section.display.table_notes or [] %}
+{{ note }}
+{% endfor %}
 {% endif %}
 {%- endmacro %}
 # 指数分析报告：{{ name }}（{{ code }}）
 
 > 生成时间：{{ generated_at }}
+{% if report.data_quality.status %}
+> 数据状态：{{ {"ok":"正常", "partial":"部分数据", "unavailable":"不可用", "not_applicable":"不适用", "not_collected":"未采集", "collection_failed":"采集失败", "insufficient_sample":"样本不足"}.get(report.data_quality.status, "状态未记录") }}
+> {{ {"complete":"完整评估", "partial":"部分评估（参考）", "facts_only":"事实报告"}.get(report.data_quality.assessment_status, "评估状态未记录") }}
+{% endif %}
 {% if report.analysis_mode == "objective" %}
 > 客观数据模式
 {% endif %}
@@ -25,6 +32,9 @@
 {{ section_performance.summary }}
 {% if section_performance.metrics.windows %}
 {{ section_performance.metrics.windows | md_table({"区间":"label", "起始日期":"start_date", "截止日期":"end_date", "交易日":"sample_count", "区间收益率":"return_pct", "最大回撤":"max_drawdown_pct", "年化波动率":"annualized_volatility_pct"}) }}
+{% for window in section_performance.metrics.windows if "历史不足完整窗口" in (window.notes or []) %}
+> {{ window.label }}历史不足完整窗口，按可得 {{ window.sample_count }} 个交易日计算（{{ window.start_date }} 至 {{ window.end_date }}）。
+{% endfor %}
 {% else %}
 {{ rows(section_performance) }}
 {% endif %}
@@ -41,28 +51,18 @@
 
 {{ section_technical.summary or "行情数据不可用，暂不判断技术状态。" }}
 {{ rows(section_technical) }}
-{% if section_technical.metrics.methodology %}
-> {{ section_technical.metrics.methodology }}
-{% endif %}
 
 {% if section_strategy %}
 ### 策略专项分析
 
 {{ section_strategy.summary }}
 {{ rows(section_strategy) }}
-> {{ section_strategy.metrics.methodology or "" }}
-{% for error in section_strategy.metrics.errors or [] %}
-- {{ error }}
-{% endfor %}
 {% endif %}
 
 ## 三、估值面
 
 {{ section_valuation.summary or "估值数据不可用。" }}
 {{ rows(section_valuation) }}
-{% for note in section_valuation.metrics.valuation_notes or [] %}
-- {{ note }}
-{% endfor %}
 
 ## 四、资金、宏观与新闻
 {% set placeholders = (report.index_profile or {}).get("placeholders", {}) %}
@@ -88,7 +88,10 @@
 {{ section_sentiment.summary or placeholders.get("sentiment", {}).get("unavailable", "暂无可核实的新闻。") }}
 {% for item in section_sentiment.display["items"] or [] %}
 {% set link = item.url | default("") | news_url %}
-- {{ item.title | news_text }}（{{ item.source | default("来源未记录", true) | news_text }}；{{ item.published_at | default("发布时间未记录", true) | news_text }}）{% if link %} [来源](<{{ link }}>){% endif %}{{ '\n' }}
+{% set source = item.source | default("", true) | news_text %}
+{% set published = item.published_at | default("", true) | news_text %}
+{% if source == "未记录" %}{% set source = "" %}{% endif %}
+- {{ item.title | news_text }}{% if source or published %}（{{ source }}{% if source and published %}；{% endif %}{{ published }}）{% endif %}{% if link %} [来源](<{{ link }}>){% endif %}{{ '\n' }}
 {% endfor %}
 {% else %}
 {{ placeholders.get("sentiment", {}).get("markdown", "未接入适用新闻源。") }}

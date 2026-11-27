@@ -57,9 +57,9 @@ def _safe_link(link: HKNewsLink) -> bool:
 def current_news(snapshot: HKNewsSnapshot, now: datetime | None = None) -> HKNewsSnapshot:
     """每次展示按香港日期重过滤，缓存采集时间不被改成当前时间。"""
     now = (now or datetime.now(HK_TZ)).astimezone(HK_TZ)
-    start = now.date() - timedelta(days=29)
     items = []
     for item in snapshot.items:
+        start = now.date() - timedelta(days=44 if item.source == "announcement" else 29)
         if item.published_at.tzinfo is None:
             continue
         stamp = item.published_at.astimezone(HK_TZ)

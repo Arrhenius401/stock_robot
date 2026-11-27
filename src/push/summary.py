@@ -1,7 +1,53 @@
 """推送内容构建 — 股票/指数的微信摘要与邮箱全文"""
+from report.presentation import signal_presentation
 from report.quality import build_data_quality
 from report.scoring import compute_price_info, compute_score_summary
-from report.signal import SIGNAL_LABELS, derive_signal
+
+
+def _stock_key_facts(symbol, name, results, ctx, signal_cfg) -> list[str]:
+    """消费与 Markdown/Web 相同的 payload；只选关键事实，不重新计算。"""
+    from report.formatter import format_metric_value, metric_display_name
+    from report.payload import build_stock_payload
+
+    payload = build_stock_payload(symbol, name, results, {}, ctx, signal_cfg=signal_cfg)
+    financial = payload.get("dimensions", {}).get("financial", {}).get("metrics", {})
+    facts = []
+    conversion = payload.get("currency_conversion", {})
+    if conversion:
+        facts.append("- " + conversion["note"])
+        facts.extend("- " + note for note in conversion["notes"])
+    values = []
+    for key in ("basic_eps", "common_equity", "net_margin"):
+        value = format_metric_value(key, financial.get(key))
+        if financial.get(key) is None:
+            value = ("源未提供可核验的普通股东权益，不以总权益替代" if key == "common_equity"
+                     else "源未提供可核验值；不作推算")
+        values.append(f"{metric_display_name(key)}：{value}")
+    facts.append("- 关键财务：" + "；".join(values))
+    source = next((row for row in payload.get("data_quality", {}).get("summary_rows", [])
+                   if row.get("key") == "financial"), {})
+    facts.append(f"- 财务来源：{source.get('source', '未记录')}；截至 {source.get('cutoff', '未记录')}")
+    if financial.get("amount_basis"):
+        facts.append("- 金额口径：" + financial["amount_basis"])
+    flow = []
+    for key in ("capital_expenditure", "free_cash_flow"):
+        value = financial.get(key)
+        text = str(format_metric_value(key, value)) if value is not None else "不可用（" + (
+            financial.get("cash_flow_limitation") or "源未提供可核验值") + "）"
+        flow.append(f"{metric_display_name(key)}：{text}")
+    facts.append("- 现金流：" + "；".join(flow) + "；" + (
+        financial.get("cash_flow_period") or "期间未记录，不宣称 TTM"))
+    if financial.get("capital_expenditure_latest") is not None or financial.get("free_cash_flow_latest") is not None:
+        facts.append("- 最近完整年度（非 TTM）：" + "；".join(
+            f"{metric_display_name(key)}：{format_metric_value(key, financial.get(key))}"
+            for key in ("capital_expenditure_latest", "free_cash_flow_latest"))
+            + "；" + financial.get("cash_flow_latest_period", "期间未记录"))
+    rank = payload.get("dimensions", {}).get("industry", {}).get("metrics", {}).get("comparison", {}).get("market_cap_rank", {})
+    if rank.get("rank") is not None:
+        facts.append(f"- 同行市值排名：{rank['rank']}/{rank['total']}；截至 {rank.get('as_of') or '未记录'}；覆盖 {rank.get('coverage') or '未记录'}")
+    else:
+        facts.append("- 同行市值排名：" + (rank.get("reason") or "源未提供可核验排名"))
+    return facts
 
 
 def build_stock_summary(symbol: str, name: str, results, ctx,
@@ -19,6 +65,10 @@ def build_stock_summary(symbol: str, name: str, results, ctx,
         pct_txt = f"（{pct:+.2f}%）" if pct is not None else ""
         lines.append(f"> 最新收盘：{price['latest_price']} {pct_txt}")
     quality = build_data_quality(ctx, results)
+    lines.append(f"> 数据状态：{quality['status']}")
+    lines.extend(_stock_key_facts(symbol, name, results, ctx, signal_cfg))
+    for limitation in quality.get("limitations", []):
+        lines.append(f"- {limitation['dimension']}：{limitation['value']}")
     if not ctx.extra_analysis_enabled:
         lines.extend(["> 客观数据模式", f"> 数据覆盖：{quality['coverage']}%"])
         for result in results:
@@ -26,14 +76,12 @@ def build_stock_summary(symbol: str, name: str, results, ctx,
                 lines.append(f"- {result.summary}")
         return "\n".join(lines)
     if quality["signal_allowed"] and summary.final_score is not None:
-        level = derive_signal(summary.final_score, signal_cfg.thresholds)
-        action = signal_cfg.actions[level]
-        lines.append(f"> 模型信号：**{SIGNAL_LABELS[level]}**" if ctx.market == "hk" else
-                     f"> 操作信号：**{SIGNAL_LABELS[level]}**｜{action.action}（{action.position}）")
+        signal = signal_presentation(summary.final_score, signal_cfg)
+        lines.append(f"> 模型信号：**{signal['label']}**")
     else:
-        lines.append("> 数据依据不完整，暂无操作信号和仓位建议。")
+        lines.append("> 模型信号：暂未生成。")
     score_text = f"{summary.final_score}/10" if quality["has_scored_data"] and summary.final_score is not None else "暂无"
-    lines.append(f"> 综合得分：{score_text}（风险扣分 {summary.risk_deduction}）")
+    lines.append(f"> {quality.get('score_label', '综合得分')}：{score_text}（风险扣分 {summary.risk_deduction}）")
     lines.append(f"> 计分维度覆盖：{quality['coverage']}%")
     for row in summary.score_rows:
         lines.append(f"- {row['label']}：{row['score']}（{row['sufficiency']}）")
@@ -59,6 +107,14 @@ _TAG_LABELS = [
 def build_index_summary(report) -> str:
     """指数微信摘要：多空标签 + 综合点评 + 风险"""
     lines = [f"**{report.name}**（{report.code}）", f"> 报告日期：{report.date}"]
+    quality = report.data_quality
+    if quality.get("status"):
+        lines.append(f"> 数据状态：{quality['status']}")
+    if quality.get("assessment_status"):
+        label = {"complete": "完整评估", "partial": "部分评估（参考）", "facts_only": "事实报告"}
+        lines.append(f"> {label.get(quality['assessment_status'], '评估状态未记录')}")
+    for limitation in quality.get("limitations", []):
+        lines.append(f"- {limitation['dimension']}：{limitation['value']}")
     if report.analysis_mode == "objective":
         from index.build_single import render_index_report_markdown
 
@@ -76,6 +132,10 @@ def build_index_summary(report) -> str:
 
 def build_index_full(report) -> str:
     """指数邮箱全文：维度指标 markdown"""
+    if report.report_version >= 2:
+        from index.build_single import render_index_report_markdown
+
+        return render_index_report_markdown(report)
     lines = [f"# {report.name}（{report.code}）", f"报告日期：{report.date}", ""]
     sections = [
         ("技术面", report.section_technical),

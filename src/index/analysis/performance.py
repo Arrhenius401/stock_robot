@@ -35,7 +35,7 @@ class IndexPerformanceAnalyzer(AnalysisModule):
             return AnalysisResult(dimension=self.dimension, status="unavailable", summary="至少需要两个有效交易日的真实行情", metrics={})
         end = prices[-1].trade_date
         windows = []
-        for months in (1, 3, 12):
+        for months in (1, 3, 12, 36, 60):
             year, month = divmod(end.year * 12 + end.month - 1 - months, 12)
             month += 1
             start = end.replace(year=year, month=month, day=min(end.day, calendar.monthrange(year, month)[1]))

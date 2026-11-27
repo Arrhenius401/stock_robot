@@ -184,11 +184,18 @@ def test_hk_cache_rechecks_current_connect_qualification(monkeypatch, mocker, tm
 
 
 def test_hk_unqualified_target_does_not_request_pool(monkeypatch, mocker):
+    from data.schemas import IndustryData
+
     monkeypatch.setattr(peers, "load_hsics_members", lambda: MEMBERS)
     monkeypatch.setattr(peers, "load_connect_symbols", set)
     fetch = mocker.patch.object(peers, "fetch_sector_pool")
-    assert peers.HKIndustryAdapter().fetch("00700.HK") == []
+    fallback = mocker.patch.object(peers, "fallback_industry", return_value=IndustryData(
+        symbol="00700.HK", industry="软件服务", sector="",
+        peer_scope="东财行业（非恒生HSICS）", comparison_ready=False))
+    rows = peers.HKIndustryAdapter().fetch("00700.HK")
+    assert len(rows) == 1 and rows[0].industry == "软件服务"
     fetch.assert_not_called()
+    fallback.assert_called_once()
 
 
 def test_hk_deadline_stops_before_network(mocker):
@@ -409,3 +416,50 @@ def test_adapter_fetch_result_explicitly_uses_same_collection(monkeypatch, mocke
     assert result.record is None
     legacy = adapter.fetch("00700.HK", comparison_cache=CacheManager(tmp_path / "other.db"))
     assert [row.model_dump() for row in result.rows] == [row.model_dump() for row in legacy]
+
+
+def test_build_industry_data_uses_separate_market_cap_date():
+    rows = [pool_row('00700.HK', '腾讯', 13.15, 2.68),
+            pool_row('00268.HK', '金蝶', 30.0, 4.0)]
+    quotes = {'00700.HK': {'market_cap': 3.1e12, 'as_of': '2026-11-26'},
+              '00268.HK': {'market_cap': 5e10, 'as_of': '2026-11-26'}}
+    data = peers.build_industry_data('00700.HK', rows, MEMBERS, CONNECT, market_quotes=quotes)
+    assert data is not None
+    assert data._peer_valuations['00268.HK'].market_cap == 5e10
+    assert data.comparison_snapshot['market_cap_as_of'] == '2026-11-26'
+    assert data.comparison_snapshot['market_cap_rank']['as_of'] == '2026-11-26'
+    assert data.comparison_snapshot['as_of'] == '2026-10-23'
+
+
+@pytest.fixture(autouse=True)
+def offline_market_quotes(monkeypatch):
+    monkeypatch.setattr(peers, 'fetch_market_quotes', lambda *args, **kwargs: {})
+
+
+def test_market_cap_rank_excludes_other_quote_day():
+    rows = [pool_row('00700.HK', '腾讯', 13, 2)]
+    quotes = {'00700.HK': {'market_cap': 100, 'as_of': '2026-11-26'},
+              '00268.HK': {'market_cap': 200, 'as_of': '2026-11-25'},
+              '00909.HK': {'market_cap': 50, 'as_of': '2026-11-26'}}
+    data = peers.build_industry_data('00700.HK', rows, MEMBERS, CONNECT, market_quotes=quotes)
+    assert data is not None
+    rank = data.comparison_snapshot['market_cap_rank']
+    assert rank['rank'] == 1 and rank['coverage'] == '2/3'
+
+
+def test_classification_date_and_fallback(monkeypatch):
+    data = peers.build_industry_data("00700.HK", [], MEMBERS, CONNECT,
+                                     classification_as_of="2026-10-23")
+    assert data is not None
+    assert data.comparison_snapshot["classification_as_of"] == "2026-10-23"
+    fallback = peers.fallback_industry("01234.HK", {"f100": "软件服务"})
+    assert fallback is not None
+    assert fallback.industry == "软件服务"
+    assert not fallback.comparison_ready
+    assert fallback.peers == []
+    monkeypatch.setattr("data.hk_eastmoney.fetch_industry_label", lambda _code: "软件服务")
+    f10_fallback = peers.fallback_industry("01234.HK", {})
+    assert f10_fallback is not None and f10_fallback.industry == "软件服务"
+    monkeypatch.setattr("data.hk_eastmoney.fetch_industry_label",
+                        lambda _code: (_ for _ in ()).throw(ValueError("无行业")))
+    assert peers.fallback_industry("01234.HK", {}) is None

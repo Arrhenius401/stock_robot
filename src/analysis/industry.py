@@ -23,6 +23,12 @@ class IndustryAnalyzer(AnalysisModule):
         )
 
     def _analyze_hk(self, context: AnalysisContext) -> AnalysisResult:
+        data = context.industry_data
+        if data is not None and data.peer_scope == "东财行业（非恒生HSICS）":
+            return AnalysisResult(dimension=self.dimension, status="partial", score=None,
+                                  summary=f"东财行业（非恒生HSICS）：{data.industry}",
+                                  metrics={"industry": data.industry, "peer_scope": data.peer_scope},
+                                  score_detail="非港股通/未映射HSICS，不做同行对比")
         try:
             connect = load_connect_symbols()
             members = load_hsics_members()
@@ -114,6 +120,9 @@ class IndustryAnalyzer(AnalysisModule):
 
     def analyze(self, context: AnalysisContext,
                 config: dict[str, Any] | None = None) -> AnalysisResult:
+        from data.hk_cny import cny_context
+
+        context = cny_context(context)
         if context.market == "hk":
             return self._analyze_hk(context)
         ind_data = context.industry_data
@@ -136,6 +145,8 @@ class IndustryAnalyzer(AnalysisModule):
         industry_note = ""
         if context.market == "us":
             summary = f"东财美股行业：{ind_data.industry}"
+            if context.symbol.upper() in {"BRK.B", "BRK-B"}:
+                summary += "；BRK.B 通用营业口径不适用，SEC 收入仅展示"
             industry_note = "分类口径：东财美股 F10 行业（BELONG_INDUSTRY），不是 GICS/申万分类；经营指标为 TTM 派生"
             metrics["industry_basis"] = industry_note
 

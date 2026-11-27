@@ -1,4 +1,4 @@
-"""港股逐期币种/单位交叉核验；不把目录币种当作金额证据。"""
+"""港股逐期币种/单位交叉核验；目录币种优先，冲突显式记录。"""
 import logging
 import math
 from dataclasses import dataclass
@@ -14,6 +14,16 @@ logger = logging.getLogger(__name__)
 SOURCE = "东方财富港股分析指标"
 _STANDARD = {"revenue": ("004001001", "004001002"), "profit": ("004025002",)}
 _BANK = {"revenue": ("001003999",), "profit": ("001025002",)}
+def source_currency(directory: str, indicator: dict[str, Any] | None) -> tuple[str, str]:
+    """调用方已按标的及报告期匹配目录；目录缺币种才采用同期指标。"""
+    declared = FinancialData.normalize_report_currency(directory)
+    observed = FinancialData.normalize_report_currency((indicator or {}).get("CURRENCY"))
+    if declared:
+        conflict = f"；币种冲突：Eastmoney 指标 CURRENCY={observed}，目录优先" if observed and observed != declared else ""
+        return declared, f"HKEX 报告目录 disclosure_currency={declared}（按报告期）{conflict}"
+    if observed:
+        return observed, f"目录币种缺失，采用同期 Eastmoney 指标 CURRENCY={observed}"
+    return "", "目录及同期指标币种均缺失，源币种未核实，不折算"
 
 
 @dataclass(frozen=True)
@@ -124,3 +134,28 @@ def verify_cash_flow(start: date | None, cash_flow: Any,
     if not math.isclose(float(cash_flow), derived, rel_tol=1e-4, abs_tol=1.0):
         return False, "经营现金流与指标 OCF_SALES 反推值不一致"
     return True, ""
+
+
+def verify_balance(period: date, balance_rows: list[dict[str, Any]],
+                   indicator: dict[str, Any] | None) -> tuple[bool, str, str]:
+    """总资产与归母权益同时匹配，才接受资产负债表金额币种。"""
+    if indicator is None or _date(indicator.get("REPORT_DATE")) != period:
+        return False, "", "分析指标与资产负债表报告期不一致"
+    currency = FinancialData.normalize_report_currency(indicator.get("CURRENCY"))
+    if not currency:
+        return False, "", "分析指标未提供有效币种"
+    selected = [row for row in balance_rows if _date(row.get("REPORT_DATE")) == period]
+    identities = {str(row.get("SECUCODE", "")) for row in selected}
+    if len(identities) != 1 or not next(iter(identities), "").endswith(".HK"):
+        return False, currency, "资产负债表身份缺失或冲突"
+    amounts: dict[str, float | None] = {}
+    for row in selected:
+        explicit = FinancialData.normalize_report_currency(row.get("CURRENCY_CODE") or row.get("CURRENCY"))
+        code, value = str(row.get("STD_ITEM_CODE")), finite_number(row.get("AMOUNT"))
+        if explicit and explicit != currency or code in amounts and amounts[code] != value:
+            return False, currency, "资产负债表金额或币种不一致"
+        amounts[code] = value
+    if not all(_close(amounts.get(code), indicator.get(key)) for code, key in (
+        ("004009999", "TOTAL_ASSETS"), ("004030999", "TOTAL_PARENT_EQUITY"))):
+        return False, currency, "资产负债表核验科目缺失或金额与指标接口不一致"
+    return True, currency, ""

@@ -47,7 +47,7 @@ class TestTagValuation:
 
 
 class TestIndexValuationEnricher:
-    def test_enrich_computes_percentiles(self):
+    def test_enrich_does_not_infer_percentiles_from_undated_values(self):
         target = AnalysisTarget(
             target_type="index", symbol="000300",
             name="沪深300", market="a-shares", index_style="broad"
@@ -68,4 +68,4 @@ class TestIndexValuationEnricher:
 
         val = result.valuation_data
         assert val is not None
-        assert val.pe_percentile is not None
+        assert val.pe_percentile is None

@@ -106,10 +106,7 @@ def _generated_at(value: Any) -> str:
         except ValueError:
             return _cell(value)
         if timestamp.tzinfo is not None:
-            return (
-                _cell(timestamp.astimezone(timezone(timedelta(hours=8))).isoformat())
-                + "（Asia/Shanghai）"
-            )
+            return _cell(timestamp.astimezone(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M UTC+8"))
     return _cell(value, "未提供")
 
 
@@ -128,13 +125,28 @@ def _coverage_status(value: Any, result_state: Any) -> str:
     return status + "（部分数据）" if value == "ok" and result_state == "partial" else status
 
 
+_STATE_LABELS = {"ok": "有效", "stale": "旧缓存/过期", "unavailable": "不可用", "partial": "部分可用"}
+
+
 def _observation_status(observation: dict[str, Any]) -> str:
-    status = _plain(observation.get("state"))
+    raw = observation.get("state")
+    status = _STATE_LABELS.get(str(raw), _plain(raw))
     if observation.get("source_status") == "stale":
         return status + "（历史参考）"
     if observation.get("result_state") == "partial":
         return status + "（部分数据）"
     return status
+
+
+def _window_phrase(record: dict[str, Any], unit: str, label: str) -> str:
+    """窗口变化只在有值时展开，缺失时给一句明确原因。"""
+    window, change = record.get("window"), record.get("change")
+    if window is None and change is None:
+        return f"{label}：数据缺失"
+    span = f"{_cell(window)} {unit}" if window is not None else "窗口未记录"
+    change_unit = _cell(record.get("unit"), "")
+    amount = f"{_cell(change)} {change_unit}".strip() if change is not None else "数据缺失"
+    return f"{label}（{span}）变化 {amount}"
 
 
 def _direction(market: dict[str, Any]) -> str:
@@ -145,7 +157,7 @@ def _direction(market: dict[str, Any]) -> str:
 
 
 def _risk_name(key: Any) -> str:
-    return {"oversold": "RSI进入超卖区间", "high_volatility": "波动率处于高位", "historical_high": "历史价格位置较高", "risk_data_missing": "风险数据缺失"}.get(key, "风险数据未识别")
+    return {"oversold": "RSI 进入超卖区间", "high_volatility": "波动率处于高位", "historical_high": "历史价格位置较高", "risk_data_missing": "风险数据缺失"}.get(key, "风险数据未识别")
 
 
 def render_gold_markdown(payload: dict[str, Any]) -> str:
@@ -162,10 +174,10 @@ def render_gold_markdown(payload: dict[str, Any]) -> str:
         shown = f"**{_cell(price)} {_cell(unit)}**" if price != "数据缺失" else "数据缺失"
         lines.append(f"| {label} | {shown} | {_cell(_pct(market.get('daily_change_pct')))} | {_cell(market.get('as_of'))}（{_cell(_coverage_status(market.get('status'), market.get('result_state')))}） |")
     lines += ["", "国际 XAU 为 CFD 参考行情，非官方基准或同步可成交报价；两地行情可能存在时点差异。", ""]
-    snapshots = [f"国内技术{_cell(_direction(domestic))}", f"国际技术{_cell(_direction(international))}"]
+    snapshots = [f"国内技术面{_cell(_direction(domestic))}", f"国际技术面{_cell(_direction(international))}"]
     for label, market in pairs:
         if market.get("status") == "ok":
-            snapshots += [f"{label}{_cell(_risk_name(r.get('key')))}" for r in _records(market.get("risks")) if r.get("active") is True]
+            snapshots += [f"{label}：{_cell(_risk_name(r.get('key')))}" for r in _records(market.get("risks")) if r.get("active") is True]
     lines += ["快速快照：" + "；".join(snapshots) + "。技术标签未验证择时效果；RSI 超卖不代表见底。", "", "国内金条、国内黄金 ETF 参考国内价格；国际黄金和海外黄金资产参考国际价格。技术状态仅作辅助观察。", "", "## 近期价格变化", ""]
     rows = []
     for label, market in pairs:
@@ -176,7 +188,13 @@ def render_gold_markdown(payload: dict[str, Any]) -> str:
     for label, market in pairs:
         ind = _mapping(market.get("indicators"))
         reason = _mapping(market.get("short_term")).get("reason") if market.get("status") == "ok" else "行情过期或不可用"
-        lines += [f"**{label}**：{_cell(_direction(market))}；原因：{_cell(reason, '未提供')}；收盘价 {_cell(market.get('latest_close'))}，MA20 {_cell(ind.get('ma20'))}，MA60 {_cell(ind.get('ma60'))}，MA60 斜率 {_cell(_pct(ind.get('slope_pct')))}；数据状态：{_cell(_coverage_status(market.get('status'), market.get('result_state')))}。", ""]
+        parts = [f"**{label}**：趋势{_cell(_direction(market))}"]
+        if reason:
+            parts.append(f"原因：{_cell(reason)}")
+        parts.append(f"收盘价 {_cell(market.get('latest_close'))}；MA20 {_cell(ind.get('ma20'))}；"
+                     f"MA60 {_cell(ind.get('ma60'))}；MA60 斜率 {_cell(_pct(ind.get('slope_pct')))}")
+        parts.append(f"数据状态：{_cell(_coverage_status(market.get('status'), market.get('result_state')))}")
+        lines += ["。".join(parts) + "。", ""]
     lines += ["技术状态描述历史价格和均线关系，不代表已验证的预测或择时效果。", "", "### 宏观与需求观察", ""]
     observations = _records(data.get("observations"))
     if observations:
@@ -185,7 +203,14 @@ def render_gold_markdown(payload: dict[str, Any]) -> str:
             marginal = _mapping(obs.get("marginal"))
             window_unit = "个月" if obs.get("key") in ("china_reserves", "global_reserves") else "个观察日"
             value_label = "历史参考值" if obs.get("source_status") == "stale" else "最新值"
-            lines += [f"- **{_cell(obs.get('name'))}**：{value_label} {_cell(obs.get('latest_value'))} {_cell(obs.get('unit'), '')}；主窗口 {_cell(main.get('window'))} {window_unit}变化 {_cell(main.get('change'))} {_cell(main.get('unit'), '')}；边际窗口 {_cell(marginal.get('window'))} {window_unit}变化 {_cell(marginal.get('change'))} {_cell(marginal.get('unit'), '')}；观察日期 {_cell(obs.get('as_of'))}，状态 {_cell(_observation_status(obs))}。"]
+            latest = obs.get("latest_value")
+            value_text = (f"{value_label}：数据缺失" if latest is None
+                          else f"{value_label} {_cell(latest)} {_cell(obs.get('unit'), '')}".rstrip())
+            details = [value_text,
+                       _window_phrase(main, window_unit, "主窗口"),
+                       _window_phrase(marginal, window_unit, "边际窗口"),
+                       f"观察日期 {_cell(obs.get('as_of'))}，状态 {_cell(_observation_status(obs))}"]
+            lines += [f"- **{_cell(obs.get('name'))}**：" + "；".join(details) + "。"]
         lines.append("")
     else:
         lines += ["宏观和需求观察数据缺失。", ""]
@@ -220,9 +245,8 @@ def render_gold_markdown(payload: dict[str, Any]) -> str:
         lines += ["**需注意的数据：**" + "；".join(limited) + "。", ""]
     lines += [
         (
-            "**数据限制：**国际 XAU 为 CFD 参考行情；国内、国际价格与宏观数据的观察时点可能不同。"
-            "中国黄金储备为单一国家的月度样本，SPDR 仅为北美单只 ETF 样本；"
-            "全球央行数据缺失时不作推断。数据状态只反映资料完整性，不代表预测概率。"
+            "**数据限制：**国内、国际价格与宏观数据的观察时点可能不同。"
+            "数据状态只反映资料完整性，不代表预测概率。"
         ),
         "",
         f"生成时间：{_generated_at(data.get('generated_at'))}；规则版本：{_cell(data.get('rules_version'), '未提供')}。",

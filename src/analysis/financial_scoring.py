@@ -33,6 +33,8 @@ def debt_ratio(row: FinancialData) -> float | None:
     if (left or right) and (not left or not right or any(
             left.get(k) != right.get(k) for k in ("currency", "unit", "scope", "basis", "revision"))):
         return None
+    if row.symbol.endswith(".HK") and (not left.get("currency") or not right.get("currency")):
+        return None
     value = (1 - equity / assets) * 100
     return value if is_finite_number(value) else None
 
@@ -61,7 +63,7 @@ def cashflow_compatible(row: FinancialData) -> bool:
                 return False
         if profit.get("end") != cash.get("end"):
             return False
-        if (profit["currency"] != row.report_currency or profit["start"] != row.period_start.isoformat()
+        if (profit["currency"] != (row.display_currency or row.report_currency) or profit["start"] != row.period_start.isoformat()
                 or profit["basis"] != row.period_basis):
             return False
     return _source(row, "net_profit") == _source(row, "operating_cash_flow")

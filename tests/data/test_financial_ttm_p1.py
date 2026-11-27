@@ -97,3 +97,20 @@ def test_ps_requires_verified_currency_and_discloses_dates():
     assert ctx.valuation_data.ps_ttm == 2.5
     assert any("市值日期 2026-11-13" in note and "截至 2026-12-30" in note
                for note in ctx.valuation_data.valuation_notes)
+
+
+@pytest.mark.parametrize("latest_end, latest_start, value, expected", [
+    (date(2026, 3, 31), date(2025, 4, 1), 110, 110),
+    (date(2025, 12, 31), date(2025, 4, 1), 80, 120),
+])
+def test_non_december_fiscal_ttm(latest_end, latest_start, value, expected):
+    rows = [FinancialData(symbol="00005.HK", fiscal_quarter=end, period_start=start,
+                          revenue=amount, period_basis="cumulative", report_currency="HKD",
+                          amount_currency_verified=True)
+            for end, start, amount in [
+                (date(2024, 12, 31), date(2024, 4, 1), 60),
+                (date(2025, 3, 31), date(2024, 4, 1), 100),
+                (latest_end, latest_start, value)]]
+    assert financial_ttm(rows, "revenue", "hk") == expected
+    if latest_end.month == 12:
+        assert financial_ttm([rows[0], rows[-1]], "revenue", "hk") is None

@@ -266,6 +266,8 @@ class ValuationEnricher(DataEnricher):
         """只统计实测同源曲线，不用行情与未知财报币种推导倍数。"""
         market_label = {"hk": "港股", "us": "美股"}.get(market, "A 股")
         snapshot = ctx.valuation_data
+        if market == "us" and snapshot is not None:
+            ValuationEnricher._fill_us_ps(ctx)
         valid = snapshot is not None and any(
             is_positive_finite(value) for value in (snapshot.pe_ttm, snapshot.pb, snapshot.ps_ttm))
         if not valid or snapshot is None:
@@ -308,8 +310,25 @@ class ValuationEnricher(DataEnricher):
         enriched.pe_median = enriched.pe_history_summary.median
         enriched.pe_low = enriched.pe_history_summary.low
         enriched.pe_high = enriched.pe_history_summary.high
+
+        ctx.enriched_valuation = enriched
+        complete = enriched.pe_percentile is not None and enriched.pb_percentile is not None
+        ctx.sufficiency.valuation = DimensionSufficiency(
+            level=SufficiencyLevel.SUFFICIENT if complete else SufficiencyLevel.PARTIAL,
+            reason="近一年实测曲线，按各指标对应来源及有效日期计样本；PE/PB 分别以同源末值计算分位" if complete else
+                   "仅有快照或部分历史；" + "；".join(s.reason for s in
+                   (enriched.pe_history_summary, enriched.pb_history_summary) if s.reason),
+            sample_count=max(1, len(points)), score_weight=1.0 if complete else 0.5)
+        return ctx
+
+    @staticmethod
+    def _fill_us_ps(ctx: AnalysisContext) -> None:
+        """独立于 PE/PB，复用核验后的美元营收派生 PS。"""
+        snapshot = ctx.valuation_data
+        if snapshot is None:
+            return
         cap = snapshot.market_cap
-        if market == "us" and snapshot.ps_ttm is None and cap is not None and is_positive_finite(cap):
+        if snapshot.ps_ttm is None and cap is not None and is_positive_finite(cap):
             from data.us_stock import us_ttm
 
             revenue = us_ttm(ctx.financial_data or []).get("revenue")
@@ -326,31 +345,41 @@ class ValuationEnricher(DataEnricher):
                 snapshot.ps_as_of = snapshot.market_cap_as_of
                 snapshot.ps_source = f"新浪美股快照市值与{revenue_source}派生"
                 snapshot.valuation_notes.append(
-                    f"PS(TTM) 派生：总市值 {cap:.0f} ÷ TTM 营收 {revenue:.0f} = {snapshot.ps_ttm:.2f}；"
+                    f"PS(TTM) 派生：总市值 ÷ TTM 营收 = {snapshot.ps_ttm:.2f}（仅展示）；"
                     f"市值日期 {snapshot.market_cap_as_of or '未记录'}；"
                     f"TTM 最近四个财季截至 {latest_fin.fiscal_quarter if latest_fin else '未记录'}")
             elif not currency_ok:
                 snapshot.valuation_notes.append("PS(TTM) 暂不可用：财报金额币种未核实，不能与美元市值直接相除")
             elif revenue is None:
                 snapshot.valuation_notes.append("PS(TTM) 暂不可用：TTM 营收未取得")
-
-        ctx.enriched_valuation = enriched
-        complete = enriched.pe_percentile is not None and enriched.pb_percentile is not None
-        ctx.sufficiency.valuation = DimensionSufficiency(
-            level=SufficiencyLevel.SUFFICIENT if complete else SufficiencyLevel.PARTIAL,
-            reason="近一年实测曲线，按各指标对应来源及有效日期计样本；PE/PB 分别以同源末值计算分位" if complete else
-                   "仅有快照或部分历史；" + "；".join(s.reason for s in
-                   (enriched.pe_history_summary, enriched.pb_history_summary) if s.reason),
-            sample_count=max(1, len(points)), score_weight=1.0 if complete else 0.5)
-        return ctx
-
     @staticmethod
     def _fill_derived_ps(ctx: AnalysisContext) -> None:
         """东财 PS 缺失时用已验证市值与 TTM 营收派生；仅展示。"""
         snapshot = ctx.valuation_data
-        if snapshot is None or snapshot.ps_ttm is not None or ctx.market != "a-shares":
+        if snapshot is None or snapshot.ps_ttm is not None:
             return
         from data.financial_ttm import financial_ttm
+
+        if ctx.market == "hk":
+            rows = ctx.financial_data or []
+            latest = max(rows, key=lambda row: row.fiscal_quarter, default=None)
+            revenue = financial_ttm(rows, "revenue", "hk", require_precision=True)
+            # 港股市值快照以港元计价；未核实换汇时不与人民币营收混算。
+            if latest is None or latest.report_currency != "HKD" or revenue is None:
+                snapshot.valuation_notes.append("PS 暂不可用：TTM 营收或与港元市值可比的币种未核实")
+                return
+            cap = snapshot.market_cap
+            if cap is None or not is_positive_finite(cap) or not snapshot.market_cap_as_of or not is_positive_finite(revenue):
+                return
+            snapshot.ps_ttm = cap / revenue
+            snapshot.ps_as_of = snapshot.market_cap_as_of
+            snapshot.ps_source = "总市值 ÷ 同报告期TTM营收（派生，仅展示）"
+            snapshot.valuation_notes.append(
+                f"PS 由已核实港元市值与 TTM 营收派生，仅展示，不计分；市值日期 {snapshot.market_cap_as_of}；"
+                f"TTM 截至 {latest.fiscal_quarter}")
+            return
+        if ctx.market != "a-shares":
+            return
         revenue = financial_ttm(ctx.financial_data or [], "revenue", "a-shares", require_precision=True)
         if revenue is None or revenue <= 0:
             return

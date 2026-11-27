@@ -5,6 +5,16 @@ from typing import Any
 from report.signal import SIGNAL_LABELS, SignalConfig, derive_signal
 
 
+def assessment_fields(*, complete: bool, available: bool, scored: bool = True) -> dict[str, str]:
+    """跨输出共用评估范围与评分标签，数据覆盖率仍由各业务计算。"""
+    assessment = "complete" if complete else "partial" if available else "facts_only"
+    return {"assessment_status": assessment,
+            "report_scope": "full" if complete else "limited" if available else "facts_only",
+            "score_label": ({"complete": "最终综合得分", "partial": "部分评估综合得分（参考）",
+                             "facts_only": "事实报告（不计分）"}[assessment]
+                            if scored else "不形成综合评分")}
+
+
 def compact_score_detail(detail: str) -> str:
     """保留子项事实和得分，只去掉反复出现的归一化尾句。"""
     return re.sub(r"；有效子项 [\d.]+/[\d.]+ 分，按原相对权重折算为 [\d.]+/10", "", detail)
@@ -21,9 +31,12 @@ def signal_presentation(score: float, config: SignalConfig) -> dict[str, str]:
 
 def _unique_clauses(value: str, seen: set[str]) -> str:
     """同一维度内只保留一次重复限制，保留其余独立原因。"""
-    clauses = [part.strip() for part in value.split("；")]
-    kept = [part for part in clauses if part and part not in seen]
-    seen.update(kept)
+    kept = []
+    for part in value.split("；"):
+        part = part.strip()
+        if part and part not in seen:
+            kept.append(part)
+            seen.add(part)
     return "；".join(kept)
 
 
@@ -37,7 +50,8 @@ def compact_quality(quality: dict[str, Any]) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     limitations: list[dict[str, str]] = []
     important = {"缺失原因", "分析限制", "采集限制", "评估说明", "依赖说明",
-                 "最新报告字段来源", "估值字段来源"}
+                 "最新报告字段来源", "估值字段来源", "现金流期间", "最近完整年度现金流期间", "分位窗口",
+                 "最近完整年度资本开支（非 TTM）", "最近完整年度自由现金流（非 TTM）"}
     for dimension in dimensions:
         title = str(dimension.get("title") or dimension.get("key") or "未记录")
         fields = [item for item in (dimension.get("fields") or []) if isinstance(item, dict)]

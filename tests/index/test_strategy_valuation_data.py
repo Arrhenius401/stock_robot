@@ -34,14 +34,14 @@ def test_history_sorted_deduplicated_and_has_real_coverage(provider, monkeypatch
     feed(provider, monkeypatch, list(reversed(data)) + [data[0]])
     result = provider.fetch("930740", end=END)
     assert result is not None
-    assert result.pe_snapshot == 261
-    assert result.pe_percentile is None
+    assert result.pe_ttm == 261
+    assert result.pe_percentile == 100.0
     assert result.pe_sample_count == 252
     assert result.percentile_sample_start == date.fromisoformat(data[0]["tradeDate"])
     assert result.percentile_sample_end == END
-    assert result.pe_snapshot_as_of == END
+    assert result.pe_as_of == END
     assert result.pb_percentile is None
-    assert not result.valuation_valid
+    assert result.valuation_valid
 
 
 @pytest.mark.parametrize("count, expected", [(251, None), (252, 100)])
@@ -49,8 +49,8 @@ def test_independent_pe_sample_threshold(provider, monkeypatch, count, expected)
     feed(provider, monkeypatch, rows(count))
     result = provider.fetch("930740", end=END)
     assert result is not None
-    assert result.pe_percentile is None
-    assert not result.valuation_valid
+    assert result.pe_percentile == expected
+    assert result.valuation_valid == (expected is not None)
 
 
 def test_bad_rows_and_calendar_window_filtered(provider, monkeypatch):
@@ -127,7 +127,7 @@ def test_invalid_snapshot_rejected_without_losing_history(provider, monkeypatch,
     monkeypatch.setattr(provider, "_factsheet", lambda *_: snapshot)
     result = provider.fetch("930740", end=END)
     assert result is not None
-    assert result.pe_snapshot == 261
+    assert result.pe_ttm == 261
     assert result.pb is None
 
 
@@ -153,7 +153,7 @@ def test_factsheet_failure_does_not_hide_valid_history(provider, monkeypatch):
     monkeypatch.setattr(provider, "_factsheet", fail)
     result = provider.fetch("930740", end=END)
     assert result is not None
-    assert result.pe_percentile is None
+    assert result.pe_percentile == 100.0
     assert any("单张请求失败" in note for note in result.valuation_notes)
 
 
@@ -169,7 +169,7 @@ def test_daily_pb_uses_exact_name_and_does_not_replace_pe(provider, monkeypatch)
     result = provider.fetch("000015", end=END)
     assert result is not None
     assert result.pb == 0.9
-    assert result.pe_snapshot == 261
+    assert result.pe_ttm == 261
     assert result.pb_sample_count == 0
     assert result.pb_percentile is None
 
@@ -221,5 +221,31 @@ def test_undisclosed_pb_explained_with_usable_pe(provider, monkeypatch):
     monkeypatch.setattr(provider, "_factsheet", lambda *_: {"symbol": "930740", "as_of": END, "pb": None})
     result = provider.fetch("930740", end=END)
     assert result is not None
-    assert result.pe_percentile is None
+    assert result.pe_percentile == 100.0
     assert any("未披露 PB" in note for note in result.valuation_notes)
+
+
+@pytest.mark.parametrize("source,symbol,label", [("sw", "801780", "申万"), ("cni", "980092", "国证")])
+def test_snapshot_sources_do_not_claim_daily_history(provider, monkeypatch, source, symbol, label):
+    monkeypatch.setattr(provider, "fetch_official_history", lambda *_: pytest.fail("快照源不能请求CSI历史"))
+    result = provider.fetch(symbol, provider=source, end=END)
+    assert result.pe_percentile is None and not result.valuation_valid
+    assert any(label in note for note in result.valuation_notes)
+
+
+@pytest.mark.parametrize("symbol,name", [("000300", "沪深300"), ("000905", "中证500")])
+def test_current_names_keep_history_and_snapshot_fallback(provider, monkeypatch, symbol, name):
+    # 合成离线响应仅验证路由和合并，不能作为官方数值对账证据。
+    def get(url, params=None):
+        if url.endswith("indexValuation"):
+            return {"data": {"indexValuations": [{"indexName": name, "tradeDate": "20260930", "pe": 12, "pb": 1.2, "dp": "2%"}]}}
+        return {"data": [dict(row, indexCode=symbol) for row in rows()]}
+    monkeypatch.setattr(provider, "_get_json", get)
+    result = provider.fetch(symbol, end=END)
+    assert result.pe_ttm == 261 and result.pe_percentile == 100
+    assert result.pe_snapshot == 12 and result.pb == 1.2 and result.dividend_yield == 2
+    assert result.pb_percentile is None
+    monkeypatch.setattr(provider, "fetch_official_history", lambda *_: [])
+    fallback = provider.fetch(symbol, end=END)
+    assert fallback.pe_snapshot == 12 and fallback.pe_ttm is None
+    assert not fallback.valuation_valid

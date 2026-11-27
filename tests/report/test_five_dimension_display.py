@@ -1,5 +1,6 @@
 """五维新口径在下载和共享网页保持一致，并保留旧报告语义。"""
 import json
+import re
 
 import pytest
 
@@ -46,7 +47,7 @@ def test_new_markdown_shows_positive_scores_and_original_sentiment_risk(market, 
     if risk is None:
         assert "模型标注超时" in markdown
     else:
-        assert f"| 舆情风险分¹³ | {risk:.1f}/10 |" in markdown
+        assert re.search(r"\| 舆情风险分[⁰¹²³⁴⁵⁶⁷⁸⁹]+ \| " + re.escape(f"{risk:.1f}/10") + r" \|", markdown)
         assert f"| 综合参与分 | {10-risk:.1f}/10 |" in markdown
 
 

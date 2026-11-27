@@ -62,11 +62,13 @@ def test_statement_metadata_preserves_real_dates_and_currency(mocker):
     response = mocker.Mock()
     response.json.return_value = {'success': True, 'result': {'data': [
         {'SECURITY_CODE': 'AAPL', 'REPORT_DATE': '2026-09-26', 'START_DATE': '2026-06-28',
-         'REPORT_TYPE': '单季报', 'CURRENCY_ABBR': 'USD', 'ACCOUNT_STANDARD': '美国会计准则'}]}}
+         'REPORT_TYPE': '单季报', 'CURRENCY_ABBR': 'USD', 'ACCOUNT_STANDARD': '美国会计准则',
+         'STD_ITEM_CODE': '004001999', 'YOY_RATIO': 11.7219370328}]}}
     get = mocker.patch('data.us_stock.requests.get', return_value=response)
     value = _statement_metadata('AAPL', '综合损益表', '2025-01-01')
     assert value['2026-09-26']['start'] == '2026-06-28'
     assert value['2026-09-26']['currency'] == 'USD'
+    assert float(value['2026-09-26']['revenue_yoy']) == 11.7219370328
     assert "REPORT_DATE>='2025-01-01'" in get.call_args.kwargs['params']['filter']
     response.json.return_value = {'success': False, 'message': 'filter错误'}
     assert _statement_metadata('AAPL', '综合损益表', '2025-01-01') == {}

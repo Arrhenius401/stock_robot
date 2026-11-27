@@ -2,6 +2,8 @@
 from datetime import UTC, date, timedelta
 from typing import Literal
 
+import pytest
+
 from data.schemas import (
     AnalysisContext,
     AnalysisResult,
@@ -122,7 +124,7 @@ def test_signal_placeholder_explains_actual_blocked_core_dimensions_at_top():
     assert "模型信号：进攻" not in text
 
 
-def test_real_signal_has_no_placeholder_and_hk_uses_same_evidence_gate():
+def test_real_signal_has_no_placeholder_and_hk_uses_same_evidence_gate(verified_fx):
     from report.quality import build_data_quality
 
     ctx = AnalysisContext(symbol="000001", name="测试")
@@ -190,7 +192,7 @@ def test_industry_missing_reduces_coverage_but_keeps_core_signal_gate():
     quality = build_data_quality(ctx, results)
     assert quality["coverage"] == 75
     assert quality["signal_allowed"]
-    assert quality["status"] == "partial"
+    assert quality["status"] == "ok"
     assert quality["dimensions"][3]["status"] == "unavailable"
 
 
@@ -276,3 +278,69 @@ def test_us_industry_missing_does_not_block_signal():
     quality = build_data_quality(ctx, results)
     assert quality["signal_allowed"]
     assert quality["required_dimensions"] == ["financial", "technical", "valuation"]
+
+
+def test_us_quality_cashflow_matches_financial_ttm():
+    from analysis.financial import FinancialAnalyzer
+    from data.schemas import FinancialData
+    from report.quality import build_data_quality
+
+    ctx = AnalysisContext(symbol="MSFT", name="微软", market="us")
+    ctx.financial_data = [FinancialData(
+        symbol="MSFT", fiscal_quarter=end, period_basis="single",
+        capital_expenditure=10, free_cash_flow=20, operating_cash_flow=30,
+        field_precision={field: "source_native" for field in
+                         ("capital_expenditure", "free_cash_flow", "operating_cash_flow")},
+    ) for end in (date(2025, 12, 31), date(2026, 3, 31), date(2026, 6, 30), date(2026, 9, 30))]
+    result = FinancialAnalyzer().analyze(ctx)
+    assert result.metrics["capital_expenditure"] == 40
+    assert result.metrics["free_cash_flow"] == 80
+    quality = build_data_quality(ctx, [result])
+    financial = quality["dimensions"][0]
+    from report.formatter import format_metric_value
+    for field, label in (("capital_expenditure", "资本开支"), ("free_cash_flow", "自由现金流")):
+        entry = next(item for item in financial["fields"] if item["label"].startswith(label))
+        assert entry["value"] == str(format_metric_value(field, result.metrics[field]))
+
+@pytest.mark.parametrize("industry_scored", [True, False])
+def test_sentiment_not_scored_does_not_make_data_quality_partial(industry_scored):
+    from report.quality import build_data_quality
+
+    ctx = AnalysisContext(symbol="600519", name="贵州茅台", price_data=_prices("600519"))
+    for key in ("financial", "price", "valuation", "industry"):
+        setattr(ctx.sufficiency, key, DimensionSufficiency(level=SufficiencyLevel.SUFFICIENT, sample_count=60))
+    results = [AnalysisResult(dimension=dim, status="ok", score=8, summary="事实")
+               for dim in ("financial", "technical", "valuation", "industry")]
+    results.append(AnalysisResult(dimension="sentiment", status="partial", summary="未评估"))
+    if not industry_scored:
+        results = [result for result in results if result.dimension != "industry"]
+    quality = build_data_quality(ctx, results)
+    assert quality["status"] == "ok"
+    assert quality["assessment_status"] == "complete"
+    assert quality["has_analysis_data"] is True
+
+
+def test_pending_verifications_are_deduplicated_and_policy_items_excluded():
+    from report.quality import dedupe_pending
+
+    assert dedupe_pending(["未配置模型；有效评估0条；未配置模型"]) == ["未配置模型；有效评估0条"]
+    assert dedupe_pending(["美股舆情：本期未采集可评估样本"]) == []
+    assert dedupe_pending(["财务：资本开支期间未确认；市值排名暂缺；核对财务截止日"]) == ["核对财务截止日"]
+
+def test_quality_preserves_cash_flow_period_and_valuation_window():
+    from data.schemas import FinancialData, ValuationData
+    from report.quality import build_data_quality
+
+    ctx = AnalysisContext(symbol="00700.HK", name="腾讯", market="hk")
+    ctx.financial_data = [FinancialData(symbol=ctx.symbol, fiscal_quarter=date(2025, 12, 31))]
+    ctx.valuation_data = ValuationData(symbol=ctx.symbol, date=date(2026, 11, 25),
+                                     history_window_label="近五年", history_window_days=1825)
+    result = AnalysisResult(dimension="financial", status="partial", summary="财务",
+                            metrics={"capital_expenditure_latest": 100, "free_cash_flow_latest": 200,
+                                     "cash_flow_latest_period": "2025-01-01 至 2025-12-31，非 TTM",
+                                     "cash_flow_limitation": "最新期间资本开支不完整"})
+    quality = build_data_quality(ctx, [result])
+    text = str(quality["dimensions"])
+    assert "2025-01-01 至 2025-12-31" in text
+    assert "近五年" in text
+    assert any("资本开支" in item["value"] for item in quality["limitations"])

@@ -5,8 +5,16 @@ import pandas as pd
 
 from data.akshare import AkShareAdapter
 from data.hk_news import HK_TZ, normalize_news
+from data.sentiment_rules import mark_related
 
 NOW = datetime(2026, 10, 25, 15, tzinfo=HK_TZ)
+
+
+def test_mark_related_uses_name_and_code_without_model():
+    items = [{"title": "贵州茅台发布三季报"}, {"content": "600519公告"}, {"title": "某公司减持"}]
+    result = mark_related(items, name="贵州茅台", symbol="600519")
+    assert [item["related"] for item in result] == [True, True, False]
+    assert all(item["assessable"] is False for item in result)
 
 
 class FrozenDatetime(datetime):

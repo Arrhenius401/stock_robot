@@ -46,6 +46,16 @@ def _choose(row: dict[str, Any], *keys: str) -> float | None:
     return None
 
 
+def _cash_metrics(cash: dict[str, Any]) -> tuple[float | None, float | None]:
+    """备用现金流只在 OCF 与资本开支同时存在时派生 FCF。"""
+    ocf = _choose(cash, "NETCASH_OPERATE")
+    capex = _choose(cash, "CONSTRUCT_LONG_ASSET")
+    if ocf is None or capex is None:
+        return None, None
+    capex = abs(capex)
+    return capex, ocf - capex
+
+
 def _consistent(summary: dict[str, Any], table: dict[str, Any], pairs: tuple[tuple[str, str], ...]) -> bool:
     """仅拒绝已知重叠事实的矛盾；数值吻合不构成版本等效证据。"""
     for left, right in pairs:
@@ -149,12 +159,17 @@ def _model(
     net_profit: float | None, deducted: float | None, assets: float | None,
     equity: float | None, ocf: float | None, ocfps: float | None,
     eps: float | None, roe: float | None, gross: float | None,
+    capex: float | None = None, fcf: float | None = None,
 ) -> FinancialData:
     start = date(period.year, 1, 1)
     row = FinancialData(
         symbol=symbol, fiscal_quarter=period, revenue=revenue, net_profit=net_profit,
         deducted_net_profit=deducted, total_assets=assets, total_equity=equity,
         operating_cash_flow=ocf, operating_cash_flow_per_share=ocfps, basic_eps=eps,
+        capital_expenditure=capex, free_cash_flow=fcf,
+        net_margin=net_profit / revenue if revenue is not None and revenue > 0 and net_profit is not None else None,
+        net_margin_basis="计算值：净利润÷营业收入（备用源，仅展示）"
+        if revenue is not None and revenue > 0 and net_profit is not None else "",
         roe=roe / 100 if roe is not None else None,
         gross_margin=gross / 100 if gross is not None else None,
         gross_margin_basis=f"{source}披露的销售毛利率（摘要口径，未重算）" if gross is not None else "",
@@ -264,6 +279,7 @@ def fetch_eastmoney_financial(symbol: str) -> FinancialPackage:
             ("KCFJCXSYJLR", "DEDUCT_PARENT_NETPROFIT"), ("TOTALOPERATEREVE", "TOTAL_OPERATE_INCOME"),
         )):
             income = {}
+        capex, fcf = _cash_metrics(cash)
         output.append(_model(
             symbol, period, source, revenue=_choose(summary, "TOTALOPERATEREVE"),
             net_profit=_choose(summary, "PARENTNETPROFIT"), deducted=_choose(income, "DEDUCT_PARENT_NETPROFIT"),
@@ -271,5 +287,6 @@ def fetch_eastmoney_financial(symbol: str) -> FinancialPackage:
             ocf=_choose(cash, "NETCASH_OPERATE"), ocfps=_choose(summary, "MGJYXJJE"),
             eps=_choose(summary, "EPSJB"), roe=_choose(summary, "ROEJQ"),
             gross=None if bank else _choose(summary, "XSMLL"),
+            capex=capex, fcf=fcf,
         ))
     return FinancialPackage(source, output, {})

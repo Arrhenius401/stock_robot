@@ -48,3 +48,14 @@ const ready=renderIndexReport({...legacy,commentary_status:'ready',index_researc
 for(const word of ['核心结论','整体结论','风险提示','样本不足'])if(!ready.includes(word))throw Error('缺失 '+word);
 '''.replace('__RENDERER__', json.dumps(_module_url('src/api/static/js/report-renderer.js')))
     _run_node(tmp_path, script)
+
+
+def test_index_renderer_shows_valuation_details_risk_and_etf(tmp_path):
+    script = _DOM_STUB + r'''const {renderIndexReport}=await import(__RENDERER__);
+const article=renderIndexReport({tag_technical:'bull',tag_valuation:'invalid',
+ requested_instrument:{name:'测试ETF',symbol:'510300'},risk_list:['样本风险'],
+ section_valuation:{display:{details:['口径：滚动估值']},metrics:{valuation_notes:['历史样本不足']}}});
+for(const word of ['测试ETF','510300','样本风险','多头','无效','滚动估值','历史样本不足'])
+ if(!article.textContent.includes(word))throw Error('缺失 '+word);
+'''.replace('__RENDERER__', json.dumps(_module_url('src/api/static/js/report-renderer.js')))
+    _run_node(tmp_path, script)

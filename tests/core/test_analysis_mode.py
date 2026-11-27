@@ -102,7 +102,13 @@ def test_objective_outputs_keep_facts_without_score_signal_or_fallback_judgment(
     assert "综合得分" not in pushed and "操作信号" not in pushed
 
 
-def test_hk_enabled_signal_requires_all_three_core_dimensions():
+def test_hk_enabled_signal_requires_all_three_core_dimensions(monkeypatch):
+    from data.fx_rates import FxRate
+
+    monkeypatch.setattr("data.fx_rates.average_rate",
+                        lambda c, s, e, target="CNY": FxRate(c, target, 1.0, (s, e)))
+    monkeypatch.setattr("data.fx_rates.rate_on",
+                        lambda c, target="CNY", *, day: FxRate(c, target, 1.0, (day,)))
     ctx = stock_context(True, "hk")
     results = stock_results()
     quality = build_data_quality(ctx, results)

@@ -93,8 +93,8 @@ def test_quality_labels_snapshot_without_daily_samples():
     quality = build_quality(ctx, {"valuation": {"status": "partial", "metrics": {}}})
     fields = {field["label"]: field["value"] for dimension in quality["dimensions"]
               if dimension["key"] == "valuation" for field in dimension["fields"]}
-    assert "PE日频样本0个" in fields["样本范围"]
-    assert "PE快照13.04" in fields["样本范围"]
+    assert "PE 无日频样本" in fields["样本范围"]
+    assert "PE 快照 13.04" in fields["样本范围"]
 
 
 def test_cache_fallback_keeps_original_collection_time(monkeypatch):
@@ -132,3 +132,25 @@ def test_hstech_invalid_workbook_reason_reaches_report(tmp_path, mocker):
     report = IndexReportBuilder().build(context, [result])
     assert value.record.error_message in report.section_valuation["summary"]
     assert any(row["value"] == value.record.error_message for row in report.data_quality["limitations"])
+
+
+def test_hscei_month_end_snapshot(monkeypatch):
+    from unittest.mock import Mock
+
+    from index.hk_pe import SOURCES, fetch_hsi_pe
+    assert SOURCES["00014.00"] == ("hscei", "HSCEI", "Hang Seng China Enterprises Index")
+    book = Workbook()
+    sheet = book.active
+    assert sheet is not None
+    sheet.title = "HSCEI"
+    sheet.append(["MONTH-END WEIGHTED AVERAGE P/E RATIO (times)"])
+    sheet.append(["(last update on 31 Oct 2026)"])
+    sheet.append([None, "Hang Seng China Enterprises Index"])
+    sheet.append([date(2026, 10, 31), 12.03])
+    buf = BytesIO()
+    book.save(buf)
+    monkeypatch.setattr("index.hk_pe.requests.get", lambda *a, **kw: Mock(content=buf.getvalue()))
+    result = fetch_hsi_pe("HSCEI", "00014.00", Mock(get_entry=Mock(return_value=None)))
+    assert result.value is not None
+    assert result.value.pe_snapshot == 12.03
+    assert result.value.pe_percentile is None and not result.value.valuation_valid

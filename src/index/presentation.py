@@ -32,6 +32,28 @@ def _indicator_note(metrics: dict[str, Any], key: str) -> str:
     return f"{dates[key][:7]}；发布日期 {release}" if release else dates.get(key, "")
 
 
+def _valuation_source_names(*urls: str | None, fallback: str) -> str:
+    """来源列显示可读名称；完整 URL 仍保留在估值证据字段。"""
+    csindex: list[str] = []
+    others: list[str] = []
+    for url in urls:
+        text = str(url or "")
+        if not text:
+            continue
+        if "csindex.com.cn" in text:
+            part = ("指数表现" if "perf" in text else "月末单张" if "factsheet" in text
+                    else "估值数据" if "valuation" in text else "估值")
+            if part not in csindex:
+                csindex.append(part)
+        elif "eastmoney.com" in text:
+            if "东方财富" not in others:
+                others.append("东方财富")
+        elif text not in others:
+            others.append(text)
+    names = ([f"中证指数官网（{'、'.join(csindex)}）"] if csindex else []) + others
+    return "；".join(names) or fallback
+
+
 def build_quality(
     ctx: IndexAnalysisContext, sections: dict[str, dict], profile: IndexProfile | None = None,
 ) -> dict:
@@ -64,18 +86,32 @@ def build_quality(
             sample, cutoff = f"{prices[0].trade_date}至{prices[-1].trade_date}，{len(prices)}个交易日", str(prices[-1].trade_date)
         elif key == "valuation" and ctx.valuation_data:
             val = ctx.valuation_data
-            sample = f"PE日频样本{val.pe_sample_count}个；PB日频样本{val.pb_sample_count}个"
+            sample = (f"PE 日频样本 {val.pe_sample_count} 个" if val.pe_sample_count
+                      else "PE 无日频样本")
+            sample += (f"；PB 日频样本 {val.pb_sample_count} 个" if val.pb_sample_count
+                       else "；PB 无日频样本")
             if val.pe_snapshot is not None and is_finite_number(val.pe_snapshot) and val.pe_sample_count == 0:
-                sample += f"；PE快照{float(val.pe_snapshot):.2f}"
+                sample += f"；PE 快照 {float(val.pe_snapshot):.2f}"
             if val.percentile_sample_start and val.percentile_sample_end:
-                sample += f"；{val.percentile_sample_start}至{val.percentile_sample_end}"
-            cutoff = "；".join(dict.fromkeys(str(d) for d in (val.pe_as_of, val.pe_snapshot_period or val.pe_snapshot_as_of, val.pb_as_of) if d)) or str(val.date)
-            source = "；".join(dict.fromkeys(v for v in (val.pe_source_url, val.pe_snapshot_source_url, val.pb_source_url) if v)) or source
+                sample += f"；分位区间 {val.percentile_sample_start} 至 {val.percentile_sample_end}"
+            snapshot_date = val.pe_snapshot_period or val.pe_snapshot_as_of
+            cutoff_parts = []
+            if val.pe_as_of:
+                cutoff_parts.append(f"{val.pe_as_of}（PE）")
+            if snapshot_date:
+                cutoff_parts.append(f"{snapshot_date}（月末快照）")
+            if val.pb_as_of:
+                cutoff_parts.append(f"{val.pb_as_of}（PB）")
+            cutoff = "；".join(dict.fromkeys(cutoff_parts)) or str(val.date)
+            source = _valuation_source_names(
+                val.pe_source_url, val.pe_snapshot_source_url, val.pb_source_url, fallback=source)
         elif key == "capital" and ctx.capital_flow:
             cutoff = str(ctx.capital_flow.date)
         elif key == "macro" and ctx.macro:
             dates = getattr(ctx.macro, "indicator_dates", {})
-            cutoff = "；".join(f"{k} {v}" for k, v in dates.items()) or "未记录"
+            cutoff = "；".join(
+                f"{LABELS.get(k, k)} {v}" for k, v in dates.items() if not k.endswith("_release")
+            ) or "未记录"
         elif key == "sentiment":
             sample = f"本次取得{len(metrics.get('items') or [])}条新闻"
         elif key == "strategy" and ctx.strategy_data:
@@ -108,7 +144,21 @@ def build_quality(
             if note and status != "ok":
                 fields.append({"label": "分析限制", "value": str(note)})
         dimensions.append({"key": key, "title": title, "status": status, "fields": fields})
-    quality = {"dimensions": dimensions}
+    from report.presentation import assessment_fields
+    from report.quality import dedupe_pending
+
+    applicable = [item for item in dimensions if item["status"] not in {"not_applicable", "not_collected"}
+                  and item["key"] != "sentiment"]
+    available = any(item["status"] in {"ok", "partial"} for item in applicable)
+    complete = bool(applicable) and all(item["status"] == "ok" for item in applicable)
+    quality = {"dimensions": dimensions,
+               "status": "ok" if complete else "partial" if available else "unavailable",
+               **assessment_fields(complete=complete and ctx.extra_analysis_enabled,
+                                   available=available and ctx.extra_analysis_enabled, scored=False),
+               "pending_verifications": dedupe_pending([
+                   f"{item['title']}：{field['value']}" for item in applicable
+                   for field in item["fields"] if field["label"] == "分析限制"
+               ])}
     quality.update(compact_quality(quality))
     return quality
 
@@ -118,9 +168,19 @@ def valuation_rows(ctx: IndexAnalysisContext) -> list[dict[str, str]]:
     if val is None:
         return []
     rows = []
+    pe_entries = [
+        (val.pe_ttm, val.pe_as_of or val.date, val.pe_basis or "滚动市盈率"),
+        (val.pe_snapshot, val.pe_snapshot_period or val.pe_snapshot_as_of or val.date,
+         val.pe_snapshot_basis or "官方快照，未声明TTM"),
+    ]
+    valid_pe = [(value, sampled, basis) for value, sampled, basis in pe_entries
+                if value is not None and is_finite_number(value)]
+    for index, (value, sampled, basis) in enumerate(valid_pe):
+        label = "PE"
+        if len(valid_pe) > 1:
+            label = "PE（日频）" if index == 0 else ("PE（月末快照）" if "月" in basis else "PE（快照）")
+        rows.append({"label": label, "value": f"{float(value):.2f}", "note": f"{sampled}；{basis}"})
     for label, value, sampled, basis in [
-        ("PE", val.pe_ttm, val.pe_as_of or val.date, val.pe_basis or "滚动市盈率"),
-        ("PE", val.pe_snapshot, val.pe_snapshot_period or val.pe_snapshot_as_of or val.date, val.pe_snapshot_basis or "官方快照，未声明TTM"),
         ("PB", val.pb, val.pb_as_of or val.date, val.pb_basis or "市净率"),
         ("股息率", val.dividend_yield, val.date, "来源披露口径"),
     ]:

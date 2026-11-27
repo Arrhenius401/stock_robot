@@ -1,6 +1,7 @@
 """同行对比 Markdown：只格式化共享证据，不重新计算样本或排名。"""
 import html
 import re
+from datetime import date, datetime
 from typing import Any
 
 from utils.numbers import is_finite_number
@@ -38,7 +39,7 @@ def _table(headers: list[str], rows: list[list[Any]]) -> str:
     ])
 
 
-def _block(block: dict[str, Any], *, operating: bool = False, compact: bool = False, marker: str = "") -> list[str]:
+def _block(block: dict[str, Any], *, operating: bool = False, compact: bool = False) -> list[str]:
     metrics = [item for item in block.get("metrics", []) if isinstance(item, dict)]
     lines = [f"数据来源：{_text(block.get('source'))}"]
     if operating:
@@ -59,15 +60,13 @@ def _block(block: dict[str, Any], *, operating: bool = False, compact: bool = Fa
         for metric in metrics:
             enough = is_finite_number(metric.get("sample_count")) and metric["sample_count"] >= 5
             rows.append([
-                metric.get("label", metric.get("key", "指标")) + (marker if metric.get("key") == "roe" else ""),
+                metric.get("label", metric.get("key", "指标")),
                 comparison_value(metric.get("target"), metric.get("unit", "")),
                 comparison_value(metric.get("median"), metric.get("unit", "")) if enough else "样本不足",
                 comparison_value(metric.get("percentile"), "percent") if enough else "—",
                 f"{metric.get('sample_count', 0)} 家", metric.get("reason", ""),
             ])
         headers = ["指标", "目标公司", "同行中位数", "数值分位", "有效同行", "说明"]
-        if compact and not operating:
-            headers[3] = "数值分位¹⁰"
         if not any(row[-1] for row in rows):
             headers = headers[:-1]
             rows = [row[:-1] for row in rows]
@@ -86,15 +85,19 @@ def _block(block: dict[str, Any], *, operating: bool = False, compact: bool = Fa
             start, end = str(block.get("start") or "未记录"), str(block.get("end") or "未记录")
             basis = str(block.get("basis") or "口径未记录")
             label = re.sub(r"[（(]\d{4}-\d{2}-\d{2}[^）)]*[）)]", "", str(block.get("label") or "未记录"))
-            lines += ["", f"{marker} {_text(label)}：{start}—{end}；{_text(basis)}。"]
+            lines += ["", f"{_text(label)}：{start}—{end}；{_text(basis)}。"]
         else:
-            lines += ["", "¹⁰ 分位表示数值位置，不直接代表经营优劣。",
+            lines += ["", "分位表示数值位置，不直接代表经营优劣。",
                       f"估值日期：{_text(block.get('as_of'))}。"]
         lines += ["", metadata[0]]
         if block.get("reference_only"):
             lines.append("仅参考，不计分。")
     for key in ("notes", "errors"):
         lines.extend(f"- {_text(item)}" for item in block.get(key, []) if item)
+    if compact:
+        from report.table_notes import annotate_table
+
+        return annotate_table(lines)
     return lines
 
 
@@ -114,14 +117,23 @@ def format_peer_comparison_markdown(comparison: dict[str, Any], scoring_method: 
                      if known else "暂缺")
         lines += ["", _table(["项目", "内容"], [
             ["同行范围", comparison.get("scope")], ["同行数量", f"{count} 家，不含本公司"],
-            ["同行市值排名⁹", rank_text], ["估值数据日期", (comparison.get("valuation") or {}).get("as_of")],
+            ["同行市值排名", rank_text], ["估值数据日期", (comparison.get("valuation") or {}).get("as_of")],
             *([["市值数据日期", rank["as_of"]]] if known else []),
-        ]), "", "⁹ 排名含本公司；部分同行缺少同日有效市值时按有效样本排名。"]
-        classification = comparison.get("classification_as_of")
-        if classification:
-            lines.append(f"分类快照：{str(classification)[:10]}（分类刷新失败时可能为旧快照）")
+        ]), "", "排名含本公司；部分同行缺少同日有效市值时按有效样本排名。"]
     else:
         lines += ["", f"同行范围：{_text(comparison.get('scope'))}；同行总数：{comparison.get('peer_count', 0)} 家。"]
+    scope_notes = []
+    classification = comparison.get("classification_as_of")
+    if classification:
+        scope_notes.append(f"分类快照：{_text(classification)}")
+        try:
+            if (datetime.now().astimezone().date() - date.fromisoformat(str(classification)[:10])).days > 30:
+                scope_notes.append("分类快照陈旧，成分可能已变更")
+        except ValueError:
+            scope_notes.append("分类快照日期无效")
+    if not compact:
+        lines.extend(scope_notes)
+    overview_end = len(lines)
     lines += ["", "#### 估值对比", ""]
     lines += _block(comparison.get("valuation") or {}, compact=compact)
     periods = comparison.get("periods") or {}
@@ -132,13 +144,11 @@ def format_peer_comparison_markdown(comparison: dict[str, Any], scoring_method: 
         if period.get("reference_only"):
             label = _text(period.get("label"), label)
         lines += ["", f"#### 经营表现 · {label}", ""]
-        lines += _block(period, operating=True, compact=compact, marker="¹¹" if key == "annual" else "¹²")
+        lines += _block(period, operating=True, compact=compact)
     special = comparison.get("financial_special") or {}
     if special.get("metrics"):
         lines += ["", "#### 银行专项指标", "", *_block(special, operating=True, compact=compact)]
-    if compact:
-        lines += ["", "各项独立筛选，至少 5 家有效同行；目标公司不计入统计。"]
-    else:
+    if not compact:
         lines += ["", "#### 数据来源与统计口径", ""]
     notes = [*([] if compact else COMPARISON_METHOD), *comparison.get("notes", []), *comparison.get("errors", [])]
     seen = set()
@@ -146,5 +156,14 @@ def format_peer_comparison_markdown(comparison: dict[str, Any], scoring_method: 
         if note in seen or note in _REDUNDANT_COMPARISON_NOTES:
             continue
         seen.add(note)
-        lines.append(f"- {_text(note)}")
+        if compact:
+            scope_notes.append(_text(note))
+        else:
+            lines.append(f"- {_text(note)}")
+    if compact:
+        scope_notes.insert(0, "各项独立筛选，至少 5 家有效同行；目标公司不计入统计")
+        from report.table_notes import annotate_table
+
+        # 同行范围表的说明绑定表头，由统一出口编号。
+        lines = [lines[0], "", *annotate_table([*lines[1:overview_end], *scope_notes]), *lines[overview_end:]]
     return "\n".join(lines)

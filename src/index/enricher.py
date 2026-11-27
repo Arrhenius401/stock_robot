@@ -76,20 +76,6 @@ class IndexValuationEnricher:
     def enrich(self, ctx: IndexAnalysisContext,
                daily_pe_values: list[float] | None = None,
                daily_pb_values: list[float] | None = None) -> IndexAnalysisContext:
-        if ctx.valuation_data is None:
-            return ctx
-
-        val = ctx.valuation_data
-
-        if daily_pe_values and val.pe_ttm is not None:
-            val.pe_percentile = compute_percentile(val.pe_ttm, daily_pe_values)
-        if daily_pb_values and val.pb is not None:
-            val.pb_percentile = compute_percentile(val.pb, daily_pb_values)
-
-        # 分位元数据
-        if daily_pe_values or daily_pb_values:
-            all_vals = (daily_pe_values or []) + (daily_pb_values or [])
-            if len(all_vals) < 252:  # 不足 1 年交易日
-                val.valuation_valid = False
-
+        # 分位由 StrategyValuationProvider 按带日期的五年样本统一计算。
+        # 无日期的旧接口参数不能证明覆盖期，也不能用于 PB 日频分位。
         return ctx

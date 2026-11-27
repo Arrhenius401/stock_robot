@@ -66,6 +66,7 @@ def collect(pipe, refresh=False):
 def test_adapter_routes_hk_news_without_a_share_requests(mocker):
     value = snapshot()
     fetch = mocker.patch("data.hk_news.fetch_news", return_value=value)
+    mocker.patch("data.hk_announcements.fetch_announcements", return_value=[])
     old = mocker.patch("data.akshare._ak_news", side_effect=AssertionError("禁止 A 股新闻入口"))
     adapter = AkShareAdapter()
     assert adapter.supports("hk", "news")

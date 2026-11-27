@@ -33,6 +33,11 @@ def dimension_state(profile: MarketProfile, result: AnalysisResult | None, ctx: 
                     *, dimension: str = "") -> DimensionState:
     """能力状态仅供展示，不参与评分和覆盖率计算。"""
     key = result.dimension if result is not None else dimension
+    if key == "financial" and ctx.market == "us" and (
+        (result is not None and result.metrics.get("used_in_score") is False)
+        or any(row.gross_margin_basis == "银行/保险不适用" for row in ctx.financial_data or [])
+    ):
+        return DimensionState(False, "partial", "industry_na", "美股银行/保险专项仅展示，财务未计分")
     if key == "sentiment" and profile.sentiment_policy == "not_collected":
         return DimensionState(False, "none", "not_collected",
                               "本期未采集可评估舆情样本，不能据此判断整体舆情风险。")

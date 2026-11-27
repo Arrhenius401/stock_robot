@@ -1,6 +1,6 @@
 // 结构化股票报告共享渲染器：不读取业务状态，也不发起网络请求。
-import { renderMarkdown } from "./markdown.js?v=20261029-index-news-quality";
-import { el, kv, priceBar, statusBadge } from "./components.js";
+import { renderMarkdown } from "./markdown.js?v=20261127-task19-final";
+import { el, kv, priceBar, statusBadge } from "./components.js?v=20261127-task19-final";
 
 export const STOCK_NEWS_DISPLAY_LIMIT = 10;
 
@@ -14,6 +14,16 @@ const DIMENSIONS = [
 
 // 数据层字段只在内部协议中使用；界面统一显示业务中文名称。
 const METRIC_LABELS = {
+  basic_eps: "基本每股收益", common_equity: "普通股东权益",
+  revenue_period: "营业收入期间", net_profit_period: "净利润期间",
+  capital_expenditure: "资本开支", free_cash_flow: "自由现金流",
+  capital_expenditure_latest: "最近完整年度资本开支（非 TTM）",
+  free_cash_flow_latest: "最近完整年度自由现金流（非 TTM）",
+  cash_flow_period: "现金流期间与口径", cash_flow_limitation: "现金流限制",
+  cash_flow_latest_period: "最近完整年度现金流期间与币种",
+  deducted_profit_growth_yoy: "扣非净利润同比增长", cash_flow_growth_yoy: "经营现金流同比增长",
+  net_margin: "净利率", net_margin_basis: "净利率口径",
+  dividend_yield_basis: "股息率口径", used_in_score: "是否计入评分",
   amount_currency_reason: "金额币种核验",
   reported_annual_roe: "年度披露 ROE（未年化）",
   reported_annual_roe_period: "年度 ROE 报告期", reported_annual_roe_source: "年度 ROE 来源",
@@ -205,9 +215,9 @@ function appendListMetric(grid, key, value) {
 
 const PRICE_KEYS = new Set(['latest_close','latest_price','year_high','year_low','ma_5','ma_20','ma_60']);
 const MULTIPLE_KEYS = new Set(['pe_ttm','pe_static','pe_lyr','pe_snapshot','pb','ps_ttm','industry_median_pe','industry_median_pb','target_pe','target_pb']);
-const RATIO_KEYS = new Set(['reported_annual_roe','roe','gross_margin','revenue_growth_yoy','profit_growth_yoy','industry_median_gross_margin']);
+const RATIO_KEYS = new Set(['reported_annual_roe','roe','gross_margin','net_margin','deducted_profit_growth_yoy','cash_flow_growth_yoy','revenue_growth_yoy','profit_growth_yoy','industry_median_gross_margin']);
 const PERCENT_KEYS = new Set(['change_pct','pe_percentile','pb_percentile','target_pe_premium','dividend_yield','shibor_3m','cpi_yoy','shibor_percentile','pmi_percentile','target_pe_percentile','target_pb_percentile']);
-const AMOUNT_KEYS = new Set(['reported_revenue','reported_revenue_ttm','revenue','net_profit','deducted_net_profit','total_assets','total_equity','common_equity','operating_cash_flow','market_cap']);
+const AMOUNT_KEYS = new Set(['reported_revenue','reported_revenue_ttm','revenue','net_profit','deducted_net_profit','total_assets','total_equity','common_equity','operating_cash_flow','net_profit_ttm','capital_expenditure','free_cash_flow','capital_expenditure_latest','free_cash_flow_latest','market_cap']);
 const ONE_DIGIT_KEYS = new Set(['score','base_score','final_score','risk_deduction']);
 const TWO_DIGIT_KEYS = new Set(['volume_ratio','operating_cash_flow_per_share','basic_eps','pmi','usd_cny']);
 
@@ -431,6 +441,9 @@ function summarySection(report, sectionIdPrefix) {
       ? {ok: "分析数据可用 · 评分不适用", partial: "部分分析数据可用 · 评分不适用", unavailable: "数据不可用 · 暂无结论"}
       : {ok: "数据完整", partial: "数据不完整", unavailable: "数据不可用 · 暂无结论"})[quality.status] || "数据状态未记录";
     if (report.report_scope === "facts_only") badge.textContent = "事实报告 · 不形成综合评估";
+    const assessment = report.assessment_status || quality.assessment_status;
+    if (assessment === "partial") badge.textContent = quality.score_label || "部分评估（参考）";
+    if (assessment === "facts_only") badge.textContent = "事实报告 · 不形成综合评估";
     card.appendChild(badge);
   }
   const overview = record(report.overview);
@@ -712,6 +725,30 @@ function industryComparisonSection(dimension, sectionIdPrefix, newScoring = fals
 }
 
 function dimensionSection(name, label, data, sectionIdPrefix, unscored = false, applicable = true, newScoring = false, objective = false) {
+  // 新快照由服务端统一生成表格与表注；旧快照继续使用兼容展示。
+  const tableView = record(record(data).table_view);
+  if (Object.keys(tableView).length && applicable) {
+    const card = section(`report-${name}`, label, "panel", sectionIdPrefix);
+    const dimension = record(data);
+    card.appendChild(statusBadge(dimension.status));
+    if (!objective) card.appendChild(el("span", "dim-score", name === "industry" && !newScoring ? "不计分" : unscored ? "评分不适用" : scoreText(dimension.score, "暂无评分")));
+    if (dimension.status !== "ok" && dimension.summary) card.appendChild(el("p", "dim-sum", naturalText(dimension.summary)));
+    if (tableView.markdown) card.appendChild(markdownBlock(tableView.markdown, "md"));
+    else {
+      const rows = Object.entries(record(tableView.metrics)).map(([key, value]) => [key, readable(value)]);
+      if (rows.length) card.appendChild(comparisonTable(["指标", "数值"], rows, "report-metrics", label));
+      for (const note of tableView.notes || []) card.appendChild(el("p", "dim-sum report-table-note", String(note)));
+      const trends = record(dimension.metrics).operating_trends;
+      if (Array.isArray(trends) && trends.length) {
+        card.appendChild(el("h3", "", "经营趋势"));
+        const list = el("ul");
+        for (const trend of trends) list.appendChild(el("li", "", String(trend)));
+        card.appendChild(list);
+      }
+    }
+    appendRiskFlags(card, dimension);
+    return card;
+  }
   if (name === "industry" && Object.keys(record(record(record(data).metrics).comparison)).length) {
     const comparison = industryComparisonSection(record(data), sectionIdPrefix, newScoring && !objective);
     if (objective) comparison.querySelectorAll(".dim-score").forEach(node => node.remove());
@@ -745,6 +782,14 @@ function dimensionSection(name, label, data, sectionIdPrefix, unscored = false, 
     for (const [metric, rawValue] of Object.entries(metrics)) {
       const value = name === "sentiment" && ["headlines", "news_items", "all_items"].includes(metric) && Array.isArray(rawValue)
         ? rawValue.slice(0, STOCK_NEWS_DISPLAY_LIMIT) : rawValue;
+      if (metric === "trend_note" && !naturalText(value)) continue;
+      if (name === "financial" && (value == null || value === "")) {
+        const reason = metric === "common_equity"
+          ? "源未提供可核验的普通股东权益；不以股东权益替代"
+          : "源未披露可核验值；不作推算";
+        grid.appendChild(kv(metricLabel(metric), reason));
+        continue;
+      }
       if (metric === "peer_names" || metric === "roe_trend") continue;
       if (metric === "trend_note" && !naturalText(value)) continue;
       if (name === "financial" && ["annual_roe", "scoring_basis", "amount_basis", "gross_margin_basis"].includes(metric)) continue;
@@ -1001,7 +1046,8 @@ function commentarySection(report, sectionIdPrefix, options) {
 function qualitySection(report, sectionIdPrefix) {
   const card = section("report-quality", "数据覆盖与时效", "panel", sectionIdPrefix);
   const quality = record(report.data_quality);
-  const currentPriceSource = record(record(report.overview).current_price).source;
+  const currentPrice = record(record(report.overview).current_price);
+  const currentPriceSource = currentPrice.kind === "close_fallback" ? "" : currentPrice.source;
   if (currentPriceSource) card.appendChild(el("p", "dim-sum", `当前价格来源：${naturalText(currentPriceSource)}`));
   const dimensions = Array.isArray(quality.dimensions) ? quality.dimensions.map(record) : [];
   const fallbackRows = dimensions.map(d => {
@@ -1167,22 +1213,31 @@ export function renderIndexReport(report, options = {}) {
   const profile = report.index_profile;
   const visibleSections = profile?.sections ?? report.visible_sections;
   const make = (id, title) => section(id, title, "panel", prefix);
-  const addRows = (card, rows) => {
+  const addRows = (card, rows, marker = "") => {
     if (!Array.isArray(rows) || !rows.length) return;
-    card.appendChild(comparisonTable(["指标", "数值", "说明"], rows.map(row => [
+    card.appendChild(comparisonTable([`指标${marker}`, "数值", "说明"], rows.map(row => [
       readable(row.label), readable(row.value), readable(row.note, "")]), "index-metrics", "指数指标"));
   };
   const overview = make("index-overview", "概览");
   overview.appendChild(reportHeader(report));
+    const indexQuality = record(report.data_quality);
+    if (indexQuality.status) overview.appendChild(statusBadge(indexQuality.status));
+    if (indexQuality.assessment_status) overview.appendChild(el("p", "dim-sum",
+      {complete:"完整评估", partial:"部分评估（参考）", facts_only:"事实报告"}[indexQuality.assessment_status] || "评估状态未记录"));
   if (report.analysis_mode === "objective") overview.appendChild(el("p", "dim-sum", "客观数据模式"));
   if (report.generated_at) overview.appendChild(el("p", "dim-sum", `生成时间：${reportTime(report.generated_at)}`));
   addRows(overview, report.overview?.display_rows);
+  const instrument = report.requested_instrument;
+  if (instrument) overview.appendChild(el("p", "dim-sum", `输入为ETF ${readable(instrument.name)}（${readable(instrument.symbol)}），本报告分析跟踪指数；ETF自身表现单独披露。`));
   article.appendChild(overview);
   const technical = make("index-technical", "历史表现与技术面");
+  const indexTags = {bull:"多头",shake:"震荡",bear:"空头",undervalued:"低估",neutral:"中性",overvalued:"高估",invalid:"无效"};
+  const indexTagClass = tag => `tag ${{bull:"good",shake:"mid",bear:"bad",undervalued:"good",neutral:"mid",overvalued:"bad",invalid:"gray"}[tag] || "gray"}`;
+  if (report.tag_technical) technical.appendChild(el("span", indexTagClass(report.tag_technical), indexTags[report.tag_technical] || report.tag_technical));
   for (const part of [report.section_performance, report.section_technical, report.section_strategy]) {
     if (!part) continue;
     if (part.summary) technical.appendChild(el("p", "dim-sum", part.summary));
-    addRows(technical, part.display?.rows);
+    addRows(technical, part.display?.rows, part.display?.table_note_marker || "");
     const windows = part.display?.windows;
     if (Array.isArray(windows) && windows.length) {
       technical.appendChild(comparisonTable(["区间", "起始", "截止", "交易日", "收益", "最大回撤", "年化波动"], windows.map(w => [
@@ -1193,13 +1248,22 @@ export function renderIndexReport(report, options = {}) {
     addRows(technical, part.display?.benchmark_rows);
     if (part.metrics?.benchmark_sample_count >= 2) technical.appendChild(el("p", "dim-sum", `基准 ${readable(part.metrics.benchmark_symbol)}；共同交易日 ${readable(part.metrics.benchmark_start_date)} 至 ${readable(part.metrics.benchmark_end_date)}，${part.metrics.benchmark_sample_count} 日。`));
     addRows(technical, part.display?.etf_rows);
-    if (part.metrics?.methodology) technical.appendChild(el("p", "dim-sum", part.metrics.methodology));
-    for (const note of part.metrics?.errors || []) technical.appendChild(el("p", "dim-sum", note));
+    if (Array.isArray(part.display?.table_notes)) {
+      for (const note of part.display.table_notes) technical.appendChild(el("p", "dim-sum report-table-note", note));
+    } else {
+      if (part.metrics?.methodology) technical.appendChild(el("p", "dim-sum", part.metrics.methodology));
+      for (const note of part.metrics?.errors || []) technical.appendChild(el("p", "dim-sum", note));
+    }
   }
   article.appendChild(technical);
   const valuation = make("index-valuation", "估值面");
   if (report.section_valuation?.summary) valuation.appendChild(el("p", "dim-sum", report.section_valuation.summary));
-  addRows(valuation, report.section_valuation?.display?.rows);
+  addRows(valuation, report.section_valuation?.display?.rows, report.section_valuation?.display?.table_note_marker || "");
+  if (report.tag_valuation) valuation.appendChild(el("span", indexTagClass(report.tag_valuation), indexTags[report.tag_valuation] || report.tag_valuation));
+  const valuationDisplay = record(report.section_valuation?.display);
+  const valuationNotes = Array.isArray(valuationDisplay.table_notes) ? valuationDisplay.table_notes
+    : [...(valuationDisplay.details || []), ...(report.section_valuation?.metrics?.valuation_notes || [])];
+  for (const note of valuationNotes) valuation.appendChild(el("p", "dim-sum report-table-note", note));
   article.appendChild(valuation);
   const background = make("index-background", "资金、宏观与新闻");
   for (const [key, title, part] of [["capital", "资金流向", report.section_capital], ["macro", "宏观环境", report.section_macro], ["sentiment", "相关新闻", report.section_sentiment]]) {
@@ -1215,11 +1279,13 @@ export function renderIndexReport(report, options = {}) {
       const list = el("ul", "report-metric-list sentiment-source-list");
       for (const item of items) {
         const li = el("li");
-        li.appendChild(el("span", "", `${readable(item.title, "未记录标题")}（${readable(item.published_at, "日期未记录")}）`));
+        const published = readable(item.published_at, "");
+        li.appendChild(el("span", "", `${readable(item.title, "未记录标题")}${published ? `（${published}）` : ""}`));
         const url = safeNewsUrl(item.url);
-        const source = readable(item.source, "来源未标注");
-        if (url) { const link = el("a", "sentiment-source-link", source); link.setAttribute("href", url); link.setAttribute("target", "_blank"); link.setAttribute("rel", "noopener noreferrer"); li.appendChild(link); }
-        else li.appendChild(el("span", "peer-caption", ` · ${source}`));
+        const rawSource = readable(item.source, "");
+        const source = rawSource && rawSource !== "未记录" ? rawSource : "";
+        if (url) { const link = el("a", "sentiment-source-link", source || "来源"); link.setAttribute("href", url); link.setAttribute("target", "_blank"); link.setAttribute("rel", "noopener noreferrer"); li.appendChild(link); }
+        else if (source) li.appendChild(el("span", "peer-caption", ` · ${source}`));
         list.appendChild(li);
       }
       const details = el("details", "sentiment-sources");
@@ -1242,6 +1308,11 @@ export function renderIndexReport(report, options = {}) {
     commentary.appendChild(indexResearchBody(report.index_research, report.commentary_status));
   } else if (report.commentary) commentary.appendChild(markdownBlock(report.commentary, "md dim-sum"));
   if (report.analysis_mode !== "objective") article.appendChild(commentary);
+  if (report.risk_list?.length) {
+    const risks = make("index-risks", "风险提示");
+    for (const risk of report.risk_list) risks.appendChild(el("p", "dim-sum", riskText(risk)));
+    article.appendChild(risks);
+  }
   article.appendChild(qualitySection(report, prefix));
   const disclaimer = make("report-disclaimer", "免责声明");
   for (const paragraph of report.disclaimer || []) disclaimer.appendChild(el("p", "dim-sum", paragraph));

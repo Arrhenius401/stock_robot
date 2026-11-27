@@ -36,8 +36,9 @@ def _same_period(before: FinancialData, after: FinancialData, field: str) -> boo
             or _previous_year(after.fiscal_quarter) != before.fiscal_quarter
             or _previous_year(after.period_start) != before.period_start):
         return False
-    if field not in _RATIOS and (not before.report_currency
-                                or before.report_currency != after.report_currency):
+    if field not in _RATIOS and (not (before.display_currency or before.report_currency)
+                                or (before.display_currency or before.report_currency)
+                                != (after.display_currency or after.report_currency)):
         return False
     if field == "operating_cash_flow" and (
             before.cash_flow_basis != "reported" or after.cash_flow_basis != "reported"

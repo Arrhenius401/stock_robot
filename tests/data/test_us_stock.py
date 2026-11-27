@@ -44,6 +44,63 @@ def _statement_frames() -> dict[str, Any]:
     return {"综合损益表": income, "资产负债表": balance, "现金流量表": cash}
 
 
+@pytest.mark.parametrize("count", [1, 2, 3])
+def test_us_financials_keep_one_to_three_quarters(mocker, count):
+    frames = {name: dict(list(rows.items())[-count:])
+              for name, rows in _statement_frames().items()}
+    mocker.patch("data.us_stock._statement", side_effect=lambda _ticker, name: frames[name])
+    rows = us_financials("TEST")
+    assert len(rows) == count
+    assert rows[-1].financial_selection_status == "partial"
+    assert "暂不计算" in rows[-1].financial_selection_note
+    assert rows[-1].roe is None
+    assert us_ttm(rows)["revenue"] is None
+
+
+def test_us_pb_short_window_falls_back_to_same_five_year_curve(mocker):
+    def curve(_ticker, metric, chart_select="近一年"):
+        if metric == "市净率" and chart_select == "近一年":
+            raise ValueError("短窗失败")
+        return {date(2024, 1, 2): 30, date(2026, 11, 13): 41}
+
+    mocker.patch("data.us_stock._baidu_metric", side_effect=curve)
+    mocker.patch("data.dividend_yield.us_dividend_yield")
+    item = us_valuation("TEST")[0]
+    assert item.pb == 41
+    assert item.pb_as_of == date(2026, 11, 13)
+    assert item.pb_source == "百度美股估值"
+    assert item.pb_history == {date(2026, 11, 13): 41}
+    assert date(2024, 1, 2) in item.extended_pb_history
+    assert "pb_history" not in item.failed_components
+
+
+@pytest.mark.parametrize("identity", ["TEST", "OTHER"])
+@pytest.mark.parametrize("stamp", ["2026-11-13 16:00:00", "20261113160000"])
+def test_us_pb_second_snapshot_never_creates_history(mocker, identity, stamp):
+    def curve(_ticker, metric, chart_select="近一年"):
+        if metric == "市净率":
+            raise ValueError("PB 曲线失败")
+        return {date(2026, 11, 13): 20}
+
+    fields = [""] * 52
+    fields[30], fields[51] = stamp, "3.5"
+    response = mocker.Mock()
+    response.content = f'v_us{identity}="{"~".join(fields)}";'.encode("gbk")
+    mocker.patch("data.us_stock.requests.get", return_value=response)
+    mocker.patch("data.us_stock._baidu_metric", side_effect=curve)
+    mocker.patch("data.dividend_yield.us_dividend_yield")
+    item = us_valuation("TEST")[0]
+    assert item.pb_history == {}
+    assert item.extended_pb_history == {}
+    assert "pb_history" in item.failed_components
+    if identity == "TEST":
+        assert item.pb == 3.5
+        assert item.pb_as_of == date(2026, 11, 13)
+        assert item.pb_source == "腾讯美股快照PB"
+    else:
+        assert item.pb is None
+
+
 def test_us_history_parses_and_calculates_change(mocker):
     start, end = date(2026, 1, 1), date(2026, 3, 1)
     mocker.patch("akshare.stock_us_daily", return_value=_price_frame(start))
@@ -278,3 +335,51 @@ def test_aapl_five_year_window_is_separate_from_legacy_scoring_input(mocker):
     assert item.history_window_label == "近五年"
     assert len(item.extended_pe_history) > 252
     assert len(item.pe_history) == 1
+
+
+def test_us_financial_positions_match_shared_contract(mocker):
+    frames = _statement_frames()
+    for rows in frames.values():
+        for values in rows.values():
+            values["_meta"] = {"currency": "USD", "start": "2026-07-01", "accounting": "US GAAP"}
+    mocker.patch("data.us_stock._statement", side_effect=lambda _ticker, name: frames[name])
+    row = us_financials("MSFT")[-1]
+    for field, definition in (("revenue", "revenue"), ("net_profit", "parent_net_profit"),
+                              ("operating_cash_flow", "operating_cash_flow"),
+                              ("total_assets", "total_assets"), ("common_equity", "common_equity")):
+        position = row.field_positions[field]
+        assert position["definition"] == definition
+        assert position["unit"] == "currency"
+        assert position["scope"] == "consolidated"
+        assert position["calculation"] == "reported"
+    assert row.field_positions["revenue"]["basis"] == "single"
+    assert row.field_positions["total_assets"]["basis"] == "instant"
+    assert row.field_positions["total_assets"]["start"] == ""
+    assert row.field_positions["total_assets"]["end"] == "2026-06-26"
+
+
+def test_us_source_positions_restore_yoy(mocker):
+    from analysis.financial_trends import build_financial_trends
+
+    frames = _statement_frames()
+    for rows in frames.values():
+        for period, values in rows.items():
+            end = date.fromisoformat(period)
+            values["_meta"] = {"currency": "USD", "start": date(end.year, 7 if end.month == 9 else max(1, end.month - 2), 1).isoformat(), "accounting": "US GAAP"}
+    mocker.patch("data.us_stock._statement", side_effect=lambda _ticker, name: frames[name])
+    trends = build_financial_trends(us_financials("MSFT"), "MSFT")
+    assert trends["latest_yoy"]["revenue_growth_yoy"] == pytest.approx(0.4)
+
+
+def test_us_reported_revenue_yoy_is_percentage(mocker):
+    frames = _statement_frames()
+    frames["综合损益表"]["2026-09-25"]["YOY_RATIO"] = 15
+    mocker.patch("data.us_stock._statement", side_effect=lambda _ticker, name: frames[name])
+    frames["综合损益表"]["2026-09-25"]["_meta"] = {
+        "start": "2026-06-28", "currency": "USD", "accounting": "US GAAP",
+    }
+    from analysis.financial_trends import build_financial_trends
+
+    rows = us_financials("MSFT")
+    assert rows[-1].reported_metrics["revenue_growth_yoy"] == pytest.approx(0.15)
+    assert build_financial_trends(rows, "MSFT")["latest_yoy"]["revenue_growth_yoy"] == pytest.approx(0.15)

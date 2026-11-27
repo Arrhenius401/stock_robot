@@ -73,18 +73,18 @@ def collect_current_quote(market: str, symbol: str, *, daily_end: str | None = N
             raise ValueError("行情时点过旧、早于日线或位于未来")
         holiday = (market == "us" and current.date() in us_market_holidays(current.year))
         if current.weekday() >= 5 or holiday:
-            state = "休市，最近收盘价"
+            state = "休市"
         elif session == "pre":
-            state = "未开盘，最近收盘价"
+            state = "未开盘"
         elif session == "open":
-            state = "交易中" if stamp.date() == current.date() else "休市或行情未更新，最近报价"
+            state = "交易中" if stamp.date() == current.date() else "行情未更新（最近报价）"
         elif stamp.date() == current.date():
             close_hour = 15 if market == "a-shares" else 16
             if market == "us" and current.date() in us_market_early_closes(current.year):
                 close_hour = 13
-            state = "已收盘" if stamp.hour >= close_hour else "已收盘，行情未更新"
+            state = "已收盘" if stamp.hour >= close_hour else "已收盘（行情未更新）"
         else:
-            state = "休市或行情未更新，最近报价"
+            state = "休市（最近报价）"
         return {**quote, "market_state": state, "quoted_at": stamp.isoformat(), "note": ""}
     except Exception as exc:  # noqa: BLE001 — 第三方报价边界，故障不影响日线报告
         logger.warning("当前报价不可用 %s/%s: %s", market, symbol, type(exc).__name__)

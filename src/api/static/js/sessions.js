@@ -3,11 +3,11 @@ import {
   store, bus, switchView, createDraftSession, isDraftSessionId,
   invalidateSessionDetail, markSessionListMutation, reviveSession,
   sessionDetailGeneration,
-} from "./state.js";
-import { api } from "./api.js";
-import { renderMessageHistory, clearChatScroll, cancelSessionRuns } from "./chat.js?v=20261116-us-c5-1";
-import { closeReportDrawer } from "./report-drawer.js?v=20261116-us-c5-1";
-import { el } from "./components.js";
+} from "./state.js?v=20261127-task19-final";
+import { api } from "./api.js?v=20261127-task19-final";
+import { renderMessageHistory, clearChatScroll, cancelSessionRuns } from "./chat.js?v=20261127-price-note";
+import { closeReportDrawer } from "./report-drawer.js?v=20261127-price-note";
+import { el } from "./components.js?v=20261127-task19-final";
 
 const listEl = () => document.getElementById("sessionList");
 let initialized = false;

@@ -1,6 +1,9 @@
 """港股通恒生二级同行池 — 东财 F10 行业估值池，过滤为港股通且已映射标的。"""
+import json
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta, timezone
 from functools import partial
 from typing import Any
 
@@ -32,7 +35,10 @@ class HsicsPeerError(RuntimeError):
 
 def build_industry_data(symbol: str, rows: list[dict[str, Any]],
                         members: dict[str, HsicsMember],
-                        connect: set[str]) -> IndustryData | None:
+                        connect: set[str], *,
+                        market_quotes: dict[str, dict[str, Any]] | None = None,
+                        classification_as_of: str = "") -> IndustryData | None:
+    market_quotes = market_quotes or {}
     if symbol not in connect:
         return None
     target = members.get(symbol)
@@ -73,7 +79,7 @@ def build_industry_data(symbol: str, rows: list[dict[str, Any]],
         row = peer_rows.get(peer_symbol, {})
         peer_valuations[peer_symbol] = PeerBasicInfo(
             symbol=peer_symbol, name=str(row.get("CORRE_SECURITY_NAME") or ""),
-            market_cap=None,
+            market_cap=finite(market_quotes.get(peer_symbol, {}).get("market_cap")),
             pe_ttm=finite(row.get("PE_TTM")),
             pb=finite(row.get("PB_MQR")),
         )
@@ -112,6 +118,7 @@ def build_industry_data(symbol: str, rows: list[dict[str, Any]],
         top_peers=[],
         comparison_ready=True,
         comparison_snapshot={
+            "classification_as_of": classification_as_of,
             "target": {"symbol": symbol, "pe_ttm": finite(target_row.get("PE_TTM")), "pb": finite(target_row.get("PB_MQR")), "as_of": target_date},
             "peers": comparison_peers,
             "as_of": target_date,
@@ -119,6 +126,17 @@ def build_industry_data(symbol: str, rows: list[dict[str, Any]],
             "notes": ["成员资格为港股通且已有恒生 HSICS 二级映射。"],
             "errors": errors,
         },
+    )
+    cap_rows = {code: {**market_quotes.get(code, {}), "symbol": code}
+                for code in [symbol, *peers]}
+    cap_snapshot = {"target": cap_rows[symbol], "peers": [cap_rows[code] for code in peers],
+                    "as_of": cap_rows[symbol].get("as_of", "")}
+    from data.peer_rank import market_cap_rank
+
+    data.comparison_snapshot.update(
+        market_cap_snapshot=cap_snapshot,
+        market_cap_as_of=cap_snapshot["as_of"],
+        market_cap_rank=market_cap_rank(cap_snapshot, peers, symbol),
     )
     data._data_source = "东财F10+恒生HSICS"
     data._peer_valuations = peer_valuations
@@ -199,17 +217,29 @@ class HKIndustryAdapter(DataSource):
         deadline = time.monotonic() + (0 if cache_only else COLLECTION_BUDGET)
         members = load_hsics_members()
         target = members.get(symbol)
-        if target is None or target.status != "mapped":
-            return []
         connect = {code + ".HK" for code in load_connect_symbols()}
-        if symbol not in connect:
-            return []
+        if target is None or target.status != "mapped" or symbol not in connect:
+            if cache_only:
+                return []
+            try:
+                data = fallback_industry(symbol)
+                return [data] if data is not None else []
+            except (requests.RequestException, ValueError, TypeError) as exc:
+                logger.warning("港股行业标签获取失败：%s", exc)
+                return []
+        from utils.paths import hk_hsics_snapshot_path
+        try:
+            classification_as_of = str(json.loads(hk_hsics_snapshot_path().read_text(encoding="utf-8"))["data_date"])
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            logger.warning("恒生分类日期不可用：%s", exc)
+            classification_as_of = ""
         cache = _kwargs.get("comparison_cache")
         refresh = bool(_kwargs.get("refresh_cache", False))
         # 旧快照丢失逐行日期，不能以顶层目标日期替代；新键隔离该不完整契约。
         old, fresh = read_snapshot(cache, "peer_hk_industry_v2", symbol, 3600)
         if old is not None and fresh and (not refresh or cache_only):
             data = IndustryData.model_validate(old)
+            data.comparison_snapshot["classification_as_of"] = classification_as_of
             # 手动资格快照可能已更新，缓存中的成员仍须重新核对。
             qualified = sorted(s for s, m in members.items() if s in connect and s != symbol
                                and m.status == "mapped" and m.sector == target.sector)
@@ -234,9 +264,13 @@ class HKIndustryAdapter(DataSource):
                                  "TYPE_NAME": restored.peer_industry, "PE_TTM": p.get("pe_ttm"),
                                  "PB_MQR": p.get("pb"), "REPORT_DATE": p.get("as_of", "")}
                                 for p in restored.comparison_snapshot.get("peers", []))
-                restored_data = build_industry_data(symbol, old_rows, members, connect)
+                cap_snapshot = restored.comparison_snapshot.get("market_cap_snapshot", {})
+                cap_rows = [cap_snapshot.get("target", {}), *cap_snapshot.get("peers", [])]
+                restored_data = build_industry_data(symbol, old_rows, members, connect,
+                    market_quotes={r["symbol"]: r for r in cap_rows if r.get("symbol")})
             if restored_data is None:
                 raise HsicsPeerError("港股同行资格状态变化")
+            restored_data.comparison_snapshot["classification_as_of"] = classification_as_of
             restored_data._comparison_deadline = deadline
             return restored_data
 
@@ -248,7 +282,17 @@ class HKIndustryAdapter(DataSource):
         try:
             with requests.Session() as session:
                 rows, _ = fetch_sector_pool(session, symbol, deadline=deadline)
-            data = build_industry_data(symbol, rows, members, connect)
+            qualified = [symbol, *(s for s, m in members.items() if s in connect and s != symbol
+                                   and m.status == "mapped" and m.sector == target.sector)]
+            quotes = fetch_market_quotes(qualified, timeout=max(0.1, deadline - time.monotonic()))
+            if old is not None and any(s not in quotes for s in qualified):
+                cached_caps = old.get("comparison_snapshot", {}).get("market_cap_snapshot", {})
+                cached_rows = [cached_caps.get("target", {}), *cached_caps.get("peers", [])]
+                # 失败不覆盖成功缓存；旧报价保留原日期，排名仍排除异日样本。
+                for row in cached_rows:
+                    if row.get("symbol") in qualified and row["symbol"] not in quotes:
+                        quotes[row["symbol"]] = row
+            data = build_industry_data(symbol, rows, members, connect, market_quotes=quotes, classification_as_of=classification_as_of)
         except (HsicsPeerError, ComparisonFetchError, requests.RequestException, ValueError, KeyError, TypeError) as exc:
             logger.warning("港股同行估值刷新失败 %s：%s", symbol, exc)
             # 复用成功数值前再次套用当前资格和行业，避免缓存放宽成员范围。
@@ -265,5 +309,66 @@ class HKIndustryAdapter(DataSource):
                     and not data.comparison_snapshot.get("errors") and time.monotonic() < deadline):
                 write_snapshot(cache, "peer_hk_industry_v2", symbol, data.model_dump(mode="json"), 3600)
         if data is not None:
+            data.comparison_snapshot["classification_as_of"] = classification_as_of
             data._comparison_deadline = deadline
         return [data] if data is not None else []
+
+
+
+def fetch_market_quotes(symbols: list[str], *, timeout: float = 10) -> dict[str, dict[str, Any]]:
+    """批量腾讯优先；漏取时最多三个并发回退东财，受总预算约束。"""
+    from data.hk_eastmoney import finite_number, parse_tencent_hk_quotes, stock_snapshot
+
+    deadline = time.monotonic() + timeout
+    output: dict[str, dict[str, Any]] = {}
+    for offset in range(0, len(symbols), 50):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        batch = symbols[offset:offset + 50]
+        query = ",".join("hk" + s.removesuffix(".HK") for s in batch)
+        try:
+            response = requests.get(f"https://qt.gtimg.cn/q={query}", timeout=remaining)
+            response.raise_for_status()
+            response.encoding = "gbk"
+            output.update({s: q for s, q in parse_tencent_hk_quotes(response.text).items() if s in batch})
+        except (requests.RequestException, ValueError, TypeError) as exc:
+            logger.warning("腾讯港股批量市值失败：%s", exc)
+
+    def fallback(symbol: str) -> tuple[str, dict[str, Any]]:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return symbol, {}
+        try:
+            row = stock_snapshot(symbol.removesuffix(".HK"), timeout=remaining)
+            cap, stamp = finite_number(row.get("f116")), finite_number(row.get("f86"))
+            if cap is not None and cap > 0 and stamp is not None and stamp > 0:
+                day = datetime.fromtimestamp(stamp, tz=UTC).astimezone(timezone(timedelta(hours=8))).date()
+                if day <= datetime.now(timezone(timedelta(hours=8))).date():
+                    return symbol, {"symbol": symbol, "market_cap": cap, "as_of": day.isoformat(),
+                                    "source": "东方财富港股快照"}
+        except (requests.RequestException, ValueError, TypeError, OverflowError, OSError) as exc:
+            logger.warning("东财港股市值回退失败 %s：%s", symbol, exc)
+        return symbol, {}
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        for symbol, row in executor.map(fallback, [s for s in symbols if s not in output]):
+            if row:
+                output[symbol] = row
+    return output
+
+
+def fallback_industry(symbol: str, quote: dict[str, Any] | None = None) -> IndustryData | None:
+    """未映射标的仅展示东财 F10 行业标签，不扩张同行池。"""
+    label = (quote or {}).get("f100")
+    if not isinstance(label, str) or label.strip() in {"", "-", "--"}:
+        from data.hk_eastmoney import fetch_industry_label
+        try:
+            label = fetch_industry_label(symbol.removesuffix(".HK"))
+        except (requests.RequestException, ValueError, TypeError) as exc:
+            logger.warning("港股行业标签获取失败 %s：%s", symbol, exc)
+            return None
+    return IndustryData(symbol=symbol, industry=label.strip(), sector="",
+                        peer_scope="东财行业（非恒生HSICS）", comparison_ready=False,
+                        comparison_snapshot={"errors": ["非港股通/未映射HSICS，不做同行对比"],
+                                             "industry_source": "东财F10公司资料（非恒生HSICS）"})

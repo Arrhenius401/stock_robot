@@ -177,7 +177,7 @@ class FinancialData(BaseModel):
     period_start: "date | None" = None
     period_basis: Literal["unknown", "cumulative", "single"] = "unknown"
     reporting_basis: str = ""
-    # 港股目录列报币种不能证明三表 AMOUNT 币种；旧缓存默认没有金额证据。
+    # 源币种按同期目录优先；旧缓存缺证据时仍保持未知。
     amount_currency_verified: bool = False
     amount_currency_reason: str = ""
     reported_revenue: float | None = None
@@ -190,6 +190,8 @@ class FinancialData(BaseModel):
     reported_annual_roe_source: str = ""
     report_currency: str = ""
     disclosure_currency: str = ""
+    display_currency: str = ""  # 仅分析/展示副本填写，不改写源币种
+    amount_unit: str = ""  # currency / million_currency / billion_currency；未知单位不能折算
     revenue_basis: str = ""
     cash_flow_basis: Literal["unknown", "reported", "estimated"] = "unknown"
     cash_flow_period_start: "date | None" = None
@@ -268,6 +270,8 @@ class ValuationData(BaseModel):
     total_shares_source: str = ""
     market_cap: float | None = None
     market_cap_as_of: "date | None" = None
+    market_cap_source: str = ""
+    market_cap_currency: str = ""
     pe_history: dict[DateType, float] = Field(default_factory=dict)
     pb_history: dict[DateType, float] = Field(default_factory=dict)
     history_source: str = ""
@@ -326,6 +330,8 @@ class HKNewsLink(BaseModel):
 class HKNewsItem(BaseModel):
     """不附带情绪标签的港股新闻候选。"""
     title: str
+    source: str = "news"
+    type: str = ""
     published_at: datetime
     links: list[HKNewsLink] = Field(default_factory=list)
     content: str = ""
@@ -348,6 +354,7 @@ class NewsData(BaseModel):
     date: date
     headlines: list[str] = Field(default_factory=list)
     index_items: list[dict[str, Any]] = Field(default_factory=list)
+    announcement_items: list[dict[str, Any]] = Field(default_factory=list)
     hk_news: HKNewsSnapshot | None = None
     _raw_sentiment: RawSentimentData | None = PrivateAttr(default=None)
     _from_stale_cache: bool = PrivateAttr(default=False)
@@ -404,6 +411,7 @@ class AnalysisContext(BaseModel):
     symbol: str
     name: str
     market: str = "a-shares"
+    currency_conversion: dict[str, Any] = Field(default_factory=dict)
     identity_status: Literal["confirmed", "probable", "unconfirmed"] | None = None
     # 历史直接构造上下文保持旧语义；正式管道按配置显式覆盖。
     extra_analysis_enabled: bool = True

@@ -24,7 +24,7 @@
 | 采集区间价格位置 | {{ price_position }} |
 | 行情区间 | {{ price_start or "未记录" }} 至 {{ price_end or "未记录" }}（{{ price_bars if price_bars is not none else "未记录" }} 个交易日） |
 {% endif %}
-{% if current_price %}
+{% if current_price and current_price.kind != "close_fallback" %}
 | 行情来源 | {{ current_price.source }} |
 {% endif %}
 
@@ -75,15 +75,13 @@
 > {{ r.industry_note }}
 {% endif %}
 {% if dim == "valuation" and valuation_display %}
-⁶ {{ valuation_display.cutoff.split("；")[0] }}
-
 {{ table_views[dim].metrics | md_table }}
 {% else %}
 {{ table_views[dim].metrics | md_table }}
 {% endif %}
 {% for note in table_views[dim].notes %}
 
-{{ note | plain_text }}
+{{ note | table_note }}
 {% endfor %}
 {% if r.metrics.get("operating_trends") %}
 

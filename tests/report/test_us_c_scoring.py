@@ -125,3 +125,36 @@ def test_us_identity_and_short_history_do_not_block_three_core_signal():
     assert quality["signal_allowed"]
     assert quality["identity_status"] == "probable"
     assert quality["required_dimensions"] == ["financial", "technical", "valuation"]
+
+
+def test_us_industry_ttm_roe_uses_four_quarters_and_equity():
+    from data.us_operating import ttm_roe
+
+    assert ttm_roe([10, 10, 10, 10], 100) == .4
+    for profits, equity in [([10, None, 10, 10], 100), ([10]*4, None),
+                            ([10]*4, 0), ([10]*4, float("inf")), ([True]*4, 100)]:
+        assert ttm_roe(profits, equity) is None
+
+
+def test_us_bank_policy_and_brk_revenue():
+    from analysis.financial import FinancialAnalyzer
+    from data.schemas import FinancialData
+    from report.capability import dimension_state
+    from report.market_profile import profile_for
+
+    ctx = context()
+    ctx.symbol = "BRK.B"
+    ctx.financial_data = [FinancialData(symbol="BRK.B", fiscal_quarter=date(2026, 9, 30),
+        revenue=None, reported_revenue=74_322_000_000, reported_revenue_ttm=270_308_000_000,
+        gross_margin_basis="银行/保险不适用")]
+    result = FinancialAnalyzer().analyze(ctx, ConfigLoader().load_for_context(ctx))
+    assert result.metrics["revenue"] is None
+    assert result.metrics["reported_revenue"] == 74_322_000_000
+    assert result.metrics["reported_revenue_ttm"] == 270_308_000_000
+    assert result.metrics["used_in_score"] is False
+    assert result.score is None
+    assert dimension_state(profile_for("us"), result, ctx).status == "not_applicable"
+    quality = build_data_quality(ctx, [result, SentimentAnalyzer().analyze(ctx)])
+    assert next(row for row in quality["dimensions"] if row["key"] == "financial")["status"] == "not_applicable"
+    assert next(row for row in quality["dimensions"] if row["key"] == "sentiment")["status"] == "not_collected"
+    assert not any("财务" in item or "舆情" in item for item in quality["pending_verifications"])

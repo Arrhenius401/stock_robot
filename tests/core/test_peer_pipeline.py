@@ -138,3 +138,15 @@ def test_unknown_industry_keeps_diagnostic_data_with_failed_state(tmp_path, monk
     ctx = pipeline.collect("00700.HK", "测试", market="hk", data_types=["industry"])
     assert ctx.industry_data is not None and ctx.industry_data.industry == "未知"
     assert ctx.collection_records["industry"].result_state == "failed"
+def test_us_industry_writes_market_cap_rank():
+    from data.enrichers.us_industry_enricher import attach_market_cap_rank
+
+    comparison = {"target": {"symbol": "AAPL", "market_cap": 100, "as_of": "2026-11-24"},
+                  "valuation": {"peers": [{"symbol": "MSFT", "market_cap": 90, "as_of": "2026-11-24"},
+                                          {"symbol": "COST", "market_cap": 80, "as_of": "2026-11-23"}]}}
+    result = attach_market_cap_rank(comparison, "AAPL", "2026-11-24")
+    assert result["market_cap_rank"]["rank"] == 1
+    assert result["market_cap_rank"]["coverage"] == "2/3"
+    assert result["market_cap_rank"]["as_of"] == "2026-11-24"
+    comparison["target"]["as_of"] = ""
+    assert attach_market_cap_rank(comparison, "AAPL", "")["market_cap_rank"]["rank"] is None

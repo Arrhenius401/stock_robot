@@ -6,6 +6,7 @@ from utils.numbers import is_positive_finite
 
 
 def market_cap_rank(snapshot: dict[str, Any], symbols: list[str], target: str) -> dict[str, Any]:
+    snapshot = snapshot.get("market_cap_snapshot", snapshot)
     expected = set(symbols) | {target}
     base = {"rank": None, "total": 0, "pool_total": len(expected),
             "coverage": f"0/{len(expected)}", "as_of": "", "reason": "完整同日市值覆盖不足"}

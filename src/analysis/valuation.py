@@ -17,6 +17,9 @@ class ValuationAnalyzer(AnalysisModule):
 
     def analyze(self, context: AnalysisContext,
                 config: dict[str, Any] | None = None) -> AnalysisResult:
+        from data.hk_cny import cny_context
+
+        context = cny_context(context)
         val_data = context.valuation_data
         scoring_context = context
         if context.market not in {"hk", "us"} and context.sufficiency.valuation.level == SufficiencyLevel.INSUFFICIENT:
@@ -70,6 +73,11 @@ class ValuationAnalyzer(AnalysisModule):
             f"{ {'pe_ttm': 'PE(TTM)', 'pb': 'PB', 'ps_ttm': 'PS(TTM)'}[key]}：{info['reason']}"
             for key, info in applicability.items() if not info["applicable"]
         ]
+        if context.market == "hk":
+            metrics["market_cap"] = latest.market_cap if latest else None
+            metrics["display_currency"] = "CNY"
+            metrics["valuation_notes"].extend([context.currency_conversion["note"],
+                                               *context.currency_conversion["notes"]])
         if context.market in {"hk", "us"} or (latest is not None and latest.history_source.startswith(("百度", "东财"))):
             snapshot_dates = valuation_snapshot_dates(context)
             metrics.update(pe_as_of=snapshot_dates["pe_ttm"], pb_as_of=snapshot_dates["pb"],
@@ -105,9 +113,10 @@ class ValuationAnalyzer(AnalysisModule):
                 metrics["extended_valuation_history"] = long_history
             for metric, window in long_history.items():
                 rank = window["percentile"]
-                observation = f"分位 {rank:.1f}%" if rank is not None else "不足 252 个交易日，不计算分位"
+                unit = "采样点" if window["source"].startswith("百度") else "交易日"
+                observation = f"分位 {rank:.1f}%" if rank is not None else f"不足 252 个{unit}，不计算分位"
                 details.append(f"{metric.upper()} {window['window']}历史：{window['source']}，"
-                               f"{window['start']} 至 {window['end']}，有效样本 {window['sample_count']}，"
+                               f"{window['start']} 至 {window['end']}，有效{unit} {window['sample_count']}，"
                                f"{observation}；仅作展示，不参与评分")
             notes.append("历史低分位不等于低风险或值得买；PS 不代表各行业均适用，银行等需另行判断")
         if not any(info["applicable"] for info in applicability.values()) and not scoring_evidence:

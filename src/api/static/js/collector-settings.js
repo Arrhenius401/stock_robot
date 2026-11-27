@@ -1,7 +1,7 @@
 // 自动采集卡片：计划与系统启动分开，持久任务状态由接口轮询。
-import { api } from "./api.js";
-import { el } from "./components.js";
-import { store } from "./state.js";
+import { api } from "./api.js?v=20261127-task19-final";
+import { el } from "./components.js?v=20261127-task19-final";
+import { store } from "./state.js?v=20261127-task19-final";
 
 const append = (parent, ...children) => children.forEach(child => parent.appendChild(child));
 const states = { queued:"已排队", running:"采集中", retry_wait:"等待重试", completed:"已完成", partial:"部分失败", failed:"失败", cancelled:"已取消" };

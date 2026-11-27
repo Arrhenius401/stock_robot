@@ -175,7 +175,7 @@ def price_presentation(quote: dict, latest_close: float | None, daily_end: str |
         offset = parsed.strftime("%z")
         zone_label = f"UTC{int(offset[:3]):+d}" + (f":{offset[3:]}" if offset[3:] != "00" else "") if offset else "时区未记录"
         state = str(quote.get("market_state") or "交易中")
-        note = f"{state}；{parsed:%Y-%m-%d %H:%M:%S} {zone_label}"
+        note = f"{state}；{parsed:%Y-%m-%d %H:%M} {zone_label}"
         return {"value": quote["price"], "kind": "quote", "as_of": stamp, "source": source,
                 "note": note, "change_pct": quote.get("change_pct")}
     if status in {"market_closed", "market_pre"} and latest_close is not None:

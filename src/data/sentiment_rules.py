@@ -12,6 +12,15 @@ from data.schemas import AnalysisContext, SentimentItem
 RISK_BY_SEVERITY = {"minor": 2.0, "moderate": 5.0, "major": 10.0}
 
 
+def mark_related(items: list[dict[str, Any]], *, name: str, symbol: str) -> list[dict[str, Any]]:
+    """无模型时仅标记名称/代码命中，不生成可评估结论。"""
+    from data.news_relevance import name_aliases
+
+    aliases = (*name_aliases(name, symbol), *((symbol,) if symbol else ()))
+    return [{**item, "related": any(alias in f"{item.get('title', '')} {item.get('content', '')}"
+                                    for alias in aliases), "assessable": False} for item in items]
+
+
 def assessment_inputs(ctx: AnalysisContext) -> list[dict[str, Any]]:
     """按报告日期过滤真实条目，稳定标识不随模型输出改变。"""
     now = ctx.collected_at.astimezone(HK_TZ)

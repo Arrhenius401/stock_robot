@@ -28,7 +28,7 @@ def row(**values):
                     "period_start": date(2025, 1, 1), "period_basis": "cumulative",
                     "reporting_basis": "同源合并财报", "financial_source": "同源财报",
                     "report_currency": "CNY", "amount_currency_verified": True, "cash_flow_period_start": date(2025, 1, 1),
-                    "cash_flow_basis": "reported"}
+                    "cash_flow_basis": "reported", "amount_unit": "currency"}
     item = FinancialData.model_validate(defaults | values)
     item.field_precision = {key: "source_native" for key in (
         "net_profit", "revenue", "operating_cash_flow", "total_assets", "total_equity", "gross_margin")
@@ -65,7 +65,8 @@ def test_real_yaml_roe_ratio_and_missing_items_scale_to_ten():
 
 def test_valid_zero_roe_remains_in_denominator():
     scoring, ctx = scorer(0, total_assets=100, total_equity=50)
-    assert scoring.score_financial(ctx)[0] == 4
+    assert scoring.score_financial(ctx)[0] == 0
+    assert "币种核验" in scoring.score_financial(ctx)[1]
 
 
 def test_missing_annual_and_single_gross_margin_have_no_score():
@@ -156,7 +157,7 @@ def test_hk_valuation_uses_curve_and_same_comparison_premium():
     assert valuation_evidence(ctx)[2] is None
 
 
-def test_hk_technical_enabled_and_missing_macd_is_renormalized():
+def test_hk_technical_enabled_and_missing_macd_is_renormalized(verified_fx):
     ctx = context()
     ctx.price_data = [PriceData(symbol=ctx.symbol, trade_date=date(2026, 8, 1) + timedelta(days=i),
                      open=10+i, high=11+i, low=9+i, close=10+i, volume=100) for i in range(20)]
@@ -183,12 +184,13 @@ def test_financial_status_uses_applicable_scoring_coverage():
                                  gross_margin=.41, gross_margin_basis="披露毛利"))
     ctx.sufficiency.financial = DimensionSufficiency(level=SufficiencyLevel.PARTIAL)
     result = FinancialAnalyzer().analyze(ctx, scoring.config)
-    assert result.status == "ok"
-    assert result.metrics["scoring_basis"] == {"available_max": 10, "eligible_max": 10, "reasons": []}
+    assert result.status == "partial"
+    assert result.metrics["scoring_basis"]["available_max"] == 8
+    assert "币种核验" in result.score_detail
     financials(ctx).pop()
     result = FinancialAnalyzer().analyze(ctx, scoring.config)
     assert result.status == "partial"
-    assert result.metrics["scoring_basis"]["available_max"] == 8
+    assert result.metrics["scoring_basis"]["available_max"] == 6
 
 
 def test_hk_nonconnect_uses_local_hsics_without_gaining_peers(mocker):

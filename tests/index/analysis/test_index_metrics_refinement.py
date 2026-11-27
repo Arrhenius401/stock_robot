@@ -34,7 +34,7 @@ def test_trend_strength_and_volatility_are_separate():
 
 def test_windows_do_not_annualize_short_sample():
     m = IndexPerformanceAnalyzer().analyze(context()).metrics
-    assert [w["period"] for w in m["windows"]] == ["1m", "3m", "12m"]
+    assert [w["period"] for w in m["windows"]] == ["1m", "3m", "12m", "36m", "60m"]
     assert m["windows"][0]["annualized_volatility_pct"] is None
 
 
@@ -127,7 +127,7 @@ def test_wide_index_needs_no_artificial_benchmark():
     assert '基准行情不可用' not in result.summary
 
 
-def test_strategy_unknown_pe_is_not_ttm(mocker, tmp_path):
+def test_strategy_official_rolling_pe_without_enough_history(mocker, tmp_path):
     from index.valuation_data import StrategyValuationProvider
     provider = StrategyValuationProvider(tmp_path / 'provider.db')
     mocker.patch.object(provider, 'fetch_official_history', return_value=[{'indexCode':'000922','tradeDate':'20261028','close':100,'peg':12}])
@@ -135,7 +135,7 @@ def test_strategy_unknown_pe_is_not_ttm(mocker, tmp_path):
     mocker.patch.object(provider, '_current_pb', return_value={})
     result=provider.fetch('000922',end=date(2026,10,29))
     assert result is not None
-    assert result.pe_ttm is None
+    assert result.pe_ttm == 12
     assert result.pe_percentile is None
 
 

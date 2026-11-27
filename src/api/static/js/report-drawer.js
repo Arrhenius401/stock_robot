@@ -1,9 +1,9 @@
 // 完整研报右侧抽屉：管理焦点、局部错误与请求竞态。
-import { api } from "./api.js";
-import { el } from "./components.js";
-import { normalizeArtifactReport, renderStockReport } from "./report-renderer.js?v=20261124-stock-data-gaps";
-import { store, switchView } from "./state.js";
-import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js";
+import { api } from "./api.js?v=20261127-task19-final";
+import { el } from "./components.js?v=20261127-task19-final";
+import { normalizeArtifactReport, renderStockReport } from "./report-renderer.js?v=20261127-price-note";
+import { store, switchView } from "./state.js?v=20261127-task19-final";
+import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js?v=20261127-task19-final";
 
 let initialized = false;
 let requestSequence = 0;
@@ -44,6 +44,7 @@ function showError(message) {
 function buildNavigation(article) {
   const nav = navigation();
   nav.replaceChildren();
+  nav.hidden = true;
   for (const reportSection of article.querySelectorAll("section[id]")) {
     const button = el("button", "report-drawer-nav-item",
       reportSection.dataset.sectionTitle || reportSection.id);
@@ -52,6 +53,7 @@ function buildNavigation(article) {
       reportSection.scrollIntoView({ behavior: "smooth", block: "start" });
     });
     nav.appendChild(button);
+    nav.hidden = false;
   }
 }
 

@@ -2,7 +2,23 @@ import json
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 from data.hk_currency_evidence import verify_cash_flow, verify_period
+
+
+@pytest.mark.parametrize("directory,indicator,expected", [
+    ("CNY", "HKD", "CNY"), ("USD", "HKD", "USD"), ("HKD", "HKD", "HKD"),
+    ("", "USD", "USD"), ("", "", "")])
+def test_period_directory_currency_has_priority(directory, indicator, expected):
+    from data.hk_currency_evidence import source_currency
+
+    currency, reason = source_currency(directory, {"CURRENCY": indicator})
+    assert currency == expected
+    if directory and indicator != directory:
+        assert "冲突" in reason and "目录优先" in reason
+    if not expected:
+        assert "未核实" in reason
 
 
 def indicator(code):
@@ -74,3 +90,15 @@ def test_cash_flow_mismatch_or_missing_ratio_fails():
     assert verify_cash_flow(date(2026, 1, 1), 260, row, "HKD")[0] is False
     assert verify_cash_flow(date(2026, 1, 1), 250, {"START_DATE": "2026-01-01"}, "HKD")[0] is False
     assert verify_cash_flow(date(2026, 1, 1), 250, row, "")[0] is False
+
+
+def test_balance_assets_and_parent_equity_verify_currency():
+    from data.hk_currency_evidence import verify_balance
+    indicator = {'REPORT_DATE': '2026-09-30', 'CURRENCY': 'HKD',
+                 'TOTAL_ASSETS': 1000, 'TOTAL_PARENT_EQUITY': 400}
+    rows = [{'SECUCODE': '00700.HK', 'REPORT_DATE': '2026-09-30',
+             'STD_ITEM_CODE': code, 'AMOUNT': value}
+            for code, value in [('004009999', 1000), ('004030999', 400)]]
+    assert verify_balance(date(2026, 9, 30), rows, indicator) == (True, 'HKD', '')
+    indicator['TOTAL_ASSETS'] = 1200
+    assert verify_balance(date(2026, 9, 30), rows, indicator)[0] is False

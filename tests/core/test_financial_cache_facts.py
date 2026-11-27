@@ -156,8 +156,13 @@ def test_sufficient_backup_history_keeps_primary_failure_in_report_and_cache(tmp
     from analysis.technical import TechnicalAnalyzer
     from data.akshare import AkShareAdapter
     from data.enrichers import PriceEnricher
+    from data.fx_rates import FxRate
     from report.quality import build_data_quality
 
+    monkeypatch.setattr("data.fx_rates.rate_on",
+                        lambda c, target="CNY", *, day: FxRate(c, target, 1.0, (day,)))
+    monkeypatch.setattr("data.fx_rates.average_rate",
+                        lambda c, s, e, target="CNY": FxRate(c, target, 1.0, (s, e)))
     calls = []
 
     def primary(*args):

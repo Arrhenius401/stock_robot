@@ -8,6 +8,9 @@ from tests.report.test_numeric_contract import DISPLAY_CASES
 
 def test_web_numeric_contract_and_report_outputs(tmp_path):
     cases = [row for row in DISPLAY_CASES if not isinstance(row[1], float) or math.isfinite(row[1])]
+    cases.extend([("net_margin", 0.509405, "50.94%"),
+                  ("capital_expenditure", 9041000000, "90.41 亿"),
+                  ("free_cash_flow_latest", 190177000000, "1,901.77 亿")])
     script = _DOM_STUB + "\nconst {formatMetricValue,renderStockReport}=await import(" + json.dumps(
         _module_url("src/api/static/js/report-renderer.js")) + ");\n"
     script += "const cases=" + json.dumps(cases, ensure_ascii=False) + ";\n"

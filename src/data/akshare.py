@@ -45,6 +45,68 @@ logger = logging.getLogger(__name__)
 _THS_GROSS_MARGIN_BASIS = "同花顺财务摘要-销售毛利率（摘要口径，未重算）"
 
 
+def _hk_capex(cash: dict[str, Any]) -> float | None:
+    """两项购建支出均存在才计算完整资本开支；零值有效。"""
+    fixed, other = (finite_number(cash.get(code)) for code in ("005005", "005007"))
+    return abs(fixed) + abs(other) if fixed is not None and other is not None else None
+
+
+def _hk_trading_days(code: str, start: date, end: date) -> tuple[set[date], str]:
+    """日线只提供长窗校验日期；不提供或派生任何估值数值。"""
+    def dates(lines, *, eastmoney=False) -> set[date]:
+        result = set()
+        for line in lines:
+            try:
+                fields = line.split(",") if eastmoney else line
+                day = _parse_date(fields[0])
+                if start <= day <= end and day.weekday() < 5:
+                    result.add(day)
+            except (ValueError, TypeError, IndexError, AttributeError) as error:
+                logger.debug("跳过交易日历异常日期：%s", error)
+        return result
+
+    try:
+        lines = []
+        for year in range(start.year, end.year + 1):
+            rows = tencent_history(code, str(max(start, date(year, 1, 1))),
+                                   str(min(end, date(year, 12, 31))), 400)
+            if not rows:
+                raise ValueError(f"{year} 年腾讯日线为空")
+            lines.extend(rows)
+        days = dates(lines)
+        if not days:
+            raise ValueError("腾讯日线无有效交易日期")
+        return days, f"长窗交易日历：腾讯港股日线，{start} 至 {end}，{len(days)} 个日期；估值数值仍来自百度"
+    except Exception as error:  # 第三方日历边界；失败才使用独立备用源
+        reason = f"腾讯日历失败（{type(error).__name__}：{str(error)[:180]}）"
+        logger.warning("%s", reason)
+    try:
+        days = dates(daily_history(code, start.strftime("%Y%m%d"), end.strftime("%Y%m%d"),
+                                   (end - start).days + 1), eastmoney=True)
+        if not days:
+            raise ValueError("东财日线无有效交易日期")
+        return days, (f"长窗交易日历回退成功：东方财富港股日线，{start} 至 {end}，{len(days)} 个日期；"
+                      f"{reason}；仅用于日历校验，估值数值仍来自百度")
+    except Exception as error:  # 第三方日历边界；双源失败不接受百度周末采样
+        message = f"长窗交易日历不可用：{reason}；东财日历失败（{type(error).__name__}：{str(error)[:180]}）"
+        logger.warning("%s", message)
+        return set(), message
+
+
+def _hk_history_window(fetch, code: str, metric: str) -> tuple[dict[date, float], int, str]:
+    """百度长窗优先五年，失败或空值回退三年，均失败保留短窗。"""
+    from utils.numbers import is_positive_finite
+
+    for label, days in (("近五年", 1827), ("近三年", 1096)):
+        try:
+            points = fetch(code, metric, chart_select=label)
+            if points and any(is_positive_finite(value) for value in points.values()):
+                return points, days, label
+        except Exception as error:
+            logger.warning("百度港股%s %s不可用: %s", label, metric, error)
+    return {}, 365, "近一年"
+
+
 def _resolve_eastmoney_to_sw(industry: str) -> tuple[str, str] | None:
     """仅解析本地人工核验的高置信东财→申万唯一映射。"""
     from utils.paths import resource_root
@@ -1069,7 +1131,10 @@ class AkShareAdapter(DataSource):
         assets, cash_flows = supplement("资产负债表"), supplement("现金流量表")
         income_meta = period_metadata(income)
         from data.hk_currency_evidence import (
+            _close,
             load_indicator_periods,
+            source_currency,
+            verify_balance,
             verify_cash_flow,
             verify_period,
         )
@@ -1088,7 +1153,6 @@ class AkShareAdapter(DataSource):
                 })
 
         cash_meta = period_metadata(statement_rows.get("现金流量表", []))
-        balance_meta = period_metadata(statement_rows.get("资产负债表", []))
         directory_meta: dict[date, tuple[date | None, str, str]] = {}
         try:
             grouped: dict[date, set[tuple[date | None, str, str]]] = {}
@@ -1129,20 +1193,22 @@ class AkShareAdapter(DataSource):
             disclosure_currency = ""
             if period in directory_meta:
                 directory_start, directory_currency, standard = directory_meta[period]
-                if start is not None and start == directory_start and standard:
-                    # 目录列报币种只作披露元信息，不为 AMOUNT 作币种或未换汇背书。
-                    disclosure_currency = directory_currency
+                disclosure_currency = directory_currency
+                if start is None:
+                    start = directory_start
+                if standard:
                     reporting_basis += f"-{standard}"
-                else:
-                    # 冲突目录不能覆盖源字段，也不能悄悄回退为可比较口径。
-                    currency, reporting_basis = "", ""
             # 银行与普通企业的科目位置不同，按整期模板选择，不逐字段跨模板补值。
             standard_template = any(key.startswith("004") for key in row)
             bank_template = any(key.startswith("001") for key in row)
             if standard_template and bank_template:
                 logger.warning("港股利润表科目模板冲突 %s/%s，跳过该期", symbol, period)
                 continue
-            if bank_template:
+            other_financial_template = any(key.startswith("003") for key in row)
+            if other_financial_template and not standard_template and not bank_template:
+                revenue, profit, eps = "003001999", "003015002", "003027002"
+                total_assets, total_equity, common_equity = "003005999", "003029999", "ordinary_equity_not_disclosed"
+            elif bank_template:
                 revenue, profit, eps = "001003999", "001025002", "001027002"
                 total_assets, total_equity, common_equity = "001001999", "001011999", "001009999"
             else:
@@ -1150,15 +1216,41 @@ class AkShareAdapter(DataSource):
                 total_assets, total_equity, common_equity = "004009999", "004036999", "004030999"
             # 营业额不是营运收入；归母权益不是包含少数股东的总权益，分别保留。
             margin = margins.get(period) if start is not None and not bank_template else None
-            parts = [cf.get(key) for key in ("005005", "005007")]
-            capex = sum(abs(value) for value in parts if value is not None) if any(value is not None for value in parts) and not bank_template else None
+            capex = _hk_capex(cf) if not bank_template else None
             ocf = cf.get("003999")
             indicator = indicators.get(period)
+            bs_verified, bs_currency, _bs_reason = verify_balance(
+                period, statement_rows.get("资产负债表", []), indicator)
+            bs_currency = bs_currency if bs_verified else ""
+            balance_assets, balance_equity = bs.get(total_assets), bs.get(total_equity)
+            equity_verified = bool(bs_verified and indicator and _close(
+                balance_assets - balance_equity
+                if balance_assets is not None and balance_equity is not None else None,
+                indicator.get("TOTAL_LIABILITIES")))
             evidence = verify_period(period, start, income, indicator, bank=bank_template)
-            currency = evidence.currency if evidence.verified else ""
-            verified = evidence.verified
+            statement_currency = currency
+            currency, currency_reason = source_currency(disclosure_currency, indicator)
+            if statement_currency and currency and statement_currency != currency:
+                currency_reason += f"；利润表源币种 {statement_currency} 与目录/指标 {currency} 冲突，目录优先"
+            verified = bool(currency)
+            # 外币目录不能把已匹配的另一外币金额直接改标签；缺原币金额时拒绝换汇。
+            foreign_conflict = bool(disclosure_currency in {"USD", "HKD"}
+                                    and evidence.verified and evidence.currency
+                                    and evidence.currency != disclosure_currency)
+            if foreign_conflict or (statement_currency and currency and statement_currency != currency):
+                verified = False
+                currency_reason += "；金额币种冲突，未取得目录币种的原始金额/单位，禁止折算及 TTM"
+            if not evidence.verified:
+                currency_reason += f"；金额交叉核验限制：{evidence.reason}"
+            if disclosure_currency:
+                bs_currency = currency
+                equity_verified = True
             cf_verified = (verify_cash_flow(start, ocf, indicator, currency)[0]
                            and (not cf_currency or cf_currency == currency))
+            if disclosure_currency and start is not None:
+                cf_verified = cf_start == start or cf_start is None
+                if cf_currency and cf_currency != currency:
+                    currency_reason += f"；现金流源币种 {cf_currency} 与目录 {currency} 冲突，目录优先"
 
             annual_indicator = indicator if start is not None and start.month == 1 and period.month == 12 else None
             annual_roe = finite_number(annual_indicator.get("ROE_AVG")) if annual_indicator else None
@@ -1172,13 +1264,14 @@ class AkShareAdapter(DataSource):
                 gross_margin=margin, gross_margin_basis="银行/保险不适用" if bank_template else GROSS_MARGIN_BASIS if margin is not None else "",
                 period_start=start, period_basis="cumulative" if start is not None else "unknown",
                 reporting_basis=reporting_basis, report_currency=currency,
-                amount_currency_verified=verified,
-                amount_currency_reason="逐期报表聚合与分析指标一致" if verified else evidence.reason,
+                amount_currency_verified=verified, amount_unit="currency",
+                amount_currency_reason=currency_reason,
                 reported_annual_roe=reported_annual_roe,
                 reported_annual_roe_period=period if reported_annual_roe is not None else None,
                 reported_annual_roe_source="东方财富港股分析指标" if reported_annual_roe is not None else "",
                 disclosure_currency=disclosure_currency,
-                revenue_basis="银行：经营收入总额" if bank_template else "",
+                revenue_basis=("其他金融：经营收入（不含其他收入）" if other_financial_template
+                               else "银行：经营收入总额" if bank_template else "营业额（不含其他营业收入）"),
                 cash_flow_basis="reported" if cf_verified else "unknown",
                 cash_flow_period_start=start if cf_verified else cf_start))
             row_data = result[-1]
@@ -1191,16 +1284,17 @@ class AkShareAdapter(DataSource):
                     row_data.net_margin_basis = "计算值：净利润÷营业收入（报告期口径）；仅展示"
                 for name, definition in (("revenue", "revenue"), ("net_profit", "parent_net_profit"),
                                          ("operating_cash_flow", "operating_cash_flow"),
-                                         ("total_assets", "total_assets"), ("total_equity", "total_equity")):
+                                         ("total_assets", "total_assets"), ("total_equity", "total_equity"),
+                                         ("common_equity", "parent_equity")):
                     if getattr(row_data, name) is None:
                         continue
-                    instant = name in {"total_assets", "total_equity"}
+                    instant = name in {"total_assets", "total_equity", "common_equity"}
                     cash_field = name == "operating_cash_flow"
                     cash_verified = cash_field and cf_verified
                     row_data.field_positions[name] = {
                         "definition": definition, "unit": "currency",
                         "currency": (currency if cash_verified else "") if cash_field
-                        else balance_meta.get(period, (None, ""))[1] if instant else currency,
+                        else (bs_currency if name != "total_equity" or equity_verified else "") if instant else currency,
                         "start": (start.isoformat() if cash_verified and start else
                                   (cf_start.isoformat() if cf_start else "")) if cash_field
                         else (period if instant else start).isoformat(),
@@ -1226,6 +1320,8 @@ class AkShareAdapter(DataSource):
         pb: float | None = None
         pe_as_of: date | None = None
         pb_as_of: date | None = None
+        market_cap = total_shares = None
+        quote_date: date | None = None
         primary_failed = False
         try:
             snapshot = stock_snapshot(code)
@@ -1241,6 +1337,11 @@ class AkShareAdapter(DataSource):
             if snapshot_date > today:
                 raise ValueError("东方财富港股估值日期晚于采集日期")
             # 全部校验通过后才接受快照，否则保持 None 以允许估值对比或曲线兜底。
+            quote_date = snapshot_date
+            market_cap = finite_number(snapshot.get("f116"))
+            total_shares = finite_number(snapshot.get("f84"))
+            market_cap = market_cap if market_cap is not None and market_cap > 0 else None
+            total_shares = total_shares if total_shares is not None and total_shares > 0 else None
             pe, pb = snapshot_pe, snapshot_pb
             pe_as_of = snapshot_date if pe is not None else None
             pb_as_of = snapshot_date if pb is not None else None
@@ -1334,7 +1435,31 @@ class AkShareAdapter(DataSource):
                 item_date = period
 
         item = ValuationData(symbol=symbol, date=item_date, pe_ttm=pe, pb=pb,
-                             pe_as_of=pe_as_of, pb_as_of=pb_as_of)
+                             pe_as_of=pe_as_of, pb_as_of=pb_as_of,
+                             market_cap=market_cap, market_cap_as_of=quote_date if market_cap else None,
+                             total_shares=total_shares, total_shares_as_of=quote_date if total_shares else None,
+                             total_shares_source="东方财富港股快照" if total_shares else "")
+        if item.market_cap is not None:
+            item.market_cap_source = "东方财富港股快照"
+            item.market_cap_currency = "HKD"
+        if item.market_cap is None or item.total_shares is None:
+            from data.hk_eastmoney import capital_fallback
+
+            capital = capital_fallback(code)
+            for field in ("market_cap", "total_shares"):
+                if getattr(item, field) is None and capital.get(field) is not None:
+                    setattr(item, field, capital[field])
+                    setattr(item, field + "_as_of", date.fromisoformat(capital[field + "_as_of"]))
+                    setattr(item, field + "_source", capital[field + "_source"])
+            if item.market_cap is not None and not item.market_cap_currency:
+                item.market_cap_currency = capital.get("market_cap_currency", "")
+        for field, label in (("market_cap", "总市值"), ("total_shares", "总股本")):
+            value = getattr(item, field)
+            if value is None:
+                notes.append(f"{label}：源采集失败，未取得可核验数值")
+            else:
+                unit = item.market_cap_currency if field == "market_cap" else "股"
+                notes.append(f"{label}：{value:,.2f} {unit}；{getattr(item, field + '_source')}；截至 {getattr(item, field + '_as_of')}")
         if curve_fallback:
             # 两个东财入口都未取得 PE/PB 时，才允许百度曲线末值兜底。
             item.pe_ttm = pe_curve.get(period)
@@ -1366,29 +1491,41 @@ class AkShareAdapter(DataSource):
         item.pe_history, item.pb_history = pe_curve, pb_curve
         item.history_source = "百度港股估值（近一年）" if curves else ""
         if pe is not None and pb is not None and len(curves) == 2:
+            trading_days: set[date] = set()
             try:
-                start = today - timedelta(days=1096)
+                start = today - timedelta(days=1827)
                 last_closed = today if datetime.now(timezone(timedelta(hours=8))).hour >= 17 else today - timedelta(days=1)
-                trading_days = {
-                    _parse_date(quote[0])
-                    for year in range(start.year, last_closed.year + 1)
-                    for quote in tencent_history(code, str(max(start, date(year, 1, 1))),
-                                                 str(min(last_closed, date(year, 12, 31))), 400)
-                }
+                trading_days, calendar_note = _hk_trading_days(code, start, last_closed)
+                notes.append(calendar_note)
+                if not trading_days:
+                    raise ValueError("双源交易日历均不可用，未使用百度日期充当交易日")
+                windows = []
                 for metric, attribute in (("市盈率(TTM)", "extended_pe_history"), ("市净率", "extended_pb_history")):
-                    points = baidu_metric(code, metric, chart_select="近三年")
                     baseline = curves.get(metric, {})
-                    if any(points[day] != baseline[day] for day in points.keys() & baseline.keys()
-                           if day < today and day in trading_days):
-                        raise ValueError("百度长窗与短窗共同历史日估值不同")
-                    setattr(item, attribute, {day: value for day, value in points.items()
-                                              if start <= day <= last_closed and day in trading_days})
+
+                    def verified_curve(code, metric, *, chart_select, baseline=baseline):
+                        points = baidu_metric(code, metric, chart_select=chart_select)
+                        if any(points[day] != baseline[day] for day in points.keys() & baseline.keys()
+                               if day < today and day in trading_days):
+                            raise ValueError("百度长窗与短窗共同历史日估值不同")
+                        return {day: value for day, value in points.items()
+                                if start <= day <= last_closed and day in trading_days}
+
+                    points, days, label = _hk_history_window(verified_curve, code, metric)
+                    setattr(item, attribute, points)
+                    if getattr(item, attribute):
+                        windows.append((days, label))
+                    else:
+                        notes.append(f"百度{metric}五年/三年估值源未取得通过校验的采样点；日历可用，详见取数/校验日志")
                 if item.extended_pe_history or item.extended_pb_history:
-                    item.history_window_days = 1096
-                    item.history_window_label = "近三年"
+                    item.history_window_days, item.history_window_label = min(windows)
+                    start = today - timedelta(days=item.history_window_days)
+                    item.extended_pe_history = {d: v for d, v in item.extended_pe_history.items() if d >= start}
+                    item.extended_pb_history = {d: v for d, v in item.extended_pb_history.items() if d >= start}
             except Exception as error:
-                logger.warning("百度港股长窗估值未验证，保留近一年数据: %s", error)
-                notes.append("百度三年估值暂不可用，保留原近一年数据")
+                logger.warning("港股长窗未验证，保留近一年数据: %s", error)
+                notes.append(("长窗交易日历不可用" if not trading_days else "百度长窗估值源或校验失败")
+                             + f"：{error}；保留原近一年数据")
                 item.extended_pe_history = {}
                 item.extended_pb_history = {}
         item.valuation_notes = notes
@@ -1431,9 +1568,28 @@ class AkShareAdapter(DataSource):
 
             return us_news(symbol, str(kwargs.get("name") or ""))
         if kwargs.get("market") == "hk":
+            from data.hk_announcements import fetch_announcements
             from data.hk_news import fetch_news
+            from data.schemas import HKNewsItem, HKNewsLink, HKNewsSnapshot
 
-            snapshot = fetch_news(symbol, kwargs.get("name", ""))
+            try:
+                snapshot = fetch_news(symbol, kwargs.get("name", ""))
+            except Exception as exc:
+                logger.warning("港股新闻获取失败：%s", exc)
+                from data.hk_news import HK_TZ
+                snapshot = HKNewsSnapshot(fetched_at=datetime.now(HK_TZ), query_errors=["新闻查询失败"])
+            try:
+                announcements = fetch_announcements(symbol)
+                snapshot.items.extend(HKNewsItem(
+                    title=item["title"], type=item["type"], source="announcement",
+                    published_at=item["published_at"], content=item.get("content", ""),
+                    links=[HKNewsLink(media="HKEXnews", url=item["url"])]) for item in announcements)
+                snapshot.items.sort(key=lambda item: item.published_at, reverse=True)
+            except Exception as exc:
+                logger.warning("HKEXnews 公告查询失败：%s", exc)
+                snapshot.query_errors.append("HKEXnews公告查询失败")
+                if not snapshot.items and "新闻查询失败" in snapshot.query_errors:
+                    raise RuntimeError("港股新闻与公告均获取失败") from exc
             return [NewsData(symbol=symbol, date=snapshot.fetched_at.date(), hk_news=snapshot,
                              headlines=[item.title for item in snapshot.items])]
         from data.hk_news import HK_TZ
@@ -1497,6 +1653,16 @@ class AkShareAdapter(DataSource):
             if notice_df is not None and not notice_df.empty:
                 for _, row in notice_df.head(20).iterrows():
                     add_item(row, "announcement")
+                from data.a_announcements import extract_art_code, fetch_notice_content
+
+                # 串行请求满足并发不超过三条；失败保留已有标题和链接。
+                for item in [entry for entry in items if entry.source == "announcement"][:10]:
+                    art_code = extract_art_code(item.url)
+                    if art_code:
+                        try:
+                            item.content = fetch_notice_content(art_code)[:1000]
+                        except Exception as error:
+                            logger.debug("公告正文获取失败 %s：%s", art_code, error)
         except Exception as error:
             logger.warning("公告数据获取失败：%s", error)
             self._record_collection_error("东方财富公告", error)
@@ -1627,19 +1793,9 @@ class AkShareAdapter(DataSource):
     @retry_on_network_error()
     def _fetch_index_valuation(self, symbol: str) -> list[IndexValuationData]:
         from data.index_mapping import IndexMapping
-        from index.valuation_data import CURRENT_NAMES, StrategyValuationProvider
+        from index.valuation_data import StrategyValuationProvider
 
         entry = IndexMapping().lookup(symbol)
-        if symbol in CURRENT_NAMES:
-            source = "中证指数官方当前估值"
-            try:
-                value = StrategyValuationProvider(timeout=10, request_timeout=(5, 10)).fetch_current(symbol)
-            except Exception as exc:
-                self._record_collection_error(source, exc)
-                return []
-            self._collection_diagnostics.record = make_record(source, "partial" if value else "failed",
-                error_kind="" if value else "empty", error_message="" if value else "未取得有效官方估值快照")
-            return [value] if value else []
         if entry is not None and entry.index_style == "overseas":
             self._collection_diagnostics.record = make_record(
                 "指数估值", "failed", error_kind="not_supported", error_message="指数官方估值来源尚未核实",
@@ -1649,7 +1805,7 @@ class AkShareAdapter(DataSource):
             self._record_collection_error("指数估值", ValueError("指数官方估值来源尚未核实"))
             return []
         provider = StrategyValuationProvider(timeout=10, request_timeout=(5, 10))
-        value = provider.fetch(symbol, provider=entry.provider, include_daily_pe=False)
+        value = provider.fetch(symbol, provider=entry.provider, include_daily_pe=entry.provider in {"csi", "sse"})
         return [value] if value is not None else []
 
     @retry_on_network_error()

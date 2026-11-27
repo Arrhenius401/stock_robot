@@ -1,6 +1,6 @@
 // 本机运行日志页：仅展示服务端已写入的日志，不提供写入或删除能力。
-import { api } from "./api.js";
-import { bus, store } from "./state.js";
+import { api } from "./api.js?v=20261127-task19-final";
+import { bus, store } from "./state.js?v=20261127-task19-final";
 
 const REFRESH_INTERVAL_MS = 5_000;
 let selectedLevel = "";

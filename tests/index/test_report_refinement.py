@@ -44,7 +44,8 @@ def test_news_text_and_url_are_safe_and_timestamp_not_invented():
     text = render_index_report_markdown(IndexReportBuilder().build(ctx, [result]))
     assert "<script>" not in text
     assert "javascript:" not in text
-    assert "发布时间未记录" in text
+    assert "（来源）" in text
+    assert "发布时间未记录" not in text
     assert "\n## 假章节" not in text
 
 
@@ -140,3 +141,151 @@ def test_adx_atr_display_rounds_without_changing_original_metrics():
     assert values["ADX(14)"] == "52.41"
     assert values["ATR(20)（点）"] == "68.64"
     assert report.section_technical["metrics"]["adx_14"] == metrics["adx_14"]
+
+def test_index_quality_uses_shared_assessment_fields():
+    ctx = IndexAnalysisContext(target=AnalysisTarget(target_type="index", symbol="000300", name="沪深300", index_style="broad"))
+    quality = IndexReportBuilder().build(ctx, []).data_quality
+    assert quality["status"] == "unavailable"
+    assert quality["assessment_status"] == "facts_only"
+    assert quality["report_scope"] == "facts_only"
+    assert quality["pending_verifications"] == list(dict.fromkeys(quality["pending_verifications"]))
+
+
+def test_objective_index_does_not_claim_scoring():
+    from index.presentation import build_quality
+
+    ctx = IndexAnalysisContext(target=AnalysisTarget(target_type="index", symbol="000300", name="沪深300", index_style="broad"), extra_analysis_enabled=False)
+    quality = build_quality(ctx, {key: {"status": "ok"} for key in ("technical", "valuation", "capital", "macro")})
+    assert quality["assessment_status"] == "facts_only"
+    assert "综合得分" not in quality["score_label"]
+    report = IndexReportBuilder().build(ctx, [])
+    text = render_index_report_markdown(report)
+    assert "数据状态：不可用" in text
+    assert "事实报告" in text
+
+
+def test_objective_valuation_summary_does_not_label_valid_pe_invalid():
+    from datetime import date
+
+    from data.schemas import IndexValuationData
+    from index.analysis.valuation import IndexValuationAnalyzer
+
+    ctx = IndexAnalysisContext(
+        target=AnalysisTarget(target_type="index", symbol="000300", name="沪深300", index_style="broad"),
+        extra_analysis_enabled=False,
+        valuation_data=IndexValuationData(
+            symbol="000300", date=date(2026, 11, 26), pe_ttm=12.94, pb=1.26,
+            pe_percentile=64.1, pe_sample_count=1211, valuation_valid=True,
+            percentile_lookback_years=5, percentile_sample_start=date(2021, 11, 29),
+            percentile_sample_end=date(2026, 11, 26)),
+    )
+    summary = IndexValuationAnalyzer().analyze(ctx).summary
+    assert "PE-TTM 12.94" in summary and "64.1" in summary
+    assert "PE估值" not in summary and "无效" not in summary
+    ctx.extra_analysis_enabled = True
+    assert "估值：" in IndexValuationAnalyzer().analyze(ctx).summary
+
+
+def test_two_pe_rows_are_distinguished_by_period():
+    from datetime import date
+
+    from data.schemas import IndexValuationData
+
+    ctx = IndexAnalysisContext(
+        target=AnalysisTarget(target_type="index", symbol="000300", name="沪深300", index_style="broad"),
+        valuation_data=IndexValuationData(
+            symbol="000300", date=date(2026, 11, 26), pe_ttm=12.94, pe_as_of=date(2026, 11, 26),
+            pe_snapshot=13.61, pe_snapshot_as_of=date(2026, 11, 26),
+            pe_snapshot_basis="官方当前PE（来源字段pe，口径未声明）"),
+    )
+    labels = [row["label"] for row in IndexReportBuilder().build(ctx, []).overview["display_rows"]]
+    assert labels.count("PE（日频）") == 1 and labels.count("PE（快照）") == 1
+
+
+def test_valuation_coverage_uses_readable_dates_and_source_names():
+    from datetime import date
+
+    from data.schemas import DataCollectionRecord, IndexValuationData
+    from index.presentation import build_quality
+
+    ctx = IndexAnalysisContext(target=AnalysisTarget(target_type="index", symbol="930740", name="红利低波", index_style="strategy"))
+    ctx.valuation_data = IndexValuationData(
+        symbol="930740", date=date(2026, 11, 26), pe_sample_count=1211, pb_sample_count=0,
+        percentile_sample_start=date(2021, 11, 29), percentile_sample_end=date(2026, 11, 26),
+        pe_as_of=date(2026, 11, 26), pe_snapshot_period="2026-10-30",
+        pe_source_url="https://www.csindex.com.cn/csindex-home/perf/index-perf",
+        pe_snapshot_source_url="https://oss-ch.csindex.com.cn/static/html/csindex/public/uploads/indices/detail/files/zh_CN/930740factsheet.pdf")
+    ctx.collection_records["index_valuation"] = DataCollectionRecord(source="中证指数官网")
+    quality = build_quality(ctx, {"valuation": {"status": "ok", "metrics": {}}})
+    fields = {field["label"]: field["value"] for dimension in quality["dimensions"]
+              if dimension["key"] == "valuation" for field in dimension["fields"]}
+    assert fields["样本范围"].startswith("PE 日频样本 1211 个；PB 无日频样本")
+    assert "分位区间 2021-11-29 至 2026-11-26" in fields["样本范围"]
+    assert fields["数据截止"] == "2026-11-26（PE）；2026-10-30（月末快照）"
+    assert "https://" not in fields["数据来源"] and "中证指数官网（指数表现、月末单张）" in fields["数据来源"]
+
+
+def test_macro_coverage_uses_display_names_and_skips_release_keys():
+    from datetime import date
+
+    from data.schemas import MacroContext
+    from index.presentation import build_quality
+
+    ctx = IndexAnalysisContext(target=AnalysisTarget(target_type="index", symbol="000300", name="沪深300", index_style="broad"))
+    ctx.macro = MacroContext(symbol="000300", fetch_date=date(2026, 11, 27),
+                             indicator_dates={"pmi": "2026-10-31", "shibor_3m": "2026-11-27",
+                                              "us_cpi_yoy_release": "2026-11-15"})
+    quality = build_quality(ctx, {"macro": {"status": "ok", "metrics": {}}})
+    fields = {field["label"]: field["value"] for dimension in quality["dimensions"]
+              if dimension["key"] == "macro" for field in dimension["fields"]}
+    assert fields["数据截止"] == "PMI 2026-10-31；Shibor3M 2026-11-27"
+    assert "_release" not in fields["数据截止"]
+
+
+def test_risk_duplicate_of_limitation_is_shown_once():
+    from data.schemas import AnalysisResult
+
+    note = "官方权重较旧：2026-10-30，使用最新公开权重而非当日成分"
+    ctx = IndexAnalysisContext(target=AnalysisTarget(target_type="index", symbol="980092", name="现金流", index_style="strategy"),
+                               risk_flags=[note])
+    result = AnalysisResult(dimension="index_strategy", status="partial", summary="部分覆盖", metrics={"notes": [note]})
+    report = IndexReportBuilder().build(ctx, [result])
+    assert note in str(report.data_quality["limitations"])
+    assert report.risk_list == []
+
+
+def test_markdown_labels_insufficient_history_windows():
+    from data.schemas import AnalysisResult
+
+    ctx = IndexAnalysisContext(target=AnalysisTarget(target_type="index", symbol="930740", name="红利低波", index_style="strategy"),
+                               extra_analysis_enabled=False)
+    window = {"label": "近60个月", "start_date": "2025-10-23", "end_date": "2026-11-26",
+              "sample_count": 267, "return_pct": 2.69, "max_drawdown_pct": -14.55,
+              "annualized_volatility_pct": 11.97, "notes": ["历史不足完整窗口"]}
+    result = AnalysisResult(dimension="index_performance", status="ok", summary="已取得可用数据", metrics={"windows": [window]})
+    text = render_index_report_markdown(IndexReportBuilder().build(ctx, [result]))
+    assert "近60个月历史不足完整窗口，按可得 267 个交易日计算（2025-10-23 至 2026-11-26）" in text
+    assert "已取得可用数据" not in text
+
+
+def test_strategy_methodology_only_explains_relevant_metrics():
+    from index.analysis.strategy import strategy_methodology
+
+    dividend = strategy_methodology("dividend")
+    assert "股息率=" in dividend
+    assert "自由现金流=" not in dividend and "参考企业价值" not in dividend
+    cash = strategy_methodology("free_cash_flow")
+    assert "自由现金流=" in cash and "股息率=" not in cash
+
+
+def test_news_without_timestamp_omits_placeholder_but_keeps_source():
+    from data.schemas import AnalysisResult
+
+    ctx = IndexAnalysisContext(target=AnalysisTarget(target_type="index", symbol="000300", name="沪深300", index_style="broad"))
+    items = [{"title": "标题", "source": "来源", "url": "https://example.com/a"},
+             {"title": "无来源", "source": "未记录", "url": "https://example.com/b"}]
+    result = AnalysisResult(dimension="index_sentiment", status="ok", summary="新闻", metrics={"items": items})
+    text = render_index_report_markdown(IndexReportBuilder().build(ctx, [result]))
+    assert "- 标题（来源）" in text
+    assert "- 无来源" in text and "（未记录）" not in text
+    assert "发布时间未记录" not in text

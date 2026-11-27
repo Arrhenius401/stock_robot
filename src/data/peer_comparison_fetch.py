@@ -267,7 +267,7 @@ def fetch_a_industry(symbol: str, *, cache: CacheManager | None = None,
             logger.warning("精确申万三级池获取失败 %s：%s", symbol, exc)
             if not old:
                 return [IndustryData(symbol=symbol, industry="未知", sector="",
-                                     comparison_snapshot={"errors": ["未取得精确申万三级同行池"]})]
+                                     comparison_snapshot={"errors": ["无第二申万三级源；乐咕失败且无缓存时不可用"]})]
             pool = old
             notes.append("分类刷新失败，使用上次已验证的申万三级池；成分可能已变更")
     profile, members = pool["profile"], pool["members"]

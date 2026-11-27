@@ -34,7 +34,7 @@ def make_context(count: int, market: str = "a-shares") -> AnalysisContext:
 
 
 @pytest.mark.parametrize("count", [0, 5, 20, 25, 26, 33, 34, 60])
-def test_public_metrics_require_complete_windows_and_match_across_markets(count):
+def test_public_metrics_require_complete_windows_and_match_across_markets(count, verified_fx):
     a_ctx = make_context(count)
     hk_ctx = make_context(count, "hk")
     a_result = TechnicalAnalyzer().analyze(a_ctx)
@@ -61,7 +61,7 @@ def test_public_metrics_require_complete_windows_and_match_across_markets(count)
     assert hk_result.metrics == expected
 
 
-def test_hk_uses_shared_scorer_when_given_its_selected_config(mocker):
+def test_hk_uses_shared_scorer_when_given_its_selected_config(mocker, verified_fx):
     get_scorer = mocker.patch("analysis.financial.FinancialAnalyzer._get_scorer")
     get_scorer.return_value.score_technical.return_value = (7.0, "有效子项评分", [])
     get_scorer.return_value._industry_note.return_value = ""
@@ -72,7 +72,7 @@ def test_hk_uses_shared_scorer_when_given_its_selected_config(mocker):
     assert result.metrics["ma_60"] is not None
 
 
-def test_zero_volume_is_missing_ratio_not_invented_neutral_value():
+def test_zero_volume_is_missing_ratio_not_invented_neutral_value(verified_fx):
     ctx = make_context(60, "hk")
     for p in ctx.price_data or []:
         p.volume = 0
