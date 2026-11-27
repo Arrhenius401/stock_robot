@@ -153,6 +153,8 @@ def test_process_termination_releases_collection_lock(tmp_path):
     import subprocess
     import sys
 
+    from filelock import FileLock
+
     from radar.stocks.risk_warning import collect_risk_warning
 
     root = tmp_path / 'stock-risk-warning'
@@ -168,6 +170,9 @@ def test_process_termination_releases_collection_lock(tmp_path):
         process.wait(timeout=5)
         if process.stdout is not None:
             process.stdout.close()
+    # Windows 结束进程后文件句柄释放可能滞后，等锁真正可获取再验证采集。
+    with FileLock(str(root / '.collect.lock'), timeout=5):
+        pass
     raw = json.dumps({'rc': 0, 'data': {'total': 1, 'diff': [
         {'f12': '600000', 'f13': 1, 'f14': 'ST样本'}]}}).encode()
     assert collect_risk_warning(tmp_path, fetch=lambda page: (200, raw), sleep=lambda _: None)['status'] == 'complete'

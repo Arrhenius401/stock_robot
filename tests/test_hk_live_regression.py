@@ -114,8 +114,8 @@ def test_real_financial_rows_survive_price_outage_through_saved_report(tmp_path,
     assert "腾讯估值快照" not in markdown
     assert "14.23" in markdown and "2.9" in markdown
     assert "模型信号：暂未生成" in markdown
-    assert "57.25%" in markdown and "毛利率为派生值，分母为营运收入" in markdown
-    assert "可能不同于表内营业额" in markdown
+    assert "57.25%" in markdown
+    assert "毛利率按毛利÷营运收入计算，与表内营业额可能不是同一口径" in markdown
     assert "计算值：同期间披露毛利÷营运收入" in financial.metrics["gross_margin_basis"]
     assert "其他营业收入" in financial.metrics["gross_margin_basis"]
     if cash_flow_failure:

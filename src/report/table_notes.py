@@ -220,7 +220,7 @@ def prepare_table(dimension: str, metrics: dict[str, Any], *,
             explanation = ("股息率来自已实施分红方案，未确认包含全年全部派息" if "方案" in basis
                            else "股息率为来源提供的最近12个月数值" if "TTM" in basis and not any(word in basis for word in ("未声明", "未说明", "不明"))
                            else "股息率沿用来源值，未说明是否覆盖最近12个月")
-            notes.append(explanation + (f"；来源：{basis.split('；')[0]}" if basis else "") + "。")
+            notes.append(explanation + (f"；股息率来源：{basis.split('；')[0]}" if basis else "") + "。")
         if "roe" in metrics:
             notes.append("ROE按最近12个月归母净利润÷期末归母股东权益计算，可能与公司披露值不同。"
                          if "TTM" in str(metrics.get("roe_basis", ""))

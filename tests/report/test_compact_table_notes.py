@@ -81,9 +81,9 @@ def test_long_window_facts_are_table_values_and_notes_keep_their_subject():
     history = view["metrics"]["PE 近五年历史"]
     assert "617" in history and "1.1%" in history and "百度" in history and "不参与评分" in history
     assert "2025-11-27" in str(view["notes"]) and "365" in str(view["notes"])
-    assert any("市值÷TTM营收；期间截至2026-09-30；仅展示" in note for note in view["notes"])
+    assert any("市值÷最近12个月营收；期间截至2026-09-30；仅展示" in note for note in view["notes"])
     ps_marker = next(label for label in view["metrics"] if label.startswith("PS(TTM)")).removeprefix("PS(TTM)")
-    assert any(note.startswith(ps_marker + " ") and "东财日频估值历史" in note for note in view["notes"])
+    assert any(note.startswith(ps_marker + " ") and "东方财富逐日估值历史" in note for note in view["notes"])
 
 
 def test_payload_and_markdown_share_the_table_contract(tmp_path):
@@ -175,8 +175,8 @@ def test_profit_statement_scope_and_derived_margin_are_not_hidden():
         "gross_margin_basis": "计算值：毛利÷营运收入；与营业额口径不同",
         "cash_flow_source": "期间或币种证据不足", "operating_cash_flow": None})
     text = str(view["notes"])
-    assert "利润表币种" in text and "其他报表" in text
-    assert "营运收入" in text and "派生值" in text
+    assert "利润表金额" in text and "其他报表" in text
+    assert "毛利÷营运收入" in text and "营业额" in text
     assert "现金流期间或币种证据不足" in text
 
 

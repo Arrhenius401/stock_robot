@@ -199,6 +199,8 @@ METRIC_DISPLAY_NAMES = {
     "roe_basis": "ROE 期间与口径",
     "gross_margin": "毛利率",
     "net_margin": "净利率",
+    # 评分模板本身即中文展示文案，展示副本按白名单放行，保持与结构化载荷一致。
+    "评分模板": "评分模板",
     "latest_close": "最新收盘价",
     "ma_5": "5 日均线",
     "ma_20": "20 日均线",

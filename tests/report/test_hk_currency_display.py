@@ -7,7 +7,7 @@ def test_ps_source_reaches_valuation_table():
         "valuation_details": ["PS(TTM)：东财日频估值历史-市销率（口径未声明），日期 2026-11-23；仅披露，不计入评分"],
     })
     assert "PS(TTM)" in str(view["metrics"])
-    assert any("东财" in note for note in view["notes"])
+    assert any("东方财富" in note for note in view["notes"])
 
 
 def test_eastmoney_long_window_note_is_kept():
@@ -22,7 +22,7 @@ def test_verified_hk_currency_reason_reaches_financial_table():
         "amount_currency_reason": "逐期报表聚合与分析指标一致",
     })
     text = str(view["notes"])
-    assert "HKD" in text and "逐期" in text
+    assert "港元" in text and "逐期" in text
 
 
 def test_brk_sec_revenue_is_display_only_row():
