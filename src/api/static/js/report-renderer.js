@@ -1,6 +1,6 @@
 // 结构化股票报告共享渲染器：不读取业务状态，也不发起网络请求。
-import { renderMarkdown } from "./markdown.js?v=20261029-index-news-quality";
-import { el, kv, priceBar, statusBadge } from "./components.js?v=20261126-data-gaps-status";
+import { renderMarkdown } from "./markdown.js?v=20261127-task19-fix";
+import { el, kv, priceBar, statusBadge } from "./components.js?v=20261127-task19-fix";
 
 export const STOCK_NEWS_DISPLAY_LIMIT = 10;
 
@@ -14,6 +14,10 @@ const DIMENSIONS = [
 
 // 数据层字段只在内部协议中使用；界面统一显示业务中文名称。
 const METRIC_LABELS = {
+  basic_eps: "基本每股收益", common_equity: "普通股东权益",
+  revenue_period: "营业收入期间", net_profit_period: "净利润期间",
+  net_margin: "净利率", net_margin_basis: "净利率口径",
+  dividend_yield_basis: "股息率口径", used_in_score: "是否计入评分",
   amount_currency_reason: "金额币种核验",
   reported_annual_roe: "年度披露 ROE（未年化）",
   reported_annual_roe_period: "年度 ROE 报告期", reported_annual_roe_source: "年度 ROE 来源",
@@ -748,6 +752,14 @@ function dimensionSection(name, label, data, sectionIdPrefix, unscored = false, 
     for (const [metric, rawValue] of Object.entries(metrics)) {
       const value = name === "sentiment" && ["headlines", "news_items", "all_items"].includes(metric) && Array.isArray(rawValue)
         ? rawValue.slice(0, STOCK_NEWS_DISPLAY_LIMIT) : rawValue;
+      if (metric === "trend_note" && !naturalText(value)) continue;
+      if (name === "financial" && (value == null || value === "")) {
+        const reason = metric === "common_equity"
+          ? "源未提供可核验的普通股东权益；不以股东权益替代"
+          : "源未披露可核验值；不作推算";
+        grid.appendChild(kv(metricLabel(metric), reason));
+        continue;
+      }
       if (metric === "peer_names" || metric === "roe_trend") continue;
       if (metric === "trend_note" && !naturalText(value)) continue;
       if (name === "financial" && ["annual_roe", "scoring_basis", "amount_basis", "gross_margin_basis"].includes(metric)) continue;

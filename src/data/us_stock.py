@@ -624,6 +624,13 @@ def us_financials(ticker: str, max_periods: int = 8, *, refresh_cache: bool = Fa
             "revenue", "net_profit", "total_assets", "total_equity", "common_equity",
             "operating_cash_flow", "capital_expenditure", "free_cash_flow", "gross_margin", "basic_eps")
             if is_finite_number(getattr(row, field))}
+        if reported_yoy is not None:
+            metric = "revenue_growth_yoy"
+            row.field_precision[metric] = "source_native"
+            row.field_sources[metric] = "东方财富美股F10 YOY_RATIO（百分数）"
+            row.field_positions[metric] = {
+                **row.field_positions["revenue"], "definition": metric, "unit": "ratio",
+            }
         rows.append(row)
 
     # ROE 按最近四个财季净利润 / 期末归母权益派生；资产负债表期不一致时不混算。

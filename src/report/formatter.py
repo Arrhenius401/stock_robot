@@ -305,7 +305,8 @@ def format_metric_value(key: object, value: Any) -> Any:
     """只按已知字段口径格式化显示，不改动计算或持久化数值。"""
     key = str(key)
     if value is None or (isinstance(value, str) and value == "N/A"):
-        return "暂无数据"
+        return ("源未提供可核验的普通股东权益；不以股东权益替代"
+                if key == "common_equity" else "暂无数据")
     if isinstance(value, float) and not math.isfinite(value):
         return "数据异常"
     if not isinstance(value, (int, float)) or isinstance(value, bool) or not is_finite_number(value):

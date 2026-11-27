@@ -375,4 +375,11 @@ def test_us_reported_revenue_yoy_is_percentage(mocker):
     frames = _statement_frames()
     frames["综合损益表"]["2026-09-25"]["YOY_RATIO"] = 15
     mocker.patch("data.us_stock._statement", side_effect=lambda _ticker, name: frames[name])
-    assert us_financials("MSFT")[-1].reported_metrics["revenue_growth_yoy"] == pytest.approx(0.15)
+    frames["综合损益表"]["2026-09-25"]["_meta"] = {
+        "start": "2026-06-28", "currency": "USD", "accounting": "US GAAP",
+    }
+    from analysis.financial_trends import build_financial_trends
+
+    rows = us_financials("MSFT")
+    assert rows[-1].reported_metrics["revenue_growth_yoy"] == pytest.approx(0.15)
+    assert build_financial_trends(rows, "MSFT")["latest_yoy"]["revenue_growth_yoy"] == pytest.approx(0.15)

@@ -637,8 +637,9 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .report-drawer-toolbar button:hover, .report-drawer-nav-item:hover { background: var(--surface-hover); color: var(--text); }
 #reportDrawerClose { color: var(--danger); }
 #reportDrawerError { margin: var(--space-2) var(--space-3) 0; color: var(--danger); line-height: 1.5; }
+#reportDrawerNav[hidden] { display: none; }
 #reportDrawerNav {
-  display: flex; gap: 6px; padding: var(--space-2) var(--space-3); overflow-x: auto;
+  flex-shrink: 0; max-height: 150px; overflow-y: auto; display: flex; flex-wrap: wrap; gap: 6px; padding: var(--space-2) var(--space-3); overflow-x: hidden;
   border-bottom: 1px solid var(--border-soft); white-space: nowrap;
 }
 .report-drawer-nav-item { flex-shrink: 0; }

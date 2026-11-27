@@ -1,7 +1,7 @@
 // 配置模块完整视图：保留为后续兼容层恢复回测与单标的历史表现。
-import { api } from "./api.js?v=20260909-instrument-performance";
-import { el, errorCard, skeleton } from "./components.js";
-import { switchView } from "./state.js";
+import { api } from "./api.js?v=20261127-task19-fix";
+import { el, errorCard, skeleton } from "./components.js?v=20261127-task19-fix";
+import { switchView } from "./state.js?v=20261127-task19-fix";
 
 const BENCHMARKS = [["money_fund", "货币基金"], ["csi_300", "沪深 300"], ["csi_all_bond", "中证全债"]];
 const BACKTEST_PERIODS = [[3, "近3月"], [6, "近半年"], [12, "近1年"], [24, "近2年"], [36, "近3年"], [60, "近5年"], ["since", "成立以来"]];
