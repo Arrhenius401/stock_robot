@@ -1163,7 +1163,11 @@ class AkShareAdapter(DataSource):
             if standard_template and bank_template:
                 logger.warning("港股利润表科目模板冲突 %s/%s，跳过该期", symbol, period)
                 continue
-            if bank_template:
+            other_financial_template = any(key.startswith("003") for key in row)
+            if other_financial_template and not standard_template and not bank_template:
+                revenue, profit, eps = "003001999", "003015002", "003027002"
+                total_assets, total_equity, common_equity = "003005999", "003029999", "ordinary_equity_not_disclosed"
+            elif bank_template:
                 revenue, profit, eps = "001003999", "001025002", "001027002"
                 total_assets, total_equity, common_equity = "001001999", "001011999", "001009999"
             else:
@@ -1206,7 +1210,8 @@ class AkShareAdapter(DataSource):
                 reported_annual_roe_period=period if reported_annual_roe is not None else None,
                 reported_annual_roe_source="东方财富港股分析指标" if reported_annual_roe is not None else "",
                 disclosure_currency=disclosure_currency,
-                revenue_basis="银行：经营收入总额" if bank_template else "",
+                revenue_basis=("其他金融：经营收入（不含其他收入）" if other_financial_template
+                               else "银行：经营收入总额" if bank_template else ""),
                 cash_flow_basis="reported" if cf_verified else "unknown",
                 cash_flow_period_start=start if cf_verified else cf_start))
             row_data = result[-1]

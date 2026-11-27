@@ -259,3 +259,20 @@ def test_financial_request_timeout_is_diagnosed_without_sdk_retry(mocker):
     assert record is not None
     assert record.source == "东方财富港股财报"
     assert record.error_kind == "timeout"
+
+
+def test_other_financial_template_preserves_actual_period_without_cash_borrowing(mocker):
+    # 2026-11-27 东财 PC 实测：00388 使用 003 模板；现金流只有中报。
+    frames = json.loads((RESOURCES / "eastmoney-00388-financial-template.json").read_text(encoding="utf-8"))
+    mocker.patch("data.akshare.financial_statement", side_effect=lambda _code, name: frames[name])
+    mocker.patch("data.hk_currency_evidence.load_indicator_periods", return_value={})
+    rows = AkShareAdapter()._fetch_hk_eastmoney_financial("00388.HK")
+    latest = max(rows, key=lambda row: row.fiscal_quarter)
+    assert latest.fiscal_quarter == date(2026, 9, 30)
+    assert latest.revenue == 17861144940
+    assert latest.net_profit == 13242845340
+    assert latest.basic_eps == 10.472724
+    assert latest.total_assets == 406968337800
+    assert latest.common_equity is None  # 归母权益不能无条件冒充普通权益
+    assert latest.operating_cash_flow is None
+    assert not latest.amount_currency_verified

@@ -1,6 +1,6 @@
 // 结构化股票报告共享渲染器：不读取业务状态，也不发起网络请求。
-import { renderMarkdown } from "./markdown.js?v=20261127-task19-live";
-import { el, kv, priceBar, statusBadge } from "./components.js?v=20261127-task19-live";
+import { renderMarkdown } from "./markdown.js?v=20261127-task19-final";
+import { el, kv, priceBar, statusBadge } from "./components.js?v=20261127-task19-final";
 
 export const STOCK_NEWS_DISPLAY_LIMIT = 10;
 
@@ -16,6 +16,12 @@ const DIMENSIONS = [
 const METRIC_LABELS = {
   basic_eps: "基本每股收益", common_equity: "普通股东权益",
   revenue_period: "营业收入期间", net_profit_period: "净利润期间",
+  capital_expenditure: "资本开支", free_cash_flow: "自由现金流",
+  capital_expenditure_latest: "最近完整年度资本开支（非 TTM）",
+  free_cash_flow_latest: "最近完整年度自由现金流（非 TTM）",
+  cash_flow_period: "现金流期间与口径", cash_flow_limitation: "现金流限制",
+  cash_flow_latest_period: "最近完整年度现金流期间与币种",
+  deducted_profit_growth_yoy: "扣非净利润同比增长", cash_flow_growth_yoy: "经营现金流同比增长",
   net_margin: "净利率", net_margin_basis: "净利率口径",
   dividend_yield_basis: "股息率口径", used_in_score: "是否计入评分",
   amount_currency_reason: "金额币种核验",
@@ -209,9 +215,9 @@ function appendListMetric(grid, key, value) {
 
 const PRICE_KEYS = new Set(['latest_close','latest_price','year_high','year_low','ma_5','ma_20','ma_60']);
 const MULTIPLE_KEYS = new Set(['pe_ttm','pe_static','pe_lyr','pe_snapshot','pb','ps_ttm','industry_median_pe','industry_median_pb','target_pe','target_pb']);
-const RATIO_KEYS = new Set(['reported_annual_roe','roe','gross_margin','revenue_growth_yoy','profit_growth_yoy','industry_median_gross_margin']);
+const RATIO_KEYS = new Set(['reported_annual_roe','roe','gross_margin','net_margin','deducted_profit_growth_yoy','cash_flow_growth_yoy','revenue_growth_yoy','profit_growth_yoy','industry_median_gross_margin']);
 const PERCENT_KEYS = new Set(['change_pct','pe_percentile','pb_percentile','target_pe_premium','dividend_yield','shibor_3m','cpi_yoy','shibor_percentile','pmi_percentile','target_pe_percentile','target_pb_percentile']);
-const AMOUNT_KEYS = new Set(['reported_revenue','reported_revenue_ttm','revenue','net_profit','deducted_net_profit','total_assets','total_equity','common_equity','operating_cash_flow','market_cap']);
+const AMOUNT_KEYS = new Set(['reported_revenue','reported_revenue_ttm','revenue','net_profit','deducted_net_profit','total_assets','total_equity','common_equity','operating_cash_flow','net_profit_ttm','capital_expenditure','free_cash_flow','capital_expenditure_latest','free_cash_flow_latest','market_cap']);
 const ONE_DIGIT_KEYS = new Set(['score','base_score','final_score','risk_deduction']);
 const TWO_DIGIT_KEYS = new Set(['volume_ratio','operating_cash_flow_per_share','basic_eps','pmi','usd_cny']);
 

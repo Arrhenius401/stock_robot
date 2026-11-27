@@ -1,5 +1,5 @@
 // HTTP 封装：JSON 请求 + SSE 事件流消费
-import { bus } from "./state.js?v=20261127-task19-live";
+import { bus } from "./state.js?v=20261127-task19-final";
 
 // 包装 fetch：网络层失败（fetch reject，通常为 "Failed to fetch"）派发 conn-down，
 // 成功则派发 conn-up，供顶栏全局连接状态条消费

@@ -1,4 +1,4 @@
-import { createRadarTaskWindow } from './radar-task-window.js?v=20261127-task19-live';
+import { createRadarTaskWindow } from './radar-task-window.js?v=20261127-task19-final';
 const API='/api/v1/radar/stocks', saved=new Map();
 const checkNames={liquidity:'成交活跃度',cash_review:'现金质量核验',cash_ratio:'经营现金流与归母利润比率',dividend_history:'连续分红',audit:'审计意见',governance:'治理风险',leadership:'行业地位',financial_quality:'财务质量',listing_age:'上市年限',capitalization_current:'当前公司总市值',capitalization_average_60d:'60日平均公司总市值',ttm_parent_profit:'TTM归母净利润',ttm_deducted_profit:'TTM扣非净利润'};
 const fieldNames={netcash_operate:'经营活动现金流净额',construct_long_asset:'购建长期资产支付现金',assign_dividend_profit:'分配股利及利息支付现金',end_cash:'期末现金余额'};

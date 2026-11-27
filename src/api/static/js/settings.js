@@ -1,8 +1,8 @@
 // 配置管理视图：仅呈现受控配置 API 暴露的字段，密钥按需读取。
-import { api } from "./api.js?v=20261127-task19-live";
-import { mountCollectorSettings } from "./collector-settings.js?v=20261127-task19-live";
-import { el, errorCard, skeleton } from "./components.js?v=20261127-task19-live";
-import { bus, store } from "./state.js?v=20261127-task19-live";
+import { api } from "./api.js?v=20261127-task19-final";
+import { mountCollectorSettings } from "./collector-settings.js?v=20261127-task19-final";
+import { el, errorCard, skeleton } from "./components.js?v=20261127-task19-final";
+import { bus, store } from "./state.js?v=20261127-task19-final";
 
 const SECTIONS = [
   {

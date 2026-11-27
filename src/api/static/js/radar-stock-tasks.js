@@ -1,5 +1,5 @@
 // 股票行情、候选与财务任务独立保存，统一复用原消息窗口。
-import { createRadarTaskWindow } from './radar-task-window.js?v=20261127-task19-live';
+import { createRadarTaskWindow } from './radar-task-window.js?v=20261127-task19-final';
 const API='/api/v1/radar/stocks';
 const kinds={refresh_members:'行情更新',financial_review:'财务复核',discover_candidates:'候选准备'};
 const statuses={queued:'排队中',running:'执行中',completed:'已完成',partial:'部分完成',failed:'失败',cancelled:'已取消'};

@@ -1,9 +1,9 @@
 // 完整研报右侧抽屉：管理焦点、局部错误与请求竞态。
-import { api } from "./api.js?v=20261127-task19-live";
-import { el } from "./components.js?v=20261127-task19-live";
-import { normalizeArtifactReport, renderStockReport } from "./report-renderer.js?v=20261127-task19-live";
-import { store, switchView } from "./state.js?v=20261127-task19-live";
-import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js?v=20261127-task19-live";
+import { api } from "./api.js?v=20261127-task19-final";
+import { el } from "./components.js?v=20261127-task19-final";
+import { normalizeArtifactReport, renderStockReport } from "./report-renderer.js?v=20261127-task19-final";
+import { store, switchView } from "./state.js?v=20261127-task19-final";
+import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js?v=20261127-task19-final";
 
 let initialized = false;
 let requestSequence = 0;

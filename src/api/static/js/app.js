@@ -1,16 +1,16 @@
 // 应用主入口：导航接线、工作台覆盖层与各视图初始化。
-import { bus, store, switchView } from "./state.js?v=20261127-task19-live";
-import { initChat } from "./chat.js?v=20261127-task19-live";
-import { initReportView, openReport } from "./report.js?v=20261127-task19-live";
-import { initReportDrawer } from "./report-drawer.js?v=20261127-task19-live";
-import { closeReportDrawer } from "./report-drawer.js?v=20261127-task19-live";
-import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js?v=20261127-task19-live";
-import { initIndexView } from "./indexview.js?v=20261127-task19-live";
-import { initReportLibrary } from "./report-library.js?v=20261127-task19-live";
-import { initSessions, initSessionStartup } from "./sessions.js?v=20261127-task19-live";
-import { initSubscriptions } from "./subscriptions.js?v=20261127-task19-live";
-import { initSettings } from "./settings.js?v=20261127-task19-live";
-import { initLogs } from "./logs.js?v=20261127-task19-live";
+import { bus, store, switchView } from "./state.js?v=20261127-task19-final";
+import { initChat } from "./chat.js?v=20261127-task19-final";
+import { initReportView, openReport } from "./report.js?v=20261127-task19-final";
+import { initReportDrawer } from "./report-drawer.js?v=20261127-task19-final";
+import { closeReportDrawer } from "./report-drawer.js?v=20261127-task19-final";
+import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js?v=20261127-task19-final";
+import { initIndexView } from "./indexview.js?v=20261127-task19-final";
+import { initReportLibrary } from "./report-library.js?v=20261127-task19-final";
+import { initSessions, initSessionStartup } from "./sessions.js?v=20261127-task19-final";
+import { initSubscriptions } from "./subscriptions.js?v=20261127-task19-final";
+import { initSettings } from "./settings.js?v=20261127-task19-final";
+import { initLogs } from "./logs.js?v=20261127-task19-final";
 
 const SIDEBAR_WIDTH_KEY = "stockRobot.sidebarWidth";
 const SIDEBAR_MIN_WIDTH = 210;
@@ -239,7 +239,7 @@ function init() {
   window.addEventListener("hashchange", syncViewFromHash);
   initSessionStartup()
     .catch((error) => console.error("会话初始化失败:", error))
-    .finally(() => import("./allocation-view.js?v=20261127-task19-live")
+    .finally(() => import("./allocation-view.js?v=20261127-task19-final")
       .then(({ initRadar: initializeRadar }) => initializeRadar())
       .catch((error) => {
         console.error("配置雷达初始化失败:", error);
