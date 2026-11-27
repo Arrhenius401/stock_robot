@@ -1,16 +1,16 @@
 // 应用主入口：导航接线、工作台覆盖层与各视图初始化。
-import { bus, store, switchView } from "./state.js?v=20261127-task19-fix";
-import { initChat } from "./chat.js?v=20261127-task19-fix";
-import { initReportView, openReport } from "./report.js?v=20261127-task19-fix";
-import { initReportDrawer } from "./report-drawer.js?v=20261127-task19-fix";
-import { closeReportDrawer } from "./report-drawer.js?v=20261127-task19-fix";
-import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js?v=20261127-task19-fix";
-import { initIndexView } from "./indexview.js?v=20261127-task19-fix";
-import { initReportLibrary } from "./report-library.js?v=20261127-task19-fix";
-import { initSessions, initSessionStartup } from "./sessions.js?v=20261127-task19-fix";
-import { initSubscriptions } from "./subscriptions.js?v=20261127-task19-fix";
-import { initSettings } from "./settings.js?v=20261127-task19-fix";
-import { initLogs } from "./logs.js?v=20261127-task19-fix";
+import { bus, store, switchView } from "./state.js?v=20261127-task19-live";
+import { initChat } from "./chat.js?v=20261127-task19-live";
+import { initReportView, openReport } from "./report.js?v=20261127-task19-live";
+import { initReportDrawer } from "./report-drawer.js?v=20261127-task19-live";
+import { closeReportDrawer } from "./report-drawer.js?v=20261127-task19-live";
+import { closeWorkspaceModal, openWorkspaceModal, syncWorkspaceModal } from "./workspace-modal.js?v=20261127-task19-live";
+import { initIndexView } from "./indexview.js?v=20261127-task19-live";
+import { initReportLibrary } from "./report-library.js?v=20261127-task19-live";
+import { initSessions, initSessionStartup } from "./sessions.js?v=20261127-task19-live";
+import { initSubscriptions } from "./subscriptions.js?v=20261127-task19-live";
+import { initSettings } from "./settings.js?v=20261127-task19-live";
+import { initLogs } from "./logs.js?v=20261127-task19-live";
 
 const SIDEBAR_WIDTH_KEY = "stockRobot.sidebarWidth";
 const SIDEBAR_MIN_WIDTH = 210;
@@ -239,7 +239,7 @@ function init() {
   window.addEventListener("hashchange", syncViewFromHash);
   initSessionStartup()
     .catch((error) => console.error("会话初始化失败:", error))
-    .finally(() => import("./allocation-view.js?v=20261127-task19-fix")
+    .finally(() => import("./allocation-view.js?v=20261127-task19-live")
       .then(({ initRadar: initializeRadar }) => initializeRadar())
       .catch((error) => {
         console.error("配置雷达初始化失败:", error);

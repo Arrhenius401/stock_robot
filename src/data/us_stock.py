@@ -437,6 +437,9 @@ def _statement(ticker: str, statement: str) -> dict[str, dict[str, Any]]:
     for period, entry in periods.items():
         if period in metadata:
             entry["_meta"] = metadata[period]
+            yoy = _number(metadata[period].get("revenue_yoy"))
+            if yoy is not None:
+                entry["YOY_RATIO"] = yoy
     return periods
 
 
@@ -459,6 +462,7 @@ def _statement_metadata(ticker: str, statement: str, start: str) -> dict[str, di
         rows = result.get("data") or []
         metadata: dict[str, dict[str, str]] = {}
         conflicts: set[str] = set()
+        revenue_yoy: dict[str, str] = {}
         for row in rows:
             if row.get("SECURITY_CODE") != code:
                 raise ValueError("三表元信息身份不匹配")
@@ -472,6 +476,12 @@ def _statement_metadata(ticker: str, statement: str, start: str) -> dict[str, di
             if period in metadata and metadata[period] != item:
                 conflicts.add(period)
             metadata[period] = item
+            if statement == "综合损益表" and row.get("STD_ITEM_CODE") == "004001999":
+                yoy = _number(row.get("YOY_RATIO"))
+                if yoy is not None:
+                    revenue_yoy[period] = str(yoy)
+        for period, yoy in revenue_yoy.items():
+            metadata[period]["revenue_yoy"] = yoy
         return {key: value for key, value in metadata.items() if key not in conflicts}
     except (requests.RequestException, ValueError, TypeError, KeyError) as error:
         logger.warning("美股三表期间币种补取失败 %s/%s: %s", ticker, statement, error)

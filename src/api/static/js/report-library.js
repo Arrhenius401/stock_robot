@@ -1,8 +1,8 @@
-import { api } from "./api.js?v=20261127-task19-fix";
-import { el, errorCard, skeleton } from "./components.js?v=20261127-task19-fix";
-import { renderMarkdown } from "./markdown.js?v=20261127-task19-fix";
-import { bus } from "./state.js?v=20261127-task19-fix";
-import { localizeReportMarkdown, renderStockMarkdownReport, renderStockReport } from "./report-renderer.js?v=20261127-task19-fix";
+import { api } from "./api.js?v=20261127-task19-live";
+import { el, errorCard, skeleton } from "./components.js?v=20261127-task19-live";
+import { renderMarkdown } from "./markdown.js?v=20261127-task19-live";
+import { bus } from "./state.js?v=20261127-task19-live";
+import { localizeReportMarkdown, renderStockMarkdownReport, renderStockReport } from "./report-renderer.js?v=20261127-task19-live";
 
 const TYPE_LABELS = {
   stock: "个股",

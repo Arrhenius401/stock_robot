@@ -1,6 +1,6 @@
 // 结构化股票报告共享渲染器：不读取业务状态，也不发起网络请求。
-import { renderMarkdown } from "./markdown.js?v=20261127-task19-fix";
-import { el, kv, priceBar, statusBadge } from "./components.js?v=20261127-task19-fix";
+import { renderMarkdown } from "./markdown.js?v=20261127-task19-live";
+import { el, kv, priceBar, statusBadge } from "./components.js?v=20261127-task19-live";
 
 export const STOCK_NEWS_DISPLAY_LIMIT = 10;
 

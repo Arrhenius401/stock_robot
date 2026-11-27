@@ -1,7 +1,7 @@
 // 订阅页：列表、配置弹窗、运行详情。
-import { api } from "./api.js?v=20261127-task19-fix";
-import { bus, store } from "./state.js?v=20261127-task19-fix";
-import { invalidateSettings } from "./settings.js?v=20261127-task19-fix";
+import { api } from "./api.js?v=20261127-task19-live";
+import { bus, store } from "./state.js?v=20261127-task19-live";
+import { invalidateSettings } from "./settings.js?v=20261127-task19-live";
 
 const ACTIVE = new Set(["queued", "running"]);
 const RUN_STATUS = { queued: "排队中", running: "运行中", succeeded: "成功",

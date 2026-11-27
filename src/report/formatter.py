@@ -172,6 +172,7 @@ METRIC_DISPLAY_NAMES = {
     "total_assets": "总资产",
     "total_equity": "股东权益",
     "common_equity": "普通股东权益",
+    "basic_eps": "基本每股收益",
     "net_interest_income_ratio_pct": "净利息收入占比",
     "provision_to_revenue_pct": "拨备／营收",
     "loan_to_deposit_pct": "贷存比",

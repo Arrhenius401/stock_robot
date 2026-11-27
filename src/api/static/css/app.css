@@ -548,6 +548,7 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   background: var(--surface); box-shadow: 0 8px 20px rgba(0, 0, 0, .12);
 }
 .chat-input textarea {
+  min-width: 0;
   resize: vertical; min-height: 42px; max-height: 180px; flex: 1; border: 0; outline: 0;
   color: var(--text); background: transparent; line-height: 1.55; padding: 7px 8px;
 }
@@ -780,7 +781,7 @@ body, #appLayout.layout, .main { background: var(--workspace-bg); }
 .md code, .md pre { background: #f5f7fa; border-color: var(--border); }
 .quick-bar button { color: var(--text-3); border-color: var(--border); background: #fff; }
 .quick-bar button:hover { color: var(--accent); border-color: #a9c8f5; background: #f7faff; }
-.chat-input { margin: 0 clamp(26px, 6vw, 86px); padding: 10px; background: #fff; border: 1px solid var(--border); border-radius: 13px; box-shadow: 0 3px 10px rgba(22, 38, 66, .06); }
+.chat-input { width: auto; margin: 0 clamp(26px, 6vw, 86px); padding: 10px; background: #fff; border: 1px solid var(--border); border-radius: 13px; box-shadow: 0 3px 10px rgba(22, 38, 66, .06); }
 .chat-input textarea { color: var(--text); }
 .chat-input:focus-within { box-shadow: 0 0 0 3px rgba(18, 100, 232, .13); }
 .analysis-entry, #reportDrawer { background: #fff; }

@@ -13,6 +13,8 @@ from data.dividend_yield import (
 
 def test_a_share_uses_latest_implemented_plan_and_converts_ratio(mocker):
     frame = pd.DataFrame([
+        {"方案进度": "实施分配", "现金分红-股息率": 0.01, "股权登记日": pd.NaT,
+         "除权除息日": "2026-04-01"},
         {"方案进度": "实施分配", "现金分红-股息率": 0.01, "股权登记日": "2026-05-01",
          "除权除息日": "2026-05-02"},
         {"方案进度": "实施分配", "现金分红-股息率": 0.02, "股权登记日": "2026-07-01",

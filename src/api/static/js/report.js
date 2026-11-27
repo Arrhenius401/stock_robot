@@ -1,9 +1,9 @@
 // 个股报告视图：渲染 /api/v1/analyze 完整 JSON（纵向研报流）
-import { store, switchView, bus } from "./state.js?v=20261127-task19-fix";
-import { api } from "./api.js?v=20261127-task19-fix";
+import { store, switchView, bus } from "./state.js?v=20261127-task19-live";
+import { api } from "./api.js?v=20261127-task19-live";
 import { el, errorCard, skeleton,
-         showEntryError, clearEntryError } from "./components.js?v=20261127-task19-fix";
-import { STOCK_NEWS_DISPLAY_LIMIT, renderStockReport } from "./report-renderer.js?v=20261127-task19-fix";
+         showEntryError, clearEntryError } from "./components.js?v=20261127-task19-live";
+import { STOCK_NEWS_DISPLAY_LIMIT, renderStockReport } from "./report-renderer.js?v=20261127-task19-live";
 
 const content = () => document.getElementById("reportContent");
 
@@ -56,7 +56,7 @@ export async function openReport(symbol, entryInputId = "stockInput", refreshCac
   // 已知 ETF 使用跟踪指数入口；动态导入保持报告视图之间无循环依赖。
   if (/^(?:5|1)\d{5}$/.test(String(symbol))) {
     try {
-const { getIndexDirectory, openIndex } = await import("./indexview.js?v=20261127-task19-fix");
+const { getIndexDirectory, openIndex } = await import("./indexview.js?v=20261127-task19-live");
       const directory = await getIndexDirectory();
       if (seq !== reqSeq) return;
       const etf = directory.etfs.find((item) => item.symbol === String(symbol));

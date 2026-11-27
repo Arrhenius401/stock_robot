@@ -7,6 +7,7 @@ from typing import Any
 
 import akshare as ak
 import requests
+from pandas import isna
 
 from data.hk_eastmoney import finite_number
 
@@ -26,6 +27,8 @@ class DividendYield:
 
 
 def _date(value: Any) -> date | None:
+    if isna(value):
+        return None
     if isinstance(value, datetime):
         return value.date()
     if isinstance(value, date):

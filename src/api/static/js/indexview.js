@@ -1,10 +1,10 @@
 // 指数分析视图：多指数对比表 + 逐指数纵向研报
-import { store, switchView } from "./state.js?v=20261127-task19-fix";
-import { api } from "./api.js?v=20261127-task19-fix";
-import { renderMarkdown } from "./markdown.js?v=20261127-task19-fix";
-import { appendReadableMetric, riskText, formatMetricValue, renderIndexReport } from "./report-renderer.js?v=20261127-task19-fix";
+import { store, switchView } from "./state.js?v=20261127-task19-live";
+import { api } from "./api.js?v=20261127-task19-live";
+import { renderMarkdown } from "./markdown.js?v=20261127-task19-live";
+import { appendReadableMetric, riskText, formatMetricValue, renderIndexReport } from "./report-renderer.js?v=20261127-task19-live";
 import { el, kv, tagChip, priceBar, errorCard, skeleton,
-         showEntryError, clearEntryError } from "./components.js?v=20261127-task19-fix";
+         showEntryError, clearEntryError } from "./components.js?v=20261127-task19-live";
 
 let reqSeq = 0;  // 请求令牌：慢请求期间二次查询时，丢弃迟到响应/错误
 

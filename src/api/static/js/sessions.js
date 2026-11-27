@@ -3,11 +3,11 @@ import {
   store, bus, switchView, createDraftSession, isDraftSessionId,
   invalidateSessionDetail, markSessionListMutation, reviveSession,
   sessionDetailGeneration,
-} from "./state.js?v=20261127-task19-fix";
-import { api } from "./api.js?v=20261127-task19-fix";
-import { renderMessageHistory, clearChatScroll, cancelSessionRuns } from "./chat.js?v=20261127-task19-fix";
-import { closeReportDrawer } from "./report-drawer.js?v=20261127-task19-fix";
-import { el } from "./components.js?v=20261127-task19-fix";
+} from "./state.js?v=20261127-task19-live";
+import { api } from "./api.js?v=20261127-task19-live";
+import { renderMessageHistory, clearChatScroll, cancelSessionRuns } from "./chat.js?v=20261127-task19-live";
+import { closeReportDrawer } from "./report-drawer.js?v=20261127-task19-live";
+import { el } from "./components.js?v=20261127-task19-live";
 
 const listEl = () => document.getElementById("sessionList");
 let initialized = false;
